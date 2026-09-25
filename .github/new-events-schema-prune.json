@@ -1,0 +1,2958 @@
+{
+    "files": {
+        "ee/clickhouse/materialized_columns/test/test_columns.py": {
+            "digest": "fdb7dfd648f2c572",
+            "prune": {
+                "*": "3476b38f7b7e"
+            }
+        },
+        "ee/clickhouse/models/test/test_action.py": {
+            "digest": "0ce961f1b4ff7bc1",
+            "prune": {
+                "*": "742ab24f1d0e"
+            }
+        },
+        "ee/clickhouse/models/test/test_cohort.py": {
+            "digest": "5739742765e01c28",
+            "prune": {
+                "TestCohort::test_calculate_people_ch_in_multiteam_project": "ac49cc0d8b23",
+                "TestCohort::test_clickhouse_empty_query": "0a90bf6e881d",
+                "TestCohort::test_cohort_change": "b5678e709663",
+                "TestCohort::test_cohort_versioning": "c846ed5c9336",
+                "TestCohort::test_cohort_with_inclusion_and_exclusion_and_nested_negation": "76cff4cbda0e",
+                "TestCohort::test_cohortpeople_basic": "55622b5a38ac",
+                "TestCohort::test_cohortpeople_deleted_person": "dbee3197b8d1",
+                "TestCohort::test_cohortpeople_prop_changed": "ee7eb13a4a68",
+                "TestCohort::test_cohortpeople_with_nonexistent_other_cohort_filter": "989fa45ed9a1",
+                "TestCohort::test_cohortpeople_with_valid_other_cohort_filter": "c08c7a5b755f",
+                "TestCohort::test_insert_by_distinct_id_or_email": "14ef839d8248",
+                "TestCohort::test_insert_cohort_hogql_query_with_distinct_id": "419a08b47109",
+                "TestCohort::test_recalculate_cohort_empty_string_property": "4fe221de2c6c",
+                "TestCohort::test_recalculate_cohort_with_list_of_values": "9ea481a68ac7",
+                "TestCohort::test_update_cohort": "53819a320578"
+            }
+        },
+        "ee/clickhouse/models/test/test_dead_letter_queue.py": {
+            "digest": "c6f2e463fb37cfd6",
+            "prune": {
+                "*": "5ad39d68f8f3"
+            }
+        },
+        "ee/clickhouse/models/test/test_filters.py": {
+            "digest": "6c35576961e7b105",
+            "prune": {
+                "*": "d1aaf28a77b3"
+            }
+        },
+        "ee/clickhouse/models/test/test_property.py": {
+            "digest": "69a5fe659e7e482d",
+            "prune": {
+                "*": "ebfbe91d2231"
+            }
+        },
+        "ee/clickhouse/queries/test/test_cohort_query.py": {
+            "digest": "a44b5a5289a858c4",
+            "prune": {
+                "TestCohortNegationValidation": "ef21b283e5ed",
+                "TestCohortQuery::test_cohort_filter": "a5cd7691bc96",
+                "TestCohortQuery::test_person_property_with_value_list": "bfbefb8cb508",
+                "TestCohortQuery::test_person_props_only": "e52e2b138d16",
+                "TestCohortQuery::test_precalculated_cohort_filter": "bda6488aca2f",
+                "TestCohortQuery::test_precalculated_cohort_filter_with_extra_filters": "b1b60fdc6037",
+                "TestCohortQuery::test_static_cohort_filter": "9164f9985d9b",
+                "TestCohortQuery::test_unwrap_multiple_levels": "da5efbaa8c96"
+            }
+        },
+        "ee/clickhouse/queries/test/test_related_actors_query.py": {
+            "digest": "bb8cf9f8d53ee851",
+            "prune": {
+                "TestRelatedGroupsQuery::test_no_groups_when_no_mappings": "f1f1b663815f"
+            }
+        },
+        "ee/clickhouse/test/test_error.py": {
+            "digest": "15797250c128e66a",
+            "prune": {
+                "*": "be594edb5da2"
+            }
+        },
+        "ee/clickhouse/test/test_system_status.py": {
+            "digest": "d415ef855f607fc9",
+            "prune": {
+                "*": "b829307b86d7"
+            }
+        },
+        "ee/clickhouse/views/test/test_clickhouse_groups.py": {
+            "digest": "b16f277de1a724d9",
+            "prune": {
+                "GroupPropertyDefinitionsTestCase": "7ca3dd98d344",
+                "GroupUsageMetricViewSetTestCase": "a17f23bf40ec",
+                "GroupsTypesViewSetTestCase": "d6c4afa9bfed",
+                "GroupsViewSetTestCase::test_can_list_group_types_of_another_org_with_sharing_access_token": "77afdc25f68e",
+                "GroupsViewSetTestCase::test_create_group": "a042a6f8fe2e",
+                "GroupsViewSetTestCase::test_empty_property_values": "f9e6f6937b9e",
+                "GroupsViewSetTestCase::test_get_group_activities_success": "c2e5c1227ec9",
+                "GroupsViewSetTestCase::test_group_property_crud_add_success": "2845c1c469f6",
+                "GroupsViewSetTestCase::test_group_property_crud_delete_success": "0e630829ba41",
+                "GroupsViewSetTestCase::test_group_property_crud_update_success": "e09301d29486",
+                "GroupsViewSetTestCase::test_groups_list": "d7575df5b5ae",
+                "GroupsViewSetTestCase::test_property_values": "135c4f552204",
+                "GroupsViewSetTestCase::test_retrieve_group_notebook_transaction_rollback": "a979feca3dc6",
+                "TestGroupsListAPIContract": "ebc50036e93b",
+                "TestListGroupsFunction": "284426b86b8c"
+            }
+        },
+        "ee/clickhouse/views/test/test_experiment_holdouts.py": {
+            "digest": "7c15decb415e83e4",
+            "prune": {
+                "*": "fbd98347af50"
+            }
+        },
+        "ee/clickhouse/views/test/test_experiment_saved_metrics.py": {
+            "digest": "a2f85171df6766a4",
+            "prune": {
+                "*": "e4ab10f557a8"
+            }
+        },
+        "ee/clickhouse/views/test/test_experiments_action_names.py": {
+            "digest": "eaf780fc720fa3f6",
+            "prune": {
+                "*": "7950ddf04cdf"
+            }
+        },
+        "posthog/api/test/test_event.py": {
+            "digest": "5fc00116c0687ff1",
+            "prune": {
+                "TestEventListRestrictedProperties::test_filter_referencing_restricted_property_is_rejected": "3e1573bfd569",
+                "TestEventListRestrictedProperties::test_order_by_referencing_restricted_property_is_rejected": "179d56709885",
+                "TestEventListTimeWindowOptimization": "e0a078f9ffb3",
+                "TestEvents::test_action_no_steps": "edfb5e39e2be",
+                "TestEvents::test_event_property_values_refresh_0_default": "a859b4d7938d",
+                "TestEvents::test_event_property_values_refresh_1_refresh_force_blocking": "4230c7606e0a",
+                "TestEvents::test_event_property_values_refresh_2_refresh_force_cache": "b6f632b54998",
+                "TestEvents::test_event_property_values_refresh_3_refresh_async": "72b548fe45bf",
+                "TestEvents::test_optimize_query_progressive_windows": "5811cedd6511"
+            }
+        },
+        "posthog/api/test/test_query.py": {
+            "digest": "0771c8d907a58d8b",
+            "prune": {
+                "TestMcpProductTaggingEndToEnd::test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped": "91e3ea837749",
+                "TestMcpProductTaggingEndToEnd::test_mcp_request_with_inferred_product_keeps_inferred_product": "e1805afb2e21",
+                "TestMcpProductTaggingEndToEnd::test_non_mcp_request_does_not_set_product_to_mcp": "ca7b0db35950",
+                "TestQuery::test_dashboard_variables_overrides": "a836873fc5b9",
+                "TestQuery::test_full_hogql_query_async": "ad483af3ac7c",
+                "TestQuery::test_hogql_autocomplete_bypasses_query_runner": "f22356408e2f",
+                "TestQuery::test_hogql_error_is_enriched_with_metadata": "402d91922312",
+                "TestQuery::test_served_from_query_failure_cache_is_not_recaptured_0_served_from_cache": "dfb5bf5fb93d",
+                "TestQueryCostHeaders": "79b283ab91a9",
+                "TestQueryDraftSql": "142d88f83652",
+                "TestQueryLLMFormatting": "633b6dd7dfbe",
+                "TestQueryRetrieve": "f1f118e14ca9",
+                "TestQueryScan": "38bdd7297d23",
+                "TestQueryTraceCorrelation": "fde63fc97b2e"
+            }
+        },
+        "posthog/clickhouse/test/test_0064.py": {
+            "digest": "5071669fa5324f7d",
+            "prune": {
+                "*": "13d7cb3107ce"
+            }
+        },
+        "posthog/clickhouse/test/test_alter_replicated_validation.py": {
+            "digest": "e9ac442a87c3163b",
+            "prune": {
+                "*": "5c673079d472"
+            }
+        },
+        "posthog/clickhouse/test/test_cluster.py": {
+            "digest": "466db1175910971b",
+            "prune": {
+                "*": "c5e3dab8713a"
+            }
+        },
+        "posthog/clickhouse/test/test_custom_metrics.py": {
+            "digest": "d5c50c0847e01ea4",
+            "prune": {
+                "*": "c954eef35b21"
+            }
+        },
+        "posthog/clickhouse/test/test_deletion_coverage.py": {
+            "digest": "b16f2d92230a2123",
+            "prune": {
+                "*": "0d3fa59229ad"
+            }
+        },
+        "posthog/clickhouse/test/test_dmat_dictionary.py": {
+            "digest": "2544cbcc1ad26661",
+            "prune": {
+                "*": "02ccd8b1ec1f"
+            }
+        },
+        "posthog/clickhouse/test/test_enable_analyzer.py": {
+            "digest": "281fa41fb68800a6",
+            "prune": {
+                "*": "dbba9697c067"
+            }
+        },
+        "posthog/clickhouse/test/test_explain.py": {
+            "digest": "2594f37867ef695b",
+            "prune": {
+                "*": "6f4def8b2d45"
+            }
+        },
+        "posthog/clickhouse/test/test_kill_switch.py": {
+            "digest": "fa638813602a07d8",
+            "prune": {
+                "*": "7ac68c0ca681"
+            }
+        },
+        "posthog/clickhouse/test/test_migrations.py": {
+            "digest": "2bdbcb9d6ae65458",
+            "prune": {
+                "*": "cd71127e9944"
+            }
+        },
+        "posthog/clickhouse/test/test_preaggregation_model.py": {
+            "digest": "07b9232b86ac0c6f",
+            "prune": {
+                "*": "b42b07ad22d8"
+            }
+        },
+        "posthog/clickhouse/test/test_query_tagging.py": {
+            "digest": "b48f8c686bae14e0",
+            "prune": {
+                "TestAddFallbackQueryTags": "b1007b570395",
+                "TestQueryTaggingSourceInQueryLog::test_execute_hogql_query_populates_source_tags": "286daca88dd3",
+                "TestQueryTaggingSourceInQueryLog::test_hogql_query_runner_marks_contains_user_hogql": "99d8f41965ef",
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_0_api": "1cc42140c888",
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_1_web": "83eb559091e7",
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_2_posthog_code": "ef85f7214522",
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_preserves_ai_data_processing_approved_tag_0_approved": "84ce1ed409d0",
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_preserves_ai_data_processing_approved_tag_1_not_approved": "190d13acddee"
+            }
+        },
+        "posthog/clickhouse/test/test_raw_sessions_model.py": {
+            "digest": "6ad11a6a32929b2b",
+            "prune": {
+                "TestRawSessionsModel::test_backfill_sql_1_sharded_events": "4cc547ce0c96",
+                "TestRawSessionsModel::test_counts_pageviews_autocaptures_and_events": "7ca084ec214e",
+                "TestRawSessionsModel::test_handles_different_distinct_id_across_same_session": "a58f683deb91",
+                "TestRawSessionsModel::test_handles_entry_and_exit_urls": "bdf46dcbcef7",
+                "TestRawSessionsModel::test_handles_initial_utm_properties": "08c9811fee49",
+                "TestRawSessionsModel::test_ignores_empty_lcp": "a9e00c3ab6f6",
+                "TestRawSessionsModel::test_it_creates_session_when_creating_event": "71826d615dcd",
+                "TestRawSessionsModel::test_max_inserted_at": "728291010c2c",
+                "TestRawSessionsModel::test_select_from_sessions": "545c83454dc8",
+                "TestRawSessionsModel::test_select_from_sessions_mv": "41ffed179157",
+                "TestRawSessionsModel::test_separates_sessions_across_same_user": "38f31b65cd63"
+            }
+        },
+        "posthog/clickhouse/test/test_raw_sessions_v3_model.py": {
+            "digest": "21b2f031a0e34eaf",
+            "prune": {
+                "*": "2d60c1e57ee3"
+            }
+        },
+        "posthog/clickhouse/test/test_schema.py": {
+            "digest": "fe1e52cb8ddd3d55",
+            "prune": {
+                "*": "2ef8ec0b5be7"
+            }
+        },
+        "posthog/clickhouse/test/test_session_replay_mode.py": {
+            "digest": "9115eba49f110841",
+            "prune": {
+                "*": "7bbcca7bffc9"
+            }
+        },
+        "posthog/clickhouse/test/test_sessions_model.py": {
+            "digest": "0253260276330dd6",
+            "prune": {
+                "*": "707a907c656e"
+            }
+        },
+        "posthog/dags/tests/test_deletes.py": {
+            "digest": "3782a44162637bfe",
+            "prune": {
+                "test_a_rerun_stages_over_the_previous_runs_object": "45c7b9441965",
+                "test_a_staged_dictionary_holds_the_same_rows_as_the_source_table": "0cd4c176dd37",
+                "test_a_target_on_another_cluster_is_also_counted_on_its_storage_table": "7444f60c803e",
+                "test_creating_on_a_second_cluster_points_it_at_the_staged_object": "5c7b4ecb3b20",
+                "test_find_partitions_to_cleanup": "e70392618b13",
+                "test_full_job_adhoc_event_deletes": "1f034c4582f6",
+                "test_full_job_deletes_events_queued_in_postgres": "315435fda0b2",
+                "test_full_job_person_deletes": "defa9d642645",
+                "test_full_job_team_deletes": "032f368870d7",
+                "test_the_adhoc_dictionary_holds_one_row_per_key_when_the_source_has_duplicates": "79b9f8ff3fa2",
+                "test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run[deletes_job]": "5c0483fa8e04",
+                "test_the_manual_trigger_sensor_launches_a_real_deletes_run": "52ee1d9b1773"
+            }
+        },
+        "posthog/hogql/compiler/test/test_bytecode.py": {
+            "digest": "636081ba56ead1df",
+            "prune": {
+                "TestBytecode::test_bytecode_bare_throw": "69fed9011717"
+            }
+        },
+        "posthog/hogql/compiler/test/test_javascript.py": {
+            "digest": "be58b36af38aee21",
+            "prune": {
+                "*": "6280ed437f0d"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_channel_type.py": {
+            "digest": "33b726216b3756ec",
+            "prune": {
+                "TestChannelType::test_ai_0_utm_source_chatgpt_with_stripped_referrer": "96750bc6318f",
+                "TestChannelType::test_ai_1_referring_domain_chatgpt": "e838e1227820",
+                "TestChannelType::test_ai_2_referring_domain_claude": "872b0b946481",
+                "TestChannelType::test_ai_3_referring_domain_perplexity": "c9cc4eaca748",
+                "TestChannelType::test_cross_network": "032f106d3fe5",
+                "TestChannelType::test_direct": "b0cf1546789c",
+                "TestChannelType::test_direct_empty_string": "35b307a7cdd6",
+                "TestChannelType::test_direct_null_string": "ec401de7ac89",
+                "TestChannelType::test_direct_with_red_herring_utm_tags_is_direct": "67c17400cb8b",
+                "TestChannelType::test_doesnt_fail_on_numbers": "fb7c92b60d04",
+                "TestChannelType::test_initial_channel_type_custom_url_rule_matches_initial_current_url": "ba11ccc92350",
+                "TestChannelType::test_no_info_is_unknown": "82c2723a1b57",
+                "TestChannelType::test_organic_video": "a2be54f407fc",
+                "TestChannelType::test_paid_search": "a219e27b3bc0",
+                "TestChannelType::test_paid_search_source": "bf4eb3ccdeda",
+                "TestChannelType::test_paid_shopping_campaign": "74b9af60f910",
+                "TestChannelType::test_paid_shopping_domain": "74351133ea1b",
+                "TestChannelType::test_paid_shopping_source": "84b7b85f514f",
+                "TestChannelType::test_paid_video": "bb244b1bbf74",
+                "TestChannelType::test_paid_video_source": "43b3d24f06d1",
+                "TestChannelType::test_unknown_domain_is_referral": "ccc007f5d4b8",
+                "TestReferringDomainType": "5911898746e0"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_cohort_people.py": {
+            "digest": "82c0cd0f56c8ab22",
+            "prune": {
+                "*": "46561a64191e"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_document_embeddings.py": {
+            "digest": "3fef7f4ec70031f8",
+            "prune": {
+                "*": "3822eea5e466"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_event_sessions.py": {
+            "digest": "0384f98084be956b",
+            "prune": {
+                "*": "0dfdc9877ae8"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_flag_evaluations.py": {
+            "digest": "3e9a620e75e71986",
+            "prune": {
+                "*": "bc3f4830f91f"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_groups.py": {
+            "digest": "fae52771ea3dbd10",
+            "prune": {
+                "*": "b9a8725b688e"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_groups_revenue_analytics.py": {
+            "digest": "afaac6b047c7fc70",
+            "prune": {
+                "TestGroupsRevenueAnalytics::test_get_mrr_via_lazy_join_for_schema_source": "4e5ccef9f702",
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_email_join": "ee64f6cea389",
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_id_join": "6364a09b9961",
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_metadata_join": "5685cdc8bf16",
+                "TestGroupsRevenueAnalytics::test_query_revenue_analytics_table_sources": "c555cc545c43",
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_mrr_via_lazy_join_for_schema_source": "56c27951ae28",
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_email_join": "92378d72a82d",
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_id_join": "4d6d0f7d31ae",
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_metadata_join": "d40e4f88a507",
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_query_revenue_analytics_table_sources": "54f118b84bdb"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_information_schema.py": {
+            "digest": "5575d1cbe4a7a937",
+            "prune": {
+                "*": "79f806fd2597"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_ingestion_warnings.py": {
+            "digest": "11fbc4faf888555c",
+            "prune": {
+                "*": "617af8fb2017"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_logs.py": {
+            "digest": "f4e30b981c728b9e",
+            "prune": {
+                "*": "c0787df334cb"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_marketing_costs_precomputed.py": {
+            "digest": "999fb7133550f535",
+            "prune": {
+                "*": "5ae4ee994acc"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_persons.py": {
+            "digest": "d386a3f6d0fc8937",
+            "prune": {
+                "TestArgMaxNonNullableSimplification::test_non_nullable_columns_are_simplified": "2a88b37b8af3",
+                "TestArgMaxNonNullableSimplification::test_nullable_property_keeps_wrap_and_latest_null_wins_0_json": "a4c99f3c7133",
+                "TestArgMaxNonNullableSimplification::test_nullable_property_keeps_wrap_and_latest_null_wins_1_materialized": "991e66c73629",
+                "TestPersonOptimization::test_json_substring_prefilter_0_eq": "8f4dc71b7c8a",
+                "TestPersonOptimization::test_json_substring_prefilter_1_in_list": "99427b02ce45",
+                "TestPersonOptimization::test_json_substring_prefilter_2_quoted_value": "01d1b73570e9",
+                "TestPersonOptimization::test_json_substring_prefilter_3_non_ascii_value": "0b4be1f984a5",
+                "TestPersonOptimization::test_json_substring_prefilter_4_is_not": "cd9c591cb408",
+                "TestPersonOptimization::test_json_substring_prefilter_needle_limit_0_at_needle_limit": "aea72fbe2b85",
+                "TestPersonOptimization::test_json_substring_prefilter_needle_limit_1_past_needle_limit": "dd6b31c3dfe2",
+                "TestPersonOptimization::test_order_by_limit_transferred": "e19f6f8f032e",
+                "TestPersonOptimization::test_simple_filter": "ae13f4b7bb04",
+                "TestPersons::test_virtual_person_properties": "61bf88e3056b",
+                "TestPersonsV2LimitPushDown": "3a0d73b1c33b",
+                "TestVirtualFieldDetection": "1bc9c5a9fc8d"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_persons_revenue_analytics.py": {
+            "digest": "842fd9baa335dbaa",
+            "prune": {
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids": "27c3ba991dc8",
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_email_join": "fb5a26b5e009",
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_id_join": "c52b7f02646b",
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_metadata_join": "d3ae1ef98973",
+                "TestPersonsRevenueAnalytics::test_person_id_joins_directly_against_persons_id_1_warehouse": "87aa486d7884",
+                "TestPersonsRevenueAnalytics::test_query_revenue_analytics_table_sources": "12b68d6bc659",
+                "TestPersonsRevenueAnalytics::test_revenue_aggregated_per_person_across_multiple_customers": "13afa7fb332e",
+                "TestPersonsRevenueAnalytics::test_warehouse_join_named_persons_pointing_elsewhere_is_ignored": "004be20e842a",
+                "TestPersonsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_id_join": "2a5a8e5bbead",
+                "TestPersonsRevenueAnalyticsManagedViewsets::test_query_revenue_analytics_table_sources": "04918528765a"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_session_replay_events.py": {
+            "digest": "714c8ea6e5587042",
+            "prune": {
+                "TestFilterSessionReplaysByConsoleLogs": "71a1df4a9593",
+                "TestFilterSessionReplaysByPerson::test_select_by_person_distinct_id": "4ba031f59872",
+                "TestFilterSessionReplaysByPerson::test_select_by_replay_person": "9d8d8f4b8ed6",
+                "TestFilterSessionReplaysByPerson::test_select_person_property": "ab7a45d432da",
+                "TestFilterSessionReplaysByPerson::test_select_where_person_property_with_join_optimization": "d102751c8cf6",
+                "TestFilterSessionReplaysByPerson::test_select_where_person_property_without_join_optimization": "ff46f935c69b",
+                "TestFilterSessionReplaysBySessions": "28672299f26a",
+                "TestSelectAggregatedArrayColumns": "ea6da30b7f6a"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_session_replay_features.py": {
+            "digest": "5cc58100c6d46bc9",
+            "prune": {
+                "*": "67b76e4ab297"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v1.py": {
+            "digest": "970690dc1a0c7dfe",
+            "prune": {
+                "TestGetLazySessionProperties": "4436bd022b07",
+                "TestSessionsV1::test_bounce_rate_0_uniq_urls": "790937066d1d",
+                "TestSessionsV1::test_bounce_rate_1_count_pageviews": "d9e2997dc679",
+                "TestSessionsV1::test_can_use_v1_and_v2_fields": "a721599c20bf",
+                "TestSessionsV1::test_channel_type": "fcb0d7e5ef8e",
+                "TestSessionsV1::test_select_session_replay_session_duration": "64356e9cf11b",
+                "TestSessionsV1::test_select_star": "0e2666a31500"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v2.py": {
+            "digest": "66cb4c3d60a9ee3d",
+            "prune": {
+                "TestGetLazySessionProperties": "4436bd022b07",
+                "TestSessionsV2::test_bounce_rate_0_uniq_page_screen_autocaptures": "db194b957bf1",
+                "TestSessionsV2::test_bounce_rate_1_count_pageviews": "d6af6c053d66",
+                "TestSessionsV2::test_can_use_v1_and_v2_fields": "5c79c5f1c58c",
+                "TestSessionsV2::test_channel_type": "56d14057f2e5",
+                "TestSessionsV2::test_counts": "7c4d7b6eb70f",
+                "TestSessionsV2::test_custom_bounce_rate_duration_0_uniq_page_screen_autocaptures": "988eb7385d26",
+                "TestSessionsV2::test_custom_bounce_rate_duration_1_count_pageviews": "24ad62a8d213",
+                "TestSessionsV2::test_empty_counts": "5e86843e065f",
+                "TestSessionsV2::test_idempotent_event_counts": "ddb7cfbb644a",
+                "TestSessionsV2::test_last_external_click_url": "3a6863144089",
+                "TestSessionsV2::test_lcp": "6daf163c9da9",
+                "TestSessionsV2::test_page_screen_autocapture_count_up_to": "27e44af4b023",
+                "TestSessionsV2::test_select_star_from_raw_sessions": "39808ab10efd",
+                "TestSessionsV2::test_select_star_from_sessions": "8b196d7503a9"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v3.py": {
+            "digest": "348c7eb67f742345",
+            "prune": {
+                "TestGetLazySessionProperties": "4436bd022b07",
+                "TestSessionsV3::test_bounce_rate": "3090e716afd5",
+                "TestSessionsV3::test_can_use_v1_and_v2_fields": "01b049abaeae",
+                "TestSessionsV3::test_channel_type": "fd12e686541e",
+                "TestSessionsV3::test_counts": "159f2c07cd05",
+                "TestSessionsV3::test_custom_bounce_rate_duration": "e58737ea8468",
+                "TestSessionsV3::test_empty_counts": "daedd0be3f62",
+                "TestSessionsV3::test_idempotent_event_counts": "d8178cb99e38",
+                "TestSessionsV3::test_last_external_click_url": "259fa0a460af",
+                "TestSessionsV3::test_page_screen_autocapture_count_up_to": "7f546c18694e",
+                "TestSessionsV3::test_select_star_from_raw_sessions": "b416497a5815",
+                "TestSessionsV3::test_select_star_from_sessions": "8ec520c59968"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_system_tables.py": {
+            "digest": "9c26efa74b0b9084",
+            "prune": {
+                "*": "abc95aed1b39"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_table_descriptions.py": {
+            "digest": "fe96314f8eb95631",
+            "prune": {
+                "*": "73ba2458b3c4"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_table_query_log.py": {
+            "digest": "a00e4258921113fa",
+            "prune": {
+                "*": "7d1cf6d28f08"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_traffic_type.py": {
+            "digest": "290f2285c7354456",
+            "prune": {
+                "*": "3a60a7305113"
+            }
+        },
+        "posthog/hogql/database/schema/test/test_web_analytics_s3.py": {
+            "digest": "e574128273a258d3",
+            "prune": {
+                "*": "8b520f845669"
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_person_where_clause_extractor.py": {
+            "digest": "ea26ed01f63dab75",
+            "prune": {
+                "TestPersonWhereClauseExtractor::test_left_join_with_negation": "d2b36a7b09d6",
+                "TestPersonWhereClauseExtractor::test_person_array": "92938f53b1cb",
+                "TestPersonWhereClauseExtractor::test_person_properties": "bee529855f97",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_1": "606a535fb685",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_10": "7a818af7c573",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_11": "de5eeb3b841d",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_2": "f87156a1d208",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_3": "ad1c64c77282",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_4": "ff03d64d875d",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_5": "7bdf4c041ecf",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_8": "cbf26ff6138e",
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_9": "dc5d0b2684e2",
+                "TestPersonWhereClauseExtractor::test_person_properties_function_call_args": "96d494cc1db7",
+                "TestPersonWhereClauseExtractor::test_person_properties_function_call_args_complex": "dbd12b5cccbe",
+                "TestPersonWhereClauseExtractor::test_person_properties_function_calls": "f8036a78047c"
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_predicate_pushdown.py": {
+            "digest": "aa488276f2b53909",
+            "prune": {
+                "*": "4e1b1417b0fb"
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_v2_where_clause_extractor.py": {
+            "digest": "4e54ba915f9162cb",
+            "prune": {
+                "TestDirectSessionIdInPushdownV2::test_multi_column_subquery_fails_open_without_neutralizing": "393e69726d9d",
+                "TestSessionWhereClauseExtractorV2": "3b9b3b53c530"
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_v3_where_clause_extractor.py": {
+            "digest": "d5fa8b5cd3bf9c59",
+            "prune": {
+                "TestIsSessionIdStringExpr": "94c4ff4c4016",
+                "TestSessionWhereClauseExtractorV3": "3c507340c112"
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_where_clause_extractor.py": {
+            "digest": "03655055ac79dfe4",
+            "prune": {
+                "TestSessionWhereClauseExtractorV1": "7656e6bd41d9"
+            }
+        },
+        "posthog/hogql/database/test/test_activity_logs_restrictions.py": {
+            "digest": "f43be39339060bf8",
+            "prune": {
+                "*": "4e2967dd1f5b"
+            }
+        },
+        "posthog/hogql/database/test/test_argmax.py": {
+            "digest": "d7669fb6521301ba",
+            "prune": {
+                "*": "0dd39caf3d68"
+            }
+        },
+        "posthog/hogql/database/test/test_database.py": {
+            "digest": "40562038c1aff3b2",
+            "prune": {
+                "TestBuildDatabaseRootNode": "28c8445ed1b4",
+                "TestCachedTeamFlag": "e3956aac28f2",
+                "TestCreateForPosthogTables": "dc6e4b28904e",
+                "TestDatabase::test_cached_sources_warm_build_runs_no_queries": "740fd6dfcfe8",
+                "TestDatabase::test_create_hogql_database_keeps_self_managed_table_without_source": "5041c4f8d480",
+                "TestDatabase::test_database_credentials_is_not_n_plus_1": "6b766a73aede",
+                "TestDatabase::test_database_serialization_handles_invalid_sources_gracefully": "76ffcd1b5455",
+                "TestDatabase::test_deferred_revenue_views_serialize_identically_to_eager": "eefac890d595",
+                "TestDatabase::test_direct_postgres_reserved_table_names_do_not_hide_posthog_tables_without_connection": "5c5e3b8265ee",
+                "TestDatabase::test_external_data_source_is_not_n_plus_1": "892ed061c901",
+                "TestDatabase::test_flag_evaluations_visibility_follows_the_org_flag_0": "b126428701ab",
+                "TestDatabase::test_flag_evaluations_visibility_follows_the_org_flag_1": "0119f00ee339",
+                "TestDatabase::test_partial_serialize_skips_revenue_view_build": "6855c8bbe615",
+                "TestDatabase::test_serialize_database_deleted_saved_query": "3b35a442acd4",
+                "TestDatabase::test_serialize_database_include_only_returns_same_fields_as_full_serialization": "cba0a5f07516",
+                "TestDatabase::test_serialize_database_no_person_on_events": "673665ada870",
+                "TestDatabase::test_serialize_database_posthog_table": "8db1b443ae6e",
+                "TestDatabase::test_serialize_database_warehouse_table_s3": "1f3245ae8dcd",
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_hyphens": "118b910dc473",
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_legacy_column_shape": "a702f0f78c97",
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_unknown_field": "a259dc637279",
+                "TestDatabase::test_serialize_database_warehouse_table_source": "0ed4fc20f587",
+                "TestDatabase::test_serialize_database_warehouse_table_source_query_count": "152336592c2a",
+                "TestDatabase::test_serialize_database_warehouse_with_deleted_joins": "8eaa9f3f8515",
+                "TestDatabase::test_serialize_database_with_person_on_events_enabled": "86b771f725a0",
+                "TestDatabase::test_serialize_database_without_fields_matches_full_metadata": "db0f4f26ddd8",
+                "TestDatabase::test_serialize_direct_postgres_table_is_hidden_without_connection": "3b3c2c73b474",
+                "TestDatabase::test_warm_cached_serialize_reuses_prebuilt_revenue_views": "350a17018156",
+                "TestSourcesCacheConcurrency": "50fb658e03c2",
+                "TestTableNodeCaseInsensitiveLookup": "ecf1a7292099",
+                "TestUnknownTableSuggestions": "3b3b19b45dc8"
+            }
+        },
+        "posthog/hogql/database/test/test_database_schema_payload.py": {
+            "digest": "032de2b169869f55",
+            "prune": {
+                "*": "27941c227c34"
+            }
+        },
+        "posthog/hogql/database/test/test_lazy_join_resolvers.py": {
+            "digest": "04683b5946a48c83",
+            "prune": {
+                "*": "fedd76cdb9ca"
+            }
+        },
+        "posthog/hogql/database/test/test_postgres_table.py": {
+            "digest": "f243100e2531fcfd",
+            "prune": {
+                "*": "c36c4e45420c"
+            }
+        },
+        "posthog/hogql/database/test/test_s3_table_clickhouse.py": {
+            "digest": "49e7c6bf1f809f42",
+            "prune": {
+                "*": "16ea85b43a93"
+            }
+        },
+        "posthog/hogql/database/test/test_s3_table_duckdb.py": {
+            "digest": "071ca51488dae655",
+            "prune": {
+                "*": "d4f662c8f480"
+            }
+        },
+        "posthog/hogql/database/test/test_view.py": {
+            "digest": "0c25a1d99159bfb7",
+            "prune": {
+                "*": "93182845701d"
+            }
+        },
+        "posthog/hogql/database/test/test_warehouse_usage.py": {
+            "digest": "c193c0cab8fe4264",
+            "prune": {
+                "*": "12ed43a444fe"
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_clickhouse_adapter.py": {
+            "digest": "0c8814a77a876eac",
+            "prune": {
+                "*": "39bf5f43d8a3"
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_motherduck_adapter.py": {
+            "digest": "503591402d4d3a1f",
+            "prune": {
+                "*": "f4cf652b0886"
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_registry_and_capability.py": {
+            "digest": "2102ac5d6b2310b6",
+            "prune": {
+                "*": "3eda4a30e5ff"
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_trino_adapter.py": {
+            "digest": "8a53e95e46d6d849",
+            "prune": {
+                "*": "632944063fb1"
+            }
+        },
+        "posthog/hogql/functions/test/test_cohort.py": {
+            "digest": "d49aa6ba2e9c52b7",
+            "prune": {
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_0_subquery_off": "4c2cc6bf753d",
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_1_subquery_always": "c34727a76d25",
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_2_leftjoin_off": "573d08641620",
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_3_leftjoin_always": "aba051276270",
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_4_conjoined_off": "33c29031666a",
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_5_conjoined_always": "fec00959b029"
+            }
+        },
+        "posthog/hogql/functions/test/test_explain_csp_button.py": {
+            "digest": "c2f3f22ba1112be0",
+            "prune": {
+                "*": "ffe125704b24"
+            }
+        },
+        "posthog/hogql/functions/test/test_hog_stl_arity.py": {
+            "digest": "28a109a2546cb701",
+            "prune": {
+                "*": "32510fa0845a"
+            }
+        },
+        "posthog/hogql/functions/test/test_ip_functions.py": {
+            "digest": "7eed0162a1cd1b01",
+            "prune": {
+                "*": "2a7651dd5481"
+            }
+        },
+        "posthog/hogql/functions/test/test_recording_button.py": {
+            "digest": "7ae9f4e7e4daf365",
+            "prune": {
+                "*": "12437d9436e6"
+            }
+        },
+        "posthog/hogql/functions/test/test_sparkline.py": {
+            "digest": "7d3d450154306e00",
+            "prune": {
+                "*": "75e9e424f77c"
+            }
+        },
+        "posthog/hogql/functions/test/test_traffic_type_functions.py": {
+            "digest": "51fccd7632a241af",
+            "prune": {
+                "TestBotDefinitionsDataStructure": "b1bf157043d9",
+                "TestBotIPClassification": "21d54de3df8c",
+                "TestBotIPDefinitionsDataStructure": "374d3c0bf955",
+                "TestCookielessOverrideExpression": "3ac7aa57bb2e",
+                "TestGetBotNameFunction": "b9eb72c4df9a",
+                "TestGetBotTypeFunction": "da7377ab6595",
+                "TestIsBotFunction": "63332ca6b1bc",
+                "TestNullHandling": "eaee933efcbc",
+                "TestTrafficTypeFunctionPatterns": "ae6d5aa04f79",
+                "TestTrafficTypeFunctions": "97a8b95a05f8"
+            }
+        },
+        "posthog/hogql/functions/test/test_traffic_type_real_ua.py": {
+            "digest": "473549b9bbd84064",
+            "prune": {
+                "TestBotClassificationRealUA": "ed3bf7bb78e4"
+            }
+        },
+        "posthog/hogql/functions/test/test_typegen.py": {
+            "digest": "2e56cf69523d9537",
+            "prune": {
+                "*": "e8b03f6a9e71"
+            }
+        },
+        "posthog/hogql/helpers/test_timestamp_visitor.py": {
+            "digest": "977028e3d9ca4fe8",
+            "prune": {
+                "*": "cb096eb83405"
+            }
+        },
+        "posthog/hogql/printer/test/test_dialect_constant_binding.py": {
+            "digest": "dde94ef5bd3a2144",
+            "prune": {
+                "*": "225fc8bfb7bb"
+            }
+        },
+        "posthog/hogql/printer/test/test_duckdb_printer.py": {
+            "digest": "d5b32dc38defa6dd",
+            "prune": {
+                "*": "1641d77bc569"
+            }
+        },
+        "posthog/hogql/printer/test/test_hogql_access_control.py": {
+            "digest": "8df4ee2c906fb978",
+            "prune": {
+                "*": "bebc94f23ca3"
+            }
+        },
+        "posthog/hogql/printer/test/test_mysql_printer.py": {
+            "digest": "a59db442ea08436d",
+            "prune": {
+                "*": "18b43da66b66"
+            }
+        },
+        "posthog/hogql/printer/test/test_postgres_printer.py": {
+            "digest": "7698f8bcf9d9fc4b",
+            "prune": {
+                "TestPostgresPrinter::test_arithmetic_operators": "ce38a28c7ee7",
+                "TestPostgresPrinter::test_comparison_operators": "bdb726bf5a18",
+                "TestPostgresPrinter::test_postgres_style_cast": "db0a9e68313e"
+            }
+        },
+        "posthog/hogql/printer/test/test_printer.py": {
+            "digest": "7109f6da063d71e0",
+            "prune": {
+                "TestMaterializedColumnOptimization::test_jsonextractstring_not_rewritten_for_non_string_mat_column": "c6bf81e9ef7c",
+                "TestMaterializedColumnOptimization::test_jsonextractstring_rewrite_emits_mat_column": "903dfec26e19",
+                "TestMaterializedColumnOptimization::test_lower_in_optimization_on_persons": "9208a58a1de0",
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_empty_string": "8356c49679e2",
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_non_string_constant": "75f1144c2c11",
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_null_comparison": "812c4b0c8d52",
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_null_string": "ea3893b8c460",
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_bails_out_for_sentinel_pattern_on_non_nullable": "35a9c100d903",
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_uses_raw_column_for_non_nullable": "386d96b3bf9d",
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property": "6a340c46da04",
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable": "d756e505f2fc",
+                "TestMaterializedColumnOptimization::test_materialized_column_in_bails_out_for_sentinel_value_on_non_nullable": "9945d5b245fd",
+                "TestMaterializedColumnOptimization::test_materialized_column_in_nullable": "9c98dc372cc4",
+                "TestMaterializedColumnOptimization::test_materialized_column_in_uses_raw_column_for_non_nullable": "050d1f8acac2",
+                "TestMaterializedColumnOptimization::test_materialized_column_like_bails_out_for_sentinel_pattern_on_non_nullable": "49df83c2a55e",
+                "TestMaterializedColumnOptimization::test_materialized_column_like_case_sensitivity": "16f1cd5174ad",
+                "TestMaterializedColumnOptimization::test_materialized_column_like_uses_raw_column_for_non_nullable": "8c819c202e0c",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_bails_out_for_sentinel_value": "088ec99ad77e",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_matches_case_insensitive_lower_call": "f843775b279a",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_not_optimized_without_a_lower_index": "6e2ff49b3186",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_sentinels_for_nullable": "d4b591a09cef",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_bloom_filter_lower_index_non_nullable": "6ab7003e37fb",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_bloom_filter_lower_index_nullable": "272d77a4d63c",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_ngram_lower_index": "38a9a24c116c",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_not_in_nullable": "52c9aab918b4",
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_not_in_uses_bloom_filter_lower_index_non_nullable": "30710b086844",
+                "TestMaterializedColumnOptimization::test_materialized_column_not_ilike_uses_raw_column_for_non_nullable": "0330f3aded04",
+                "TestMaterializedColumnOptimization::test_materialized_column_not_in_nullable": "4033555f5183",
+                "TestMaterializedColumnOptimization::test_materialized_column_not_in_uses_raw_column_for_non_nullable": "ef9a0103e02e",
+                "TestMaterializedColumnOptimization::test_materialized_column_not_like_uses_raw_column_for_non_nullable": "945702f7356c",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_equality_comparison_non_nullable": "21f13ad3bc58",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_equality_comparison_nullable": "d3c6031b9db8",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_0__": "5f26ea127476",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_1__": "1b0fb5ae1670",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_2__": "59061d044fca",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_3__": "9ae85a524718",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_0__": "fb3cc619cc9a",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_1__": "e5fb52619e39",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_2__": "4f35221f4a54",
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_3__": "b4f622755edf",
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_datetime_property_type": "ef24f9a87fb1",
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_null_constant": "b8ba38ec425c",
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_numeric_property_type": "483a493ffa51",
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_only_when_property_on_left": "b35c2afa69d0",
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_skips_non_nullable_numeric_source": "eb833ed3e59a",
+                "TestMaterializedColumnOptimization::test_recursive_cte_raises": "d50dcc6800a9",
+                "TestNewEventsSchemaDefaults::test_hogql_events_table_uses_configured_schema_1_legacy": "ca77583f375c",
+                "TestPrinted": "af6e6ad5635d",
+                "TestPrinter::test_array_access": "3bd98ba0f05a",
+                "TestPrinter::test_boolean_and_optimization": "39ff161ef991",
+                "TestPrinter::test_boolean_or_optimization": "b1624ac3607b",
+                "TestPrinter::test_expr_parse_errors": "71b169c1b52b",
+                "TestPrinter::test_feature_flag_json_extracts_match_map_document_0": "be77a8ed4a65",
+                "TestPrinter::test_fields_and_properties": "51b0feeea23e",
+                "TestPrinter::test_functions": "7377cb95baf6",
+                "TestPrinter::test_hogql_properties": "4c6a4caaf503",
+                "TestPrinter::test_hogql_properties_materialized_json_access": "2be236e92254",
+                "TestPrinter::test_hogql_properties_use_active_storage_schema": "4d720a26be95",
+                "TestPrinter::test_intersect3": "c9913f6529a5",
+                "TestPrinter::test_literals": "9db9e064e8ce",
+                "TestPrinter::test_logic": "bfe782bd473f",
+                "TestPrinter::test_materialized_fields_and_properties": "3262a19943ff",
+                "TestPrinter::test_methods": "16cd18b3c63a",
+                "TestPrinter::test_new_events_schema_json_has_uses_direct_json_subcolumns": "e9b129368274",
+                "TestPrinter::test_new_events_schema_keyed_json_extracts_avoid_blob_reconstruction": "0997647c2066",
+                "TestPrinter::test_property_groups": "1886bfc20f11",
+                "TestPrinter::test_property_groups_optimized_basic_equality_comparisons": "e4c8170a2f56",
+                "TestPrinter::test_property_groups_optimized_boolean_equality_comparisons": "9fe9d4e3f272",
+                "TestPrinter::test_property_groups_optimized_empty_string_equality_comparisons": "94b84ef2f24d",
+                "TestPrinter::test_property_groups_optimized_has": "fa55582c08eb",
+                "TestPrinter::test_property_groups_optimized_in_comparisons": "77f2016083bf",
+                "TestPrinter::test_property_groups_optimized_null_comparisons": "01f98a06acff",
+                "TestPrinter::test_to_bool_is_null_safe_0_toBool": "27c4b848f4d0"
+            }
+        },
+        "posthog/hogql/printer/test/test_property_access_control.py": {
+            "digest": "38cab579c7667ae6",
+            "prune": {
+                "TestRestrictPropertiesInHogQL::test_ai_column_and_nested_reads_use_the_canonical_property_rule_0_input": "6a59e906975e",
+                "TestRestrictPropertiesInHogQL::test_explicit_property_access_on_non_event_table_not_blocked": "e70c0219e9f9"
+            }
+        },
+        "posthog/hogql/printer/test/test_snowflake_printer.py": {
+            "digest": "c3cb17b4d83150cf",
+            "prune": {
+                "*": "0ad0e3efb5e1"
+            }
+        },
+        "posthog/hogql/printer/test/test_sql_injection_defenses.py": {
+            "digest": "026e752be49225dd",
+            "prune": {
+                "TestParserPathProducesOnlyAllowlistedVerbatimValues": "2ab3982c3b10",
+                "TestVerbatimFieldConstructionRejection": "030a606adbaa"
+            }
+        },
+        "posthog/hogql/printer/test/test_trino_printer.py": {
+            "digest": "79789cec7ee9e0c6",
+            "prune": {
+                "*": "f067db15c228"
+            }
+        },
+        "posthog/hogql/printer/test/test_within_non_hogql_delete.py": {
+            "digest": "e65e987ed4dc51a8",
+            "prune": {
+                "*": "b5e7a9ba859c"
+            }
+        },
+        "posthog/hogql/test/test_autocomplete.py": {
+            "digest": "6e3c9be04458068c",
+            "prune": {
+                "*": "3f8ce0915acf"
+            }
+        },
+        "posthog/hogql/test/test_base.py": {
+            "digest": "1400609bdaa38b6a",
+            "prune": {
+                "*": "dad6de83671f"
+            }
+        },
+        "posthog/hogql/test/test_corpus_redaction.py": {
+            "digest": "136f12830d79c588",
+            "prune": {
+                "*": "77b404bf2463"
+            }
+        },
+        "posthog/hogql/test/test_diagnostic_common.py": {
+            "digest": "05b5b644da037aaa",
+            "prune": {
+                "*": "5b9ec471bfde"
+            }
+        },
+        "posthog/hogql/test/test_direct_clickhouse_query.py": {
+            "digest": "7a5bb5610156fd47",
+            "prune": {
+                "*": "77b43526cda2"
+            }
+        },
+        "posthog/hogql/test/test_direct_connection.py": {
+            "digest": "8528675fc6490727",
+            "prune": {
+                "*": "b674f74d7f29"
+            }
+        },
+        "posthog/hogql/test/test_direct_connection_discovery.py": {
+            "digest": "a2898e0b29761b34",
+            "prune": {
+                "*": "b20bb701ff10"
+            }
+        },
+        "posthog/hogql/test/test_direct_duckgres_query.py": {
+            "digest": "e68c72f0ee1583b0",
+            "prune": {
+                "*": "5c00ea81aa61"
+            }
+        },
+        "posthog/hogql/test/test_direct_motherduck_query.py": {
+            "digest": "b87af3a99e004094",
+            "prune": {
+                "*": "c69260a20f5c"
+            }
+        },
+        "posthog/hogql/test/test_direct_mysql_query.py": {
+            "digest": "be44e64755afd612",
+            "prune": {
+                "*": "0000e064eef0"
+            }
+        },
+        "posthog/hogql/test/test_direct_postgres_query.py": {
+            "digest": "00d4c8e96c0e1a5c",
+            "prune": {
+                "*": "3d9b69cbdbfc"
+            }
+        },
+        "posthog/hogql/test/test_direct_redshift_query.py": {
+            "digest": "e466dd38790829a9",
+            "prune": {
+                "*": "efc46801226e"
+            }
+        },
+        "posthog/hogql/test/test_direct_snowflake_query.py": {
+            "digest": "35f387ee615f5c6e",
+            "prune": {
+                "*": "de828ec07fb3"
+            }
+        },
+        "posthog/hogql/test/test_direct_trino_query.py": {
+            "digest": "c96ccaaf70450ad9",
+            "prune": {
+                "*": "d964fc013247"
+            }
+        },
+        "posthog/hogql/test/test_escape_sql.py": {
+            "digest": "e8d691e7947e91e9",
+            "prune": {
+                "*": "e3783314409f"
+            }
+        },
+        "posthog/hogql/test/test_feature_extractor.py": {
+            "digest": "90660d93ea4a1e15",
+            "prune": {
+                "*": "2949abaf81b4"
+            }
+        },
+        "posthog/hogql/test/test_filters.py": {
+            "digest": "ed6158df2b849f45",
+            "prune": {
+                "*": "771e08eb2699"
+            }
+        },
+        "posthog/hogql/test/test_generated_language_service_functions.py": {
+            "digest": "f4b184c14a75e3ba",
+            "prune": {
+                "*": "62eaf5c705af"
+            }
+        },
+        "posthog/hogql/test/test_get_lowercase_index_hint.py": {
+            "digest": "ec1dc0e4ee6aab45",
+            "prune": {
+                "*": "d0e7f8181d08"
+            }
+        },
+        "posthog/hogql/test/test_hogqlx.py": {
+            "digest": "89392b0f9d3fdb4b",
+            "prune": {
+                "*": "1fc98a5136ef"
+            }
+        },
+        "posthog/hogql/test/test_index_eligibility.py": {
+            "digest": "1bb20d88ad146c0d",
+            "prune": {
+                "TestIndexEligibilityThroughThePlanner": "38a7133b4e7d",
+                "TestIndexEligibilityVerdicts": "afa83d6e0834",
+                "TestIndexEnumsMatchTheSchema": "fc4a949d2634"
+            }
+        },
+        "posthog/hogql/test/test_language_service.py": {
+            "digest": "4a70812f40e5627f",
+            "prune": {
+                "*": "032a99979f8b"
+            }
+        },
+        "posthog/hogql/test/test_log_query_settings.py": {
+            "digest": "2bef6d48829025fd",
+            "prune": {
+                "TestArgumentCountErrorsAreUserFacing": "878207e99695",
+                "TestCorruptedParquetMetadataError": "9072981517e0",
+                "TestLogQuerySettings::test_internal_has_logs_query_type_has_no_max_bytes_to_read": "81533bcfb2d1",
+                "TestLogQuerySettings::test_user_query_on_persons_table_has_no_max_bytes_to_read": "339215a002a4",
+                "TestTooManyBytesError": "1449bc55c5fd"
+            }
+        },
+        "posthog/hogql/test/test_mapping.py": {
+            "digest": "7846b076a8482307",
+            "prune": {
+                "*": "fc2247fe3f06"
+            }
+        },
+        "posthog/hogql/test/test_metadata.py": {
+            "digest": "95bece8e8486c0e1",
+            "prune": {
+                "TestMetadata::test_experimental_join_condition": "f210b44bc9a0"
+            }
+        },
+        "posthog/hogql/test/test_modifiers.py": {
+            "digest": "2bf236a9628605d4",
+            "prune": {
+                "TestModifiers::test_modifiers_in_cohort_join": "ef7658247cd0",
+                "TestModifiers::test_modifiers_persons_argmax_version_auto": "e93248e8d45a",
+                "TestModifiers::test_modifiers_persons_argmax_version_v2": "2b63e13ca8a2"
+            }
+        },
+        "posthog/hogql/test/test_no_django_imports.py": {
+            "digest": "2edf9ae39b7af706",
+            "prune": {
+                "*": "3f449e63a879"
+            }
+        },
+        "posthog/hogql/test/test_observability.py": {
+            "digest": "05bc8eab4226295d",
+            "prune": {
+                "*": "5261ebec494f"
+            }
+        },
+        "posthog/hogql/test/test_parse_string_cpp.py": {
+            "digest": "facf21699002b22a",
+            "prune": {
+                "*": "473932a769d4"
+            }
+        },
+        "posthog/hogql/test/test_parse_string_rust.py": {
+            "digest": "dccff4d80d87691d",
+            "prune": {
+                "*": "63aea855253e"
+            }
+        },
+        "posthog/hogql/test/test_parser_cache.py": {
+            "digest": "7686335f99cb49e7",
+            "prune": {
+                "*": "3a93e4d2b47a"
+            }
+        },
+        "posthog/hogql/test/test_parser_cpp_json.py": {
+            "digest": "e7cfce0083f5251c",
+            "prune": {
+                "*": "dfc021305634"
+            }
+        },
+        "posthog/hogql/test/test_parser_mode.py": {
+            "digest": "1a50a24293003dd1",
+            "prune": {
+                "*": "4a21f5a2ece6"
+            }
+        },
+        "posthog/hogql/test/test_parser_rust_json.py": {
+            "digest": "77f06b1192427732",
+            "prune": {
+                "*": "3b96d0836497"
+            }
+        },
+        "posthog/hogql/test/test_parser_rust_py.py": {
+            "digest": "41b7d99dbfd79bf8",
+            "prune": {
+                "*": "4b3dbec2e243"
+            }
+        },
+        "posthog/hogql/test/test_placeholders.py": {
+            "digest": "2164a537fa9839bc",
+            "prune": {
+                "*": "f2a72322b13a"
+            }
+        },
+        "posthog/hogql/test/test_property_skip_indexes.py": {
+            "digest": "a1bb67d86b14d769",
+            "prune": {
+                "TestPersonPropertySkipIndexes": "4cfefbf64034"
+            }
+        },
+        "posthog/hogql/test/test_query.py": {
+            "digest": "5435ab6692daf7ff",
+            "prune": {
+                "TestQuery::test_between_operators": "cc52df42a5f8",
+                "TestQuery::test_currency_conversion": "bfc423d01515",
+                "TestQuery::test_currency_conversion_with_string_date": "9bef835a9000",
+                "TestQuery::test_hogql_query_filters_session_date_range": "385cdefbe3b2",
+                "TestQuery::test_hogql_query_session_filters": "9e2140bebc88",
+                "TestQuery::test_null_equality": "2e375d049cb0",
+                "TestQuery::test_numbers_table": "a4945e94f535",
+                "TestQuery::test_query_distinct": "9bb5cb218689",
+                "TestQuery::test_query_joins_pdi_person_properties": "d3efd4919d31",
+                "TestQuery::test_query_joins_pdi_persons": "61e3f058a312",
+                "TestQuery::test_query_person_distinct_ids": "37e858100f5a"
+            }
+        },
+        "posthog/hogql/test/test_query_stats.py": {
+            "digest": "35068e7f19c028e3",
+            "prune": {
+                "*": "6aee1f98c3a5"
+            }
+        },
+        "posthog/hogql/test/test_restricted_properties.py": {
+            "digest": "7867abbd5733b544",
+            "prune": {
+                "*": "cdac9dc8f40b"
+            }
+        },
+        "posthog/hogql/test/test_timings.py": {
+            "digest": "f092c280badfa7b3",
+            "prune": {
+                "*": "989c9c6a777b"
+            }
+        },
+        "posthog/hogql/test/test_trino_corpus.py": {
+            "digest": "9296c8ac56996b28",
+            "prune": {
+                "*": "b0642ab0c137"
+            }
+        },
+        "posthog/hogql/test/test_trino_parameters.py": {
+            "digest": "5f285a62221d6bf1",
+            "prune": {
+                "*": "cb3c4741bb00"
+            }
+        },
+        "posthog/hogql/test/test_trino_semantics.py": {
+            "digest": "1bb412f261911fdf",
+            "prune": {
+                "*": "3d7edc6e3302"
+            }
+        },
+        "posthog/hogql/test/test_type_system.py": {
+            "digest": "f2a7338f52d1603d",
+            "prune": {
+                "*": "9b9c5a027a80"
+            }
+        },
+        "posthog/hogql/test/test_utils.py": {
+            "digest": "2e79f3b301415e82",
+            "prune": {
+                "*": "5e8f664055c7"
+            }
+        },
+        "posthog/hogql/test/test_visitor.py": {
+            "digest": "a9ccee5834c08aed",
+            "prune": {
+                "*": "0844557db64b"
+            }
+        },
+        "posthog/hogql/test/test_warehouse_warnings.py": {
+            "digest": "b55f86d6720f1b49",
+            "prune": {
+                "*": "8ee62ada387d"
+            }
+        },
+        "posthog/hogql/test/test_workload.py": {
+            "digest": "89c3c22a8faac8d4",
+            "prune": {
+                "*": "1fa9ce4c6821"
+            }
+        },
+        "posthog/hogql/transforms/test/test_clickhouse_property_resolution.py": {
+            "digest": "85fa3c4632e90cd7",
+            "prune": {
+                "*": "6074cbfb1191"
+            }
+        },
+        "posthog/hogql/transforms/test/test_events_predicate_pushdown.py": {
+            "digest": "2c1a4040391d824d",
+            "prune": {
+                "TestEventsPredicatePushdownTransformUnit": "3571a001c837",
+                "TestEventsSubexprHoister": "45c718ed0fab",
+                "TestOuterWhereAssignment": "82b4460355f7"
+            }
+        },
+        "posthog/hogql/transforms/test/test_events_read_in_order.py": {
+            "digest": "5a29e9c0162b675d",
+            "prune": {
+                "*": "7e71d76dd05c"
+            }
+        },
+        "posthog/hogql/transforms/test/test_federated_join_merge.py": {
+            "digest": "4e62e89ae01c1d31",
+            "prune": {
+                "*": "ddfde6709146"
+            }
+        },
+        "posthog/hogql/transforms/test/test_json_property_pushdown.py": {
+            "digest": "cbfefa0e5ca89dbf",
+            "prune": {
+                "*": "4d93431d05b8"
+            }
+        },
+        "posthog/hogql/transforms/test/test_order_by_pushdown.py": {
+            "digest": "e7ae9acc16ae8059",
+            "prune": {
+                "*": "90503716d548"
+            }
+        },
+        "posthog/hogql/transforms/test/test_preaggregated_table_transformation.py": {
+            "digest": "5cd86dcee5a2ef47",
+            "prune": {
+                "TestPreaggregatedTableTransformation::test_all_event_properties_on_session_unsupported_04__geoip_country_code": "fca1fb843be2",
+                "TestPreaggregatedTableTransformationIntegration": "1fabea1c62f9"
+            }
+        },
+        "posthog/hogql/transforms/test/test_projection_pushdown.py": {
+            "digest": "483779ef364671ad",
+            "prune": {
+                "*": "e53f0f3e95c5"
+            }
+        },
+        "posthog/hogql/transforms/test/test_property_types.py": {
+            "digest": "61dd9c8596e5625d",
+            "prune": {
+                "TestPropertyTypes::test_data_warehouse_person_property_types": "5476d35e8f6f",
+                "TestPropertyTypes::test_property_comparison_planner_blocks_datetime_minmax_until_source_type_matches": "7b560266b207",
+                "TestPropertyTypes::test_property_comparison_planner_blocks_numeric_minmax_until_source_type_matches": "3527d7fc14cc",
+                "TestPropertyTypes::test_property_comparison_planner_respects_restricted_property_materialization": "424c8987067e",
+                "TestTimezoneIndexPruning::test_alias_not_added_when_not_present": "a2ec48cbd90a",
+                "TestTimezoneIndexPruning::test_alias_preserved_when_recursing_into_assumeNotNull": "f718bc86a536"
+            }
+        },
+        "posthog/hogql/transforms/trino/test/test_manifest.py": {
+            "digest": "64658695d41954db",
+            "prune": {
+                "*": "93082fba6ad5"
+            }
+        },
+        "posthog/hogql/transforms/trino/test/test_type_inference.py": {
+            "digest": "22c634e195ee1aa7",
+            "prune": {
+                "*": "0a75a3228b41"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_actors_property_taxonomy_query_runner.py": {
+            "digest": "b69759c28e169b1e",
+            "prune": {
+                "*": "52db3da571ae"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_column_rewriter.py": {
+            "digest": "2b06e2be166de974",
+            "prune": {
+                "*": "846fdd276df4"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_property_rewriter.py": {
+            "digest": "388efba90427079a",
+            "prune": {
+                "*": "b0fdc954ff2f"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_table_resolver.py": {
+            "digest": "6a66534fe1cddb7f",
+            "prune": {
+                "*": "001d98074219"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_sentiment_evaluations.py": {
+            "digest": "d7fb58220f998f30",
+            "prune": {
+                "*": "673964132412"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_session_query_runner.py": {
+            "digest": "84589b08c7704c51",
+            "prune": {
+                "TestSessionQueryRunner::test_does_not_fallback_to_events_without_date_range": "c32ea6f08de1",
+                "TestSessionQueryRunner::test_evaluation_mode_bounds_the_primary_query": "29a6c1fcfc39",
+                "TestSessionQueryRunner::test_includes_sentiment_when_requested": "76aaf30579a6",
+                "TestSessionQueryRunner::test_paginates_session_traces": "5c0997c030a5"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_trace_neighbors_query_runner.py": {
+            "digest": "0c6d415b4023d9b1",
+            "prune": {
+                "TestTraceNeighborsQueryRunner::test_calendar_day_date_to_covers_the_whole_day": "b314c1e80532",
+                "TestTraceNeighborsQueryRunner::test_default_date_range_window": "200248b716ec",
+                "TestTraceNeighborsQueryRunner::test_empty_trace_id_excluded": "3202e8b0d9ae",
+                "TestTraceNeighborsQueryRunner::test_filter_support_traces": "83ad5979a601",
+                "TestTraceNeighborsQueryRunner::test_filter_test_accounts": "f278e34b3c18",
+                "TestTraceNeighborsQueryRunner::test_finds_prev_and_next_traces": "137a486db955",
+                "TestTraceNeighborsQueryRunner::test_identical_timestamps_deterministic_ordering": "0a9b4f779314",
+                "TestTraceNeighborsQueryRunner::test_multiple_event_types_in_trace": "f312c77801a8",
+                "TestTraceNeighborsQueryRunner::test_no_next_trace_when_last": "acc5c0d49ad4",
+                "TestTraceNeighborsQueryRunner::test_no_prev_trace_when_first": "512b4b9503e0",
+                "TestTraceNeighborsQueryRunner::test_property_filters": "50c9ce648c79",
+                "TestTraceNeighborsQueryRunner::test_respects_date_range_filter": "702dcedcb8b4",
+                "TestTraceNeighborsQueryRunner::test_uses_max_timestamp_per_trace": "1c28ae98d305"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_trace_query_runner.py": {
+            "digest": "5eecab1766312ebe",
+            "prune": {
+                "TestTraceQueryRunner::test_bound_events_to_date_range_holds_events_and_totals_to_date_to": "67fe688fd9b2",
+                "TestTraceQueryRunner::test_bound_events_to_date_range_keeps_the_whole_calendar_day": "da64e8d12182",
+                "TestTraceQueryRunner::test_capture_range": "3958850c5ba5",
+                "TestTraceQueryRunner::test_capture_range_includes_long_running_trace": "95bc0d987453",
+                "TestTraceQueryRunner::test_date_range": "1b0a19591978",
+                "TestTraceQueryRunner::test_distinct_id_falls_back_without_trace_event": "734534c75375",
+                "TestTraceQueryRunner::test_distinct_id_prefers_trace_event": "bf00a7fdaed6",
+                "TestTraceQueryRunner::test_embedding_events_in_trace": "bcb7080c817f",
+                "TestTraceQueryRunner::test_embedding_only_trace_cost_aggregation": "dfca67c0b446",
+                "TestTraceQueryRunner::test_fallback_to_events_when_ai_events_empty": "e88bf92c1ab5",
+                "TestTraceQueryRunner::test_field_mapping": "198e3134d6b5",
+                "TestTraceQueryRunner::test_full_trace": "9b7b91dd7469",
+                "TestTraceQueryRunner::test_latency_missing_intermediate_levels": "50dc7fd3df53",
+                "TestTraceQueryRunner::test_latency_mixed_span_id_presence": "dbb3425444e7",
+                "TestTraceQueryRunner::test_latency_no_double_counting_when_parent_has_latency": "9e2b3ace3164",
+                "TestTraceQueryRunner::test_latency_no_parent_id_root_leaves": "ca0abfe046c9",
+                "TestTraceQueryRunner::test_latency_no_span_id_automatic_leaves": "ccb85a399885",
+                "TestTraceQueryRunner::test_latency_root_trace_event_reports_wall_clock": "f7c3db3a5831",
+                "TestTraceQueryRunner::test_maps_all_fields": "38bb4d97b063",
+                "TestTraceQueryRunner::test_member_property_denial_survives_reconstruction_and_cache_0_trace": "1080a7138457",
+                "TestTraceQueryRunner::test_member_property_denial_survives_reconstruction_and_cache_2_session": "675c709719e2",
+                "TestTraceQueryRunner::test_mixed_type_parent_trace_comparison": "4060ce6d1cbc",
+                "TestTraceQueryRunner::test_model_parameters": "bcd78ec8f9bd",
+                "TestTraceQueryRunner::test_overlap_semantics_trace_started_before_window": "fa9f360dbbbf",
+                "TestTraceQueryRunner::test_person_properties": "4b7912cb78d7",
+                "TestTraceQueryRunner::test_removes_duplicate_events": "3d0e1c0b0f18",
+                "TestTraceQueryRunner::test_returns_metrics_and_feedback_events": "e8fb4c3692a3",
+                "TestTraceQueryRunner::test_stored_sentiment_evaluation_lookup_is_opt_in": "fe29f01cdf30",
+                "TestTraceQueryRunner::test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation": "74fb89ad2d0b",
+                "TestTraceQueryRunner::test_sums_distinguish_reported_zero_from_no_report": "8ed71a65b5cc",
+                "TestTraceQueryRunner::test_trace_name_fallback": "bbd8a0d1e705",
+                "TestTraceQueryRunner::test_trace_name_fallback_when_no_trace_events": "5a668f86b173",
+                "TestTraceQueryRunner::test_trace_name_from_trace_event": "aafabdf79a89",
+                "TestTraceQueryRunner::test_trace_name_when_no_names_exist": "61a00a47680f",
+                "TestTraceQueryRunner::test_trace_name_with_only_generation_events": "304356affb98"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_utils.py": {
+            "digest": "5df12ea3dcc47ba6",
+            "prune": {
+                "*": "942f3090a11b"
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_vector_search_query_runner.py": {
+            "digest": "644dc12fd66cc575",
+            "prune": {
+                "*": "d3904ad0ea24"
+            }
+        },
+        "posthog/hogql_queries/endpoints/test/test_endpoints_usage_query_runners.py": {
+            "digest": "c2d337318f74f9f7",
+            "prune": {
+                "*": "a35a76e07657"
+            }
+        },
+        "posthog/hogql_queries/groups/test/test_groups_query_runner.py": {
+            "digest": "f4abe54504439b4f",
+            "prune": {
+                "*": "fd6615ea25fa"
+            }
+        },
+        "posthog/hogql_queries/legacy_compatibility/test/test_clean_properties.py": {
+            "digest": "8255f58f3682b8e9",
+            "prune": {
+                "*": "ed10b90c4bcc"
+            }
+        },
+        "posthog/hogql_queries/properties_timeline/test/test_query_date_range.py": {
+            "digest": "e4a0a8f94f29fa59",
+            "prune": {
+                "*": "f985d91f7372"
+            }
+        },
+        "posthog/hogql_queries/test/test_access_controlled_resources.py": {
+            "digest": "806e2e80ff7fc6f4",
+            "prune": {
+                "*": "5179c4b48b9c"
+            }
+        },
+        "posthog/hogql_queries/test/test_actor_strategies_personhog.py": {
+            "digest": "cfcf62bbc236c40c",
+            "prune": {
+                "*": "778ef837b19a"
+            }
+        },
+        "posthog/hogql_queries/test/test_actors_query_runner.py": {
+            "digest": "4575d20a18a4db94",
+            "prune": {
+                "TestActorsQueryRunner::test_default_persons_query": "d63aaf7fa336",
+                "TestActorsQueryRunner::test_direct_actors_query_uses_latest_person_data_after_property_deletion": "f61d9fbf63c4",
+                "TestActorsQueryRunner::test_filter_test_accounts_applies_only_person_scoped_filters_0_person_filter_on_excludes_internal": "cf4314bb1bfd",
+                "TestActorsQueryRunner::test_filter_test_accounts_applies_only_person_scoped_filters_3_empty_test_account_filters_is_noop": "a83f792074e4",
+                "TestActorsQueryRunner::test_person_display_name_all_empty_strings_falls_back_to_id": "04dac3e2e582",
+                "TestActorsQueryRunner::test_person_display_name_custom": "1ba304d2a6ac",
+                "TestActorsQueryRunner::test_person_display_name_default": "2e0c1aa04dc1",
+                "TestActorsQueryRunner::test_person_display_name_empty_string_fallthrough_0_empty_first_prop_falls_through": "214ddfe148c3",
+                "TestActorsQueryRunner::test_person_display_name_empty_string_fallthrough_1_non_empty_value_still_wins": "5f8b042e50c0",
+                "TestActorsQueryRunner::test_person_display_name_fallback": "ea5038bf9479",
+                "TestActorsQueryRunner::test_person_display_name_with_spaces_in_property_name": "5c292a7f65fd",
+                "TestActorsQueryRunner::test_persons_query_aggregation_select_having": "ed8d19c1952a",
+                "TestActorsQueryRunner::test_persons_query_fixed_properties": "2670bd18f61a",
+                "TestActorsQueryRunner::test_persons_query_grouping": "7348bb39f3c9",
+                "TestActorsQueryRunner::test_persons_query_limit": "13d1daa41531",
+                "TestActorsQueryRunner::test_persons_query_order_by": "452419ad8a33",
+                "TestActorsQueryRunner::test_persons_query_order_by_person_display_name": "58ffc65a9746",
+                "TestActorsQueryRunner::test_persons_query_order_by_person_display_name_when_column_is_not_selected": "e4db934ff2a2",
+                "TestActorsQueryRunner::test_persons_query_order_by_virtual_property": "e6dedefbd26c",
+                "TestActorsQueryRunner::test_persons_query_order_by_with_aliases": "bc1d7582e55c",
+                "TestActorsQueryRunner::test_persons_query_properties": "6d5f87a2ea64",
+                "TestActorsQueryRunner::test_persons_query_search_distinct_id": "2ff1d9dc9f4b",
+                "TestActorsQueryRunner::test_persons_query_search_email": "bb1666670d8a",
+                "TestActorsQueryRunner::test_persons_query_search_name": "77ef657a9a0a",
+                "TestActorsQueryRunner::test_persons_query_search_trims_whitespace": "6a7526319ea3",
+                "TestActorsQueryRunner::test_select_property_name_with_spaces": "e63e9ae51736"
+            }
+        },
+        "posthog/hogql_queries/test/test_api_queries_budget.py": {
+            "digest": "0b7aab1515847f0f",
+            "prune": {
+                "*": "72668937e3b9"
+            }
+        },
+        "posthog/hogql_queries/test/test_dashboard_filters_overrides.py": {
+            "digest": "b633c912d3a3a4d3",
+            "prune": {
+                "*": "1d852b5011c6"
+            }
+        },
+        "posthog/hogql_queries/test/test_document_embeddings_query_runner.py": {
+            "digest": "2f43045353016190",
+            "prune": {
+                "*": "1c2f6a29235c"
+            }
+        },
+        "posthog/hogql_queries/test/test_events_dashboard_filters.py": {
+            "digest": "2933408bf174488f",
+            "prune": {
+                "*": "14c05a35ad20"
+            }
+        },
+        "posthog/hogql_queries/test/test_events_query_runner.py": {
+            "digest": "75ed6cea2b53bca2",
+            "prune": {
+                "TestEventsQueryRunner::test_restricted_event_property_in_select_raises_error": "f020caa39a48",
+                "TestEventsQueryRunner::test_users_with_different_restrictions_get_different_cache_keys": "20c8d48bab41",
+                "TestEventsQueryRunner::test_users_without_restrictions_share_cache_key": "877cc3666aee"
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_cohort_query.py": {
+            "digest": "b7a33ae409819b42",
+            "prune": {
+                "TestHogQLCohortQuery::test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings": "610cd3231353",
+                "TestHogQLCohortQuery::test_multiple_person_properties_optimization": "e659a7d2568e",
+                "TestHogQLCohortQuery::test_multiple_person_properties_or_optimization": "e20fe21ead64",
+                "TestHogQLCohortQuery::test_optimization_disabled_when_feature_flag_off": "49ef7f57b374",
+                "TestHogQLCohortQuery::test_optimization_skipped_for_properties_with_negation": "47f38d764364",
+                "TestHogQLCohortQuery::test_or_optimization_disabled_when_feature_flag_off": "2d42c30573af",
+                "TestHogQLCohortQuery::test_or_optimization_skipped_for_properties_with_negation": "ae4b6e3d2c2a",
+                "TestHogQLCohortQuery::test_person_metadata_cohort_membership_end_to_end": "232b8b9a0ba0",
+                "TestHogQLCohortQuery::test_person_metadata_cohort_membership_negated_end_to_end": "aed7c9262c1c",
+                "TestHogQLCohortQuery::test_static_cohort_condition_rejects_cross_project_cohort": "21b538daf9cd"
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_dashboard_filters.py": {
+            "digest": "92ee51c395952e0c",
+            "prune": {
+                "*": "3473bb02b68e"
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_query_runner.py": {
+            "digest": "7298dbaa138ddc26",
+            "prune": {
+                "TestHogQLQueryRunner::test_alert_explicit_limit_probes_one_extra_row_0": "5144b151de9b",
+                "TestHogQLQueryRunner::test_alert_explicit_limit_probes_one_extra_row_1": "d054cd84bd65",
+                "TestHogQLQueryRunner::test_calculate_reports_modifiers_matching_its_shared_database": "dc5aeb4e03ca",
+                "TestHogQLQueryRunner::test_calculate_with_query_modifiers_matches_unthreaded_executor_sql": "cc7517f5e380",
+                "TestHogQLQueryRunner::test_invalid_connection_id_raises_exposed_hogql_error": "5e5396fa90c5",
+                "TestHogQLQueryRunner::test_legacy_managed_cache_and_status_are_stable": "f1b6eaa039d3",
+                "TestHogQLQueryRunner::test_managed_warehouse_cache_and_status_do_not_evaluate_a_feature_flag": "e1efe06333ae",
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_0_top_level": "ba4169013ac8",
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_1_subquery": "04d115312faf",
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_2_select_set_outer": "ecf1b8a06014",
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_3_limit_by": "c32b1c0f0f40",
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_4_placeholder": "5518a841ab15",
+                "TestHogQLQueryRunner::test_query_service_runs_do_not_share_a_flight_with_app_runs": "880d1f95ff03",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_0_metrics": "e33616961bd0",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_1_tables": "d13f54b49ff4",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_2_relationships": "75c8e7270ce1",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_3_columns": "f2967e2aff3d",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_4_activity_logs": "25cae9de2bce",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_5_other_system_table": "d362a162764d",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_6_events": "b8e9b3de2d6c",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_7_unparseable": "45647dbe8b37",
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_false_for_external_connection": "6d0ce19d03ad",
+                "TestHogQLQueryRunner::test_send_raw_query_is_ignored_without_direct_connection": "55f46701fc91",
+                "TestHogQLQueryRunner::test_send_raw_query_uses_raw_query_string_for_direct_connections": "0e6dba5cd08c",
+                "TestHogQLQueryRunner::test_soft_deleted_connection_id_raises_exposed_hogql_error": "c7d7fb311223",
+                "TestHogQLQueryRunner::test_variables_in_hog_expression": "2f144f3e3287"
+            }
+        },
+        "posthog/hogql_queries/test/test_merge_filters_by_priority.py": {
+            "digest": "4b73d5ac9c9a025b",
+            "prune": {
+                "*": "729cc4728e91"
+            }
+        },
+        "posthog/hogql_queries/test/test_paginators.py": {
+            "digest": "4f942deb438649c1",
+            "prune": {
+                "*": "30ddc3ccbf48"
+            }
+        },
+        "posthog/hogql_queries/test/test_personhog_routing.py": {
+            "digest": "0648540f06c797b4",
+            "prune": {
+                "*": "338c1f068684"
+            }
+        },
+        "posthog/hogql_queries/test/test_phase_times.py": {
+            "digest": "8e97c705d952a1c7",
+            "prune": {
+                "*": "c16a11c98fe2"
+            }
+        },
+        "posthog/hogql_queries/test/test_property_values_query_runner.py": {
+            "digest": "2882d5779fdb3584",
+            "prune": {
+                "TestPropertyValuesQueryRunner::test_person_property_values_basic": "9bf2d6befedc",
+                "TestPropertyValuesQueryRunner::test_person_property_values_distinct_id_search_1_matching_filter": "8be73ca8a755",
+                "TestPropertyValuesQueryRunner::test_person_property_values_excludes_empty": "8f2f4e872ff1",
+                "TestPropertyValuesQueryRunner::test_person_property_values_includes_count": "bc195db83359",
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_0_no_filter": "4ea4478f8ebd",
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_1_matching_filter": "2e6d532afb6f",
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_2_non_matching_filter": "d1c725318ebe",
+                "TestPropertyValuesQueryRunnerAggregatedTable::test_event_scoped_request_is_served_unscoped_from_table": "9365e2fc4f93",
+                "TestPropertyValuesQueryRunnerAggregatedTable::test_restricted_property_key_is_not_served": "0b07d965b5a2"
+            }
+        },
+        "posthog/hogql_queries/test/test_query_failure_handling.py": {
+            "digest": "870be6a0e2354bb2",
+            "prune": {
+                "*": "f04dbd04ba54"
+            }
+        },
+        "posthog/hogql_queries/test/test_query_metadata.py": {
+            "digest": "3dc15807e6adc1f9",
+            "prune": {
+                "*": "a5dc3eab989b"
+            }
+        },
+        "posthog/hogql_queries/test/test_query_runner.py": {
+            "digest": "4dd7b6392bf868b1",
+            "prune": {
+                "TestApplySeriesCustomNames": "d763b9d3e235",
+                "TestQueryFailureCaching": "37590a283adf",
+                "TestQueryRunner::test_schema_change_triggers_recalculation": "440a733ec353",
+                "TestQueryRunnerAccessControlFingerprint": "e36ef412d0b3",
+                "TestQueryRunnerRetentionTtl": "c5369fcf03ae",
+                "TestQuerySingleFlightRunner": "6cae809b123e",
+                "TestRunnersBuildDatabaseOnce::test_calculate_builds_database_once_via_shared_path_6_groups": "d7cbfcd004bf",
+                "TestRunnersBuildDatabaseOnce::test_calculate_builds_database_once_via_shared_path_7_property_values": "158430194b98",
+                "TestSeriesCustomNameCaching": "2bc834f0e775",
+                "TestSharedInsightsExecutionMode": "16af249773cf"
+            }
+        },
+        "posthog/hogql_queries/test/test_refresh_policy.py": {
+            "digest": "ca44c898749fee68",
+            "prune": {
+                "*": "d050d333eb48"
+            }
+        },
+        "posthog/hogql_queries/test/test_serialized_actors.py": {
+            "digest": "754b72e5cbde52bd",
+            "prune": {
+                "*": "de397769260e"
+            }
+        },
+        "posthog/hogql_queries/test/test_session_profile_query.py": {
+            "digest": "e65d0969745fc68d",
+            "prune": {
+                "*": "40086fb2ecc0"
+            }
+        },
+        "posthog/hogql_queries/test/test_sessions_query_runner.py": {
+            "digest": "70684d87378db120",
+            "prune": {
+                "TestSessionsQueryRunner::test_anonymous_session_identified_later": "a7bc5ff613ae",
+                "TestSessionsQueryRunner::test_anonymous_session_not_identified": "4e99730ec2c8",
+                "TestSessionsQueryRunner::test_arbitrary_person_property_field": "032402a257ef",
+                "TestSessionsQueryRunner::test_arbitrary_person_property_orderby": "7d058c8eddef",
+                "TestSessionsQueryRunner::test_arbitrary_person_property_with_comment": "91333e879f2b",
+                "TestSessionsQueryRunner::test_basic_sessions_query": "5ac2066ad549",
+                "TestSessionsQueryRunner::test_filter_by_person_property": "d19615ffbd51",
+                "TestSessionsQueryRunner::test_filter_by_person_property_icontains": "13983031a950",
+                "TestSessionsQueryRunner::test_filter_by_person_property_without_person_column": "f06c313b64d5",
+                "TestSessionsQueryRunner::test_filter_by_session_properties": "ad9d34b3d346",
+                "TestSessionsQueryRunner::test_filter_test_accounts_with_person_property": "a1d7ca7ad162",
+                "TestSessionsQueryRunner::test_orderby_person_display_name": "2d8f3a5d6c0a",
+                "TestSessionsQueryRunner::test_person_display_name_combined_with_other_columns": "41281d878cd0",
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_0_empty_first_prop_falls_through": "69690e3929ea",
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_1_all_props_empty_falls_back_to_distinct_id": "7cb92faa3d6e",
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_2_non_empty_value_still_wins": "1193ee68243f",
+                "TestSessionsQueryRunner::test_person_display_name_fallback_to_distinct_id": "cfa5d90dc9bd",
+                "TestSessionsQueryRunner::test_person_display_name_field": "c58647f25f60",
+                "TestSessionsQueryRunner::test_person_display_name_multiple_persons": "1d48d55bce8d",
+                "TestSessionsQueryRunner::test_person_display_name_with_custom_properties": "b47f503557f7",
+                "TestSessionsQueryRunner::test_person_display_name_with_spaces_in_property_name": "f1ff14643336",
+                "TestSessionsQueryRunner::test_person_display_name_with_star_select": "d1e19d516ce2",
+                "TestSessionsQueryRunner::test_person_display_name_without_person_join_no_regression": "6c3c8699d7f5",
+                "TestSessionsQueryRunner::test_person_property_combined_with_display_name": "37d8cc2a6c42",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_0_gt_match": "7f9e6abfc8c1",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_1_gt_no_match": "872c2e027b25",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_2_lt_match": "d87f9412dde6",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_3_lt_no_match": "acbecdc0848b",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_4_gte_match_greater": "7ef7c3937774",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_5_gte_match_equal": "beb05558d57d",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_6_gte_no_match": "1c80867af83b",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_7_lte_match_less": "899d204782d7",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_8_lte_match_equal": "8e22a2c43320",
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_9_lte_no_match": "10fbe7464343",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_00_exact_match": "4db81b0645a7",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_01_exact_no_match": "bfcf88b99d8e",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_02_is_not_match": "2065b77b3c07",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_03_is_not_no_match": "dc056364c90c",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_04_icontains_match": "dc0c236a4043",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_05_icontains_no_match": "69ee65ec693f",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_06_not_icontains_match": "4ca0e35bf66c",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_07_not_icontains_no_match": "c6d1441b8147",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_08_starts_with_match": "7797c0eb1205",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_09_starts_with_no_match": "45681da870fb",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_10_not_starts_with_match": "a433f36846ea",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_11_not_starts_with_no_match": "bad6b80c1e12",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_12_ends_with_match": "f7222fab087f",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_13_ends_with_no_match": "37a8fda89eb7",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_14_not_ends_with_match": "208fb0aa3d25",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_15_not_ends_with_no_match": "bcb3ca0f8ffb",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_16_regex_match": "4386325e316f",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_17_regex_no_match": "4ab78357b074",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_18_not_regex_match": "b01689ec5402",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_19_not_regex_no_match": "d80064f3b4ad",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_20_is_set_match": "1bb0bf1bc9e1",
+                "TestSessionsQueryRunner::test_person_property_filter_operators_21_is_not_set_no_match": "0297c070e1ef",
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_empty_list_returns_no_sessions": "6e3f4def8d29",
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_short_circuits_events_subquery": "51376c1ea039",
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_with_list_values": "7d11163e8ead",
+                "TestSessionsQueryRunner::test_session_property_column": "0369e9609424",
+                "TestSessionsQueryRunner::test_session_property_with_person_property": "1f8ece859a0e",
+                "TestSessionsQueryRunner::test_sessions_date_range": "fd8e3fefeeca",
+                "TestSessionsQueryRunner::test_sessions_limit_and_offset": "130ca5b3fa03",
+                "TestSessionsQueryRunner::test_sessions_with_aggregation": "02703b4371b3",
+                "TestSessionsQueryRunner::test_sessions_with_custom_order_by": "c8beb3f5e5e2",
+                "TestSessionsQueryRunner::test_sessions_with_session_duration": "4705fb453435",
+                "TestSessionsQueryRunner::test_sessions_with_where_clause": "8e2445f4c1c3",
+                "TestSessionsQueryRunner::test_unsupported_person_property_operator_raises_error": "51579e6ef56e"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_aggregations.py": {
+            "digest": "83800bc5863e8b48",
+            "prune": {
+                "*": "623fcadffc21"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_breakdowns.py": {
+            "digest": "cd5758b8799666f5",
+            "prune": {
+                "*": "59f09bb51ad0"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_caller_context.py": {
+            "digest": "304ed73cc7e2681a",
+            "prune": {
+                "*": "db652a59c28c"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_dashboard_filter_conflicts.py": {
+            "digest": "d29bc1bb3cd50b9f",
+            "prune": {
+                "*": "d6c4e5079033"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_entities.py": {
+            "digest": "15c8dbfc9afa6e2b",
+            "prune": {
+                "*": "bb544eacc4b4"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_formula_ast.py": {
+            "digest": "cb665f07747c4ee9",
+            "prune": {
+                "*": "c2a7572f551f"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_parallel.py": {
+            "digest": "bcf9a5eb78d8ed15",
+            "prune": {
+                "*": "a202791cd202"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_compare_to_date_range.py": {
+            "digest": "1c8f47411970735d",
+            "prune": {
+                "*": "b23b1fb55490"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_date_range.py": {
+            "digest": "e3a931b47af86a14",
+            "prune": {
+                "*": "40adac3c62a5"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_previous_period_date_range.py": {
+            "digest": "36178a64214e50a7",
+            "prune": {
+                "*": "2166d69a7bfe"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_sampling.py": {
+            "digest": "0b1d70d801aa7435",
+            "prune": {
+                "*": "c9bff0520b91"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_time_sliced_query.py": {
+            "digest": "25a80b0051eec65e",
+            "prune": {
+                "*": "54dcd7caf627"
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_timestamp_utils.py": {
+            "digest": "6221182181c1385a",
+            "prune": {
+                "TestTimestampUtils::test_cached_raw_value_is_coerced_on_read": "be08313676bb"
+            }
+        },
+        "posthog/hogql_queries/validation/test_rules.py": {
+            "digest": "6149bdfa3d1c77ef",
+            "prune": {
+                "*": "90319d772d32"
+            }
+        },
+        "posthog/models/team/test_production_event_activation.py": {
+            "digest": "8ffc28998d331465",
+            "prune": {
+                "TestIsProductionHost": "0c2a8ac64557",
+                "TestMarkTeamsIngestedProductionEvent": "6978eb179ef9"
+            }
+        },
+        "posthog/models/test/test_async_deletion_model.py": {
+            "digest": "1a43bd5a6f8eb4e4",
+            "prune": {
+                "TestAsyncDeletion::test_a_team_scoped_key_sweeps_instead_of_raising": "20178706e44e",
+                "TestAsyncDeletion::test_delete_cohortpeople": "6a0b858c4439",
+                "TestAsyncDeletion::test_delete_cohortpeople_version": "059642b05906",
+                "TestAsyncDeletion::test_marking_verified_respects_the_versions_that_survive": "2a6a6c9ca369"
+            }
+        },
+        "posthog/models/test/test_deletion_targets.py": {
+            "digest": "4ceaa87e3ddce487",
+            "prune": {
+                "*": "335d6823fe61"
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recording_list_from_query.py": {
+            "digest": "0989dbf70883edb1",
+            "prune": {
+                "TestClickhouseSessionRecordingsListFromQuery::test_backward_compatibility_offset_still_works": "ae7e76454644",
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_based_pagination_multiple_pages": "9d9c7b5b05a4",
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_based_pagination_single_page": "45d322a5be27",
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_pagination_with_different_ordering_fields": "386098f3db90",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_is_and_combined_with_or_operand": "5508960458d9",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_no_op_when_empty_0_empty_list": "e86bcdebac26",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_no_op_when_empty_1_none": "24993e2b5aaf",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_paginates_over_filtered_set": "c47897a8a41f",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_removes_those_sessions": "c4febd977c28",
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_property_filter_is_applied_to_query": "66050a9c0d00",
+                "TestSessionRecordingsListFromQuery_0::test_basic_query": "385b9d5cdf05",
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_active_sessions": "064c6c6cf86e",
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_with_ordering": "1c9cfb67694a",
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_with_paging": "88a1b10c3077",
+                "TestSessionRecordingsListFromQuery_0::test_bypass_does_not_apply_to_session_ids_derived_from_comment_search": "f2451a6f338f",
+                "TestSessionRecordingsListFromQuery_0::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_0_default_date_range": "4fdcb8712817",
+                "TestSessionRecordingsListFromQuery_0::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_1_explicit_narrow_date_range": "f489f0eda432",
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter": "fa0d26bcce12",
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL": "790c688eb1d6",
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL": "b2e529cd6b22",
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL": "9e9601ad1267",
+                "TestSessionRecordingsListFromQuery_0::test_date_to_filter": "36959e195f45",
+                "TestSessionRecordingsListFromQuery_0::test_date_window_still_excludes_old_recordings_without_session_ids": "0b76b4eabe71",
+                "TestSessionRecordingsListFromQuery_0::test_duration_always_anded_with_visited_page_under_or": "a3cbfb278ff4",
+                "TestSessionRecordingsListFromQuery_0::test_duration_filter": "26911a80d0b2",
+                "TestSessionRecordingsListFromQuery_0::test_duration_metrics_stay_in_valid_range_0_active_time_exceeds_span": "b58ae029c252",
+                "TestSessionRecordingsListFromQuery_0::test_duration_metrics_stay_in_valid_range_1_no_denominator": "61c86338fbb2",
+                "TestSessionRecordingsListFromQuery_0::test_empty_session_ids_list_still_matches_nothing_0_default": "e61aee7b4931",
+                "TestSessionRecordingsListFromQuery_0::test_empty_session_ids_list_still_matches_nothing_1_with_bypass": "435fe0f6fc84",
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_0_single_distinct_id": "a54c7180cace",
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_1_multiple_distinct_ids": "ebf4a24c282e",
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_2_non_existent_distinct_id": "4f36fa5ad392",
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_3_empty_distinct_ids": "4deedd1743fe",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": "19b50dd4c30f",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": "e97fc2ee8a99",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": "d1c03b91fe87",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": "f6c381160ee9",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library": "ab9f87d46a8e",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_snapshot_library": "e2a1046091f1",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_snapshot_source": "6373609979cf",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_visited_page": "b91fa83a1779",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_visited_page_negative_operator": "54113846c104",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_errors": "21aefb8123ee",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_logs": "28c8fe420a19",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_logs_and_explicit_date_range": "72039e3cfe8c",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_warns": "b8161f2875f8",
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_mixed_console_counts": "fd9a00ed9361",
+                "TestSessionRecordingsListFromQuery_0::test_filter_on_session_ids": "ae0b2efa9262",
+                "TestSessionRecordingsListFromQuery_0::test_filter_users_from_excluded_cohort": "918644d897c6",
+                "TestSessionRecordingsListFromQuery_0::test_filter_users_from_excluded_cohort_no_events": "6c0a9477d1c9",
+                "TestSessionRecordingsListFromQuery_0::test_filters_recommended_recordings_by_surfacing_score": "3b0e61d0f0a6",
+                "TestSessionRecordingsListFromQuery_0::test_first_url_selection": "cee618c179fa",
+                "TestSessionRecordingsListFromQuery_0::test_listing_ignores_future_replays": "54eafe126b73",
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "72d18b7f6674",
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "dfbc3138c415",
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_": "c2fe71f708fb",
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_": "7b4fc4a2b4fa",
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "20901550ab8e",
+                "TestSessionRecordingsListFromQuery_0::test_ordering": "d421cd1b4f6f",
+                "TestSessionRecordingsListFromQuery_0::test_recording_property_in_properties_is_routed_to_having_predicates": "43255730101e",
+                "TestSessionRecordingsListFromQuery_0::test_recording_that_spans_time_bounds": "ed62073da7aa",
+                "TestSessionRecordingsListFromQuery_0::test_recordings_dont_leak_data_between_teams": "abd94217390d",
+                "TestSessionRecordingsListFromQuery_0::test_retention_bound_cannot_hide_live_recordings": "e10edf8f195e",
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_0_default_date_range": "4f872fac06a7",
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_1_explicit_narrow_date_range": "679016e54ff2",
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_2_window_covering_the_recording": "c4f0feeed36f",
+                "TestSessionRecordingsListFromQuery_0::test_sessions_with_current_data": "209e8688eb59",
+                "TestSessionRecordingsListFromQuery_1::test_basic_query": "acaa7349dfe8",
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_active_sessions": "59b3294db39f",
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_with_ordering": "00ef8632686d",
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_with_paging": "0def3dfb774a",
+                "TestSessionRecordingsListFromQuery_1::test_bypass_does_not_apply_to_session_ids_derived_from_comment_search": "2c2d4b9d0f0b",
+                "TestSessionRecordingsListFromQuery_1::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_0_default_date_range": "8fa767059e6c",
+                "TestSessionRecordingsListFromQuery_1::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_1_explicit_narrow_date_range": "f49d5e6f2cfe",
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter": "633637f22787",
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL": "c7a01aaa0a1c",
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL": "6bb278f83c59",
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL": "7bdeabca57f8",
+                "TestSessionRecordingsListFromQuery_1::test_date_to_filter": "d26e544379c1",
+                "TestSessionRecordingsListFromQuery_1::test_date_window_still_excludes_old_recordings_without_session_ids": "7014f1d1e707",
+                "TestSessionRecordingsListFromQuery_1::test_duration_always_anded_with_visited_page_under_or": "a56cff284bdc",
+                "TestSessionRecordingsListFromQuery_1::test_duration_filter": "32b375068ee0",
+                "TestSessionRecordingsListFromQuery_1::test_duration_metrics_stay_in_valid_range_0_active_time_exceeds_span": "6486c1e987b5",
+                "TestSessionRecordingsListFromQuery_1::test_duration_metrics_stay_in_valid_range_1_no_denominator": "bc6c503343f1",
+                "TestSessionRecordingsListFromQuery_1::test_empty_session_ids_list_still_matches_nothing_0_default": "cdd1025c534d",
+                "TestSessionRecordingsListFromQuery_1::test_empty_session_ids_list_still_matches_nothing_1_with_bypass": "61c2770c66eb",
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_0_single_distinct_id": "d73a6f6d27de",
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_1_multiple_distinct_ids": "2b8682e9353b",
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_2_non_existent_distinct_id": "052e95981832",
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_3_empty_distinct_ids": "097e5a2344f3",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": "f3dcce73b9a4",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": "ee8b2c96dc3f",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": "dc6b7ff3d161",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": "9fdc91c7359c",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library": "60905edfcf02",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_snapshot_library": "e89a52204c15",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_snapshot_source": "09d2d1f51d95",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_visited_page": "44459eb4eb1b",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_visited_page_negative_operator": "f95f4fb7cbad",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_errors": "342b6ce1890d",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_logs": "7edf8f299189",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_logs_and_explicit_date_range": "499b6d6f0226",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_warns": "2f3337ab2af9",
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_mixed_console_counts": "011c68a30de7",
+                "TestSessionRecordingsListFromQuery_1::test_filter_on_session_ids": "85ab0ebca5ca",
+                "TestSessionRecordingsListFromQuery_1::test_filter_users_from_excluded_cohort": "c6e9ab65fd21",
+                "TestSessionRecordingsListFromQuery_1::test_filter_users_from_excluded_cohort_no_events": "1b4b84ecc3ec",
+                "TestSessionRecordingsListFromQuery_1::test_filters_recommended_recordings_by_surfacing_score": "e5a0f6b7ca5f",
+                "TestSessionRecordingsListFromQuery_1::test_first_url_selection": "ad31e5a93b4c",
+                "TestSessionRecordingsListFromQuery_1::test_listing_ignores_future_replays": "f43977792b5c",
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "f118b121e84a",
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "d1ae9d535016",
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_": "a19a594cab72",
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_": "2307e5af7b82",
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": "9dffaadb6526",
+                "TestSessionRecordingsListFromQuery_1::test_ordering": "12a53ad23c8c",
+                "TestSessionRecordingsListFromQuery_1::test_recording_property_in_properties_is_routed_to_having_predicates": "35e4c65612ec",
+                "TestSessionRecordingsListFromQuery_1::test_recording_that_spans_time_bounds": "9aa63fcc02d7",
+                "TestSessionRecordingsListFromQuery_1::test_recordings_dont_leak_data_between_teams": "80c58cccfce8",
+                "TestSessionRecordingsListFromQuery_1::test_retention_bound_cannot_hide_live_recordings": "d4da46848c5a",
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_0_default_date_range": "6e2c70ef76f2",
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_1_explicit_narrow_date_range": "61df796b7832",
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_2_window_covering_the_recording": "01048eb5b078",
+                "TestSessionRecordingsListFromQuery_1::test_sessions_with_current_data": "1cf53f0a733f"
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_list_by_cohort.py": {
+            "digest": "29ef7b82d768e655",
+            "prune": {
+                "TestSessionRecordingsListByCohort::test_cohort_filter_with_or_operand": "a75498266b19",
+                "TestSessionRecordingsListByCohort::test_filter_with_cohort_properties": "e0b615fccd8f",
+                "TestSessionRecordingsListByCohort::test_filter_with_cohort_when_distinct_id_has_multiple_person_ids": "0186ca5fcd5e",
+                "TestSessionRecordingsListByCohort::test_filter_with_static_and_dynamic_cohort_properties": "5dbef2682113",
+                "TestSessionRecordingsListByCohort::test_internal_account_filter_with_cohort_properties": "3be191169803",
+                "TestSessionRecordingsListByCohort::test_multiple_not_in_cohorts": "9304a0630fdd",
+                "TestSessionRecordingsListByCohort::test_not_in_cohort_with_empty_cohort": "5fbbca44a34d",
+                "TestSessionRecordingsListByCohort::test_not_in_cohort_with_many_users_outside_cohort": "76f0fa9c3035"
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_list_by_experiment_exposure.py": {
+            "digest": "2f365222ce431316",
+            "prune": {
+                "TestSessionRecordingsListByExperimentExposure::test_activation_live_scan_is_memory_bounded_and_memory_kills_keep_their_rendering": "35a6fee84490",
+                "TestSessionRecordingsListByExperimentExposure::test_in_session_stamped_fallback_is_refused_on_precomputing_teams": "57b19fddbf1d",
+                "TestSessionRecordingsListByExperimentExposure::test_list_endpoint_scope_parity_for_api_keys_0_replay_scope_only": "33c1ea0aa967",
+                "TestSessionRecordingsListByExperimentExposure::test_list_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": "6d3c016d345f",
+                "TestSessionRecordingsListByExperimentExposure::test_playlist_recordings_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": "38d5c60b6574",
+                "TestSessionRecordingsListByExperimentExposure::test_query_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": "0a1d6af7e03a"
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_query_date_range.py": {
+            "digest": "fa62cbaaaf0a1e07",
+            "prune": {
+                "*": "685522250408"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_combine_session_ids.py": {
+            "digest": "97332b6b58acb1c0",
+            "prune": {
+                "*": "6d24d82c10e6"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_group_key_resolver.py": {
+            "digest": "ce21b1b68e100da6",
+            "prune": {
+                "*": "b763760bab7f"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_recordings_query_runner.py": {
+            "digest": "c806dc07f7d14857",
+            "prune": {
+                "*": "42d61939eb6a"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_session_replay_events.py": {
+            "digest": "dff8b5d183100cb3",
+            "prune": {
+                "SessionReplayEventsQueries::test_get_group_metadata": "b44fc8b6fc7a",
+                "SessionReplayEventsQueries::test_get_group_metadata_handles_nonexistent_sessions": "d68135c581b4",
+                "SessionReplayEventsQueries::test_get_metadata": "9e42d0a7a0f3",
+                "SessionReplayEventsQueries::test_get_metadata_does_not_leak_between_teams": "2b32eb15ece1",
+                "SessionReplayEventsQueries::test_get_metadata_filters_by_date": "90280d5eab81",
+                "SessionReplayEventsQueries::test_get_metadata_with_block": "d0b158de3276",
+                "SessionReplayEventsQueries::test_get_metadata_with_multiple_blocks": "52e89b769e5a",
+                "SessionReplayEventsQueries::test_get_nonexistent_metadata": "2b81b14543b5",
+                "SessionReplayEventsQueries::test_sessions_found_with_timestamps_empty_list": "a9d4944c1db3",
+                "SessionReplayEventsQueries::test_sessions_found_with_timestamps_no_matches": "5ab2f524ec8b",
+                "TestBatchExists": "1d68cdfdc394",
+                "TestSessionLookupUsesUuidv7Bound": "708c45559f32",
+                "TestUuidv7SessionLowerBound": "0ac790cb9316"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_session_replay_summaries.py": {
+            "digest": "7a58f6c0e06ef9e8",
+            "prune": {
+                "*": "727fa89dff0c"
+            }
+        },
+        "posthog/session_recordings/queries/test/test_strip_properties.py": {
+            "digest": "e891f8f4a5e45ebc",
+            "prune": {
+                "*": "9a3c73f982fe"
+            }
+        },
+        "posthog/tasks/test/test_ai_observability_usage_report.py": {
+            "digest": "c563ae5b5f744cfc",
+            "prune": {
+                "TestAIObservabilityUsageReport::test_send_ai_observability_usage_reports_disabled_by_feature_flag": "5eb2eedfb05e",
+                "TestAIObservabilityUsageReportTaskWiring": "053ccd1c8a76"
+            }
+        },
+        "posthog/tasks/test/test_stop_surveys_reached_target.py": {
+            "digest": "629fd6bebc9a814a",
+            "prune": {
+                "TestStopSurveysReachedTarget::test_do_not_stop_already_stopped_survey_with_responses_limit": "a140a52e3aea",
+                "TestStopSurveysReachedTarget::test_do_not_stop_survey_without_limit": "d49fec5c6f06"
+            }
+        },
+        "posthog/tasks/test/test_usage_report.py": {
+            "digest": "0aab181b4901847c",
+            "prune": {
+                "TestAICreditsRegionHandling": "67edfd4d6dc1",
+                "TestAIEventsUsageReport::test_ai_credits_returns_no_rows_when_instance_group_missing": "bbf91f458c6e",
+                "TestAIEventsUsageReport::test_has_non_zero_usage_counts_posthog_code_credits": "b12ebfe3ddcd",
+                "TestAIEventsUsageReport::test_has_non_zero_usage_counts_signals_credits": "d8f5211afc6e",
+                "TestAIEventsUsageReport::test_signals_credits_bills_reports_with_implementation_pr": "01121028aead",
+                "TestCalendarAlignedQuerySplitting": "74e3aa7f6679",
+                "TestCaptureReportGroupProperties": "6f419566010c",
+                "TestCaptureReportTrimsOversizePayload": "966dcfbd64a2",
+                "TestHasNonZeroUsage": "e34a67a7fc1b",
+                "TestHogFunctionUsageReports::test_sdk_logs_counts_respect_period_and_team_0_aligned": "ab32f7902caa",
+                "TestHogFunctionUsageReports::test_sdk_logs_counts_respect_period_and_team_1_partial_buckets": "d0f55606b4f8",
+                "TestPostHogCodeComputeUsageReport": "f8b2fcf0ecff",
+                "TestQuerySplitting::test_execute_split_query_splits_correctly": "1b222092597f",
+                "TestQuerySplitting::test_execute_split_query_with_custom_combiner": "a6712b3697ef",
+                "TestQuerySplitting::test_split_query_with_different_num_splits": "69198ad09dac",
+                "TestQueryUsageReportSQL": "6bba08c96c05",
+                "TestSendUsage::test_capture_event_called_with_string_timestamp": "6f256181012d",
+                "TestSendUsage::test_capture_event_skips_group_identify_without_group_properties": "7003885a0689",
+                "TestSendUsageNoLicense::test_get_teams_for_usage_reports_only_fields": "20378671639d",
+                "TestTaskSandboxUsageReport": "4636682afddb",
+                "TestTrimOversizeUsageReportPayload": "b5519e644c6d"
+            }
+        },
+        "posthog/temporal/tests/test_clickhouse.py": {
+            "digest": "6faf05ab510b3c40",
+            "prune": {
+                "*": "94131b43a74c"
+            }
+        },
+        "products/ai_observability/backend/api/test/test_personal_spend.py": {
+            "digest": "527ccd4332735ecb",
+            "prune": {
+                "TestPersonalSpendAuth": "4af18bbbc0f9",
+                "TestPersonalSpendEUProxy": "6543ca2a359f",
+                "TestPersonalSpendEuRedirect": "ce787f0ff4c1",
+                "TestPersonalSpendQueries::test_cache_key_includes_date_from": "c9f6ad339e0d"
+            }
+        },
+        "products/batch_exports/backend/tests/api/test_serializers.py": {
+            "digest": "4b19cecf5d6a3cd0",
+            "prune": {
+                "*": "8be0368d02ba"
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py": {
+            "digest": "1b3b5fc22c8d9cde",
+            "prune": {
+                "test_http_export_workflow[None-day]": "77f6ec4a6168",
+                "test_http_export_workflow[None-hour]": "7c021d62720b",
+                "test_http_export_workflow[exclude_events1-day]": "c453bb86ec5b",
+                "test_http_export_workflow[exclude_events1-hour]": "c1b5f18587ab",
+                "test_http_export_workflow_handles_cancellation": "00c7a35b6f61",
+                "test_http_export_workflow_handles_insert_activity_errors": "3381afc17c46",
+                "test_http_export_workflow_handles_insert_activity_non_retryable_errors": "add0cc349b13",
+                "test_http_export_workflow_with_model[None]": "c4e8b216b5bc",
+                "test_http_export_workflow_with_model[batch_export_model1]": "c9eac6686a84",
+                "test_http_export_workflow_with_model[batch_export_model2]": "72133164898a",
+                "test_http_export_workflow_with_model[batch_export_model3]": "bc1c911578d2",
+                "test_http_export_workflow_with_model[batch_export_model4]": "4ecea3a803e8",
+                "test_http_export_workflow_with_model[batch_export_model5]": "8e367937727e",
+                "test_http_export_workflow_with_model[batch_export_model6]": "f61fb37f2c4e",
+                "test_insert_into_http_activity_heartbeats": "e501756d5c65",
+                "test_insert_into_http_activity_preserves_mutation_properties_when_using_native_events": "c241211b5e5f"
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_batch_exports.py": {
+            "digest": "5f51d2c3542bfcf0",
+            "prune": {
+                "test_iter_records_can_exclude_events": "d8e017071d90",
+                "test_iter_records_can_include_events": "174498b78d8a"
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_filters.py": {
+            "digest": "82a9a8f7478c8842",
+            "prune": {
+                "*": "896089e87004"
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_record_batch_model.py": {
+            "digest": "1a8f8531502a8161",
+            "prune": {
+                "TestHogQLQueryRecordBatchModel::test_rechecks_user_property_restrictions_at_runtime[False]": "436a07f4bfcb",
+                "TestSessionsRecordBatchModel": "e74070e065d8",
+                "test_custom_export_recompilation_preserves_column_names[False]": "0c6354a50702",
+                "test_custom_export_recompilation_preserves_column_names[True]": "317164f0fde3"
+            }
+        },
+        "products/batch_exports/backend/tests/test_hogql_source.py": {
+            "digest": "a624a2ad7a72175a",
+            "prune": {
+                "test_rejects_unsupported_queries[expression-placeholder]": "67c8f5600f2a",
+                "test_rejects_unsupported_queries[filters-placeholder]": "f44767f554fe",
+                "test_rejects_unsupported_queries[unaliased-expression]": "a6d1dfc293bb",
+                "test_rejects_unsupported_queries[unknown-field-in-placeholder-comparison]": "15d4129f92d9",
+                "test_rejects_unsupported_queries[unknown-field]": "1f27d38e16e7",
+                "test_rejects_unsupported_queries[unknown-placeholder]": "c77246f1cb19"
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_account_audience.py": {
+            "digest": "09797da0a27864f3",
+            "prune": {
+                "*": "835c23cbf5ff"
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_accounts_query_runner.py": {
+            "digest": "32b19dfbe761299c",
+            "prune": {
+                "*": "3ee66df820b4"
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_accounts_table_query_runner.py": {
+            "digest": "5dac24f6e09e2309",
+            "prune": {
+                "*": "8648f6e4e40d"
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_usage_metrics_query_runner.py": {
+            "digest": "a5e5b2fb8f3d8d93",
+            "prune": {
+                "TestUsageMetricsQueryRunner::test_handles_failed_metric_gracefully": "559fa0adb700",
+                "TestUsageMetricsQueryRunner::test_no_metrics": "a6deb905b81e",
+                "TestUsageMetricsQueryRunner::test_sum_math_with_null_math_property_returns_zero": "161dbc09f2a1",
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_cache_invalidates_when_data_warehouse_field_edited": "10a6b4a38ea8",
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_data_warehouse_count_metric": "627af2ed0150",
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_data_warehouse_sum_metric": "1a4266739782"
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_fingerprint_projection_query_runner.py": {
+            "digest": "d5f2fc1068299ccc",
+            "prune": {
+                "*": "788f19cfea66"
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py": {
+            "digest": "4904537ba7084917",
+            "prune": {
+                "*": "f9d8a5c75076"
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_query_runner.py": {
+            "digest": "b51bd99d73081a24",
+            "prune": {
+                "TestErrorTrackingQueryRunner::test_cache_payload_degrades_when_watermark_read_fails": "5da2a7d30b23",
+                "TestErrorTrackingQueryRunner::test_cache_payload_keeps_latest_issue_state_watermark_after_overlay_expiry": "b3fbe13670fa",
+                "TestErrorTrackingQueryRunner::test_canonicalizes_uuid_params": "2b2f388e74df",
+                "TestErrorTrackingQueryRunner::test_date_range_resolution": "cc8a24c975b8",
+                "TestErrorTrackingQueryRunner::test_date_to_only_window_ends_at_date_to": "60a9c42a1b9b",
+                "TestErrorTrackingQueryRunner::test_distinct_aggregations_are_capped_at_occurrences_0_optimized_shape": "cb49dbf9f8f6",
+                "TestErrorTrackingQueryRunner::test_distinct_aggregations_are_capped_at_occurrences_1_legacy_shape": "91b837f24b54",
+                "TestErrorTrackingQueryRunner::test_event_fetching_defaults_off": "7359ac0bfe1e",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_00_exact_single": "33c516f39462",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_01_exact_multiple": "1cd47eea0ac1",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_02_is_not_single": "964dc314aad3",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_03_is_not_multiple": "1efa0cdb70d3",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_04_icontains": "a712af712e1b",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_05_not_icontains": "df804f4496c7",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_06_starts_with": "6aa25e3db0a7",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_07_not_starts_with": "6482bad67b71",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_08_ends_with": "0ff2c668925e",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_09_not_ends_with": "adf1c15c048a",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_10_is_set": "b1594e4ca3b7",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_11_is_not_set": "6ca4d1de0e59",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_12_description_key_alias": "b7352ffae7bd",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_13_first_seen_gt": "b99e425768f1",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_14_first_seen_gte": "8dc3945fb92f",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_15_first_seen_lt": "1447b0f9a5d4",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_16_first_seen_lte": "96c73fc46e20",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_17_first_seen_is_date_after": "9d66f1a43810",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_18_first_seen_is_date_before": "483449d309bf",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_19_first_seen_exact_single": "94334ceb1703",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_20_first_seen_exact_multiple": "f586138b2929",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_21_description_key": "bcefcab64b50",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_22_unsupported_operator": "273b03e3ee0c",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_23_unsupported_key": "ffa6ea8c991b",
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_24_empty_value": "223802e6ec2d",
+                "TestErrorTrackingQueryRunner::test_missing_date_from_defaults_to_seven_days": "bd7ac5e3fad9",
+                "TestErrorTrackingQueryRunner::test_recent_issue_state_is_scoped_to_team": "975f84341deb",
+                "TestErrorTrackingQueryRunner::test_recent_issue_state_skips_overlay_when_bound_exceeded": "e1130aaf68eb",
+                "TestErrorTrackingQueryRunner::test_rejects_malformed_uuid_params_0_issueId": "9bcc091f7cd8",
+                "TestErrorTrackingQueryRunner::test_rejects_malformed_uuid_params_1_personId": "f64e13d6d6af",
+                "TestErrorTrackingQueryRunner::test_requires_error_tracking_viewer_access": "c1da412fe95b",
+                "TestErrorTrackingQueryRunner::test_similar_issues_ignores_another_teams_fingerprint_row": "d3f345fcd868",
+                "TestErrorTrackingQueryRunner::test_similar_issues_rejects_malformed_issue_id": "f8065df14821",
+                "TestErrorTrackingQueryRunner::test_watermark_decides_whether_the_overlay_reads_0_within_window": "1ea086346bbe",
+                "TestErrorTrackingQueryRunner::test_watermark_decides_whether_the_overlay_reads_1_outside_window": "7f37bedf8307",
+                "TestSearchTokenizer": "92feca4672d1"
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_releases_query_runner.py": {
+            "digest": "11903ad5fbc0ecf0",
+            "prune": {
+                "TestErrorTrackingReleasesQueryRunner::test_flags_a_release_count_the_query_capped": "fd60b6cc1610"
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_query_schema_compat.py": {
+            "digest": "f59f289f63adbe65",
+            "prune": {
+                "*": "01c56df806c3"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_apple_search_ads.py": {
+            "digest": "3571044f9be7106c",
+            "prune": {
+                "*": "ff7eb444b33c"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_campaign_field_preferences.py": {
+            "digest": "8d7058200f65bcf5",
+            "prune": {
+                "*": "82b1501381f2"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_factory.py": {
+            "digest": "60ae83221cdd818f",
+            "prune": {
+                "*": "667acdc2adbd"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_adapters.py": {
+            "digest": "61ff0dad516e84fd",
+            "prune": {
+                "*": "0d805b2ae1eb"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_attribution_sessions_read.py": {
+            "digest": "f8dc58848bbb9d8b",
+            "prune": {
+                "*": "a05dd8a067e7"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_constants.py": {
+            "digest": "054c98bbbdc0131a",
+            "prune": {
+                "*": "cb90c33612f3"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_conversion_goal_processor.py": {
+            "digest": "6b68429914eeb16a",
+            "prune": {
+                "TestConversionGoalProcessor::test_data_warehouse_node_empty_utm_falls_back_to_organic": "aa10f251fb0c"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_conversion_goal_processor_refactor.py": {
+            "digest": "1eb12fb28e5117c7",
+            "prune": {
+                "*": "fc9290383597"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_custom_source_mappings_integration.py": {
+            "digest": "a672daa9d4c0556e",
+            "prune": {
+                "*": "11940209e474"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_aggregated_query_runner.py": {
+            "digest": "93c3319ae8bcba96",
+            "prune": {
+                "*": "f4e958def860"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_base_query_runner.py": {
+            "digest": "46d02ca918ab1adf",
+            "prune": {
+                "*": "ffbd65abf78a"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_config.py": {
+            "digest": "7f1aaa813f79c8f4",
+            "prune": {
+                "*": "befada7c6279"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner.py": {
+            "digest": "8a23fd64bb3d9975",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_drill_down_classifies_adapter_source_03_instagram": "e4e5a20021eb",
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_source_drill_down_keeps_sources_separate_within_a_channel": "c3abfe53a24a",
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_source_drill_down_surfaces_untagged_traffic": "f30418560d76",
+                "TestMarketingAnalyticsTableQueryRunner::test_drill_down_calculate_returns_valid_response_1_channel_source": "9b45a0e1f35d"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner_business.py": {
+            "digest": "ff03f6d0f7ab6358",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_basic_query_execution_no_sources": "ce4526f219c3",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_comprehensive_marketing_analytics_basic": "df2a26fff3a1",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_cost_efficiency_analysis": "018c029a11bf",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_date_range_filtering": "2df4b093ccc9",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_facebook_ads_single_source_execution": "cd1c5801e2e8",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_facebook_only_multi_source_execution": "036319b820a8",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_multi_source_business_metrics_validation": "e5c67993ddb4",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_pagination_basic": "635b569826e7",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_pagination_edge_cases": "3b03f83125bb",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_query_performance_multi_source": "ead5d3078c27",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_query_performance_single_source": "f4288e38a967",
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_zero_cost_campaigns_handling": "9251245318fa",
+                "test_campaign_performance_ranking[campaign-order_by3-False]": "444039e53c44",
+                "test_campaign_performance_ranking[clicks-order_by1-True]": "618aa96fbefe",
+                "test_campaign_performance_ranking[cost-order_by0-True]": "912b8cd2a216",
+                "test_campaign_performance_ranking[impressions-order_by2-True]": "a0ed1686a188"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner_compare.py": {
+            "digest": "cb7a931a38c49a5a",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_basic_query_execution_no_sources": "06d3f02ca925",
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_comprehensive_marketing_analytics_basic": "c86ec2a5070f",
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_invalid_source_map_configuration": "87f60df2e97e",
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_multi_source_business_metrics_validation_with_compare": "245156e27e66",
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_pagination_edge_cases": "2c8aea8e0d7e"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_telemetry.py": {
+            "digest": "f5ae6f584ff98e69",
+            "prune": {
+                "*": "553686cc655e"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_costs_precompute.py": {
+            "digest": "0498b06987c82e3d",
+            "prune": {
+                "*": "ff2c39ab2706"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_lazy_precompute.py": {
+            "digest": "0df9538c37ed3a54",
+            "prune": {
+                "*": "367eb26a424b"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_retention_query_runner.py": {
+            "digest": "d6bd5cf03565ceb8",
+            "prune": {
+                "TestMarketingAnalyticsRetentionQueryRunner::test_an_inverted_date_range_returns_an_empty_table_instead_of_raising_0_session_outside_the_aligned_window": "3971d37d5f6d",
+                "TestMarketingAnalyticsRetentionQueryRunner::test_an_inverted_date_range_returns_an_empty_table_instead_of_raising_1_session_inside_the_aligned_window": "4e0523b13c8f"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_query_settings.py": {
+            "digest": "734dc46fd2403753",
+            "prune": {
+                "*": "c247ae641d7f"
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_utils.py": {
+            "digest": "97a37b797f9d410a",
+            "prune": {
+                "*": "e17b085472c0"
+            }
+        },
+        "products/mcp_analytics/backend/tests/test_dashboard_series.py": {
+            "digest": "5f05cf2539a5ec39",
+            "prune": {
+                "TestMCPDashboardSeriesGate::test_query_endpoint_scope_parity_for_api_keys_00_MCPMissingCapabilitiesQuery": "3f922f92c553"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_aggregation_operations.py": {
+            "digest": "39414e2a4e0c0741",
+            "prune": {
+                "*": "39daba5132df"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_correlation.py": {
+            "digest": "e3745849ab8933b1",
+            "prune": {
+                "TestClickhouseFunnelCorrelation::test_correlation_with_properties_raises_validation_error": "f889e26ec98b",
+                "TestCorrelationFunctions": "bfdead4f7d4e"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_data_warehouse.py": {
+            "digest": "af0605f28ec997f4",
+            "prune": {
+                "TestFunnelDataWarehouse::test_data_warehouse_trends_days_of_week_filters_entrances_0_mondays_only": "a611d6f63928",
+                "TestFunnelDataWarehouse::test_data_warehouse_trends_days_of_week_filters_entrances_1_empty_means_unfiltered": "a9a0178fd715",
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse": "64cabd5b286b",
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_decimal_id_column": "5057f8c33a45",
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_first_time_for_user": "4e3ac6643ba7",
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_non_uuid_id_column": "e7855f2304ae",
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_non_uuid_id_column_with_nulls": "f71bb771ad8e",
+                "TestFunnelDataWarehouse::test_funnels_different_tables_same_config_do_not_share_step_filters": "ab84f903933b",
+                "TestFunnelDataWarehouse::test_funnels_first_time_for_user_two_different_tables": "ee3bccb41309",
+                "TestFunnelDataWarehouse::test_funnels_salesforce_lead_to_opportunity": "0146f5e9b4dc",
+                "TestFunnelDataWarehouse::test_funnels_same_data_warehouse_table_different_timestamp_fields": "6353cb9e3841"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_event_query.py": {
+            "digest": "861ccca55c469636",
+            "prune": {
+                "*": "2a282cb679d9"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_time_to_convert_bins.py": {
+            "digest": "6a4d8fdab1a10ab3",
+            "prune": {
+                "*": "224e780579f8"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_unordered.py": {
+            "digest": "46a78f223934486b",
+            "prune": {
+                "TestFunnelUnorderedStepsBreakdown::test_funnel_step_breakdown_with_step_one_attribution": "63a02ed941c0",
+                "TestFunnelUnorderedStepsBreakdown::test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel": "c46830209681"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_validation_rules.py": {
+            "digest": "4de7ec7e57758e2c",
+            "prune": {
+                "*": "8a6f0321795c"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnels_query_runner.py": {
+            "digest": "254b1440521cda3b",
+            "prune": {
+                "*": "8d23a58595be"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_utils.py": {
+            "digest": "f6d8fec257f0ee01",
+            "prune": {
+                "*": "f8e9b7560d60"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_data_warehouse.py": {
+            "digest": "c0e0edfcb6a78719",
+            "prune": {
+                "*": "ebb100c49b52"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_endpoint_contract.py": {
+            "digest": "c1863e8b9601c515",
+            "prune": {
+                "*": "0ca17494ede6"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_query_runner_filters.py": {
+            "digest": "a834f16dfdeeb061",
+            "prune": {
+                "*": "4f8491fc10a2"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_validation_rules.py": {
+            "digest": "cca98f899a444b44",
+            "prune": {
+                "*": "62e19937a553"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner.py": {
+            "digest": "70a75f5457054570",
+            "prune": {
+                "TestPathsDashboardFilters": "715ac85c88a9"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner_ee.py": {
+            "digest": "982d8368f643c45b",
+            "prune": {
+                "TestClickhousePathsEdgeValidation": "a876c026da6b"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_funnel_converter.py": {
+            "digest": "164fe2cc5a7cf25f",
+            "prune": {
+                "TestEdgeToFunnelsQuery": "116003806c10"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_paths_v2_actors.py": {
+            "digest": "708cb04683dbc709",
+            "prune": {
+                "TestPathsV2ActorsValidation": "997f29a17890"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_paths_v2_query_runner.py": {
+            "digest": "c65bc22f64e0fa98",
+            "prune": {
+                "TestPathsV2FilterConstraints": "2bceff344caf",
+                "TestPathsV2Validation": "72093014cbc9"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_data_warehouse.py": {
+            "digest": "a389debbb444d290",
+            "prune": {
+                "TestRetentionDataWarehouse::test_non_datetime_timestamp_field_is_rejected_0_integer": "395472ca836e",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_actor_query_maps_back_to_actors_0_person": "1ed5e0c1576f",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_actor_query_maps_back_to_actors_1_group": "5dd49e064bc9",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_cohort": "6eb393c81329",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_person_property": "45c299b84631",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_warehouse_column": "4118e4abf711",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_different_tables": "669e97e50c58",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_event_property_breakdown_degrades_to_empty_bucket": "12cade28feeb",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_different_tables": "7b7a70ede909",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_0_sum": "97399efe60a2",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_1_avg": "dc4ec668bae7",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_different_events": "318aa9192fb2",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_return_event_with_minimum_occurrences": "68b5907ea08b",
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_same_table": "78aa3798dfac",
+                "TestRetentionDataWarehouse::test_retention_first_time_dwh_excludes_anchor_before_window": "c3eace3c141e",
+                "TestRetentionDataWarehouse::test_retention_first_time_dwh_property_aggregation_different_events": "7c970aa711c7",
+                "TestRetentionDataWarehouse::test_retention_first_time_vs_first_ever_dwh_property_aggregation_same_entity": "14c557111431",
+                "TestRetentionDataWarehouse::test_retention_first_time_vs_first_ever_dwh_same_table": "4e3dadde7330"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_data_warehouse_24h_window.py": {
+            "digest": "6a2a0ccef06a0a7a",
+            "prune": {
+                "TestRetentionDataWarehouse24hWindow::test_actors_query_filters_to_selected_interval_24h_window": "965c962d0639",
+                "TestRetentionDataWarehouse24hWindow::test_first_time_dwh_start_excludes_anchor_before_window_24h": "a61c8b584883",
+                "TestRetentionDataWarehouse24hWindow::test_first_time_modes_dwh_start_24h_window_0_retention_first_ever_occurrence": "3340e7f52b11",
+                "TestRetentionDataWarehouse24hWindow::test_first_time_modes_dwh_start_24h_window_1_retention_first_time": "02df7574ddf0",
+                "TestRetentionDataWarehouse24hWindow::test_same_table_dwh_start_and_return_24h_window": "be0f01624d88",
+                "TestRetentionDataWarehouse24hWindow::test_two_different_dwh_tables_24h_window": "4d05452a6ca6"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_endpoint_contract.py": {
+            "digest": "954146f290abbfcd",
+            "prune": {
+                "*": "0c08e856ded0"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_first_time_anchor.py": {
+            "digest": "7b4421e607acc863",
+            "prune": {
+                "*": "ab4ccba78ca8"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_query_runner.py": {
+            "digest": "ee4f3700442c3342",
+            "prune": {
+                "TestRetention::test_cohort_filter_optimization_with_cohort_breakdown": "9ec7e705949c",
+                "TestRetention::test_cohort_filter_optimization_with_dashboard_filters": "a21655848d0b",
+                "TestRetention::test_cohort_filter_optimization_with_nested_properties": "d6d2063dc3de",
+                "TestRetention::test_cohort_filter_optimization_with_property_filter": "364f1d60a1ef",
+                "TestRetentionFirstTimeTwoArmScan": "8e298d57b5ae"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_query_runner_filters.py": {
+            "digest": "6913ee46c1be7b0a",
+            "prune": {
+                "*": "0728f017b096"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_utils.py": {
+            "digest": "f6c64dae237049d1",
+            "prune": {
+                "*": "afbbceb32406"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_validation_rules.py": {
+            "digest": "753864854b0915e8",
+            "prune": {
+                "*": "a856b1d10ede"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/stickiness/test/test_stickiness_query_runner.py": {
+            "digest": "55fbc7d853415e94",
+            "prune": {
+                "TestStickinessDashboardFilters": "258a26d3cb0f",
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse": "3da5b22961b5",
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse_uses_configured_timestamp_field": "b67f90f1a741",
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse_with_entity_property_filter": "5d987a0f1927",
+                "TestStickinessSeriesCustomNames": "032f2e0b7af3",
+                "TestStickinessSeriesFanOut": "0c89a99fb6ec"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_aggregation_operations.py": {
+            "digest": "5604e25d65c5629f",
+            "prune": {
+                "*": "3e9599eb2290"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_boxplot_trends_query_runner.py": {
+            "digest": "30b8a5c8f900ce35",
+            "prune": {
+                "TestBoxPlotTrendsQueryRunnerDataWarehouse": "b552eddde3cc"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_breakdown_limits.py": {
+            "digest": "90098ef2525e247d",
+            "prune": {
+                "*": "79e31b39a17e"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_math_property_revenue_currency_timestamp.py": {
+            "digest": "c718d04e96a8c4be",
+            "prune": {
+                "*": "44747657d675"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_session_level_aggregation.py": {
+            "digest": "a2cd7cd4eb98ee21",
+            "prune": {
+                "*": "da6e10d457e2"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trend_validation_rules.py": {
+            "digest": "a4a076cf53e25bd9",
+            "prune": {
+                "*": "be8b195dfd9a"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends.py": {
+            "digest": "ff3a6b1a866e5565",
+            "prune": {
+                "TestTrends::test_breakdown_label": "6fd646288022",
+                "TestTrends::test_should_throw_exception": "67c4723cfd17"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_actors_query_builder.py": {
+            "digest": "8d8da517dc855023",
+            "prune": {
+                "*": "276c9d8b0950"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_dashboard_filters.py": {
+            "digest": "1d6e243ef1942650",
+            "prune": {
+                "*": "91d5d5626710"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_data_warehouse_query.py": {
+            "digest": "a22fa717bf294bef",
+            "prune": {
+                "TestTrendsDataWarehouseQuery::test_column_names_with_display_type": "3db950a58416",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown": "82c08b695204",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_by_warehouse_person_property_with_empty_columns": "8dc1559587d7",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_by_warehouse_person_property_with_missing_column": "49186eb66088",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_on_view": "31d10288181e",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_on_view_with_date_timestamp": "1d7e9a1ea771",
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_with_property": "866897dfbfb9",
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse": "3bfa54939b7e",
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse_all_time": "cddc92bda97a",
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse_uses_configured_distinct_id_field": "6d3ad87b7507",
+                "TestTrendsDataWarehouseQuery::test_trends_entity_property": "09f895855313",
+                "TestTrendsDataWarehouseQuery::test_trends_over_a_view_tags_the_saved_query": "e76feee3f489",
+                "TestTrendsDataWarehouseQuery::test_trends_query_properties": "da26986d479b",
+                "TestTrendsDataWarehouseQuery::test_trends_single_item_multi_breakdown": "0904eea95ffa",
+                "TestTrendsDataWarehouseQuery::test_trends_single_item_multi_breakdown_boolean_field": "b19aa4df008b",
+                "TestTrendsDataWarehouseQuery::test_trends_view_avg": "4461a3d596a7",
+                "TestTrendsDataWarehouseQuery::test_trends_view_quartile": "299b8a5d16c1",
+                "TestTrendsDataWarehouseQuery::test_trends_with_date32_timestamp_column": "aa1d5993eb43",
+                "TestTrendsDataWarehouseQuery::test_trends_with_multiple_property_types": "b082f2d347a6"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py": {
+            "digest": "8d5d709e1355d735",
+            "prune": {
+                "TestTrendsQueryRunner::test_actors_query_explicit_dates": "f1c2a5e7c67d",
+                "TestTrendsQueryRunner::test_should_throw_exception": "ba9ac0cbbb7d",
+                "TestTrendsQueryRunner::test_to_actors_query_options": "28175e23225d",
+                "TestTrendsQueryRunner::test_to_actors_query_options_breakdowns_cohort": "d2e660f488d7",
+                "TestTrendsQueryRunner::test_to_actors_query_options_compare": "eec522cbf1bb",
+                "TestTrendsQueryRunner::test_to_actors_query_options_compare_to": "db1fe413e9cb",
+                "TestTrendsQueryRunner::test_to_actors_query_options_multiple_series": "331fb55c056d",
+                "TestTrendsQueryRunnerParallelExecution::test_empty_cohort_breakdown_returns_no_results_instead_of_raising": "f2b7946a91cd"
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_utils.py": {
+            "digest": "1138c67c06254062",
+            "prune": {
+                "*": "90950eba9c69"
+            }
+        },
+        "products/revenue_analytics/backend/views/test/test_mrr_views.py": {
+            "digest": "6efc3a248cd7d558",
+            "prune": {
+                "TestMRRViewsE2E::test_no_data_when_no_stripe_source_data_warehouse_tables": "bb18dcc113d4",
+                "TestMRRViewsE2E::test_query_output_data_warehouse_tables": "4f9c241f41c2"
+            }
+        },
+        "products/surveys/backend/api/test/test_survey.py": {
+            "digest": "6abc4579d4989c91",
+            "prune": {
+                "TestExternalSurveyValidation": "6b828bbf5a09",
+                "TestGetSurveyConditionsActionSanitization": "4ee8c16fa279",
+                "TestMultipleChoiceQuestions": "4d529bd4d747",
+                "TestSurvey": "b4e3a6347fa4",
+                "TestSurveyBulkDuplication": "9b3c2df46abb",
+                "TestSurveyFeatureFlagScopeEnforcement": "7aa71c1b598a",
+                "TestSurveyFeatureFlagScopeWarning": "1734654b1bc8",
+                "TestSurveyLifecycleActions": "25955d7cf6e6",
+                "TestSurveyListTypeFilter": "765e0e46cdce",
+                "TestSurveyQuestionLabels": "abb439bf03e4",
+                "TestSurveyQuestionValidation": "794da9a88e2e",
+                "TestSurveyQuestionValidationWithEnterpriseFeatures": "e8189871482e",
+                "TestSurveyResponseArchive": "4d22b4e64658",
+                "TestSurveyResponseSampling": "bcc7296ae17f",
+                "TestSurveyStats::test_create_survey_with_valid_linked_flag_variant": "70bd65878206",
+                "TestSurveyStats::test_update_survey_with_invalid_linked_flag_variant": "9c92f52e35b2",
+                "TestSurveyStats::test_update_survey_with_valid_linked_flag_variant": "412007863a8d",
+                "TestSurveySummarizeByQuestionId": "31186f2db303",
+                "TestSurveySummarizeDispatchesToHeadline": "eb679d5c7614",
+                "TestSurveyWithActions": "a138c3d43ab3",
+                "TestSurveysRecurringIterations": "e60d4f115144"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/external/test/test_summary_query_runner.py": {
+            "digest": "8768c0fb40a0afda",
+            "prune": {
+                "*": "e92d7be317bc"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_bot_definitions.py": {
+            "digest": "4906fde9f855cff6",
+            "prune": {
+                "*": "c636ab9a2ed7"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_cookieless_flag.py": {
+            "digest": "6dac2b648c7589c1",
+            "prune": {
+                "*": "17a0175204d2"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_custom_bot_definitions.py": {
+            "digest": "9e73d6037404ad80",
+            "prune": {
+                "*": "711b047b1d9c"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_session_attribution_explorer_query_runner.py": {
+            "digest": "75eaed388a1a20d2",
+            "prune": {
+                "*": "f261d539ffca"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_cohort_filter.py": {
+            "digest": "de7c1f2dce554e5c",
+            "prune": {
+                "TestWebAnalyticsCohortFilter::test_web_overview_cohort_filter_disables_preaggregated_tables": "e97864cf8595",
+                "TestWebAnalyticsCohortFilter::test_web_stats_table_cohort_filter_disables_preaggregated_tables": "0174d7c22631"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_metrics.py": {
+            "digest": "f9f728f67c92746d",
+            "prune": {
+                "*": "9f0841796a0a"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_query_runner.py": {
+            "digest": "e5030a73c65438a9",
+            "prune": {
+                "TestWebStatsTableQueryRunner": "bca3f0b1dc0b"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_rbac.py": {
+            "digest": "98b697ef58df5705",
+            "prune": {
+                "*": "834a9cb933c4"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_bounces_pre_aggregated.py": {
+            "digest": "79cdfc4b6a1651bc",
+            "prune": {
+                "TestWebBouncesPreAggregated::test_preagg_vs_raw_events_comparison": "b51412c18d43",
+                "TestWebBouncesPreAggregated::test_web_bounces_table_match_expected_metrics": "11c092f63654"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_dimensional_precompute.py": {
+            "digest": "a75305eed4baf27f",
+            "prune": {
+                "TestColdBackfillSplitsByTtlBandNotPerDay": "b934b64207f1",
+                "TestWebDimensionalPrecomputeTemplates": "02a3c6469af7"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_lazy_precompute_common.py": {
+            "digest": "dd1008530592db7d",
+            "prune": {
+                "TestCacheKeyVariesWithRolloutState": "22ea43770240",
+                "TestChannelModifiersShapeKey": "a1ec5ad9ecda",
+                "TestCheckCommonEligibility": "ca7c2ffac6b6",
+                "TestComputeFiltersEligibilityHash": "b1d29dd3f0a2",
+                "TestComputeShapeCapKey": "5f83d176f5fd",
+                "TestEligibilityReasonTagging": "e1fad78e9125",
+                "TestHostFilterExpr": "9e885c28df6b",
+                "TestIsPrecomputeEnabledForTeam": "f37c7b181171",
+                "TestLazyTtlSchedule": "c621474d92e6",
+                "TestOwningLazyPrecomputeFamily": "6d395975784c",
+                "TestPrecomputeShapeCapWiring": "46a6eed03fff",
+                "TestServeLiveWarmBehind": "8314b9772aaa",
+                "TestStaleRevalidationEnqueue": "13b31b8be51c",
+                "TestStickyWarmShapes": "b6b38c6bcb74",
+                "TestTeamOomPin": "de8c669da3ab",
+                "TestTryReservePrecomputeShape": "de5ff89e375b",
+                "TestVolumeFloor": "65fd76c764ae",
+                "TestWebEnsurePrecomputed": "da8bcc4166b4"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_overview.py": {
+            "digest": "b00e8a73d69900ea",
+            "prune": {
+                "TestWebOverviewQueryRunner::test_preaggregated_queries_use_utc_filtering": "125f61d29071",
+                "TestWebOverviewQueryRunner::test_preaggregated_query_sql_snapshot_with_timezone": "b2995f72598a"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_pre_aggregated.py": {
+            "digest": "4b13abc1955d0636",
+            "prune": {
+                "TestWebStatsPreAggregated::test_browser_breakdown": "1bac6316b996",
+                "TestWebStatsPreAggregated::test_can_use_preaggregated_tables_rejects_recent_relative_date_range": "81d2fd2026ce",
+                "TestWebStatsPreAggregated::test_can_use_preaggregated_tables_with_supported_breakdowns": "dbae866ad67e",
+                "TestWebStatsPreAggregated::test_cannot_use_preaggregated_tables_with_unsupported_breakdown": "672176d524b4",
+                "TestWebStatsPreAggregated::test_cannot_use_preaggregated_tables_with_unsupported_properties": "76eac13b3cc7",
+                "TestWebStatsPreAggregated::test_country_breakdown": "c0a7779284a8",
+                "TestWebStatsPreAggregated::test_device_type_breakdown": "b65088472bb5",
+                "TestWebStatsPreAggregated::test_include_host_concatenates_host_and_path_0_InitialPage": "a7f0cd57b0b7",
+                "TestWebStatsPreAggregated::test_include_host_concatenates_host_and_path_1_ExitPage": "a63eb469ffbf",
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_0_Page": "cb014914daae",
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_1_InitialPage": "30ef49045268",
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_2_ExitPage": "af713221f166",
+                "TestWebStatsPreAggregated::test_include_host_page_breakdown_groups_same_paths_separately": "73e57cdd10bc",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_0_1_hour_no_explicit_date_to": "576797997d87",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_1_6_hours_no_explicit_date_to": "fe378e35bd30",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_2_7_hours_no_explicit_date_to": "25a03c36cd32",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_3_24_hours_no_explicit_date_to": "9c535e9649c2",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_4_1_hour_with_explicit_date_to": "77fb54f5763c",
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_5_6_hours_with_explicit_date_to": "6d33cf3d05f2",
+                "TestWebStatsPreAggregated::test_page_breakdown": "f4c3d53585a9",
+                "TestWebStatsPreAggregated::test_page_breakdown_with_pathname_filter": "251c2e4b9251",
+                "TestWebStatsPreAggregated::test_property_filtering": "24039cf3d54d",
+                "TestWebStatsPreAggregated::test_query_includes_order_by": "761d48374418",
+                "TestWebStatsPreAggregated::test_query_with_supported_properties": "e35075bfdf13",
+                "TestWebStatsPreAggregated::test_utm_source_breakdown": "860afd02f759",
+                "TestWebStatsPreAggregated::test_viewport_breakdown": "b6eb0a9b4b7a"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_pre_aggregated_channel_types.py": {
+            "digest": "02fa019730edc470",
+            "prune": {
+                "TestWebStatsPreAggregatedChannelTypes::test_channel_type_breakdown_with_stats_table_runner": "4514bea96ff4",
+                "TestWebStatsPreAggregatedChannelTypes::test_channel_type_filtering_with_different_channel_types": "3b9b544ea4b9",
+                "TestWebStatsPreAggregatedChannelTypes::test_covers_all_default_channel_types": "cfbebbcfc665"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_table.py": {
+            "digest": "cd34f50e236cc40c",
+            "prune": {
+                "TestWebStatsTableQueryRunner::test_calculate_pageview_statistics_excludes_null_durations": "fb66c32a4efe",
+                "TestWebStatsTableQueryRunner::test_calculate_pageview_statistics_p90_multiple_sessions": "517cf4efd4b8",
+                "TestWebStatsTableQueryRunner::test_first_pageview_attribution_bypasses_lazy_precompute": "103bd63bd253"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_traffic_type.py": {
+            "digest": "8610c0687f4d227e",
+            "prune": {
+                "*": "545d74ae2b3f"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_trends_lazy_precompute.py": {
+            "digest": "7f4e582879823aed",
+            "prune": {
+                "TestCurrentPeriodBoundary": "0d3fe8703920"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_vitals_timeseries_lazy_precompute.py": {
+            "digest": "2df9a3d84856c78c",
+            "prune": {
+                "TestVitalsTimeseriesGate": "347ea487ab0d"
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test_web_analytics_tables_version.py": {
+            "digest": "9908213106e95779",
+            "prune": {
+                "*": "3fe4807a7052"
+            }
+        },
+        "products/web_analytics/backend/test/test_heatmaps_api.py": {
+            "digest": "04204f286a4539b8",
+            "prune": {
+                "TestSessionRecordings::test_can_filter_by_exact_url": "aba04d7f33b1",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_^http\\:\\/\\/example\\.com\\/?(\\?.*)?(#.*)?$": "2e2d5bb01ebf",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com*": "070509cca0ba",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products*": "aee8291f424f",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/*/parts/*": "920fd20bd60b",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*": "1f8e63b3e8a2",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/1*": "52cb51bd3d71",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*": "729833071a41",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http\\:\\/\\/example\\.com\\/products\\/*\\/parts\\/*": "8039f2f340aa",
+                "TestSessionRecordings::test_can_filter_by_url_pattern_where_end_is_anchored": "991d2623b06d",
+                "TestSessionRecordings::test_can_filter_by_viewport_0_min_150": "ba4c3ad1a5ff",
+                "TestSessionRecordings::test_can_filter_by_viewport_1_min_161": "3379b964cabb",
+                "TestSessionRecordings::test_can_filter_by_viewport_2_min_177": "7e2933ac3530",
+                "TestSessionRecordings::test_can_filter_by_viewport_3_min_201": "ba7033ba6a76",
+                "TestSessionRecordings::test_can_filter_by_viewport_4_min_161_and_max_192": "b9206bf36dcb",
+                "TestSessionRecordings::test_can_get_all_data_response": "10cf81afdc42",
+                "TestSessionRecordings::test_can_get_count_by_aggregation": "4f11ae159220",
+                "TestSessionRecordings::test_can_get_empty_response": "701307508e2d",
+                "TestSessionRecordings::test_can_get_filter_by_click": "15d38cd2c2b5",
+                "TestSessionRecordings::test_can_get_filter_by_date_from": "966543aa6aeb",
+                "TestSessionRecordings::test_can_get_filter_by_relative_date": "55cb5ee6a643",
+                "TestSessionRecordings::test_can_get_scrolldepth_counts": "0684a6e3fb18",
+                "TestSessionRecordings::test_can_get_scrolldepth_counts_by_visitor": "cf10b027d22c",
+                "TestSessionRecordings::test_cannot_query_across_teams": "7c28a812e370",
+                "TestSessionRecordings::test_capture_allowlist_also_hides_off_list_rows_from_the_interaction_drill_down": "ff91345bd451",
+                "TestSessionRecordings::test_capture_allowlist_applies_the_version_active_when_each_row_was_captured": "ced0242cbc3c",
+                "TestSessionRecordings::test_capture_allowlist_hides_off_list_rows_after_enforcement": "3b6c51ff5a4d",
+                "TestSessionRecordings::test_capture_allowlist_ignored_when_enforcement_disabled": "1530166288ab",
+                "TestSessionRecordings::test_event_filter_is_ignored_when_the_flag_is_off": "cc4655d7db7c",
+                "TestSessionRecordings::test_hide_zero_coordinates_false_includes_zero_zero": "c70e25828e60",
+                "TestSessionRecordings::test_hide_zero_coordinates_filters_out_zero_zero_events_0_explicit_true": "a7c11569e264",
+                "TestSessionRecordings::test_hide_zero_coordinates_filters_out_zero_zero_events_1_default": "d7425c0bdf28",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_0_default_returns_all": "58d1bcad1ae5",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_1_limit_zero_is_unbounded": "d80cf7ea4806",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_2_limit_truncates_hottest_first": "32705c7346dd",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_3_limit_equal_to_total": "6b034aa5f187",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_4_offset_pages_into_cooler_points": "0038fe114557",
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_5_offset_past_end_returns_empty": "3b540bd80502",
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_0_total_count": "7d8d227cc04f",
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_1_unique_visitors": "94da74ba4c31",
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_3_": "06c938118e5f",
+                "TestSessionRecordings::test_only_allow_valid_values_for_filter_test_accounts_1_boolean_false_is_valid": "72a918df8e63",
+                "TestSessionRecordings::test_only_allow_valid_values_for_filter_test_accounts_6_number_zero_is_valid": "7fa694c95e52",
+                "TestSessionRecordings::test_returns_below_the_fold_summary": "5e587bbe3b05",
+                "TestSessionRecordings::test_scrolldepth_ignores_limit_and_has_no_has_more": "b859ffbbd345",
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_0_query_no_slash_data_no_slash": "778c07cbc293",
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_1_query_no_slash_data_with_slash": "d61115ac16fc",
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_2_query_with_slash_data_no_slash": "979b2624be46",
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_3_query_with_slash_data_with_slash": "3f245fddfae0"
+            }
+        }
+    },
+    "source": "https://github.com/PostHog/posthog/actions/runs/36152024457"
+}

@@ -5,10 +5,12 @@ import atexit
 import warnings
 import contextlib
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 import time_machine
 
+from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
@@ -221,6 +223,14 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
+    if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
+        from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
+            EventsSchemaRecorder,
+        )
+
+        config.pluginmanager.register(EventsSchemaRecorder(Path(record_path)), "posthog-events-schema-recorder")
+    if prune_manifest := os.environ.get("POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST"):
+        config.pluginmanager.register(EventsSchemaPruner(Path(prune_manifest)), "posthog-events-schema-pruner")
 
 
 def pytest_collection_finish() -> None:

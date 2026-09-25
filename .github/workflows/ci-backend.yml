@@ -3603,6 +3603,16 @@ jobs:
                           JSON_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
                                       --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
+                      if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+                          # The hourly run keeps every listed test and records which ones read the
+                          # JSON tables, for "Check the events_json prune manifest" below.
+                          export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
+                      elif [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f .github/new-events-schema-prune.json ]]; then
+                          # Skips the tests that a recording showed never read the JSON tables. The
+                          # merge queue runs every listed test, so a skipped test whose code starts
+                          # to read those tables still fails before the change reaches master.
+                          export POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST=.github/new-events-schema-prune.json
+                      fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
@@ -3674,6 +3684,16 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Check the events_json prune manifest
+              # A test file in the manifest can stay unchanged while the code it covers starts to
+              # read the JSON tables. The hourly run records every listed test, so it fails here
+              # and names the rebuild command.
+              if: ${{ !cancelled() && matrix.json-targets && github.event_name == 'schedule' && hashFiles('events-schema-record.json') != '' }}
+              env:
+                  RUN_ID: ${{ github.run_id }}
+                  REVISION: ${{ github.sha }}
+              run: python posthog/test/events_schema_prune.py check --run-id "$RUN_ID" --revision "$REVISION" .github/new-events-schema-prune.json events-schema-record.json
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -3905,6 +3925,15 @@ jobs:
                   path: |
                       junit-*.xml
                       !junit-*-retry-failures.xml
+
+            - name: Upload events schema recording
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() && matrix.json-targets && github.event_name == 'schedule' }}
+              with:
+                  name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: events-schema-record.json
+                  if-no-files-found: ignore
+                  retention-days: 14
 
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
