@@ -34,6 +34,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_PROMPT_CHARS,
     BoundedPrompt,
+    UnparseableCompletionError,
     bound_prompt_over_columns,
     build_enrichment_client,
     capture_enrichment_event,
@@ -453,7 +454,10 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
-        capture_exception(e)
+        # An unparseable reply is an occasional model miss, not a bug: the columns stay unannotated,
+        # so the next sync asks again. The log and the events below still record it.
+        if not isinstance(e, UnparseableCompletionError):
+            capture_exception(e)
         log.error(
             "warehouse_enrichment.llm_failed",
             error=str(e),
