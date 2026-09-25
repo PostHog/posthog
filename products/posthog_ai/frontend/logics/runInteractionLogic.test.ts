@@ -16,8 +16,10 @@ import {
 } from 'products/tasks/frontend/generated/api'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
+import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
@@ -166,6 +168,11 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: { error: jest.fn() },
 }))
 
+jest.mock('../utils/artifactUpload', () => ({
+    uploadRunAttachments: jest.fn(),
+    uploadStagedTaskAttachments: jest.fn(),
+}))
+
 describe('runInteractionLogic', () => {
     let logic: ReturnType<typeof runInteractionLogic.build>
     let stream: ReturnType<typeof runStreamLogic.build>
@@ -224,6 +231,104 @@ describe('runInteractionLogic', () => {
         stream?.unmount()
         project?.unmount()
         toolEvents?.unmount()
+    })
+
+    describe('file attachments', () => {
+        let attachments: ReturnType<typeof composerAttachmentsLogic.build>
+
+        beforeEach(() => {
+            attachments = composerAttachmentsLogic({ attachmentsKey: RUN_ID })
+            attachments.mount()
+            attachments.actions.addFiles([new File(['a'], 'rows.csv')])
+        })
+
+        afterEach(() => {
+            attachments.unmount()
+        })
+
+        it('uploads the staged files to the run and carries their ids on the follow-up', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-1'])
+
+            logic.actions.setComposerFormValues({ draft: 'What is wrong here?' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [expect.any(File)])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'user_message',
+                params: { content: 'What is wrong here?', artifact_ids: ['art-1'] },
+            })
+            expect(attachments.values.attachments).toEqual([])
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('keeps the files staged when the send fails', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+
+            logic.actions.setComposerFormValues({ draft: 'What is wrong here?' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(attachments.values.attachments).toHaveLength(1)
+            expect(attachments.values.uploading).toBe(false)
+            expect(logic.values.composerForm.draft).toBe('What is wrong here?')
+        })
+
+        it('sends the files queued with a message, not the ones attached since', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-queued'])
+            setThinking(true)
+            logic.actions.setComposerFormValues({ draft: 'first message' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            attachments.actions.addFiles([new File(['b'], 'next-draft.csv')])
+            setThinking(false)
+            await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [
+                expect.objectContaining({ name: 'rows.csv' }),
+            ])
+            expect(attachments.values.stagedAttachments.map((attachment) => attachment.file.name)).toEqual([
+                'next-draft.csv',
+            ])
+        })
+
+        it('hands the files back when the queued message they belong to is removed', async () => {
+            setThinking(true)
+            logic.actions.setComposerFormValues({ draft: 'first message' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+            expect(attachments.values.stagedAttachments).toEqual([])
+
+            await expectLogic(logic, () =>
+                logic.actions.removeQueuedMessage(logic.values.queuedMessages[0].id)
+            ).toFinishAllListeners()
+
+            expect(attachments.values.stagedAttachments.map((attachment) => attachment.file.name)).toEqual(['rows.csv'])
+        })
+
+        it('stages the files on the task when a terminal run starts a new one', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockResolvedValue(['art-2'])
+            setStatus('completed')
+
+            logic.actions.setComposerFormValues({ draft: 'Try again with this' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            expect(uploadStagedTaskAttachments).toHaveBeenCalledWith('997', TASK_ID, [expect.any(File)])
+            expect(tasksRunCreate).toHaveBeenCalledWith(
+                '997',
+                TASK_ID,
+                expect.objectContaining({ pending_user_artifact_ids: ['art-2'] }),
+                expect.anything()
+            )
+            expect(attachments.values.attachments).toEqual([])
+        })
+    })
+
+    it('sends a follow-up with no artifact ids when nothing is attached', async () => {
+        logic.actions.setComposerFormValues({ draft: 'Plain follow-up' })
+        await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+        expect(uploadRunAttachments).not.toHaveBeenCalled()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('Plain follow-up'))
     })
 
     it('restores queued text and the latest page-exit draft without sending on readiness or turn completion', async () => {
