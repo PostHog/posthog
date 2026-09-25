@@ -73,6 +73,13 @@ export interface featureFlagCleanupAssessmentLogicActions {
         dismissGroup: string | undefined
         key: string
     } // attachedContextLogic
+    markContextSent: (
+        taskId: string,
+        keys: string[]
+    ) => {
+        keys: string[]
+        taskId: string
+    } // attachedContextLogic
     setSeed: (seed: { prompt: string; autoSubmit: boolean }) => {
         seed: { prompt: string; autoSubmit: boolean }
     } // composerSeedLogic
@@ -147,7 +154,7 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
         ],
         actions: [
             attachedContextLogic,
-            ['registerContext', 'deregisterContext', 'undismissContext'],
+            ['registerContext', 'deregisterContext', 'undismissContext', 'markContextSent'],
             composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
             ['setSeed', 'consumeSeed'],
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
@@ -186,7 +193,7 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         startAssessment: ({ featureFlag, projectId }) => {
             if (values.assessmentStarted || !values.isCleanupAvailable) {
                 return
@@ -198,10 +205,10 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
                 attachedContextItemKey(FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM),
                 FEATURE_FLAG_CLEANUP_DISMISS_GROUP
             )
-            actions.registerContext(
-                providerId(featureFlag.id),
-                featureFlagCleanupAssessmentContextItems(featureFlag, projectId)
-            )
+            const items = featureFlagCleanupAssessmentContextItems(featureFlag, projectId)
+            const target = items.find((item) => item.type === 'feature_flag_cleanup_target')
+            cache.targetKey = target ? attachedContextItemKey(target) : null
+            actions.registerContext(providerId(featureFlag.id), items)
             // Do not resume whatever the panel was already showing - a run in progress, history, or an
             // unrelated draft - so this action never appends to an unrelated task.
             actions.clearActiveCreation()
@@ -213,6 +220,13 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
                 flag_id: featureFlag.id,
                 flag_key: featureFlag.key,
             })
+        },
+        // Release the context once a sent message carries it, so a later conversation on this page does not
+        // get the assessment-only instruction. A failed send marks nothing, so a retry still carries it.
+        markContextSent: ({ keys }) => {
+            if (cache.targetKey && keys.includes(cache.targetKey)) {
+                actions.deregisterContext(providerId(props.id))
+            }
         },
     })),
 

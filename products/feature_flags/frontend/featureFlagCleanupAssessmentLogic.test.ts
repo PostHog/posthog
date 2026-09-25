@@ -226,6 +226,29 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toBeNull()
         })
 
+        it.each([
+            { sent: 'the cleanup target', sendsTarget: true, remaining: 0 },
+            { sent: 'only unrelated context', sendsTarget: false, remaining: 3 },
+        ])(
+            'leaves $remaining request context items after a message carrying $sent is sent',
+            async ({ sendsTarget, remaining }) => {
+                await expectLogic(logic, () => {
+                    logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                }).toFinishAllListeners()
+                const target = attachedContextLogic.values.contextItems.find(
+                    (item) => item.type === 'feature_flag_cleanup_target'
+                )
+                const unrelatedKey = 'feature_flag:some-other-flag'
+
+                attachedContextLogic.actions.markContextSent(
+                    'task-1',
+                    sendsTarget && target ? [unrelatedKey, attachedContextItemKey(target)] : [unrelatedKey]
+                )
+
+                expect(attachedContextLogic.values.contextItems).toHaveLength(remaining)
+            }
+        )
+
         it("leaves another producer's newer seed in place on unmount", async () => {
             await expectLogic(logic, () => {
                 logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
