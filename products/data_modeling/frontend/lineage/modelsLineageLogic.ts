@@ -104,23 +104,6 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
 
-        // The viewport flies here. A plain term matches by substring, so on a big DAG it hits many
-        // scattered nodes, and fitting all of them zooms back out to the unreadable overview. Fly to
-        // the single closest match instead, because the rest keep their ring and show in the minimap.
-        // Match within the visible nodes, since the canvas only lays out those: a closest name that
-        // the type filter hides would leave the graph nothing to fit and the viewport would not move.
-        // Lineage selectors have already pruned the graph, so there we fit the whole surviving cone.
-        focusNodeIds: [
-            (s) => [s.parsedSearch, s.visibleNodes],
-            (parsedSearch: ParsedLineageSearch, visibleNodes: DataModelingNode[]): Set<string> => {
-                if (parsedSearch.mode === 'search') {
-                    const best = matchNodesByName(visibleNodes, parsedSearch.term)[0]
-                    return best ? new Set([best.id]) : new Set()
-                }
-                return new Set(visibleNodes.map((node) => node.id))
-            },
-        ],
-
         visibleNodes: [
             (s) => [s.nodes, s.edges, s.parsedSearch, s.typeFilter],
             (
@@ -141,6 +124,23 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 }
 
                 return kept
+            },
+        ],
+
+        // The viewport flies here. A plain term matches by substring, so on a big DAG it hits many
+        // scattered nodes, and fitting all of them zooms back out to the unreadable overview. Fly to
+        // the single closest match instead, because the rest keep their ring and show in the minimap.
+        // Match within the visible nodes, since the canvas only lays out those: a closest name that
+        // the type filter hides would leave the graph nothing to fit and the viewport would not move.
+        // Lineage selectors have already pruned the graph, so there we fit the whole surviving cone.
+        focusNodeIds: [
+            (s) => [s.parsedSearch, s.visibleNodes],
+            (parsedSearch: ParsedLineageSearch, visibleNodes: DataModelingNode[]): Set<string> => {
+                if (parsedSearch.mode === 'search') {
+                    const best = matchNodesByName(visibleNodes, parsedSearch.term)[0]
+                    return best ? new Set([best.id]) : new Set()
+                }
+                return new Set(visibleNodes.map((node) => node.id))
             },
         ],
 
