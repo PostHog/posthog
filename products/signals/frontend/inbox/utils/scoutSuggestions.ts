@@ -16,15 +16,23 @@ export const DEFAULT_SUGGESTION_INTERVAL_MINUTES = 1440
 export function suggestionCadenceLabel(config: ScoutSuggestionProposedConfigApi): string {
     if (config.run_cron_schedule) {
         const dailyTime = dailyCronToTime(config.run_cron_schedule)
-        return dailyTime ? `daily at ${dailyTime}` : (describeCron(config.run_cron_schedule)?.toLowerCase() ?? 'daily')
+        if (dailyTime) {
+            return `daily at ${dailyTime}`
+        }
+        // Lowercase only the lead word, so day names keep their capitals mid-sentence.
+        const described = describeCron(config.run_cron_schedule, { use24HourTimeFormat: true })
+        return described ? described.charAt(0).toLowerCase() + described.slice(1) : 'daily'
     }
     return formatRunIntervalShort(config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES)
 }
 
-/** The card's one-line summary of what the scout would do: how often, and where its output goes. */
+/**
+ * The row's one-line summary of how often the scout would run. It names the output only for a dry
+ * run, because filing to the inbox is the default.
+ */
 export function suggestionMetaLine(config: ScoutSuggestionProposedConfigApi): string {
-    const output = config.emit ? 'files reports to the inbox' : 'dry run, files nothing'
-    return `Runs ${suggestionCadenceLabel(config)} · ${output}`
+    const cadence = `Runs ${suggestionCadenceLabel(config)}`
+    return config.emit ? cadence : `${cadence} · dry run, files nothing`
 }
 
 /** The scout a canonical pick would turn on, as it exists on the project. */

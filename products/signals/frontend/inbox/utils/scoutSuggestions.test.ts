@@ -1,6 +1,6 @@
 import type { ScoutSuggestionItemApi, SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { suggestionToCreateValues } from './scoutSuggestions'
+import { suggestionMetaLine, suggestionToCreateValues } from './scoutSuggestions'
 
 describe('suggestionToCreateValues', () => {
     it("carries an existing scout's repositories and write access into the form", () => {
@@ -36,5 +36,24 @@ describe('suggestionToCreateValues', () => {
             write_scopes: ['dashboard:write'],
             run_cron_schedule: '30 9 * * *',
         })
+    })
+})
+
+describe('suggestionMetaLine', () => {
+    it.each([
+        {
+            config: { run_cron_schedule: '30 9 * * 1-5', run_interval_minutes: null, emit: true },
+            expected: 'Runs at 09:30, Monday through Friday',
+        },
+        {
+            config: { run_cron_schedule: '0 21 * * *', run_interval_minutes: null, emit: true },
+            expected: 'Runs daily at 21:00',
+        },
+        {
+            config: { run_cron_schedule: null, run_interval_minutes: 720, emit: false },
+            expected: 'Runs every 12h · dry run, files nothing',
+        },
+    ])('reads $expected', ({ config, expected }) => {
+        expect(suggestionMetaLine(config as ScoutSuggestionItemApi['proposed_config'])).toBe(expected)
     })
 })
