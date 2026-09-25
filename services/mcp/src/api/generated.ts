@@ -97026,6 +97026,8 @@ export namespace Schemas {
       type?: string;
       /** Machine-readable error code */
       code?: string;
+      /** The task the refusal points at, when the error names one. For example, the task that holds a signal report's implementation slot. */
+      task_id?: string;
       /** After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds. */
       retry_token?: string;
       /** Why PostHog Desktop access was denied, when applicable.

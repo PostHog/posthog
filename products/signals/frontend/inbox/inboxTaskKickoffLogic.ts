@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -205,26 +206,44 @@ function taskLimitMessage(error: any): string | null {
 }
 
 // Shared error tail of both kickoff listeners: a recognized task-limit 429 gets the server's copy
-// and a `limited` outcome; anything else is a plain failure.
+// and a `limited` outcome; anything else is a plain failure. Returns whether the report's own task
+// cap refused the call, which means the pane is holding a stale view of the report's runs.
 function handleKickoffError(
     error: any,
     report: SignalReport,
     actionType: InboxReportActionType,
     fallbackMessage: string
-): void {
+): boolean {
     const limitMessage = taskLimitMessage(error)
     if (limitMessage) {
-        lemonToast.error(limitMessage)
+        // The report cap names the task holding the report's implementation slot
+        // (`_report_task_cap_response`), so the refusal can offer the run it talks about instead of
+        // leaving the person to find it.
+        const refusedByReportCap = error?.code === 'signal_report_task_cap'
+        const taskId: string | null = (refusedByReportCap && error?.data?.task_id) || null
+        lemonToast.error(
+            limitMessage,
+            taskId
+                ? {
+                      button: {
+                          label: 'Open run',
+                          action: () => router.actions.push(urls.taskDetail(taskId)),
+                          dataAttr: 'inbox-report-cap-open-run',
+                      },
+                  }
+                : undefined
+        )
         captureInboxReportActionCompleted({
             report,
             actionType,
             outcome: 'limited',
             limitCode: error?.code ?? null,
         })
-        return
+        return refusedByReportCap
     }
     lemonToast.error(error?.detail || error?.message || fallbackMessage)
     captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+    return false
 }
 
 // Mirrors `signal_report_discussion_question`'s `max_length` in the tasks `TaskCreateSerializer`
@@ -397,6 +416,9 @@ export interface inboxTaskKickoffLogicActions {
     discussReportSuccess: () => {
         value: true
     }
+    reportTaskCapRefused: () => {
+        value: true
+    }
     openReportDiscussion: (
         report: SignalReport,
         reportUrl: string
@@ -494,6 +516,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         discussReportFailure: true,
         createPrSuccess: true,
         createPrFailure: true,
+        reportTaskCapRefused: true,
     }),
 
     reducers({
@@ -743,7 +766,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
-                handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")
+                if (handleKickoffError(error, report, 'discuss', "Couldn't ask AI about this report. Try again.")) {
+                    actions.reportTaskCapRefused()
+                }
                 actions.discussReportFailure()
             }
         },
@@ -798,7 +823,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     disposables.dispose(OPTIMISTIC_REPORT_STREAM)
                     actions.clearActiveCreation()
                 }
-                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                if (handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")) {
+                    actions.reportTaskCapRefused()
+                }
                 actions.createPrFailure()
             }
         },

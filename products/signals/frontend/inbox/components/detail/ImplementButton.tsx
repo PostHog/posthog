@@ -23,9 +23,11 @@ import { ImplementationSlotClaim, inboxReportDetailLogic } from '../../logics/in
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
 
+// Mirrors `_ImplementationSlotClaim.detail` on the server, so the reason on the button and the
+// message on a refused press read the same. The Runs section lists the run both of them point at.
 const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
-    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
-    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+    in_flight: 'A pull request run is already in progress for this report. Open the run to follow it.',
+    shipped_pr: 'This report already has a pull request. Open the run to continue it.',
 }
 
 const IMPLEMENTATION_AGENTS: {

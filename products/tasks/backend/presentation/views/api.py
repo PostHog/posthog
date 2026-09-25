@@ -825,7 +825,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
-            return self._report_task_cap_response(error.detail)
+            return self._report_task_cap_response(error.detail, error.task_id)
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
         self._forward_signals_discussion_note(request, task, relationship, discussion_question)
@@ -855,14 +855,23 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    def _report_task_cap_response(self, detail: str) -> Response:
+    def _report_task_cap_response(self, detail: str, task_id: str | None = None) -> Response:
         """429 for a report that has spent its task allowance, on both create and run.
 
-        `code` distinguishes this from the compute-quota 429 for frontend handling.
+        `code` distinguishes this from the compute-quota 429 for frontend handling. `task_id` names
+        the task that holds the report's implementation slot, so the refusal can link the person to
+        the run it is talking about instead of telling them to find it.
         """
+        if task_id and tasks_facade.get_task_detail(task_id, self.team_id, self._user_id()) is None:
+            task_id = None
         return Response(
             TaskRunErrorResponseSerializer(
-                {"type": "rate_limit", "code": "signal_report_task_cap", "error": detail}
+                {
+                    "type": "rate_limit",
+                    "code": "signal_report_task_cap",
+                    "error": detail,
+                    **({"task_id": task_id} if task_id else {}),
+                }
             ).data,
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
@@ -1358,7 +1367,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
         except ReportTaskCapExceeded as error:
-            return self._report_task_cap_response(error.detail)
+            return self._report_task_cap_response(error.detail, error.task_id)
         if result is None:
             raise NotFound()
         if result.error is not None:

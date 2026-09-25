@@ -1208,6 +1208,10 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    task_id = serializers.UUIDField(
+        required=False,
+        help_text="The task the refusal points at, when the error names one. For example, the task that holds a signal report's implementation slot.",
+    )
     retry_token = serializers.CharField(
         required=False,
         help_text="After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds.",
