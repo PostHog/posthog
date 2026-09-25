@@ -38,6 +38,7 @@ from posthog.hogql.transforms.json_property_pushdown import (
 )
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
+from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time_bucket_bounds
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.transforms.type_aware_simplification import (
@@ -418,6 +419,10 @@ def prepare_ast_for_printing(
             # After property resolution, so the timestamp column is already wrapped and every table type is final.
             with context.timings.measure("events_read_in_order"):
                 node = order_events_reads_by_sort_key(node)
+
+        # After property resolution, so the timestamp column is already wrapped and every table type is final.
+        with context.timings.measure("metrics_time_bucket_bounds"):
+            node = add_metrics_time_bucket_bounds(node)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
