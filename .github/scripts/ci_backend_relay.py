@@ -35,7 +35,7 @@ import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Container, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -48,8 +48,6 @@ WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 # How a pull request event payload renders `updated_at`.
 EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
-# Events of one commit at most this far apart race each engine's concurrency cancel, which can
-# keep either event.
 RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 MIGRATION_CHECK = f"{DEPOT_WORKFLOW} / Validate migrations"
@@ -257,7 +255,7 @@ class Event:
     event_at: str
 
 
-def racing_wait(reader: CheckReader, event: Event, followed: Container[str]) -> str | None:
+def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | None:
     """The newest racing wait check whose job took the hand-off or is pending, skipping `followed`."""
     event_at = datetime.strptime(event.event_at, EVENT_TIME)
     for offset in range(RACING_EVENT_SECONDS, -RACING_EVENT_SECONDS - 1, -1):
@@ -265,7 +263,7 @@ def racing_wait(reader: CheckReader, event: Event, followed: Container[str]) -> 
         if name in followed:
             continue
         wait = newest_live(reader.read(name))
-        if wait is not None and (wait.state == "success" or wait.state in PENDING_STATES):
+        if progress(wait, ()).phase in (Phase.STARTING, Phase.RUNNING):
             return name
     return None
 

@@ -371,7 +371,7 @@ def test_migration_report_finds_the_run_that_stands_in_for_a_cancelled_one(
         clock=clock,
         sleep=clock.sleep,
     )
-    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
+    assert relay.report_migrations(result)[2] == {"migration_state": "success", "workflow_id": workflow}
     assert clock.now > 10 * 60
 
 
