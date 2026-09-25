@@ -233,6 +233,7 @@ the row lists both.
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
+| depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | devin_ai                         | HTTP                        | requests                                                        | ✅                          |
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
@@ -985,7 +986,6 @@ doesn't conflict with concurrent PRs.
 - deelflows
 - demodesk
 - deno_deploy
-- depot
 - deputy
 - develocity
 - dialpad

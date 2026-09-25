@@ -41,6 +41,8 @@ import type {
     RunConnectionState,
     RunTerminalStatus,
     SdkSession,
+    StagedAttachment,
+    ThreadAttachment,
     ThreadItem,
     ThreadItemType,
     ToolInvocation,
@@ -378,6 +380,97 @@ function isHiddenUserContent(content: unknown): boolean {
         return false
     }
     return content._meta.ui.hidden === true
+}
+
+function uriPathSegments(uri: string): string[] {
+    let path = uri
+    try {
+        path = new URL(uri).pathname
+    } catch {
+        // A uri the parser rejects still splits on its separators below.
+    }
+    return path.split('/').filter(Boolean)
+}
+
+/** A segment with a broken percent escape stands as it is, rather than throwing through the whole fold. */
+function decodeUriSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
+/**
+ * The run and artifact a sandbox attachment path names, or null for any other path.
+ *
+ * The agent server writes each artifact to `.posthog/attachments/<runId>/<artifactId>/<name>`
+ * (`hydrateArtifactToPromptBlock`), and that layout is the only place the wire carries the ids. A path that
+ * does not match returns null and renders as a plain name, so a change there degrades rather than breaks.
+ */
+export function artifactRefFromUri(uri: string): { runId: string; artifactId: string } | null {
+    const segments = uriPathSegments(uri)
+    const marker = segments.lastIndexOf('attachments')
+    if (marker < 1 || segments[marker - 1] !== '.posthog' || segments.length < marker + 4) {
+        return null
+    }
+    return { runId: segments[marker + 1], artifactId: segments[marker + 2] }
+}
+
+/**
+ * A file the send carried, or null for any other content block. An attachment arrives as a `resource_link`
+ * to the copy the sandbox wrote to disk; an inline image arrives as an `image` block, which names the file
+ * only through that same `uri`.
+ */
+export function userAttachment(content: unknown): ThreadAttachment | null {
+    if (!isRecord(content) || (content.type !== 'resource_link' && content.type !== 'image')) {
+        return null
+    }
+    const uri = typeof content.uri === 'string' ? content.uri : ''
+    const named = typeof content.name === 'string' && content.name.trim() ? content.name.trim() : null
+    const fromUri = uri ? uriPathSegments(uri).at(-1) : undefined
+    const name = named ?? (fromUri ? decodeUriSegment(fromUri) : null)
+    if (!name) {
+        return null
+    }
+    return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
+}
+
+/**
+ * Identity is the artifact, never the name: two pasted screenshots are both `image.png`. A known artifact
+ * wins, so a file echoed in both wire forms lands once; otherwise it claims the first entry of that name
+ * still waiting for one, which a send uploads in order.
+ */
+function mergeAttachment(existing: ThreadAttachment[], incoming: ThreadAttachment): ThreadAttachment[] {
+    const byArtifact = incoming.artifactId
+        ? existing.findIndex((candidate) => candidate.artifactId === incoming.artifactId)
+        : -1
+    const target =
+        byArtifact !== -1
+            ? byArtifact
+            : existing.findIndex((candidate) => candidate.name === incoming.name && !candidate.artifactId)
+    if (target === -1) {
+        return [...existing, incoming]
+    }
+    return existing.map((candidate, position) => (position === target ? { ...candidate, ...incoming } : candidate))
+}
+
+/** What an optimistic send knows before its files have artifacts to point at. */
+function optimisticAttachments(value: unknown): ThreadAttachment[] {
+    if (!Array.isArray(value)) {
+        return []
+    }
+    return value.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()) {
+            return []
+        }
+        return [
+            {
+                name: entry.name.trim(),
+                ...(typeof entry.previewId === 'string' ? { previewId: entry.previewId } : {}),
+            },
+        ]
+    })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1390,7 +1483,7 @@ function readPendingRunMessage(state: unknown, runId: string): PendingRunMessage
  */
 export function foldLogToThread(
     entries: StoredEntry[],
-    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null }
+    options: { isResumeRun: boolean; pendingMessage?: PendingRunMessage | null; taskId?: string | null }
 ): FoldedThread {
     let items: ThreadItem[] = []
     const invocations = new Map<string, ToolInvocation>()
@@ -1412,18 +1505,40 @@ export function foldLogToThread(
     let entryRunId: string | undefined
     let pendingMessageSeen = false
     let pendingInsertionIndex: number | undefined
+    let bufferedAttachments: ThreadAttachment[] = []
 
-    const pushHuman = (text: string): void => {
+    const pushHuman = (text: string, attachments: ThreadAttachment[] = []): void => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
+        const carried = [...attachments, ...bufferedAttachments]
         items = insertHumanMessageAtTurnStart(items, {
             id: `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
+            ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
         })
+        bufferedAttachments = []
+    }
+
+    /**
+     * A prompt's blocks arrive as consecutive frames with the text first, so the file lands on the message
+     * already rendered — including one an optimistic send drew, which the echo's text dedupe drops. That
+     * entry knows the name but not the ids, so a later frame for the same name fills them in.
+     */
+    const noteAttachment = (found: ThreadAttachment): void => {
+        // The sandbox path names the run and the artifact; the download endpoint also needs the task.
+        const attachment = found.artifactId && options.taskId ? { ...found, taskId: options.taskId } : found
+        for (let index = items.length - 1; index >= 0; index--) {
+            if (items[index].type === 'human_message') {
+                const existing = items[index].attachments ?? []
+                items[index] = { ...items[index], attachments: mergeAttachment(existing, attachment) }
+                return
+            }
+        }
+        bufferedAttachments = mergeAttachment(bufferedAttachments, attachment)
     }
 
     // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
@@ -1620,7 +1735,7 @@ export function foldLogToThread(
         timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
-            pushHuman(String(params.content ?? ''))
+            pushHuman(String(params.content ?? ''), optimisticAttachments(params.attachments))
             continue
         }
         if (method === '_client/error') {
@@ -1759,6 +1874,17 @@ export function foldLogToThread(
             } else {
                 renderLiveHuman(userText)
             }
+            if (Array.isArray(params.content)) {
+                for (const block of params.content) {
+                    if (isHiddenUserContent(block)) {
+                        continue
+                    }
+                    const attachment = userAttachment(block)
+                    if (attachment) {
+                        noteAttachment(attachment)
+                    }
+                }
+            }
             continue
         }
         if (method === '_posthog/console') {
@@ -1789,6 +1915,12 @@ export function foldLogToThread(
         const sessionUpdate = update.sessionUpdate
         if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
             if (isHiddenUserContent(update.content)) {
+                continue
+            }
+            // An attached file is its own frame, carrying a resource link instead of text.
+            const attachment = userAttachment(update.content)
+            if (attachment) {
+                noteAttachment(attachment)
                 continue
             }
             const content = update.content as { text?: string } | undefined
@@ -2096,8 +2228,12 @@ export interface runStreamLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     }
-    pushHumanMessage: (content: string) => {
+    pushHumanMessage: (
+        content: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
     recoveryProgress: (
         phase: RecoveryPhase,
@@ -2189,11 +2325,19 @@ export interface runStreamLogicActions {
     sseReconnecting: (attempt: number) => {
         attempt: number
     }
-    startOptimisticResume: (message: string) => {
+    startOptimisticResume: (
+        message: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         message: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
-    startOptimisticRun: (message?: string) => {
+    startOptimisticRun: (
+        message?: string,
+        stagedAttachments?: StagedAttachment[]
+    ) => {
         message: string | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     }
     streamEnded: () => {
         value: true
@@ -2211,7 +2355,8 @@ export interface runStreamLogicMeta {
         foldedThread: (
             log: RunLog,
             isBootstrapResumeRun: boolean,
-            pendingRunMessage: PendingRunMessage | null
+            pendingRunMessage: PendingRunMessage | null,
+            bootstrappedTaskId: string | null
         ) => FoldedThread
         errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
@@ -2456,7 +2601,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
-        pushHumanMessage: (content: string) => ({ content }),
+        pushHumanMessage: (content: string, stagedAttachments?: StagedAttachment[]) => ({
+            content,
+            stagedAttachments,
+        }),
         /**
          * Open a run optimistically before its real id exists: flips the thread to the provisioning
          * indicator and, when a first message is given, renders it immediately as the human bubble. The
@@ -2465,9 +2613,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * created; the live SSE echo dedups the seeded message. Pure composition of `setRunOpening` +
          * `pushHumanMessage`.
          */
-        startOptimisticRun: (message?: string) => ({ message }),
+        startOptimisticRun: (message?: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
-        startOptimisticResume: (message: string) => ({ message }),
+        startOptimisticResume: (message: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         appendResumeBoundary: true,
         rollbackOptimisticResume: true,
         attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => ({ taskId, run }),
@@ -2877,9 +3031,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
-            (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
-                foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
+            (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage, s.bootstrappedTaskId],
+            (
+                log: RunLog,
+                isResumeRun: boolean,
+                pendingMessage: PendingRunMessage | null,
+                taskId: string | null
+            ): FoldedThread => foldLogToThread(log.entries, { isResumeRun, pendingMessage, taskId }),
         ],
         errorTraceIds: [
             (s) => [s.threadItems],
@@ -4102,10 +4260,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.streamTokenRefreshes = 0
                 cache.disposables.dispose('event-source')
             },
-            startOptimisticRun: ({ message }) => {
+            startOptimisticRun: ({ message, stagedAttachments }) => {
                 actions.setRunOpening(true)
                 if (message) {
-                    actions.pushHumanMessage(message)
+                    actions.pushHumanMessage(message, stagedAttachments)
                 }
             },
             appendResumeBoundary: () => {
@@ -4123,13 +4281,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ])
                 }
             },
-            startOptimisticResume: ({ message }) => {
+            startOptimisticResume: ({ message, stagedAttachments }) => {
                 const historyComplete = values.historyComplete
                 const turnComplete = values.turnComplete
                 const previousEntryCount = values.log.entries.length
                 actions.appendResumeBoundary()
                 actions.setRunOpening(true)
-                actions.pushHumanMessage(message)
+                actions.pushHumanMessage(message, stagedAttachments)
                 cache.optimisticResume = {
                     entries: values.log.entries.slice(previousEntryCount),
                     message,
@@ -4172,7 +4330,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ...(!resume.historyComplete ? { retainedMessage: resume.message } : {}),
                 })
             },
-            pushHumanMessage: ({ content }) => {
+            pushHumanMessage: ({ content, stagedAttachments }) => {
                 // The echo is always a live turn (replayed human turns render straight from the log), so
                 // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
                 // log entry the projection renders in order.
@@ -4188,7 +4346,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     {
                         entry: {
                             type: 'notification',
-                            notification: { method: '_client/human_message', params: { content } },
+                            notification: {
+                                method: '_client/human_message',
+                                params: {
+                                    content,
+                                    ...(stagedAttachments?.length ? { attachments: stagedAttachments } : {}),
+                                },
+                            },
                         },
                         source: 'client',
                     },
