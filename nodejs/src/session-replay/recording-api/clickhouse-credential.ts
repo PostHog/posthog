@@ -3,12 +3,14 @@ import jwt from 'jsonwebtoken'
 
 import { logger, serializeError } from '~/common/utils/logger'
 
-import { RecordingApiMetrics } from './metrics'
+import { ClickHousePasswordFallbackReason, RecordingApiMetrics } from './metrics'
 import { RecordingApiConfig } from './types'
 
 const TOKEN_EXPIRY_LEEWAY_SECONDS = 10
 
 export class ClickHouseCredential {
+    private lastFallbackReason: ClickHousePasswordFallbackReason | null = null
+
     constructor(
         private readonly username: string,
         private readonly staticPassword: string,
@@ -38,25 +40,43 @@ export class ClickHouseCredential {
         try {
             token = (await readFile(path, 'utf8')).trim()
         } catch (error) {
-            logger.warn('[RecordingApi] ClickHouse token file is not readable, using the static password', {
-                path,
-                error: serializeError(error),
-            })
-            RecordingApiMetrics.incrementClickhousePasswordFallback('unreadable')
-            return this.staticPassword
+            return this.fallBackToStaticPassword(
+                'unreadable',
+                '[RecordingApi] ClickHouse token file is not readable, using the static password',
+                { path, error: serializeError(error) }
+            )
         }
         if (!token) {
-            logger.warn('[RecordingApi] ClickHouse token file is empty, using the static password', { path })
-            RecordingApiMetrics.incrementClickhousePasswordFallback('empty')
-            return this.staticPassword
+            return this.fallBackToStaticPassword(
+                'empty',
+                '[RecordingApi] ClickHouse token file is empty, using the static password',
+                { path }
+            )
         }
         // The kubelet stops refreshing the token of a terminating pod, and ClickHouse rejects an expired token.
         if (this.staticPassword && tokenExpired(token, nowSeconds)) {
-            logger.warn('[RecordingApi] ClickHouse token has expired, using the static password', { path })
-            RecordingApiMetrics.incrementClickhousePasswordFallback('expired')
-            return this.staticPassword
+            return this.fallBackToStaticPassword(
+                'expired',
+                '[RecordingApi] ClickHouse token has expired, using the static password',
+                { path }
+            )
         }
+        this.lastFallbackReason = null
         return token
+    }
+
+    private fallBackToStaticPassword(
+        reason: ClickHousePasswordFallbackReason,
+        message: string,
+        context: Record<string, unknown>
+    ): string {
+        RecordingApiMetrics.incrementClickhousePasswordFallback(reason)
+        // This runs for every query and the counter counts each fallback, so warn only when the reason changes.
+        if (reason !== this.lastFallbackReason) {
+            logger.warn(message, context)
+            this.lastFallbackReason = reason
+        }
+        return this.staticPassword
     }
 }
 

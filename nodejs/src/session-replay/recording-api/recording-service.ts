@@ -49,8 +49,7 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: ClickHouseClient,
-        private clickhouseCredential?: ClickHouseCredential
+        private clickhouse?: { client: ClickHouseClient; credential: ClickHouseCredential }
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -169,13 +168,14 @@ export class RecordingService {
         if (!this.clickhouse) {
             throw new Error('ClickHouse client not initialized')
         }
+        const { client, credential } = this.clickhouse
 
         const startTime = performance.now()
 
         logger.debug('[RecordingService] listBlocks request', { teamId, sessionId })
 
         try {
-            const result = await this.clickhouse.query({
+            const result = await client.query({
                 query: `/* team_id:${teamId} query_type:recording_api_list_blocks */ SELECT
                         min(min_first_timestamp) as start_time,
                         groupArrayArray(block_first_timestamps) as block_first_timestamps,
@@ -198,7 +198,7 @@ export class RecordingService {
                     session_id: sessionId,
                 },
                 format: 'JSONEachRow',
-                auth: await this.clickhouseCredential?.auth(),
+                auth: await credential.auth(),
                 clickhouse_settings: {
                     date_time_output_format: 'iso',
                     log_comment: JSON.stringify({

@@ -1,5 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
+export type ClickHousePasswordFallbackReason = 'unreadable' | 'empty' | 'expired'
+
 export class RecordingApiMetrics {
     private static readonly getBlockDuration = new Histogram({
         name: 'recording_api_get_block_duration_seconds',
@@ -70,7 +72,7 @@ export class RecordingApiMetrics {
         labelNames: ['reason'],
     })
 
-    public static incrementClickhousePasswordFallback(reason: 'unreadable' | 'empty' | 'expired'): void {
+    public static incrementClickhousePasswordFallback(reason: ClickHousePasswordFallbackReason): void {
         this.clickhousePasswordFallbacks.labels({ reason }).inc()
     }
 }

@@ -70,7 +70,7 @@ describe('RecordingService', () => {
             mockMetadataStore,
             mockFeatureStore,
             mockPostgres,
-            mockClickhouse
+            { client: mockClickhouse, credential: new ClickHouseCredential('recording_api', 'static', '') }
         )
     })
 
@@ -458,8 +458,10 @@ describe('RecordingService', () => {
                     mockMetadataStore,
                     mockFeatureStore,
                     mockPostgres,
-                    mockClickhouse,
-                    new ClickHouseCredential('recording_api', 'static', tokenFile)
+                    {
+                        client: mockClickhouse,
+                        credential: new ClickHouseCredential('recording_api', 'static', tokenFile),
+                    }
                 )
                 mockClickhouseResult([])
 

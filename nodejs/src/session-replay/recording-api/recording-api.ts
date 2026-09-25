@@ -136,8 +136,7 @@ export class RecordingApi {
             metadataStore,
             featureStore,
             this.postgres,
-            this.clickhouseClient,
-            ClickHouseCredential.fromConfig(this.config)
+            { client: this.clickhouseClient, credential: ClickHouseCredential.fromConfig(this.config) }
         )
 
         logger.info('[RecordingApi] Started successfully')

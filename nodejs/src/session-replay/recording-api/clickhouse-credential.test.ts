@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { register } from 'prom-client'
 
 import { overrideConfigWithEnv } from '~/common/config/config'
+import { logger } from '~/common/utils/logger'
 import { getDefaultSessionRecordingApiConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { ClickHouseCredential } from './clickhouse-credential'
@@ -31,12 +32,14 @@ describe('ClickHouseCredential', () => {
 
     afterEach(() => {
         rmSync(dir, { recursive: true, force: true })
+        jest.restoreAllMocks()
     })
 
     it.each([
         ['live token', `${liveToken}\n`, 'static', liveToken, undefined],
         ['no token file configured', null, 'static', 'static', undefined],
         ['missing file', undefined, 'static', 'static', 'unreadable'],
+        ['missing file, no static', undefined, '', '', 'unreadable'],
         ['empty file', ' \n', 'static', 'static', 'empty'],
         ['expired token', expiredToken, 'static', 'static', 'expired'],
         ['expired token, no static', expiredToken, '', expiredToken, undefined],
@@ -54,6 +57,32 @@ describe('ClickHouseCredential', () => {
         await expect(credential.password(NOW)).resolves.toEqual(expected)
         const fallbacks = (await register.getSingleMetric(FALLBACK_METRIC)?.get())?.values ?? []
         expect(fallbacks.map(({ labels }) => labels.reason)).toEqual(fallbackReason ? [fallbackReason] : [])
+    })
+
+    it('counts every fallback but warns only when the fallback reason changes', async () => {
+        const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
+        const tokenFile = join(dir, 'token')
+        const credential = new ClickHouseCredential('recording_api', 'static', tokenFile)
+
+        await credential.password(NOW)
+        await credential.password(NOW)
+        writeFileSync(tokenFile, '')
+        await credential.password(NOW)
+        writeFileSync(tokenFile, liveToken)
+        await credential.password(NOW)
+        writeFileSync(tokenFile, '')
+        await credential.password(NOW)
+
+        expect(warn.mock.calls.map(([message]) => message)).toEqual([
+            expect.stringContaining('not readable'),
+            expect.stringContaining('empty'),
+            expect.stringContaining('empty'),
+        ])
+        const fallbacks = (await register.getSingleMetric(FALLBACK_METRIC)?.get())?.values ?? []
+        expect(fallbacks.map(({ labels, value }) => [labels.reason, value])).toEqual([
+            ['unreadable', 2],
+            ['empty', 2],
+        ])
     })
 
     it('reads the token file named by CLICKHOUSE_PASSWORD_FILE', async () => {
