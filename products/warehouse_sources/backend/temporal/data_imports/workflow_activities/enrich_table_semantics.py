@@ -27,7 +27,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.gateway_client import GatewayNotConfiguredError, TransientGatewayError
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
@@ -453,7 +453,10 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             "error": "llm_gateway_not_configured",
         }
     except Exception as e:
-        capture_exception(e)
+        # A gateway 5xx needs no report: the columns this pass left undescribed carry no
+        # annotation, so the next sync asks again. The log and the events below still record it.
+        if not isinstance(e, TransientGatewayError):
+            capture_exception(e)
         log.error(
             "warehouse_enrichment.llm_failed",
             error=str(e),
