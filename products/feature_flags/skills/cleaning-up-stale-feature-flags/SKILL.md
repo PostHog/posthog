@@ -178,6 +178,7 @@ A removal merged into the base branch is history and not work in progress, so ch
 - **A merged removal, and a runtime check of the key remains.** The key came back after that cleanup, or that cleanup missed a call site. Continue, and say which. A key that came back may be a seasonal flag, so ask before you remove it again.
 - **An unmerged branch or an open PR currently removes a runtime check.** A cleanup is in flight. Report where it is and stop.
   Compare its current diff with the base: a removal that the branch later reverted is not pending cleanup.
+  `git fetch` keeps refs to branches the remote deleted, so a remote branch counts only when `git ls-remote --heads <remote> refs/heads/<branch>` still lists it.
 - **Nothing removes the key.** Continue. A key absent from the base branch with no commit that removed it was never checked here, which step 5 reports as a no-op rather than a finished cleanup.
 
 When a cleanup is in flight, report it: the branch or PR, when it was made, and whether a runtime check of the key remains in the base branch.
