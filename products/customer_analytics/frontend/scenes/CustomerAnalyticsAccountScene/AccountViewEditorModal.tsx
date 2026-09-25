@@ -3,7 +3,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,6 +11,7 @@ import {
     LemonInput,
     LemonLabel,
     LemonModal,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -36,6 +37,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
     const {
         setEditorOpen,
         setEditorName,
+        setEditorVisibility,
         addEditorComponent,
         duplicateEditorComponent,
         removeEditorComponent,
@@ -57,7 +59,10 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         }
         LemonDialog.open({
             title: `Delete "${editingView.name}"?`,
-            description: 'This removes the view from your account tabs.',
+            description:
+                editingView.visibility === 'team'
+                    ? 'This removes the view for everyone in the project.'
+                    : 'This removes the view from your account tabs.',
             primaryButton: {
                 children: 'Delete view',
                 status: 'danger',
@@ -75,7 +80,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
             width={640}
             footer={
                 <>
-                    {editingView ? (
+                    {editingView?.can_delete ? (
                         <LemonButton
                             status="danger"
                             type="secondary"
@@ -121,6 +126,20 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                         data-attr="account-view-name"
                     />
                 </div>
+                {editingView?.can_change_visibility ? (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Visibility</LemonLabel>
+                        <LemonSegmentedButton
+                            value={editorDraft.visibility}
+                            onChange={setEditorVisibility}
+                            options={[
+                                { value: 'private', label: 'Only me' },
+                                { value: 'team', label: 'Team' },
+                            ]}
+                            size="small"
+                        />
+                    </div>
+                ) : null}
                 <div className="flex flex-wrap items-end gap-2">
                     <div className="flex min-w-56 flex-1 flex-col gap-1">
                         <LemonLabel>Components</LemonLabel>
@@ -174,6 +193,11 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                         </DndContext>
                     )}
                 </div>
+                {!editingView ? (
+                    <LemonBanner type="info" icon={<IconPlus />}>
+                        New views are personal. You can share the view with your team after creating it.
+                    </LemonBanner>
+                ) : null}
             </div>
         </LemonModal>
     )

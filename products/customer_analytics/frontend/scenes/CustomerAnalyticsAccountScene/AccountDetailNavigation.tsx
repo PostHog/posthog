@@ -1,14 +1,23 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
-import { IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
+import { IconGlobe, IconPencil } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { accountBillingLogic } from '../../components/Accounts/accountBillingLogic'
 import { AccountViewComponent } from '../../components/Accounts/AccountViewComponent'
-import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
+import {
+    getAccountTabIdFromRoute,
+    getAccountTabRoute,
+    getActiveAccountTabId,
+    listAccountTabs,
+    listVisibleAccountTabs,
+    type AccountTabDefinition,
+} from './accountTabs'
 import { AccountViewRenderer } from './AccountViewRenderer'
 import { accountViewsLogic } from './accountViewsLogic'
 
@@ -29,17 +38,56 @@ export function AccountDetailNavigation({
 }: AccountDetailNavigationProps): JSX.Element {
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const logic = accountViewsLogic({ projectId })
-    const { views, viewsError, viewsLoading } = useValues(logic)
-    const { openEditEditor, loadViews } = useActions(logic)
+    const { views, accountDetailTabs, config, configError, viewsError, viewsLoading } = useValues(logic)
+    const { openEditEditor, openConfigure, loadViews } = useActions(logic)
     const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const systemTabs = listAvailableAccountViewComponents(featureFlags)
-    const selectedViewId =
-        accountViewsEnabled && requestedTab.startsWith('view:') ? requestedTab.slice('view:'.length) : null
-    const selectedView = selectedViewId ? views.find((view) => view.id === selectedViewId) : undefined
-    const selectedSystemTab = systemTabs.find((tab) => tab.kind === requestedTab) ?? systemTabs[0]
-    const activeKey = selectedViewId ? `view:${selectedViewId}` : selectedSystemTab?.kind
-    const loadingView = !!selectedViewId && !selectedView && viewsLoading
+    const accountTabsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS]
+    const tabs = listAccountTabs(featureFlags, accountViewsEnabled ? views : [])
+    const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
+    const requestedTabId =
+        requestedTabIdFromRoute?.startsWith('view:') && !accountViewsEnabled ? undefined : requestedTabIdFromRoute
+    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, accountTabsEnabled)
+    const activeTab = tabs.find((tab) => tab.id === activeTabId)
+    const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading && accountViewsEnabled
+    const viewLoadError = activeTabId.startsWith('view:') && !activeTab && !!viewsError && accountViewsEnabled
+    const missingView = activeTabId.startsWith('view:') && !activeTab && !loadingView && !viewLoadError
+    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id, accountTabsEnabled)
+    const tabDefinitions = loadingView
+        ? [
+              ...visibleTabs,
+              {
+                  id: activeTabId,
+                  routeKey: activeTabId,
+                  label: 'Loading view',
+                  kind: 'view' as const,
+              },
+          ]
+        : missingView
+          ? [
+                ...visibleTabs,
+                {
+                    id: activeTabId,
+                    routeKey: activeTabId,
+                    label: 'View unavailable',
+                    kind: 'view' as const,
+                },
+            ]
+          : visibleTabs
+
+    const displayedTab = tabDefinitions.find((tab) => tab.id === activeTabId)
+    const rightSlot = activeTab?.view?.can_edit ? (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            icon={<IconPencil />}
+            onClick={() => openEditEditor(activeTab.view!)}
+            data-attr="account-view-edit"
+        >
+            Edit view
+        </LemonButton>
+    ) : undefined
 
     return (
         <div className="min-w-0">
@@ -50,52 +98,97 @@ export function AccountDetailNavigation({
             ) : null}
             <div className="sticky top-0 z-10 bg-primary">
                 <LemonTabs
-                    activeKey={activeKey}
-                    onChange={onChange}
+                    key={JSON.stringify(tabDefinitions.map(({ id, label }) => [id, label]))}
+                    activeKey={activeTabId}
+                    onChange={(tabId) => onChange(getAccountTabRoute(tabId))}
                     rightSlotClassName="pr-0"
                     size="small"
-                    rightSlot={
-                        selectedView ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                icon={<IconPencil />}
-                                onClick={() => openEditEditor(selectedView)}
-                                data-attr="account-view-edit"
-                            >
-                                Edit view
-                            </LemonButton>
-                        ) : undefined
-                    }
-                    tabs={[
-                        ...systemTabs.map((tab) => ({ key: tab.kind, label: tab.label })),
-                        ...(accountViewsEnabled
-                            ? views.map((view) => ({ key: `view:${view.id}`, label: view.name }))
-                            : []),
-                    ]}
+                    rightSlot={rightSlot}
+                    tabs={tabDefinitions.map((tab) => ({
+                        key: tab.id,
+                        label: getAccountTabLabel(tab),
+                    }))}
                 />
             </div>
-            {loadingView ? (
-                <LemonSkeleton className="my-3 h-40" />
-            ) : selectedView ? (
-                <AccountViewRenderer
-                    view={selectedView}
-                    projectId={projectId}
-                    accountId={accountId}
-                    externalId={externalId}
-                />
-            ) : selectedViewId && !viewsError ? (
-                <LemonBanner type="warning" className="my-3">
-                    This view was deleted or you no longer have access to it. Choose another tab.
+            {viewLoadError ? (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadViews }} className="my-3">
+                    Couldn't load this view. Try again.
                 </LemonBanner>
-            ) : selectedSystemTab ? (
-                <AccountViewComponent
-                    kind={selectedSystemTab.kind}
-                    accountId={accountId}
-                    externalId={externalId}
-                    embedded={false}
-                />
+            ) : displayedTab ? (
+                <div key={activeTabId}>
+                    {renderTabContent({
+                        tab: displayedTab,
+                        projectId,
+                        accountId,
+                        externalId,
+                        loadingViewId: loadingView ? activeTabId : undefined,
+                        openConfigure: accountTabsEnabled
+                            ? () => openConfigure(config && !configError ? accountDetailTabs : null)
+                            : undefined,
+                    })}
+                </div>
             ) : null}
         </div>
+    )
+}
+
+function getAccountTabLabel(tab: AccountTabDefinition): string | JSX.Element {
+    if (tab.view?.visibility !== 'team') {
+        return tab.label
+    }
+
+    return (
+        <span className="flex items-center gap-1">
+            <span>{tab.label}</span>
+            <span className="sr-only">Shared with team</span>
+            <Tooltip title="This view is shared with the team.">
+                <IconGlobe className="shrink-0 text-muted" />
+            </Tooltip>
+        </span>
+    )
+}
+
+interface RenderTabContentProps {
+    tab: AccountTabDefinition
+    projectId: number
+    accountId: string
+    externalId: string
+    loadingViewId?: string
+    openConfigure?: () => void
+}
+
+function renderTabContent({
+    tab,
+    projectId,
+    accountId,
+    externalId,
+    loadingViewId,
+    openConfigure,
+}: RenderTabContentProps): ReactNode {
+    if (tab.id === loadingViewId) {
+        return <LemonSkeleton className="my-3 h-40" />
+    }
+    if (tab.systemKind) {
+        return (
+            <AccountViewComponent
+                kind={tab.systemKind}
+                accountId={accountId}
+                externalId={externalId}
+                embedded={false}
+            />
+        )
+    }
+    if (tab.view) {
+        return (
+            <AccountViewRenderer view={tab.view} projectId={projectId} accountId={accountId} externalId={externalId} />
+        )
+    }
+    return (
+        <LemonBanner
+            type="warning"
+            action={openConfigure ? { children: 'Open tab settings', onClick: openConfigure } : undefined}
+        >
+            This view was deleted or you no longer have access to it. Choose another tab.
+        </LemonBanner>
     )
 }
