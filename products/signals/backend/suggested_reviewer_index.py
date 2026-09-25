@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid as uuid_module
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 
 import structlog
@@ -77,16 +77,35 @@ def _rows_for_artefact(artefact: SignalReportArtefact) -> list[SignalReportSugge
     return rows
 
 
+def _lock_report(team_id: int, report_id: str) -> None:
+    """Hold one report's rebuild slot until the surrounding transaction ends.
+
+    Two rebuilds of the same report can otherwise read the artefact log in one order and write
+    the index rows in the other, which leaves the index built from an artefact that is no longer
+    current. The report row itself stays unlocked, because a rebuild reads and writes neither it
+    nor its parents.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+            [team_id, f"signals_suggested_reviewer_index:{report_id}"],
+        )
+
+
 def sync_suggested_reviewer_index(*, team_id: int, report_id: str) -> None:
     """Rewrite a report's index rows from its current reviewer artefacts.
 
     Called from every path that can change which artefact is current — an append, an edit in
     place, a delete — so the index never needs a reader to fall back to the log.
+
+    The artefact read sits inside the lock with the rewrite, so a rebuild that waits for the lock
+    reads the log again and cannot restore an artefact the winner already replaced.
     """
-    rows: list[SignalReportSuggestedReviewer] = []
-    for artefact in _current_reviewer_artefacts(team_id, report_id):
-        rows.extend(_rows_for_artefact(artefact))
     with transaction.atomic():
+        _lock_report(team_id, report_id)
+        rows: list[SignalReportSuggestedReviewer] = []
+        for artefact in _current_reviewer_artefacts(team_id, report_id):
+            rows.extend(_rows_for_artefact(artefact))
         SignalReportSuggestedReviewer.objects.for_team(team_id).filter(report_id=report_id).delete()
         if rows:
             SignalReportSuggestedReviewer.objects.for_team(team_id).bulk_create(rows)
