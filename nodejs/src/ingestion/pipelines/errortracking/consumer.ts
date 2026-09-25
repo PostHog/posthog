@@ -18,6 +18,7 @@ import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-re
 import { eventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
+import { IngestionConsumerConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 
 import { ErrorTrackingConsumerConfig } from './config'
@@ -39,6 +40,7 @@ export type ErrorTrackingLaneConfig = CommonIngestionConsumerConfig &
         | 'ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
         | 'INGESTION_OVERFLOW_MODE'
     > &
+    Pick<IngestionConsumerConfig, 'TEAMS_PREFETCH_ENABLED' | 'HOG_FUNCTIONS_PREFETCH_ENABLED'> &
     Pick<CommonConfig, 'PLUGIN_SERVER_MODE'>
 
 /**
@@ -134,6 +136,8 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             topHog: container.topHog,
             createEventUsageBatch,
+            teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: config.HOG_FUNCTIONS_PREFETCH_ENABLED,
         })
     )
 }
