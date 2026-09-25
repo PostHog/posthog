@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "mobilehog",
+    "slug": "mobilehog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "mobilehog",
+    "icon": "./assets/app-icon.png",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.posthog.mobilehog",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.posthog.mobilehog"
+    },
+    "plugins": [
+      "expo-router",
+      "./plugins/withSceneLifecycle",
+      "./plugins/withPodfileResourceBundleFix",
+      [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "./assets/fonts/JetBrainsMono-Regular.ttf",
+              "./assets/fonts/JetBrainsMono-Medium.ttf"
+            ]
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logomark.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "imageWidth": 160
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "extra": {
+      "router": {}
+    }
+  }
+}
