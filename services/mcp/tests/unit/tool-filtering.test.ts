@@ -1019,6 +1019,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'loops',
+                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
