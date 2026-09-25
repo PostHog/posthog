@@ -6,13 +6,7 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
-## Adding a new source
-
-Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
-
-> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
-
-### Rokt Ads in Marketing analytics
+## Rokt Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.
 Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
@@ -28,6 +22,12 @@ Changing the source currency affects newly synced rows; historical rows retain t
 Existing connections need a full resync of `CampaignPerformance` to backfill currency before using monetary metrics.
 Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
 Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
+
+## Adding a new source
+
+Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
+
+> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
 ## Importing your local Postgres instance
 
