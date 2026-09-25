@@ -724,7 +724,13 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["artefact_count"] == 2
 
-    def _ranking_score_artefact(self, report: SignalReport, content: str | None = None) -> SignalReportArtefact:
+    def _ranking_score_artefact(
+        self,
+        report: SignalReport,
+        content: str | None = None,
+        scores: dict[str, float] | None = None,
+        heads: list[dict] | None = None,
+    ) -> SignalReportArtefact:
         served = RankingModelResult(
             model_name="report_embeddings",
             model_version="2026-09-01",
@@ -732,8 +738,8 @@ class TestSignalReportListAPI(APIBaseTest):
             roles=["served"],
             feature_schema_version=1,
             status="scored",
-            scores={"open": 0.5, "merged": 0.2},
-            metadata={"heads": [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
+            scores=scores or {"open": 0.5, "merged": 0.2},
+            metadata={"heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
         )
         challenger = RankingModelResult(
             model_name="report_tabular",
@@ -761,6 +767,7 @@ class TestSignalReportListAPI(APIBaseTest):
                 "staff_sees_the_served_result",
                 True,
                 None,
+                None,
                 {
                     "served_key": "report_embeddings@2026-09-01",
                     "model_name": "report_embeddings",
@@ -771,15 +778,18 @@ class TestSignalReportListAPI(APIBaseTest):
                     "readable_heads": ["open"],
                 },
             ),
-            ("non_staff_sees_nothing", False, None, None),
-            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None),
+            ("non_staff_sees_nothing", False, None, None, None),
+            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None),
+            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None),
         ]
     )
-    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, expected):
+    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, expected):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
-        self._ranking_score_artefact(report, content=content)
+        stale = self._ranking_score_artefact(report, scores={"open": 0.9})
+        SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self._ranking_score_artefact(report, content=content, heads=heads)
         unscored = self._create_report(title="Unscored")
 
         list_response = self.client.get(self._list_url())
@@ -793,15 +803,19 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["ranking"] == expected
 
     @parameterized.expand([("staff", True, ["ranking_score"]), ("non_staff", False, [])])
-    def test_artefact_log_shows_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
+    def test_artefact_routes_show_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
-        self._ranking_score_artefact(report)
+        artefact = self._ranking_score_artefact(report)
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/")
+        response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert [row["type"] for row in response.json()["results"]] == expected_types
+
+        detail = self.client.get(f"{url}{artefact.id}/")
+        assert detail.status_code == (status.HTTP_200_OK if is_staff else status.HTTP_404_NOT_FOUND)
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")

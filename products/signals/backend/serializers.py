@@ -10,7 +10,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.request import Request
 
@@ -1398,13 +1397,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ReportRankingSerializer(allow_null=True))
     def get_ranking(self, obj: SignalReport) -> dict | None:
+        request = self.context.get("request")
+        if request is None or not request.user.is_staff:
+            return None
+
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
             readable_head_names,
         )
 
-        request = self.context.get("request")
-        if request is None or not request.user.is_staff:
-            return None
         prefetched = getattr(obj, "prefetched_ranking_score_artefacts", None)
         if prefetched is not None:
             art = prefetched[0] if prefetched else None
@@ -1419,8 +1419,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
-            readable_heads = sorted(readable_head_names(served.metadata))
-        except (PydanticValidationError, KeyError, TypeError, AttributeError):
+            heads = readable_head_names(served.metadata)
+            if not all(isinstance(head, str) and head for head in heads):
+                raise ValueError("readable head names must be non-empty strings")
+            readable_heads = sorted(heads)
+        except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
             return None
         return {
