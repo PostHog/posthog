@@ -33,6 +33,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    UnsupportedModelError,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -2043,6 +2044,13 @@ class TestRunEvaluationWorkflow:
                 "model_not_found",
                 None,
                 id="model_not_found",
+            ),
+            pytest.param(
+                UnsupportedModelError("gpt-5.4"),
+                "model_not_supported",
+                "model_not_supported",
+                None,
+                id="model_not_supported",
             ),
         ],
     )

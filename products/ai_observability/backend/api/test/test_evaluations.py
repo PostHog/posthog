@@ -777,6 +777,29 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
 
+    @parameterized.expand([("decision_model", "typesafe/jev-1.13", 400), ("chat_model", "openai/gpt-4o", 201)])
+    def test_llm_judge_creation_rejects_openrouter_non_chat_model(self, _name, model, expected_status):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+            return_value=frozenset({"typesafe/jev-1.13"}),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "OpenRouter judge",
+                    "enabled": False,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test"},
+                    "output_type": "boolean",
+                    "model_configuration": {"provider": "openrouter", "model": model},
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.data["attr"], "model_configuration")
+
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
         payload: dict[str, object] = {

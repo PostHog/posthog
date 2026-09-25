@@ -9,6 +9,7 @@ const REASON_LABELS: Record<EvaluationStatusReason, string> = {
     provider_key_quota_exceeded: 'Provider API key quota exceeded',
     provider_key_rate_limited: 'Provider API key is rate limited',
     model_not_found: 'Model not found',
+    model_not_supported: 'Model does not support chat completions',
     hog_error: 'Hog evaluation code failed',
 }
 
@@ -33,6 +34,9 @@ export function statusReasonRecoveryLabel(reason: EvaluationStatusReason | null 
     }
     if (reason === 'no_default_model' || reason === 'model_not_found') {
         return 'Choose an available model, then re-enable the evaluation to resume running.'
+    }
+    if (reason === 'model_not_supported') {
+        return 'Choose a chat model, then re-enable the evaluation to resume running.'
     }
     if (reason === 'hog_error') {
         return 'Fix the Hog code, then re-enable the evaluation to resume running.'

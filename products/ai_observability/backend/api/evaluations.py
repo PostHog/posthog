@@ -46,6 +46,7 @@ from products.access_control.backend.presentation.access_control import (
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
+from ..llm.providers.openrouter import is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -525,6 +526,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
 
+        if data.get("model_configuration") or data.get("enabled"):
+            self._validate_chat_model(data)
+
         should_validate_configs = (
             self.instance is None
             or "evaluation_type" in data
@@ -587,6 +591,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 self._validate_re_enable(data)
 
         return data
+
+    def _validate_chat_model(self, data: dict) -> None:
+        """The judge calls chat completions, so a model without text output fails on every run."""
+        model_config = self._effective_model_configuration(data)
+        if not model_config or model_config.get("provider") != LLMProvider.OPENROUTER:
+            return
+        model = model_config.get("model")
+        if model and is_non_chat_model(model):
+            raise serializers.ValidationError(
+                {
+                    "model_configuration": (
+                        f"'{model}' does not support chat completions, so it cannot be an LLM judge. Choose a chat model."
+                    )
+                }
+            )
 
     def _validate_can_run(self, data: dict) -> None:
         """An eval being turned on — created enabled or re-enabled — must be able to resolve a

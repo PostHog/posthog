@@ -170,6 +170,7 @@ _STATUS_REASON_SUBJECTS = {
     "provider_key_quota_exceeded": "Your AI observability evaluation was disabled because its provider API key quota was exceeded",
     "provider_key_rate_limited": "Your AI observability evaluation was disabled because its provider API key is being rate limited",
     "model_not_found": "Your AI observability evaluation was disabled because its model was not found",
+    "model_not_supported": "Your AI observability evaluation was disabled because its model does not support chat completions",
     "hog_error": "Your AI observability evaluation was disabled because its Hog code failed",
 }
 
