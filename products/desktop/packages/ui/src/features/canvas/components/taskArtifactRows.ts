@@ -13,11 +13,11 @@ import {
   commentTargetKey,
 } from "@posthog/core/comments/anchors";
 import { readPrUrls } from "@posthog/shared";
-import {
-  isTerminalStatus,
-  type Task,
-  type TaskRun,
-  type TaskThreadMessage,
+import type {
+  Task,
+  TaskRun,
+  TaskRunExposedPort,
+  TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
@@ -212,26 +212,14 @@ function readRunPostHogReferences(run: TaskRun): Array<{
   });
 }
 
-function latestRun(task: Task, runs: TaskRun[]): TaskRun | undefined {
-  const latestId = task.latest_run?.id;
-  return (
-    runs.find((run) => run.id === latestId) ??
-    runs.reduce<TaskRun | undefined>(
-      (newest, run) =>
-        !newest || run.created_at > newest.created_at ? run : newest,
-      undefined,
-    )
-  );
-}
+export type PreviewPorts = { runId: string; ports: TaskRunExposedPort[] };
 
-function previewRows(task: Task, runs: TaskRun[]): ArtifactRow[] {
-  const run = latestRun(task, runs);
-  if (!run || isTerminalStatus(run.status)) return [];
-  return (run.exposed_ports ?? []).map((exposed) => ({
+function previewRows(task: Task, previews: PreviewPorts): ArtifactRow[] {
+  return previews.ports.map((exposed) => ({
     kind: "preview",
-    key: `preview:${run.id}:${exposed.port}`,
+    key: `preview:${previews.runId}:${exposed.port}`,
     taskId: task.id,
-    runId: run.id,
+    runId: previews.runId,
     port: exposed.port,
     name: exposed.name,
   }));
@@ -241,9 +229,11 @@ export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],
   runs: TaskRun[],
-  options: { previews?: boolean } = {},
+  options: { previews?: PreviewPorts | null } = {},
 ): ArtifactRow[] {
-  const rows: ArtifactRow[] = options.previews ? previewRows(task, runs) : [];
+  const rows: ArtifactRow[] = options.previews
+    ? previewRows(task, options.previews)
+    : [];
   const seenPrUrls = new Set<string>();
 
   const addPr = (url: string, key: string, ts: number) => {

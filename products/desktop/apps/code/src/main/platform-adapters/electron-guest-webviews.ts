@@ -16,20 +16,11 @@ import {
 
 const log = logger.scope("guest-webviews");
 
-export function setupGuestWebviews(
-  window: BrowserWindow,
-  options: { allowLocalTaskPreviews: boolean },
-): void {
+export function setupGuestWebviews(window: BrowserWindow): void {
   const preloadPath = path.join(__dirname, "preload.js");
 
   window.webContents.on("will-attach-webview", (event, preferences, params) => {
-    if (
-      isAllowedTaskPreview(
-        params.src,
-        params.partition,
-        options.allowLocalTaskPreviews,
-      )
-    ) {
+    if (isAllowedTaskPreview(params.src, params.partition)) {
       hardenTaskPreviewPreferences(preferences, preloadPath);
       return;
     }
@@ -43,11 +34,7 @@ export function setupGuestWebviews(
 
   window.webContents.on("did-attach-webview", (_event, guest) => {
     if (guest.session === session.fromPartition(TASK_PREVIEW_PARTITION)) {
-      lockDownTaskPreview(
-        guest,
-        options.allowLocalTaskPreviews,
-        openExternalIfSafe,
-      );
+      lockDownTaskPreview(guest, openExternalIfSafe);
       return;
     }
     lockDownArtifactPreview(guest);

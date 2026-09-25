@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
   prQueriesLoading: false,
+  previewPorts: null as unknown,
 }));
 
 function openThread(body: string): void {
@@ -72,8 +73,8 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
     return {};
   },
 }));
-vi.mock("@posthog/ui/features/task-preview/useTaskPreviewEnabled", () => ({
-  useTaskPreviewEnabled: () => true,
+vi.mock("@posthog/ui/features/task-preview/useTaskPreviewPorts", () => ({
+  useTaskPreviewPorts: () => mocks.previewPorts,
 }));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
@@ -252,6 +253,7 @@ describe("TaskCommentsList", () => {
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
     mocks.prQueriesLoading = false;
+    mocks.previewPorts = null;
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
@@ -436,16 +438,11 @@ describe("TaskCommentsList", () => {
   });
 
   it("lists a live preview's element comments and opens the preview on them", () => {
-    mocks.runs = [
-      {
-        id: "run-live",
-        status: "in_progress",
-        created_at: "2024-01-01T00:00:00Z",
-        output: null,
-        artifacts: [],
-        exposed_ports: [{ port: 5173, name: "Web app" }],
-      } as unknown as TaskRun,
-    ];
+    mocks.previewPorts = {
+      runId: "run-live",
+      ports: [{ port: 5173, name: "Web app" }],
+      local: false,
+    };
     mocks.comments = [
       comment({
         id: "preview-comment",

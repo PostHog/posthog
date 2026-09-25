@@ -71,7 +71,7 @@ import {
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
-import { useTaskPreviewEnabled } from "@posthog/ui/features/task-preview/useTaskPreviewEnabled";
+import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -363,7 +363,7 @@ export function TaskCommentsList({
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
-  const previews = useTaskPreviewEnabled();
+  const previews = useTaskPreviewPorts(task);
   const activeArtifactId = useActiveArtifactId(taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,

@@ -9,21 +9,17 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task, TaskRunExposedPort } from "@posthog/shared/domain-types";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
-import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { previewLabel } from "./previewLabel";
-import { useTaskPreviewEnabled } from "./useTaskPreviewEnabled";
-import { useTaskRunExposedPorts } from "./useTaskRunExposedPorts";
+import { useTaskPreviewPorts } from "./useTaskPreviewPorts";
 
 export function TaskPreviewButton({ task }: { task: Task }) {
-  const enabled = useTaskPreviewEnabled();
-  const isCloud = useIsCloudTask(task);
-  const runId = task.latest_run?.id;
-  const ports = useTaskRunExposedPorts(task.id, runId, enabled && isCloud);
+  const previews = useTaskPreviewPorts(task);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
 
-  if (!enabled || !isCloud || !runId || ports.length === 0) return null;
+  if (!previews || previews.ports.length === 0) return null;
+  const { runId, ports } = previews;
 
   const open = (port: TaskRunExposedPort) => {
     track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {

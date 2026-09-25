@@ -23,6 +23,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useState } from "react";
 import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
+import { localPreviewSession } from "./localPreviewSession";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
 import { usePreviewTabInMainPanel } from "./usePreviewTabInMainPanel";
 import { useTaskPreviewAnnotationsSupported } from "./useTaskPreviewAnnotationsSupported";
@@ -31,6 +32,7 @@ import { useTaskPreviewSession } from "./useTaskPreviewSession";
 interface TaskPreviewPanelProps {
   taskId: string;
   runId: string;
+  local: boolean;
   port: number;
   label: string;
 }
@@ -72,6 +74,7 @@ function problemCopy(
 export function TaskPreviewPanel({
   taskId,
   runId,
+  local,
   port,
   label,
 }: TaskPreviewPanelProps) {
@@ -81,7 +84,14 @@ export function TaskPreviewPanel({
   const annotationsSupported = useTaskPreviewAnnotationsSupported();
   const inMainPanel = usePreviewTabInMainPanel(taskId, runId, port);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
-  const session = useTaskPreviewSession(taskId, runId, port, attempt);
+  const remoteSession = useTaskPreviewSession(
+    taskId,
+    runId,
+    port,
+    attempt,
+    !local,
+  );
+  const session = local ? localPreviewSession(port) : remoteSession;
   const outcome = session.data?.outcome;
   const url = outcome === "ready" ? session.data?.url : null;
 

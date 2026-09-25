@@ -93,6 +93,7 @@ export function TabContentRenderer({
         <TaskPreviewPanel
           taskId={taskId}
           runId={data.runId}
+          local={!isCloud}
           port={data.port}
           label={tab.label}
         />

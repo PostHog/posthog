@@ -50,14 +50,12 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
-import { useCompletedToolCalls } from "@posthog/ui/features/sessions/components/completedToolCalls";
 import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/components/countArtifactUploads";
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
-import { useTaskPreviewEnabled } from "@posthog/ui/features/task-preview/useTaskPreviewEnabled";
-import { EXPOSE_PORT_TOOL } from "@posthog/ui/features/task-preview/useTaskRunExposedPorts";
+import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import {
   ArtifactCard,
   stopCardOpen,
@@ -481,13 +479,9 @@ export function TaskArtifactsList({
       return reference ? sum + 1 + reference.occurrence_count : sum;
     }, 0),
   );
-  const exposeCalls = useCompletedToolCalls(events ?? [], EXPOSE_PORT_TOOL);
-  const { runs } = useTaskRuns(
-    task.id,
-    completedUploads + referenceRefreshKey + exposeCalls,
-  );
+  const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
-  const previews = useTaskPreviewEnabled();
+  const previews = useTaskPreviewPorts(task);
   const rows = useMemo(
     () => buildRows(task, timeline, runs, { previews }),
     [task, timeline, runs, previews],

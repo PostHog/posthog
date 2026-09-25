@@ -1,6 +1,7 @@
 import { Socket } from "node:net";
 import { networkInterfaces } from "node:os";
 import { z } from "zod";
+import { isCloudRun } from "../cloud-run";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import {
   createSandboxPosthogClient,
@@ -18,9 +19,6 @@ export const exposePortSchema = {
     .int()
     .min(1024)
     .max(65535)
-    .refine((port) => !RESERVED_PORTS.has(port), {
-      message: "This port is reserved for the sandbox.",
-    })
     .describe("Port where the HTTP server listens inside this sandbox."),
   name: z
     .string()
@@ -61,6 +59,15 @@ export function externalIPv4Address(): string | null {
   return null;
 }
 
+export function reservedPortProblem(
+  port: number,
+  cloud: boolean,
+): string | null {
+  return cloud && RESERVED_PORTS.has(port)
+    ? `Port ${port} is reserved for the sandbox. Start the server on another port.`
+    : null;
+}
+
 export async function checkListener(
   port: number,
   probe: PortProbe = probePort,
@@ -78,29 +85,38 @@ export async function checkListener(
 export const exposePortTool = defineLocalTool({
   name: EXPOSE_PORT_TOOL_NAME,
   description:
-    "Show a web server that runs in this sandbox to the user, in a browser tab inside PostHog Desktop. " +
+    "Show a web server that you started to the user, in a browser tab inside PostHog Desktop. " +
     "Call this after you start a dev server, preview, or other HTTP app that the user should see or try. " +
-    "Bind the server to 0.0.0.0, not localhost. Allow any Host header (for Vite, set server.allowedHosts to true), " +
-    "because the user reaches the server through a proxy host. " +
+    "In a cloud sandbox, bind the server to 0.0.0.0, not localhost, and allow any Host header (for Vite, set server.allowedHosts to true), " +
+    "because the user reaches the server through a proxy host. On the user's computer, localhost is fine. " +
     "Call it again with the same port to change the name.",
   schema: exposePortSchema,
   alwaysLoad: true,
   isEnabled: (ctx, meta) =>
-    meta?.environment === "cloud" && !!ctx.taskId && !!ctx.taskRunId,
+    !!ctx.taskId && (meta?.environment !== "cloud" || !!ctx.taskRunId),
   handler: async (ctx, args): Promise<LocalToolResult> => {
-    if (!ctx.taskId || !ctx.taskRunId) {
+    if (!ctx.taskId) {
       return errorResult("Port preview is not available in this session.");
     }
+    const cloud = isCloudRun(undefined);
+    const portProblem =
+      reservedPortProblem(args.port, cloud) ??
+      (await checkListener(
+        args.port,
+        probePort,
+        cloud ? externalIPv4Address() : null,
+      ));
+    if (portProblem) {
+      return errorResult(portProblem);
+    }
+    if (!cloud) {
+      return exposedResult(args.port, args.name);
+    }
+
     const client = createSandboxPosthogClient();
-    if (!client) {
+    if (!client || !ctx.taskRunId) {
       return errorResult("PostHog is not configured in this sandbox.");
     }
-
-    const listenerProblem = await checkListener(args.port);
-    if (listenerProblem) {
-      return errorResult(listenerProblem);
-    }
-
     try {
       await withReportDeadline(
         (signal) =>
@@ -118,19 +134,24 @@ export const exposePortTool = defineLocalTool({
       );
     }
 
-    const title = args.name
-      ? `${args.name} (port ${args.port})`
-      : `Port ${args.port}`;
-    return {
-      content: [
-        {
-          type: "text",
-          text: `${title} is now available to the user as a preview in PostHog Desktop. Tell the user they can open it from the task header.`,
-        },
-      ],
-    };
+    return exposedResult(args.port, args.name);
   },
 });
+
+function exposedResult(
+  port: number,
+  name: string | undefined,
+): LocalToolResult {
+  const title = name ? `${name} (port ${port})` : `Port ${port}`;
+  return {
+    content: [
+      {
+        type: "text",
+        text: `${title} is now available to the user as a preview in PostHog Desktop. Tell the user they can open it from the task header or the artifacts list.`,
+      },
+    ],
+  };
+}
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };

@@ -6,11 +6,13 @@ export function useTaskPreviewSession(
   runId: string,
   port: number,
   attempt: number,
+  enabled: boolean,
 ) {
   return useAuthenticatedQuery<TaskRunPreviewSession>(
     ["task-preview-session", taskId, runId, port, attempt],
     (client) => client.createTaskRunPreviewSession(taskId, runId, port),
     {
+      enabled,
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: 0,
       retry: false,

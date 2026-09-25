@@ -7,10 +7,7 @@ import {
 const SANDBOX_PREVIEW_HOST_SUFFIX = ".modal.host";
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
-export function isAllowedTaskPreviewUrl(
-  url: string,
-  allowLocalPreviews: boolean,
-): boolean {
+export function isAllowedTaskPreviewUrl(url: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -25,21 +22,15 @@ export function isAllowedTaskPreviewUrl(
     return true;
   }
   return (
-    allowLocalPreviews &&
-    parsed.protocol === "http:" &&
-    LOCAL_PREVIEW_HOSTS.has(parsed.hostname)
+    parsed.protocol === "http:" && LOCAL_PREVIEW_HOSTS.has(parsed.hostname)
   );
 }
 
 export function isAllowedTaskPreview(
   src: string,
   partition: string | undefined,
-  allowLocalPreviews: boolean,
 ): boolean {
-  return (
-    partition === TASK_PREVIEW_PARTITION &&
-    isAllowedTaskPreviewUrl(src, allowLocalPreviews)
-  );
+  return partition === TASK_PREVIEW_PARTITION && isAllowedTaskPreviewUrl(src);
 }
 
 export function hardenTaskPreviewPreferences(
@@ -62,7 +53,6 @@ export function hardenTaskPreviewPreferences(
 
 export function lockDownTaskPreview(
   guest: WebContents,
-  allowLocalPreviews: boolean,
   openExternal: (url: string) => void,
 ): void {
   guest.setWindowOpenHandler(({ url }) => {
@@ -71,7 +61,7 @@ export function lockDownTaskPreview(
   });
   guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   guest.on("will-navigate", (event, url) => {
-    if (isAllowedTaskPreviewUrl(url, allowLocalPreviews)) return;
+    if (isAllowedTaskPreviewUrl(url)) return;
     event.preventDefault();
     openExternal(url);
   });

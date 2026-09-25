@@ -366,7 +366,7 @@ export function createWindow(): void {
     : pathToFileURL(rendererFilePath);
 
   setupExternalLinkHandlers(mainWindow, appHome);
-  setupGuestWebviews(mainWindow, { allowLocalTaskPreviews: isDevBuild() });
+  setupGuestWebviews(mainWindow);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

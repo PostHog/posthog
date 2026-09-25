@@ -6,8 +6,8 @@ import {
 import { useCompletedToolCalls } from "@posthog/ui/features/sessions/components/completedToolCalls";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import { EXPOSE_PORT_TOOL } from "./exposedPortsFromEvents";
 
-export const EXPOSE_PORT_TOOL = "expose_port";
 const EXPOSED_PORTS_POLL_INTERVAL_MS = 30_000;
 const NO_PORTS: TaskRunExposedPort[] = [];
 
@@ -30,5 +30,6 @@ export function useTaskRunExposedPorts(
       placeholderData: (previous) => previous,
     },
   );
-  return query.data?.exposed_ports ?? NO_PORTS;
+  if (!query.data || isTerminalStatus(query.data.status)) return NO_PORTS;
+  return query.data.exposed_ports ?? NO_PORTS;
 }

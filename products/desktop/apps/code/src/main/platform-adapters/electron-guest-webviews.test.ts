@@ -25,7 +25,7 @@ import { setupGuestWebviews } from "./electron-guest-webviews";
 
 type Handler = (...args: never[]) => void;
 
-function setup(allowLocalTaskPreviews: boolean): Map<string, Handler> {
+function setup(): Map<string, Handler> {
   const handlers = new Map<string, Handler>();
   const window = {
     webContents: {
@@ -34,7 +34,7 @@ function setup(allowLocalTaskPreviews: boolean): Map<string, Handler> {
       }),
     },
   } as unknown as BrowserWindow;
-  setupGuestWebviews(window, { allowLocalTaskPreviews });
+  setupGuestWebviews(window);
   return handlers;
 }
 
@@ -63,76 +63,68 @@ describe("guest webviews", () => {
       name: "a sandbox preview",
       src: "https://abc-123.modal.host/?_modal_connect_token=t",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: false,
       allowed: true,
     },
     {
       name: "a sandbox preview in another partition",
       src: "https://abc-123.modal.host/",
       partition: "persist:main",
-      allowLocal: false,
       allowed: false,
     },
     {
       name: "an arbitrary site in the preview partition",
       src: "https://example.com/",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: true,
       allowed: false,
     },
     {
       name: "a plain http sandbox host",
       src: "http://abc-123.modal.host/",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: true,
       allowed: false,
     },
     {
       name: "a lookalike host",
       src: "https://modal.host.example.com/",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: false,
       allowed: false,
     },
     {
-      name: "a local preview in a dev build",
-      src: "http://localhost:50003/",
+      name: "a server on this computer",
+      src: "http://localhost:5173/",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: true,
       allowed: true,
     },
     {
-      name: "a local preview in a packaged build",
-      src: "http://localhost:50003/",
+      name: "a loopback address",
+      src: "http://127.0.0.1:3000/",
       partition: TASK_PREVIEW_PARTITION,
-      allowLocal: false,
+      allowed: true,
+    },
+    {
+      name: "a plain http host on the network",
+      src: "http://192.168.1.10:3000/",
+      partition: TASK_PREVIEW_PARTITION,
       allowed: false,
     },
-  ])(
-    "attaches $name only when allowed",
-    ({ src, partition, allowLocal, allowed }) => {
-      const { prevented, preferences } = attach(
-        setup(allowLocal),
-        src,
-        partition,
-      );
-      expect(prevented).toBe(!allowed);
-      if (allowed) {
-        expect(preferences).toMatchObject({
-          preload: expect.stringMatching(/preload\.js$/),
-          additionalArguments: [TASK_PREVIEW_ARG],
-          sandbox: true,
-          nodeIntegration: false,
-          contextIsolation: true,
-          webviewTag: false,
-        });
-      }
-    },
-  );
+  ])("attaches $name only when allowed", ({ src, partition, allowed }) => {
+    const { prevented, preferences } = attach(setup(), src, partition);
+    expect(prevented).toBe(!allowed);
+    if (allowed) {
+      expect(preferences).toMatchObject({
+        preload: expect.stringMatching(/preload\.js$/),
+        additionalArguments: [TASK_PREVIEW_ARG],
+        sandbox: true,
+        nodeIntegration: false,
+        contextIsolation: true,
+        webviewTag: false,
+      });
+    }
+  });
 
   it("gives an artifact preview its own preload", () => {
     const { prevented, preferences } = attach(
-      setup(false),
+      setup(),
       `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}PGgxPlJlcG9ydDwvaDE+`,
       "artifact-preview-one",
     );
@@ -159,7 +151,7 @@ describe("guest webviews", () => {
       }),
     } as unknown as WebContents;
 
-    setup(false).get("did-attach-webview")?.({} as never, guest as never);
+    setup().get("did-attach-webview")?.({} as never, guest as never);
 
     const stayInPreview = vi.fn();
     guestHandlers.get("will-navigate")?.(

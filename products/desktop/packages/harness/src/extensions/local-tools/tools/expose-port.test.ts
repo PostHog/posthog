@@ -4,31 +4,48 @@ import {
   checkListener,
   EXPOSE_PORT_TOOL_NAME,
   exposePortSchema,
+  reservedPortProblem,
 } from "./expose-port";
 
 describe("expose_port tool", () => {
   it.each([
     {
       name: "a cloud run",
+      ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
       meta: { environment: "cloud" as const },
       exposed: true,
     },
     {
-      name: "a local session",
+      name: "a local task",
+      ctx: { cwd: "/repo", taskId: "task" },
+      meta: { environment: "local" as const },
+      exposed: true,
+    },
+    {
+      name: "a session without a task",
+      ctx: { cwd: "/repo" },
       meta: { environment: "local" as const },
       exposed: false,
     },
-  ])("is exposed only in $name when expected", ({ meta, exposed }) => {
-    const tools = enabledLocalTools(
-      { cwd: "/repo", taskId: "task", taskRunId: "run" },
-      meta,
-    );
+  ])("is exposed for $name only when it can work", ({ ctx, meta, exposed }) => {
+    const tools = enabledLocalTools(ctx, meta);
     expect(tools.some((t) => t.name === EXPOSE_PORT_TOOL_NAME)).toBe(exposed);
   });
 
-  it.each([8080, 8181, 80, 70000])("rejects port %i", (port) => {
+  it.each([80, 70000])("rejects port %i", (port) => {
     expect(exposePortSchema.port.safeParse(port).success).toBe(false);
   });
+
+  it.each([
+    { port: 8080, cloud: true, reserved: true },
+    { port: 8080, cloud: false, reserved: false },
+    { port: 5173, cloud: true, reserved: false },
+  ])(
+    "reserves port $port in a cloud sandbox only ($cloud)",
+    ({ port, cloud, reserved }) => {
+      expect(reservedPortProblem(port, cloud) !== null).toBe(reserved);
+    },
+  );
 
   it.each([
     {
