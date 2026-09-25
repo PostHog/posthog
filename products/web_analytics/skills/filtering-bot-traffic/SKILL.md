@@ -39,8 +39,11 @@ the virtual properties don't expose.
 
 ### Virtual properties (insight builder, filters, breakdowns)
 
-These read the user agent for you (falling back from `$raw_user_agent` to `$user_agent`),
-so you don't pass anything in. Available wherever you pick an event property.
+These read `$raw_user_agent` for you, so you don't pass anything in. Available wherever you
+pick an event property. There is no fallback to `$user_agent`: that property has no
+materialized column and almost no event carries it, so an event without `$raw_user_agent` is
+classified as having no user agent at all. Read **Events with no user agent count as bots**
+below before you use any of them as a filter.
 
 | Property                 | Value                                                                                                                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -52,19 +55,61 @@ so you don't pass anything in. Available wherever you pick an event property.
 
 ### HogQL functions (raw SQL)
 
-Pass the user agent explicitly. Use `coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)`
-to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures. The `nullIf`
-keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot —
-this mirrors the expression the virtual properties use internally.
+Pass the user agent explicitly. Use `properties.$raw_user_agent`, which is the expression the
+virtual properties use internally. Do not reach for `properties.$user_agent`: almost no event
+carries it, so every row reads as an empty user agent and classifies as a bot.
 
-| Function                 | Returns                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------- |
-| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern (empty UA counts as a bot) |
-| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                                |
-| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                            |
-| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering           |
-| `getBotName(ua)`         | bot name; empty for humans                                                   |
-| `getBotOperator(ua)`     | operator/company; empty for humans                                           |
+| Function                 | Returns                                                               |
+| ------------------------ | --------------------------------------------------------------------- |
+| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern, or the UA is empty |
+| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                         |
+| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                     |
+| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering    |
+| `getBotName(ua)`         | bot name; empty for humans                                            |
+| `getBotOperator(ua)`     | operator/company; empty for humans                                    |
+
+## Events with no user agent count as bots
+
+`isLikelyBot` matches the empty string, so **every event without a `$raw_user_agent` is a bot**,
+and `$virt_traffic_type` reports it as `Automation`. That is right for web traffic, where a
+request with no user agent is almost always a script, but it also sweeps in every event that was
+never a web request: server-side SDK captures, and any other source that does not set a user
+agent. `$virt_is_bot` is the same expression, so it gives the same answer.
+
+On a project that mixes web and non-web capture this is a large share of all events, so a plain
+`$virt_is_bot = false` filter can move pageview and visitor counts a long way without the user
+expecting it. Before you present a bot-filtered number:
+
+1. Check how much of the range has no user agent, so you know what the filter will remove:
+
+   ```sql
+   SELECT
+       empty(ifNull(properties.$raw_user_agent, '')) AS no_user_agent,
+       count() AS events
+   FROM events
+   WHERE timestamp > now() - INTERVAL 7 DAY
+   GROUP BY no_user_agent
+   ```
+
+2. To keep only events that carry a user agent, add this guard alongside the bot filter. It
+   reads the stored `$raw_user_agent`, so it is not a proof of browser origin: it also drops a
+   browser event whose user agent was stripped, and keeps a non-browser capture that set one.
+   Scope to a web event or a known web source when the count has to be web-only.
+
+   ```json
+   [
+     { "key": "$raw_user_agent", "operator": "is_set", "type": "event" },
+     { "key": "$virt_is_bot", "value": ["false"], "operator": "exact", "type": "event" }
+   ]
+   ```
+
+3. Say which population the number reflects. "Events with a stored user agent", "web
+   traffic", and "everything not classified as a bot" are three different groups.
+
+Cookieless events are a separate case. The user agent is used at capture time and then stripped,
+so those events provably had one. PostHog is rolling out a modifier that classifies them as
+regular traffic, so they may or may not be counted as bots on a given project. The
+`$raw_user_agent` guard drops them either way, because the stored property is gone.
 
 ## Traffic types — what to keep vs drop
 
@@ -88,8 +133,12 @@ Add a property filter `$virt_is_bot` `exact` `false`:
 { "key": "$virt_is_bot", "value": ["false"], "operator": "exact", "type": "event" }
 ```
 
-Drop it into any TrendsQuery / FunnelsQuery / etc. `properties`. Visitor, session, and
-pageview counts then reflect human traffic only, without changing stored data.
+Drop it into any TrendsQuery / FunnelsQuery / etc. `properties`. This changes the counts
+only, not the stored data.
+
+This also drops every event with no stored user agent, which on most projects means all
+non-web capture. Pair it with `$raw_user_agent` `is_set` to keep only events that carry a
+user agent, and see **Events with no user agent count as bots** above.
 
 To exclude a narrower slice (e.g. keep AI agents but drop monitoring + automation), filter
 on `$virt_traffic_type` or `$virt_traffic_category` with `operator: is_not` instead.
@@ -135,16 +184,17 @@ which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages 
 SELECT count() AS human_pageviews
 FROM events
 WHERE event = '$pageview'
-    AND NOT isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND NOT isLikelyBot(properties.$raw_user_agent)
 
--- top bots by hits
+-- top bots by hits, events with a user agent only
 SELECT
-    getBotName(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS bot,
-    getBotOperator(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS operator,
+    getBotName(properties.$raw_user_agent) AS bot,
+    getBotOperator(properties.$raw_user_agent) AS operator,
     count() AS hits
 FROM events
 WHERE event = '$pageview'
-    AND isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
+    AND notEmpty(ifNull(properties.$raw_user_agent, ''))
+    AND isLikelyBot(properties.$raw_user_agent)
 GROUP BY bot, operator
 ORDER BY hits DESC
 ```
@@ -189,15 +239,11 @@ the capture API) before building bot insights.
 ## Gotchas
 
 - **Needs a captured user agent.** Classification is computed at query time from the event's
-  `$raw_user_agent` / `$user_agent`, so it works on any historical event — there's no need to
-  restrict `dateRange.date_from`. The one requirement is that a user agent was captured; events
-  from sources that never set one can't be classified (and empty UAs fall through to
-  `Automation` / `no_user_agent`, below).
-- **`isLikelyBot` is "likely".** Detection is a user-agent heuristic — some bots spoof
-  real browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not
-  ground truth.
-- **Empty user agent = bot.** Requests with no UA (server-to-server, misconfigured SDKs)
-  classify as `Automation` / `no_user_agent`, so `isLikelyBot` returns `true`.
+  `$raw_user_agent`, so it works on any historical event and there's no need to restrict
+  `dateRange.date_from`. The one requirement is that a user agent was captured.
+- **`isLikelyBot` is "likely".** Detection is a user-agent heuristic. Some bots spoof real
+  browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not ground
+  truth.
 - **Don't silently drop the host filter.** If the user is scoped to one domain, inherit
   `$host` in `properties` — leaving it out changes the answer.
 - **Bot definitions evolve.** The detected-bot list changes over time, so re-running the
