@@ -18,6 +18,6 @@
     events AS e
   WHERE
     and(equals(event, 'RANDOM_TEST_ID::UUID'), equals(e.properties.$current_url, 'https://posthog.com/feedback/123?vip=1'))
-  LIMIT 100
+  LIMIT 101
   '''
 # ---
