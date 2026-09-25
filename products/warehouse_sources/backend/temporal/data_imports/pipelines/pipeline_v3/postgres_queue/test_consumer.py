@@ -962,19 +962,35 @@ class TestAdminShutdownErrorClassification:
         mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_close_does_not_report_admin_shutdown_error(self):
-        # Queue DB terminates the poll connection via an administrator command (failover,
-        # maintenance restart) while _close() tries the best-effort lease release.
-        # _close() already notes this path is best-effort; the error must not reach
+    @pytest.mark.parametrize(
+        "error,drops_connection",
+        [
+            (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), False),
+            (
+                psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
+                True,
+            ),
+        ],
+    )
+    async def test_close_does_not_report_expected_lease_release_errors(
+        self, error: BaseException, drops_connection: bool
+    ) -> None:
+        # Queue DB drops the poll connection while _close() tries the best-effort lease
+        # release — via an administrator command, or a generic connection drop (e.g. the
+        # pod's own network path tearing down concurrently with its graceful shutdown).
+        # _close() already notes this path is best-effort; neither shape must reach
         # error tracking.
         consumer = _make_consumer()
+
+        async def raise_error(*args: Any, **kwargs: Any) -> None:
+            if drops_connection:
+                # `closed` is a read-only property on the real AsyncConnection; swap in a
+                # fresh mock with it set, rather than assigning the attribute in place.
+                consumer._poll_conn = _make_healthy_conn(closed=True)
+            raise error
+
         with (
-            patch.object(
-                consumer._adapter,
-                "release_all_owned",
-                new_callable=AsyncMock,
-                side_effect=psycopg.errors.AdminShutdown("terminating connection due to administrator command"),
-            ),
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock, side_effect=raise_error),
             patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
         ):
             await consumer._close()
