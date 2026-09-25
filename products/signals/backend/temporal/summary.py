@@ -28,7 +28,11 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
+from products.signals.backend.auto_start import (
+    RequestedImplementation,
+    maybe_autostart_from_report_artefacts,
+    start_requested_implementation,
+)
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
@@ -579,7 +583,13 @@ class SignalReportSummaryWorkflow:
                                 return True
                         await workflow.execute_activity(
                             maybe_autostart_implementation_activity,
-                            MaybeAutostartImplementationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            MaybeAutostartImplementationInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                requested_user_id=inputs.requested_implementation_user_id,
+                                requested_task_id=inputs.requested_implementation_task_id,
+                                requested_after_run_count=inputs.requested_after_run_count,
+                            ),
                             start_to_close_timeout=timedelta(minutes=5),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
@@ -1014,6 +1024,9 @@ async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
 class MaybeAutostartImplementationInput:
     team_id: int
     report_id: str
+    requested_user_id: int | None = None
+    requested_task_id: str | None = None
+    requested_after_run_count: int | None = None
 
 
 @temporalio.activity.defn
@@ -1024,10 +1037,23 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
 
     Runs at the workflow's settle point (report READY, no pending signals) rather than per research
     run, so the implementation task is scoped to the report's final summary — not whichever research
-    pass finished first. Idempotent: `maybe_autostart_from_report_artefacts` no-ops if an
-    implementation task already exists for the report.
+    pass finished first. Normal auto-start skips an existing implementation task. An explicit
+    requested rerun can start another run on that task after the new research pass.
     """
-    await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+    if input.requested_user_id is not None:
+        if input.requested_after_run_count is None:
+            raise ValueError("A requested implementation needs the report's prior run count")
+        await database_sync_to_async(start_requested_implementation, thread_sensitive=False)(
+            RequestedImplementation(
+                team_id=input.team_id,
+                report_id=input.report_id,
+                user_id=input.requested_user_id,
+                task_id=input.requested_task_id,
+                after_run_count=input.requested_after_run_count,
+            )
+        )
+    else:
+        await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
 
 
 @dataclass
