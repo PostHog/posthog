@@ -26,6 +26,8 @@ class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
                 ("empty", {"filters": {}}),
                 ("supplied", {"filters": {"groups": "invalid"}}),
             ]
+            # A filters-less update of a stored v2 row takes the v2 path, which needs the database.
+            if not (version == 2 and shape == "omitted")
         ]
     )
     def test_stored_config_rejected_before_v1_validation(
@@ -64,8 +66,14 @@ class TestFeatureFlagConfigVersionValidation(SimpleTestCase):
 
 @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"cross_field.variant_rollout_sum_not_100"})
 class TestFeatureFlagConfigVersionWrites(APIBaseTest):
-    @parameterized.expand([("patch", {}), ("patch", {"filters": {}}), ("put", {"filters": {"groups": []}})])
-    def test_unsupported_stored_config_is_not_rewritten(self, method: str, data: dict) -> None:
+    @parameterized.expand(
+        [
+            ("patch", {}, None),
+            ("patch", {"filters": {}}, "filters"),
+            ("put", {"filters": {"groups": []}}, "filters"),
+        ]
+    )
+    def test_unsupported_stored_config_is_not_rewritten(self, method: str, data: dict, attr: str | None) -> None:
         filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
         flag = FeatureFlag.objects.create(team=self.team, key="stored-config", filters=filters, version=7)
         response = getattr(self.client, method)(
@@ -75,7 +83,7 @@ class TestFeatureFlagConfigVersionWrites(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unsupported_config_version"
-        assert response.json()["attr"] == "filters"
+        assert response.json()["attr"] == attr
         flag.refresh_from_db()
         assert flag.filters == filters
         assert flag.version == 7
