@@ -947,7 +947,7 @@ class TestReplayScannerTags(_VisionAPITestCase):
 
     def _tag_names(self, scanner_id: str) -> list[str]:
         return sorted(
-            TaggedItem.objects.filter(replay_scanner_id=scanner_id).values_list("tag__name", flat=True),
+            TaggedItem.objects.for_objects(ReplayScanner, [scanner_id]).values_list("tag__name", flat=True),
         )
 
     @parameterized.expand(

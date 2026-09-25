@@ -1756,6 +1756,23 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_short_sql_history_returns_validation_error(self, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.return_value = mock.MagicMock(result=[[1.0]], columns=["value"], has_more=False)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "needs at least" in response.json()["detail"]
+        assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
         mock_simulate.return_value = {

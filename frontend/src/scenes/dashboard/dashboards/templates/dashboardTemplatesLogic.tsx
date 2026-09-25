@@ -28,7 +28,7 @@ export interface DashboardTemplateProps {
 
 export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
     listQuery?: Partial<Pick<DashboardTemplateListParams, 'is_featured'>>
-    /** When true, this logic instance is scoped to the Dashboards → Templates tab (visibility filter + refresh after edits). */
+    /** When true, this logic instance is scoped to the dashboard templates modal (visibility filter + refresh after edits). */
     templatesTabList?: boolean
 }
 
@@ -191,7 +191,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
-                    // `urlToAction` when the Templates tab or another surface leaves `?templateFilter=` on /dashboard.
+                    // `urlToAction` when the templates modal or another surface leaves `?templateFilter=` on /dashboard.
                     const useSearch = !featuredOnly && values.templateFilter.length > 2
 
                     let listScope: DashboardTemplateScope | undefined

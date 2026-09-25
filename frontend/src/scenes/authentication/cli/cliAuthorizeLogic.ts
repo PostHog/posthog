@@ -284,6 +284,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             [] as { id: number; name: string }[],
             {
                 loadProjects: async (organizationId: string) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsList() from '~/generated/core/api' instead.
                     const response = await api.get(`api/organizations/${organizationId}/projects/`)
                     return response.results || []
                 },
@@ -310,6 +311,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             }),
             submit: async ({ userCode, projectId, scopes }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create('api/cli-auth/authorize/', {
                         user_code: userCode.toUpperCase().replace(/\s/g, ''),
                         project_id: projectId,

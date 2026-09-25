@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -388,6 +389,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                         ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
                         : `"${updated.name}" renamed`
                     lemonToast.success(msg)
+                    const submitted = { name, text, always_include }
+                    // Fields stay editable during the save, so keep any edit made in flight.
+                    if (objectsEqual(values.editSource, submitted)) {
+                        actions.resetEditSource(submitted)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
@@ -424,6 +430,9 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 try {
                     const updated = await updateSource(props.id, payload)
                     lemonToast.success(`"${updated.name}" updated`)
+                    if (objectsEqual(values.editUrlSource, vals)) {
+                        actions.resetEditUrlSource(vals)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
@@ -445,12 +454,13 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             }
             // Hydrate once. Later polls must not wipe in-progress edits, and a text
             // save must not restore the stale sourceText loader value.
+            // Reset, not set, so the form's changed flag stays off until the user edits.
             if (!cache.formHydrated) {
                 if (source.source_type === 'url') {
-                    actions.setEditUrlSourceValues(editUrlSourceValuesFromSource(source))
+                    actions.resetEditUrlSource(editUrlSourceValuesFromSource(source))
                 } else {
                     const textReady = hasLoadedSourceText(source, values.sourceText)
-                    actions.setEditSourceValues({
+                    actions.resetEditSource({
                         name: source.name,
                         text: textReady ? values.sourceText.text : '',
                         always_include: source.always_include ?? false,
@@ -476,7 +486,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         },
         loadSourceTextSuccess: ({ sourceText }) => {
             if (values.source && values.source.id === sourceText.id) {
-                actions.setEditSourceValue('text', sourceText.text)
+                if (values.editSourceChanged) {
+                    actions.setEditSourceValue('text', sourceText.text)
+                } else {
+                    actions.resetEditSource({ ...values.editSource, text: sourceText.text })
+                }
             }
         },
         deleteSource: async () => {

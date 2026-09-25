@@ -8,13 +8,14 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 
 export function DuplicateDashboardModal(): JSX.Element {
-    const { hideDuplicateDashboardModal, duplicateAndGoToDashboard } = useActions(duplicateDashboardLogic)
-    const { isDuplicateDashboardSubmitting, duplicateDashboardModalVisible } = useValues(duplicateDashboardLogic)
+    const { hideDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
+    const { isDuplicateDashboardSubmitting, duplicateDashboardModalVisible, duplicateRequestId } =
+        useValues(duplicateDashboardLogic)
 
     return (
         <LemonModal
             title="Duplicate dashboard"
-            onClose={hideDuplicateDashboardModal}
+            onClose={duplicateRequestId === null ? hideDuplicateDashboardModal : undefined}
             isOpen={duplicateDashboardModalVisible}
             footer={
                 <>
@@ -22,27 +23,18 @@ export function DuplicateDashboardModal(): JSX.Element {
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-cancel"
-                        disabled={isDuplicateDashboardSubmitting}
+                        disabled={isDuplicateDashboardSubmitting || duplicateRequestId !== null}
                         onClick={hideDuplicateDashboardModal}
                     >
                         Cancel
-                    </LemonButton>
-                    <LemonButton
-                        form="new-dashboard-form"
-                        type="secondary"
-                        data-attr="dashboard-submit-and-go"
-                        disabled={isDuplicateDashboardSubmitting}
-                        onClick={duplicateAndGoToDashboard}
-                    >
-                        Duplicate and go to dashboard
                     </LemonButton>
                     <LemonButton
                         form="duplicate-dashboard-form"
                         htmlType="submit"
                         type="primary"
                         data-attr="duplicate-dashboard-submit"
-                        loading={isDuplicateDashboardSubmitting}
-                        disabled={isDuplicateDashboardSubmitting}
+                        loading={isDuplicateDashboardSubmitting || duplicateRequestId !== null}
+                        disabled={isDuplicateDashboardSubmitting || duplicateRequestId !== null}
                     >
                         Duplicate
                     </LemonButton>
