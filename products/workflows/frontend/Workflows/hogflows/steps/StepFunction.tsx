@@ -29,6 +29,11 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 errors={validationResult?.errors}
                 warnings={validationResult?.warnings}
                 emailFieldErrors={validationResult?.emailErrors}
+                // Records which Library template the email is based on. A later edit keeps the
+                // link, and inserting another template replaces it.
+                onEmailTemplateApplied={(templateId) =>
+                    partialSetWorkflowActionConfig(node.id, { template_uuid: templateId })
+                }
             />
         </>
     )

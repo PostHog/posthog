@@ -199,6 +199,7 @@ export function HogFlowFunctionConfiguration({
     errors,
     warnings,
     emailFieldErrors,
+    onEmailTemplateApplied,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -208,6 +209,7 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
     warnings?: Record<string, string>
     emailFieldErrors?: EmailFieldErrors
+    onEmailTemplateApplied?: (templateId: string) => void
 }): JSX.Element {
     const { workflow, logicProps, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     // The test panel loads a recent matching event; reuse it so autocomplete offers the property
@@ -268,6 +270,7 @@ export function HogFlowFunctionConfiguration({
             // (into the staged draft on active workflows), so the editor needs no save step.
             emailLiveChanges
             emailSaveIndicator={<WorkflowAutoSaveIndicator />}
+            onEmailTemplateApplied={onEmailTemplateApplied}
             configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
