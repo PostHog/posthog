@@ -6,6 +6,8 @@ import { ApiConfig } from '~/lib/api'
 import { llmSkillsNameFilesRetrieve } from 'products/skills/frontend/generated/api'
 import type { LLMSkillFileApi } from 'products/skills/frontend/generated/api.schemas'
 
+import { SKILL_FILE_MAX_BYTES } from './skillConstants'
+
 export interface SkillFileLogicProps {
     skillName: string
     filePath: string
@@ -82,7 +84,8 @@ export const skillFileLogic = kea<skillFileLogicType>([
                         String(ApiConfig.getCurrentTeamId()),
                         props.skillName,
                         props.filePath,
-                        { version: props.version }
+                        // Without a length the API returns only the first page of a long file.
+                        { version: props.version, body_length: SKILL_FILE_MAX_BYTES }
                     )
                     return fileData.content
                 } catch (e) {
