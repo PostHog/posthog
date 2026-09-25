@@ -43,7 +43,13 @@ describe('StepPipeline', () => {
                 topic: 'test',
                 partition: 0,
                 offset: 1,
-                headers: [{ token: Buffer.from('phc_token') }, { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }],
+                headers: [
+                    { token: Buffer.from('phc_token') },
+                    { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                    { event: '$pageview' },
+                    { distinct_id: 'person@example.com' },
+                    { session_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' },
+                ],
             } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
@@ -62,10 +68,17 @@ describe('StepPipeline', () => {
                         topic: 'test',
                         partition: 0,
                         offset: 1,
-                        headers: { token: 'phc_token', uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                        headers: {
+                            token: 'phc_token',
+                            uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+                            event: '$pageview',
+                        },
                     }),
                 })
             )
+            const logged = (logger.error as jest.Mock).mock.calls.at(-1)?.[2].debugContext.headers
+            expect(logged).not.toHaveProperty('distinct_id')
+            expect(logged).not.toHaveProperty('session_id')
         })
 
         it('should log no headers when the message has none', async () => {

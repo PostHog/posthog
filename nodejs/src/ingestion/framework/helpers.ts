@@ -21,6 +21,10 @@ export type KafkaDebugContext = {
     headers?: Record<string, string>
 }
 
+// The headers a responder needs to write an event restriction for a poison
+// message. distinct_id and session_id are customer-controlled and stay out.
+const LOGGED_HEADERS = new Set(['token', 'event', 'uuid'])
+
 export type DefaultContext = { message: Message; debugContext?: KafkaDebugContext }
 
 export function createKafkaDebugContext(message: Message): KafkaDebugContext {
@@ -41,7 +45,9 @@ function formatKafkaHeaders(headers: MessageHeader[]): Record<string, string> {
     const result: Record<string, string> = {}
     for (const header of headers) {
         for (const key of Object.keys(header)) {
-            result[key] = header[key].toString()
+            if (LOGGED_HEADERS.has(key)) {
+                result[key] = header[key].toString()
+            }
         }
     }
     return result
