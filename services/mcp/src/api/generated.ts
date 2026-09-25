@@ -45381,7 +45381,9 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagLinkedProductTour {
+      /** ID of the product tour that runs on this flag. */
       readonly id: string;
+      /** Name of the product tour that runs on this flag. */
       readonly name: string;
     }
 
@@ -45431,6 +45433,7 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
+      /** Unarchived product tours that run on this flag, through either the tour's linked flag or its internal targeting flag. */
       readonly product_tours: readonly FeatureFlagLinkedProductTour[];
       readonly can_edit: boolean;
       tags?: unknown[];

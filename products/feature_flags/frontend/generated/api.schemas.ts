@@ -496,7 +496,9 @@ export interface FeatureFlagExperimentSetMetadataApi {
 }
 
 export interface FeatureFlagLinkedProductTourApi {
+    /** ID of the product tour that runs on this flag. */
     readonly id: string
+    /** Name of the product tour that runs on this flag. */
     readonly name: string
 }
 
@@ -576,6 +578,7 @@ export interface FeatureFlagApi {
     readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataApi[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
+    /** Unarchived product tours that run on this flag, through either the tour's linked flag or its internal targeting flag. */
     readonly product_tours: readonly FeatureFlagLinkedProductTourApi[]
     readonly can_edit: boolean
     tags?: unknown[]

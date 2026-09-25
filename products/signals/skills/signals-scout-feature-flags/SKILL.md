@@ -8,7 +8,8 @@ description: >
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the feature-flag and
-  analytics tools in the MCP tools section.
+  analytics tools in the MCP tools section. An explicit feature_flag:write grant permits
+  the final archive step after the checks below.
 allowed_tools:
   - emit_report
   - edit_report
@@ -214,7 +215,17 @@ The check already excludes experiment-linked, early-access, survey- and product-
 
 Retained behavior follows the direction: **fully rolled out** → keep the enabled path, or for a multivariate flag the surviving variant the flag definition names, and remove the losing path and the flag checks. **Not rolled out** → keep the disabled or control path, remove the gated feature path and the checks. A multivariate flag with targeting conditions has no single retained behavior: the segment its targeted group matches still receives that group's `variant`. Hand a human that segment and its variant as the decision, and never name one path to remove. A flag serving payloads has a second retained behavior the code path does not describe — the value its readers fetch — so hand over the payload and the callers that read it. Never recommend deleting or archiving the flag as part of that change: the order is code change, review, merge, deploy, soak, verify no runtime still evaluates the flag, and only then a separately approved archive. A flag rolled out to nobody is especially dangerous to archive early — the disabled path is still the code path in use.
 
-**A stale flag with no code left to remove is not a code change.** `fully_rolled_out_without_usage_data` means no call was ever recorded, which is also the shape of a flag created in the UI and never wired. A completed migration reaches this lane the same way: its checks were removed when the migration finished. Autostarting either opens a draft PR the implementation agent cannot fill, burning a task run and an inbox slot. When the call-site search comes back empty, the remaining work is archival, which this lane never does on its own — file `requires_human_input` saying the flag looks unreferenced and a human should confirm and archive it, or keep it in memory if that decision is not worth an inbox slot. **Never take this route where PostHog is still receiving calls.** On `effectively_full_rollout` a call arrived inside the last 30 days, so an empty call-site search means you searched the wrong repository. Try one more repository, then drop the candidate.
+**A stale flag with no code left to remove is not a code change.** `fully_rolled_out_without_usage_data` means no call was ever recorded, which is also the shape of a flag created in the UI and never wired. A completed migration reaches this lane the same way: its checks were removed when the migration finished. Do not open a code task when no code remains to remove. An empty call-site search is not proof that every deployed consumer stopped using the flag. Without the write grant and the evidence required below, file `requires_human_input` for confirmation and archive approval, or keep the candidate in memory. **Never take this route where PostHog is still receiving calls.** On `effectively_full_rollout` a call arrived inside the last 30 days, so an empty call-site search means you searched the wrong repository. Try one more repository, then drop the candidate.
+
+**Optional final archive with `feature_flag:write`.** The grant does not approve an early archive. In a later run, revisit cleanup reports whose code changes are complete, including reports excluded from new-candidate ranking. Archive at most one flag per run, and only when all of these conditions hold:
+
+- This run holds `feature_flag:write` and has explicit human approval to archive this flag after cleanup.
+- The report has evidence that the code change was reviewed, merged, and deployed to every known consumer. The agreed observation period is complete. A merge, an empty search, or zero call events alone is not sufficient.
+- Fresh checks show no runtime still evaluates the flag, including consumers that evaluate flags locally. If consumer coverage is uncertain, stop and request human confirmation.
+- Read the full definition again. Check experiments, early access features, surveys, `product_tours`, replay settings, and dependent flags. If any dependency remains, stop.
+- Call `scheduled-changes-list` with `model_name="FeatureFlag"` and `record_id` set to the flag ID. Read all pages. If a pending or recurring schedule can still run, preserve it and the flag, and report the conflict.
+
+Use `feature-flag-archive`, not deletion. If the API requires approval, record the pending request and stop; do not try another mutation path. Read the definition after success to verify `archived: true` and `active: false`. Update the existing cleanup report with the result, evidence, and flag link. Without these checks, leave the flag unchanged.
 
 `partial` rollout, a targeted multivariate flag, a flag serving payloads, inconsistent configuration, ambiguous intent, several plausible repositories, or call sites spread across repos → `requires_human_input`, and only when the report hands someone a concrete decision. Otherwise keep the evidence in memory and move on.
 
