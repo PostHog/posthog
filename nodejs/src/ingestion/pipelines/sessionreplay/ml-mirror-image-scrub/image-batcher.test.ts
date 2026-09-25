@@ -3,7 +3,11 @@ import { gzipSync } from 'node:zlib'
 
 import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/reader'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
-import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import {
+    INGESTION_VERSION_HEADER,
+    imageKeyId,
+    tableKeyString,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
@@ -360,6 +364,39 @@ describe('ImageBatcher', () => {
 
         expect(scrubs).toBe(1)
         expect(store.urlWrites.map((image) => [image.sourceOffset, image.bytes])).toEqual([[10, first]])
+    })
+
+    it('stores a URL image in a later batch when its month key was missing at the first write', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const ref = `imageurl:v3:7:2026-09:${'a'.repeat(22)}`
+        const monthKey = tableKeyString(imageKeyId(7, '2026-09'))
+        const readKeys = jest
+            .fn()
+            .mockResolvedValueOnce(new Map())
+            .mockResolvedValue(new Map([[monthKey, { identity: { teamId: 7, sessionMonth: '2026-09' } }]]))
+        const keyManager = {
+            kafka: {
+                read: (messages: Message[]) =>
+                    Promise.resolve(messages.map((message) => ({ message, original: message, version: 2 }))),
+            },
+            reader: { read: readKeys },
+        } as unknown as MlKeyManager
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options,
+            null,
+            keyManager
+        )
+        const copy = (offset: number): Message =>
+            msg(0, offset, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }])
+
+        await handleAndWrite(batcher, [copy(10)])
+        await handleAndWrite(batcher, [copy(11)])
+
+        expect(store.urlWrites.map((image) => image.sourceOffset)).toEqual([11])
     })
 
     it('bounds concurrent URL-image writes by the write concurrency, not the scrub slots', async () => {

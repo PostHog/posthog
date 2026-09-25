@@ -876,6 +876,8 @@ export class ImageBatcher {
                     image.sessionMonth === undefined ||
                     imageKeys.has(tableKeyString(imageKeyId(Number(image.teamId), image.sessionMonth!)))
             )
+            const keyedSet = new Set(keyed)
+            this.forgetUnwritten(handoff.images.filter((item) => !keyedSet.has(item)))
             const inlineItems = keyed.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
             )
