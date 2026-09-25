@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import { AGENT_INTENT_TOOLTIP } from 'lib/components/ActivityLog/AgentAttribution'
@@ -15,7 +16,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import { sandboxIpLabel } from './sandboxIpLabel'
+import { sandboxChange } from './sandboxChange'
 
 export interface AuditLogTableProps {
     logItems: HumanizedActivityLogItem[]
@@ -24,7 +25,9 @@ export interface AuditLogTableProps {
     teamsById?: Record<number, string>
 }
 
-const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox, so there is no IP address to show.'
+const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox task.'
+const SANDBOX_TAG_TOOLTIP =
+    'PostHog recognized the sandbox task from the token the agent used, so it is not self-reported'
 
 const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
@@ -58,6 +61,13 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
                     size="md"
                 />
                 {logItem.unprocessed?.client && <ActivityClientTag client={logItem.unprocessed.client} />}
+                {sandboxChange(logItem)?.needsSandboxTag && (
+                    <Tooltip title={SANDBOX_TAG_TOOLTIP}>
+                        <LemonTag size="small" type="muted">
+                            via sandbox
+                        </LemonTag>
+                    </Tooltip>
+                )}
             </div>
         ),
         width: '20%',
@@ -88,14 +98,18 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
         title: 'IP address',
         key: 'ip_address',
         render: (_, logItem) => {
-            if (logItem.unprocessed?.ip_address) {
-                return <span className="font-mono text-xs">{logItem.unprocessed.ip_address}</span>
+            const ipAddress = logItem.unprocessed?.ip_address
+            if (sandboxChange(logItem)) {
+                return (
+                    <Tooltip title={ipAddress ? `${SANDBOX_IP_TOOLTIP} Request IP: ${ipAddress}` : SANDBOX_IP_TOOLTIP}>
+                        <span className="inline-flex items-center gap-1 text-muted">
+                            — <IconInfo />
+                        </span>
+                    </Tooltip>
+                )
             }
-            const label = sandboxIpLabel(logItem)
-            return label ? (
-                <Tooltip title={`${label}. ${SANDBOX_IP_TOOLTIP}`}>
-                    <span className="block truncate text-xs text-muted">{label}</span>
-                </Tooltip>
+            return ipAddress ? (
+                <span className="font-mono text-xs">{ipAddress}</span>
             ) : (
                 <span className="text-muted">—</span>
             )
