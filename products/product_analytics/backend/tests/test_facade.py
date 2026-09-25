@@ -50,6 +50,12 @@ class TestRecordInsightView(BaseTest):
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="Signups")
 
+    def test_unattributed_view_does_not_imply_standalone_demand(self) -> None:
+        view = InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())
+        view.refresh_from_db()
+
+        assert view.last_standalone_viewed_at is None
+
     @parameterized.expand([("anonymous", False), ("identified", True)])
     def test_viewing_twice_moves_the_timestamp_instead_of_adding_a_row(self, _name: str, identified: bool) -> None:
         viewer = {"team_id": self.team.pk, "user_id": self.user.pk} if identified else {}

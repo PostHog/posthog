@@ -454,6 +454,7 @@ class InsightViewed(models.Model):
 
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
+    last_standalone_viewed_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
