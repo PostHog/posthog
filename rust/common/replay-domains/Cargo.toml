@@ -1,0 +1,14 @@
+[package]
+name = "common-replay-domains"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+http = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }

@@ -22,6 +22,7 @@ common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-kafka = { path = "../common/kafka", optional = true }
 common-redis = { path = "../common/redis" }
+common-replay-domains = { path = "../common/replay-domains" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
@@ -32,7 +33,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
 http-body-util = "0.1"
-url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }

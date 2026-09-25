@@ -3,16 +3,8 @@ use crate::{
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
-use regex;
+use common_replay_domains::on_permitted_domain;
 use serde_json::{json, Value};
-
-const AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS: &[&str] = &[
-    "posthog-android",
-    "posthog-ios",
-    "posthog-react-native",
-    "posthog-flutter",
-    "posthog-unity",
-];
 
 // Hard-coded values set for the session recording beta, still haven't come up with more sensible
 // defaults so these are what they are for now.
@@ -126,34 +118,6 @@ fn session_recording_domain_not_allowed(team: &Team, headers: &HeaderMap) -> boo
     matches!(&team.recording_domains, Some(domains) if !domains.is_empty() && !on_permitted_domain(domains, headers))
 }
 
-fn hostname_in_allowed_url_list(allowed: &[String], hostname: Option<&str>) -> bool {
-    let hostname = match hostname {
-        Some(h) => h,
-        None => return false,
-    };
-
-    let permitted_domains: Vec<String> = allowed
-        .iter()
-        .filter_map(|url| parse_domain(Some(url)))
-        .collect();
-
-    for permitted_domain in permitted_domains {
-        if permitted_domain.contains('*') {
-            // crude wildcard: treat '*' as regex '.*'
-            let pattern = format!(
-                "^{}$",
-                regex::escape(&permitted_domain).replace("\\*", ".*")
-            );
-            if regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(hostname)) {
-                return true;
-            }
-        } else if permitted_domain == hostname {
-            return true;
-        }
-    }
-    false
-}
-
 fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
     match &linked_flag_config {
         Some(cfg) => {
@@ -171,46 +135,6 @@ fn get_linked_flag_value(linked_flag_config: Option<Value>) -> Option<Value> {
         }
         None => None,
     }
-}
-
-// TODO: this silently drops wildcard domains like `https://*.example.com` because
-// url::Url::parse rejects `*` per the WHATWG spec. Django's urlparse is lenient.
-// See hypercache-server/src/sanitize.rs for the fixed version.
-fn parse_domain(url: Option<&str>) -> Option<String> {
-    url.and_then(|u| {
-        if let Ok(parsed) = url::Url::parse(u) {
-            parsed.host_str().map(|h| h.to_string())
-        } else {
-            None
-        }
-    })
-}
-
-/// Checks if the request originates from a permitted recording domain.
-///
-/// Returns true if:
-/// - Origin or Referer hostname matches one of the allowed domains (supports wildcards)
-/// - User-Agent indicates an authorized mobile or desktop client
-pub fn on_permitted_domain(recording_domains: &[String], headers: &HeaderMap) -> bool {
-    let origin = headers.get("Origin").and_then(|v| v.to_str().ok());
-    let referer = headers.get("Referer").and_then(|v| v.to_str().ok());
-    let user_agent = headers.get("User-Agent").and_then(|v| v.to_str().ok());
-
-    // Parse the domain from the Origin and Referer headers
-    let origin_hostname = parse_domain(origin);
-    let referer_hostname = parse_domain(referer);
-
-    let is_authorized_web_client =
-        hostname_in_allowed_url_list(recording_domains, origin_hostname.as_deref())
-            || hostname_in_allowed_url_list(recording_domains, referer_hostname.as_deref());
-
-    let is_authorized_mobile_or_desktop_client = user_agent.is_some_and(|ua| {
-        AUTHORIZED_MOBILE_AND_DESKTOP_CLIENTS
-            .iter()
-            .any(|&kw| ua.contains(kw))
-    });
-
-    is_authorized_web_client || is_authorized_mobile_or_desktop_client
 }
 
 #[cfg(test)]
@@ -244,127 +168,6 @@ mod tests {
 
         // Empty domains list should allow recording (return false)
         assert!(!session_recording_domain_not_allowed(&team, &headers));
-    }
-
-    #[test]
-    fn test_parse_domain() {
-        // Test with full URLs - should extract hostname
-        assert_eq!(
-            parse_domain(Some("https://app.example.com")),
-            Some("app.example.com".to_string())
-        );
-        assert_eq!(
-            parse_domain(Some("https://app.example.com/")),
-            Some("app.example.com".to_string())
-        );
-        assert_eq!(
-            parse_domain(Some("http://localhost:3000")),
-            Some("localhost".to_string())
-        );
-        assert_eq!(
-            parse_domain(Some("https://app.example.com/path")),
-            Some("app.example.com".to_string())
-        );
-
-        // Test with bare domains
-        assert_eq!(parse_domain(Some("app.example.com")), None);
-        assert_eq!(parse_domain(Some("example.com")), None);
-
-        // Test with wildcard domains
-        assert_eq!(
-            parse_domain(Some("https://*.example.com")),
-            Some("*.example.com".to_string())
-        );
-        assert_eq!(parse_domain(Some("*.example.com")), None);
-
-        // Test with empty string and None
-        assert_eq!(parse_domain(Some("")), None);
-        assert_eq!(parse_domain(None), None);
-    }
-
-    #[test]
-    fn test_on_permitted_domain_with_origin() {
-        use axum::http::HeaderMap;
-
-        let recording_domains = vec!["https://app.example.com/".to_string()];
-
-        // Test with Origin header (without trailing slash)
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with Origin header (with trailing slash)
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://app.example.com/".parse().unwrap());
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with correct domain with path
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://app.example.com/path".parse().unwrap());
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with wrong domain
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://wrong.example.com".parse().unwrap());
-        assert!(!on_permitted_domain(&recording_domains, &headers));
-    }
-
-    #[test]
-    fn test_on_permitted_domain_with_referer() {
-        use axum::http::HeaderMap;
-
-        let recording_domains = vec!["https://app.example.com".to_string()];
-
-        // Test with Referer header
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Referer",
-            "https://app.example.com/some/path".parse().unwrap(),
-        );
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with wrong domain
-        let mut headers = HeaderMap::new();
-        headers.insert("Referer", "https://wrong.example.com/path".parse().unwrap());
-        assert!(!on_permitted_domain(&recording_domains, &headers));
-    }
-
-    #[test]
-    fn test_on_permitted_domain_with_unity_user_agent() {
-        use axum::http::HeaderMap;
-
-        let recording_domains = vec!["https://web-only.com".to_string()];
-        let mut headers = HeaderMap::new();
-        headers.insert("User-Agent", "posthog-unity/1.0.0".parse().unwrap());
-
-        assert!(on_permitted_domain(&recording_domains, &headers));
-    }
-
-    #[test]
-    fn test_on_permitted_domain_with_wildcards() {
-        use axum::http::HeaderMap;
-
-        let recording_domains = vec!["https://*.example.com".to_string()];
-
-        // Test with matching subdomain
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://app.example.com".parse().unwrap());
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with different subdomain
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://test.example.com".parse().unwrap());
-        assert!(on_permitted_domain(&recording_domains, &headers));
-
-        // Test with no subdomain - should NOT match
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://example.com".parse().unwrap());
-        assert!(!on_permitted_domain(&recording_domains, &headers));
-
-        // Test with wrong domain
-        let mut headers = HeaderMap::new();
-        headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
-        assert!(!on_permitted_domain(&recording_domains, &headers));
     }
 
     // Tests for sample rate handling - verifies compatibility between Python cache and Rust

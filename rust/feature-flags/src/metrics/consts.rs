@@ -567,3 +567,9 @@ pub const TOKIO_WORKER_OVERFLOW_DELTA: &str = "flags_tokio_worker_overflow_delta
 // Number of tasks stolen from other workers (gauge, delta). Labels: worker.
 // Active stealing indicates work imbalance being corrected by the scheduler.
 pub const TOKIO_WORKER_STEAL_DELTA: &str = "flags_tokio_worker_steal_delta";
+
+// Counts responses that carry `sessionRecording: false`, labelled with which of the
+// three causes turned it off: not_enabled, domain_not_allowed, or quota_limited.
+// A team that turns replay on and still sees no recordings is most often on the
+// domain_not_allowed branch.
+pub const SESSION_RECORDING_DISABLED_COUNTER: &str = "flags_session_recording_disabled_total";

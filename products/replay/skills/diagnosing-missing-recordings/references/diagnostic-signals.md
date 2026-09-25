@@ -21,13 +21,13 @@ New diagnostic properties may be added as the SDK evolves.
 
 ### `$recording_status` values
 
-| Value       | Meaning                                                                                                    |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| `active`    | SDK is recording and producing snapshots                                                                   |
-| `buffering` | SDK initialized but waiting for a trigger, duration threshold, or remote config before producing snapshots |
-| `disabled`  | Recording is turned off — either in project settings or via SDK config at runtime                          |
-| `sampled`   | This session was included by the configured replay sample rate — recording started                         |
-| `paused`    | Recording is temporarily paused for this session                                                           |
+| Value       | Meaning                                                                                                                                       |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `active`    | SDK is recording and producing snapshots                                                                                                      |
+| `buffering` | SDK initialized but waiting for a trigger, duration threshold, or remote config before producing snapshots                                    |
+| `disabled`  | Recording is turned off — in project settings, via SDK config at runtime, or because the host is not on the project's authorized domains list |
+| `sampled`   | This session was included by the configured replay sample rate — recording started                                                            |
+| `paused`    | Recording is temporarily paused for this session                                                                                              |
 
 ### `$session_recording_start_reason` values
 
