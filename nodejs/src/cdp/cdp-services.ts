@@ -237,7 +237,7 @@ export function createCdpReaderRedisPool(
 
         // Non-blocking startup health check — surfaces misconfig immediately in logs
         void readerPool
-            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .useClient({ name: 'startup-ping-reader', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🔌',
@@ -314,7 +314,7 @@ export function createCdpValkeyShadowPools(
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
     // CDP down at boot. Features that have moved over surface it as failing reads instead.
     void writer
-        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+        .useClient({ name: 'startup-ping-shadow-writer', timeout: 5000 }, (client) => client.ping())
         .catch((err) => {
             logger.error(
                 '🪞',
@@ -341,7 +341,7 @@ export function createCdpValkeyShadowPools(
         })
 
         void reader
-            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .useClient({ name: 'startup-ping-shadow-reader', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🪞',
