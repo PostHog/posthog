@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     FeatureFlagGroupType,
-    FeatureFlagType,
+    FeatureFlagFilters,
     FlagPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
@@ -23,7 +23,7 @@ const flagDependencyFilter: FlagPropertyFilter = {
     value: true,
 }
 
-function buildFilters(): FeatureFlagType['filters'] {
+function buildFilters(): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [flagDependencyFilter],
         rollout_percentage: 100,

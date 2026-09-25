@@ -2,6 +2,8 @@ import { FeatureFlagType } from '~/types'
 
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
+import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+
 // The backend rejects a text attachment longer than this and fails the whole send with a 400
 // (MAX_TEXT_LENGTH in products/posthog_ai/backend/context_wrapper.py), so an oversized flag has to
 // lose detail here rather than break the user's message.
@@ -29,6 +31,12 @@ export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedC
 
 function targetingValue(featureFlag: FeatureFlagType): string {
     const filters = featureFlag.filters
+    if (!isV1FeatureFlagConfig(filters)) {
+        const full = JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config: filters })
+        return full.length <= MAX_TARGETING_VALUE_LENGTH
+            ? full
+            : JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config_version: filters.version })
+    }
     const identity = {
         key: featureFlag.key,
         description: featureFlag.name.slice(0, MAX_DESCRIPTION_LENGTH),

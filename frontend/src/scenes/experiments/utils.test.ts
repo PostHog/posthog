@@ -22,6 +22,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -446,7 +447,7 @@ describe('getViewRecordingFiltersLegacy', () => {
 })
 
 describe('checkFeatureFlagEligibility', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test',
         name: 'Test',

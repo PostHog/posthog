@@ -16,6 +16,7 @@ interface EditableOverviewSectionProps {
     disabledReason?: string
     /** Options passed to editFeatureFlag when the pencil is clicked */
     editOptions?: { expandAdvanced?: boolean }
+    readOnly?: boolean
 }
 
 export function EditableOverviewSection({
@@ -23,11 +24,12 @@ export function EditableOverviewSection({
     className,
     disabledReason,
     editOptions,
+    readOnly,
 }: EditableOverviewSectionProps): JSX.Element {
     const { featureFlag } = useValues(featureFlagLogic)
     const { editFeatureFlag } = useActions(featureFlagLogic)
 
-    const canShowEditButton = !featureFlag.deleted
+    const canShowEditButton = !featureFlag.deleted && !readOnly
 
     return (
         <div className={`relative rounded border p-4 bg-bg-light ${className ?? ''}`}>

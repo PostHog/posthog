@@ -286,7 +286,7 @@ const surveyActionsMapping: Record<
                     added a targeting flag with key <strong>{afterFlag.key}</strong>
                 </>
             )
-            if (afterFlag.filters?.groups?.length > 0) {
+            if ((afterFlag.filters?.groups?.length ?? 0) > 0) {
                 changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {

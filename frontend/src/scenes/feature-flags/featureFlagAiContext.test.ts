@@ -2,8 +2,10 @@ import {
     AccessControlLevel,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
     FeatureFlagGroupType,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -18,7 +20,7 @@ import { featureFlagContextItems, mutationTargetsFeatureFlag } from './featureFl
 const MAX_BACKEND_TEXT_LENGTH = 4096
 
 describe('featureFlagAiContext', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test-flag',
         name: '',
@@ -55,7 +57,7 @@ describe('featureFlagAiContext', () => {
         variant: null,
     }
 
-    function withFilters(filters: Partial<FeatureFlagType['filters']>): FeatureFlagType {
+    function withFilters(filters: Partial<FeatureFlagFilters>): FeatureFlagType {
         return { ...baseFeatureFlag, filters: { ...baseFeatureFlag.filters, ...filters } }
     }
 

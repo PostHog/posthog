@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonDialog, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -19,6 +20,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
+import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 
 export const FLAGS_PER_PAGE = 100
@@ -220,6 +222,9 @@ export interface featureFlagsLogicValues {
         tags?: string[] | undefined
         type?: string | undefined
     }
+    rowVersionToken: (id: number) => {
+        version?: number | undefined
+    }
     shouldShowEmptyState: boolean
     sidePanelContext: SidePanelSceneContext
 }
@@ -416,6 +421,9 @@ export interface featureFlagsLogicMeta {
             hasActiveFilters: boolean
         ) => boolean
         pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
+        rowVersionToken: (featureFlags: FeatureFlagsResult) => (id: number) => {
+            version?: number | undefined
+        }
         displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
     }
 }
@@ -476,11 +484,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
+                    const versioned = values.rowVersionToken(id)
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            payload
+                            { ...payload, ...versioned }
                         )
                         const updatedFlags = values.featureFlags.results.map((flag) =>
                             flag.id === response.id ? response : flag
@@ -497,6 +506,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                                   ? 'disable this feature flag'
                                   : 'update this feature flag'
                         handleFlagApprovalRequired(e, id, actionDescription)
+                        if (versioned.version !== undefined && e?.status === 409 && !isApprovalRequiredError(e)) {
+                            // The row version we sent is stale: refresh the row so the next attempt carries the current one.
+                            actions.updateFlag(await api.featureFlags.get(id))
+                        }
                         throw e
                     }
                 },
@@ -516,7 +529,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            archived ? { archived: true, active: false } : { archived: false }
+                            {
+                                ...(archived ? { archived: true, active: false } : { archived: false }),
+                                ...values.rowVersionToken(id),
+                            }
                         )
                         const updatedFlags = values.featureFlags.results.map((flag) =>
                             flag.id === response.id ? response : flag
@@ -668,6 +684,16 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             (): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.FEATURE_FLAG,
             }),
+        ],
+        rowVersionToken: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsResult) =>
+                (id: number): { version?: number } => {
+                    const flag = featureFlags.results.find((candidate) => candidate.id === id)
+                    return !flag || isV1FeatureFlagConfig(flag.filters) || flag.version === null
+                        ? {}
+                        : { version: flag.version }
+                },
         ],
         displayedFlags: [
             (s) => [s.featureFlags],

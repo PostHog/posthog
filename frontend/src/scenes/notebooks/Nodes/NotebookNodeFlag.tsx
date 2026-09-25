@@ -6,6 +6,7 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { isV1FeatureFlagConfig } from 'scenes/feature-flags/featureFlagConfigFormat'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
@@ -13,6 +14,7 @@ import {
     withFeatureFlagNotebookMetadata,
 } from 'scenes/feature-flags/featureFlagNotebookWidgetViews'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { FeatureFlagConfigReadonlyNotice } from 'scenes/feature-flags/FeatureFlagRulesV2Readonly'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
@@ -123,7 +125,11 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             <BindLogic logic={featureFlagLogic} props={{ id }}>
                 {expanded ? (
                     <div className="p-2">
-                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        {isV1FeatureFlagConfig(featureFlag.filters) ? (
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        ) : (
+                            <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                        )}
                     </div>
                 ) : null}
             </BindLogic>

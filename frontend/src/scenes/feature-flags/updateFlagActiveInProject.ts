@@ -64,14 +64,19 @@ export async function updateFlagActiveInProject({
     teamId,
     flagId,
     active,
+    version,
 }: {
     teamId: number
     flagId: number
     active: boolean
+    version?: number
 }): Promise<FeatureFlagApi | null> {
     const actionDescription = `${active ? 'enable' : 'disable'} this feature flag`
     try {
-        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, { active })
+        const updatedFlag = await featureFlagsPartialUpdate(String(teamId), flagId, {
+            active,
+            ...(version === undefined ? {} : { version }),
+        })
         lemonToast.success(`Feature flag ${active ? 'enabled' : 'disabled'}`)
         return updatedFlag
     } catch (e: any) {

@@ -12,6 +12,7 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const RULES_V2_FLAG_ID = 1802
 
 const meta: Meta = {
     component: App,
@@ -177,6 +178,18 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
 export const StaleFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
+export const FeatureFlagsListWithRulesV2Flag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlags()}?search=rules-v2`,
+    },
+}
+
+export const RulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
     },
 }
 

@@ -12,8 +12,10 @@ import { NotebookNodeProps } from 'scenes/notebooks/types'
 import { FeatureFlagType } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { featureFlagConfigFormatLabel, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagRulesV2Readonly'
 
 export type FeatureFlagNotebookWidgetAttributes = {
     id: FeatureFlagLogicProps['id']
@@ -120,19 +122,22 @@ function FeatureFlagCompactSummary({
 }
 
 function FeatureFlagCompactSummaryContent({ featureFlag }: LoadedFeatureFlagWidgetProps): JSX.Element {
+    const isV1Config = isV1FeatureFlagConfig(featureFlag.filters)
     const conditionCount = featureFlag.filters.groups?.length ?? 0
     const variantCount = featureFlag.filters.multivariate?.variants?.length ?? 0
-    const flagType = featureFlag.is_remote_configuration
-        ? 'Remote config'
-        : variantCount > 0
-          ? 'Multivariate'
-          : 'Boolean'
+    const flagType = !isV1Config
+        ? featureFlagConfigFormatLabel(featureFlag.filters)
+        : featureFlag.is_remote_configuration
+          ? 'Remote config'
+          : variantCount > 0
+            ? 'Multivariate'
+            : 'Boolean'
 
     return (
         <div className="flex flex-wrap items-center gap-2 p-3">
             {featureFlag.name ? <span className="min-w-48 flex-1 truncate">{featureFlag.name}</span> : null}
             <LemonTag type="muted">{flagType}</LemonTag>
-            {!featureFlag.is_remote_configuration ? (
+            {isV1Config && !featureFlag.is_remote_configuration ? (
                 <span className="text-xs text-secondary">
                     {conditionCount} release {conditionCount === 1 ? 'condition' : 'conditions'}
                 </span>
@@ -157,7 +162,9 @@ function FeatureFlagReleaseConditionsWidget({
     return (
         <BindLogic logic={featureFlagLogic} props={{ id }}>
             <div className="p-3">
-                {featureFlag.is_remote_configuration ? (
+                {!isV1FeatureFlagConfig(featureFlag.filters) ? (
+                    <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                ) : featureFlag.is_remote_configuration ? (
                     <div className="text-sm text-secondary">Remote config flags do not use release conditions.</div>
                 ) : (
                     <FeatureFlagReleaseConditionsCollapsible id={String(id)} filters={featureFlag.filters} readOnly />
@@ -219,7 +226,9 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
     return (
         <BindLogic logic={featureFlagLogic} props={{ id }}>
             <div className="flex flex-col gap-3 p-3">
-                {featureFlag.is_remote_configuration ? (
+                {!isV1FeatureFlagConfig(featureFlag.filters) ? (
+                    <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                ) : featureFlag.is_remote_configuration ? (
                     <div className="rounded border border-dashed p-3 text-sm text-secondary">
                         Open the feature flag to edit its remote config payload.
                     </div>

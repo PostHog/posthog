@@ -14,10 +14,12 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
+import { isRulesV2FeatureFlagConfig, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
+import { FeatureFlagConfigReadonlyNotice, FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -62,9 +64,13 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
 
     const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
 
-    const multivariateEnabled = !!featureFlag.filters?.multivariate
-    const variants = featureFlag.filters?.multivariate?.variants || []
-    const hasPayload = !!featureFlag.filters?.payloads?.['true']
+    const v1Filters = isV1FeatureFlagConfig(featureFlag.filters) ? featureFlag.filters : null
+    const multivariateEnabled = !!v1Filters?.multivariate
+    const variants = v1Filters?.multivariate?.variants || []
+    const hasPayload = !!v1Filters?.payloads?.['true']
+    const showImplementation =
+        !!v1Filters ||
+        (isRulesV2FeatureFlagConfig(featureFlag.filters) && featureFlag.filters.return_type === 'boolean')
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
         if (featureFlag.is_remote_configuration) {
@@ -163,7 +169,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                         )}
                     </div>
 
-                    <EditableOverviewSection editOptions={{ expandAdvanced: true }}>
+                    <EditableOverviewSection editOptions={{ expandAdvanced: true }} readOnly={!v1Filters}>
                         <div className="flex flex-col gap-4">
                             <div className="font-semibold">Advanced options</div>
 
@@ -218,7 +224,15 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                 </div>
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
-                    {multivariateEnabled && variants.length > 0 ? (
+                    {!v1Filters ? (
+                        <div className="rounded border p-4 bg-bg-light">
+                            {isRulesV2FeatureFlagConfig(featureFlag.filters) ? (
+                                <FeatureFlagRulesV2Readonly config={featureFlag.filters} />
+                            ) : (
+                                <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                            )}
+                        </div>
+                    ) : multivariateEnabled && variants.length > 0 ? (
                         <EditableOverviewSection
                             disabledReason={
                                 featureFlag.experiment_set && featureFlag.experiment_set.length > 0
@@ -237,8 +251,8 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                 {flagTypeCard}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold">Payload</label>
-                                    {hasPayload && featureFlag.filters?.payloads?.['true'] ? (
-                                        <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
+                                    {hasPayload && v1Filters.payloads?.['true'] ? (
+                                        <JSONEditorInput readOnly value={v1Filters.payloads['true']} />
                                     ) : (
                                         <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
                                             No payload configured
@@ -249,7 +263,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                         </EditableOverviewSection>
                     )}
 
-                    {!featureFlag.is_remote_configuration && (
+                    {v1Filters && !featureFlag.is_remote_configuration && (
                         <>
                             <EditableOverviewSection
                                 disabledReason={
@@ -260,7 +274,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                             >
                                 <FeatureFlagReleaseConditionsReadonly
                                     id={String(featureFlag.id)}
-                                    filters={featureFlag.filters}
+                                    filters={v1Filters}
                                     isDisabled={!featureFlag.active}
                                     evaluationRuntime={featureFlag.evaluation_runtime}
                                 />
@@ -270,23 +284,25 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                 </div>
             </div>
 
-            <LemonCollapse
-                className="bg-bg-light"
-                panels={[
-                    {
-                        key: 'implementation',
-                        header: 'How to implement',
-                        content: (
-                            <div className="flex flex-col gap-4">
-                                <p className="text-sm text-muted m-0">
-                                    Use the following code to implement this feature flag.
-                                </p>
-                                <FeatureFlagInstructions featureFlag={featureFlag} />
-                            </div>
-                        ),
-                    },
-                ]}
-            />
+            {showImplementation && (
+                <LemonCollapse
+                    className="bg-bg-light"
+                    panels={[
+                        {
+                            key: 'implementation',
+                            header: 'How to implement',
+                            content: (
+                                <div className="flex flex-col gap-4">
+                                    <p className="text-sm text-muted m-0">
+                                        Use the following code to implement this feature flag.
+                                    </p>
+                                    <FeatureFlagInstructions featureFlag={featureFlag} />
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            )}
         </div>
     )
 }

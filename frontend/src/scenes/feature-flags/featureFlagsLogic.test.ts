@@ -662,3 +662,73 @@ describe('displayedFlags stability while a load is in flight', () => {
         expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
     })
 })
+
+describe('rows in config version 2', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    const V1_ROW = { id: 1, key: 'release-v1', active: true, version: 4, filters: { groups: [] } }
+    const V2_ROW = {
+        id: 2,
+        key: 'checkout-rules-v2',
+        active: false,
+        version: 7,
+        filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    }
+
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [200, { results: [V1_ROW, V2_ROW], count: 2 }],
+                '/api/projects/:projectId/feature_flags/2/': () => [200, { ...V2_ROW, version: 8 }],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('loads a list mixing v1 and v2 rows', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        expect(logic.values.displayedFlags.map((flag) => flag.key)).toEqual(['release-v1', 'checkout-rules-v2'])
+    })
+
+    it('sends the row version only when toggling a v2 row', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        logic.actions.updateFeatureFlag({ id: 1, payload: { active: false } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/2'), { active: true, version: 7 })
+        expect(update).toHaveBeenCalledWith(expect.stringContaining('/feature_flags/1'), { active: false })
+    })
+
+    it('refetches a v2 row whose version was stale instead of retrying', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        const update = jest
+            .spyOn(api, 'update')
+            .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 7' } })
+
+        logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
+        await expectLogic(logic).toDispatchActions(['updateFlag', 'updateFeatureFlagFailure']).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledTimes(1)
+        expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)?.version).toBe(8)
+        expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+    })
+})

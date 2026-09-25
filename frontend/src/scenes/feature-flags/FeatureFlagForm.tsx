@@ -66,7 +66,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { cohortsModel } from '~/models/cohortsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
+import {
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagWithV1Config,
+    MultivariateFlagVariant,
+} from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -158,7 +163,7 @@ function SortableVariantHeader({
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
         props,
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         originalFeatureFlag,
         multivariateEnabled,
         variants,
@@ -174,6 +179,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
+    // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
     const {
         setMultivariateEnabled,
         setFeatureFlag,
