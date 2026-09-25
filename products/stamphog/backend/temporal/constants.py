@@ -114,3 +114,10 @@ SANDBOX_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     non_retryable_error_types=["SandboxPhaseError"],
 )
+
+# The Claude Code CLI's own switches for its telemetry, error reporting and auto-update traffic.
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}

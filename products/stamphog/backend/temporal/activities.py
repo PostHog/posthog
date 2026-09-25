@@ -81,6 +81,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
+    NETWORK_RESTRICTED_AGENT_ENV,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
     REVIEWER_TIMEOUT_SECONDS,
     RUN_REVIEW_TIMEOUT,
@@ -344,6 +345,10 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
     token every frontend snippet ships — so its blast radius is event spam, not data access; it's still
     added to llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events.
+
+    NETWORK_RESTRICTED_AGENT_ENV stops the Claude Code CLI under the Agent SDK from calling its own
+    telemetry, error-reporting and update hosts. The egress allowlist blocks them, and a blocked call
+    waits for its timeout before the CLI exits.
     """
     gateway = resolve_ai_gateway_config()
     if gateway is None:
@@ -360,6 +365,7 @@ def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConf
         "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
         "AI_GATEWAY_URL": gateway.url,
         "AI_GATEWAY_API_KEY": token,
+        **NETWORK_RESTRICTED_AGENT_ENV,
     }
     return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}, gateway
 

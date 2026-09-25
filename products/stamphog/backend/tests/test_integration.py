@@ -49,6 +49,7 @@ from products.stamphog.backend.temporal.activities import (
     run_review_in_sandbox,
 )
 from products.stamphog.backend.temporal.constants import (
+    NETWORK_RESTRICTED_AGENT_ENV,
     SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
@@ -761,7 +762,9 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
         "POSTHOG_API_KEY",
         "POSTHOG_HOST",
         "STAMPHOG_EXTRA_PROPERTIES",
+        *NETWORK_RESTRICTED_AGENT_ENV,
     }
+    assert all(env[name] == "1" for name in NETWORK_RESTRICTED_AGENT_ENV)
     assert not OAuthAccessToken.objects.filter(user_id=user.id).exists()
 
     mint_call, revoke_call = mint.call_args_list
