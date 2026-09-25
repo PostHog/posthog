@@ -353,6 +353,9 @@ tools:
     accounts-presence-create:
         operation: accounts_presence_create
         enabled: false
+    accounts-presence-list:
+        operation: accounts_presence_list
+        enabled: false
     accounts-relationships-create:
         operation: accounts_relationships_create
         enabled: true
