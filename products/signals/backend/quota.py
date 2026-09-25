@@ -129,3 +129,42 @@ def capture_signal_report_quota_paused(team: "Team", *, report_id: str | None, s
         logger.exception(
             "Failed to capture signal_report_quota_paused", report_id=report_id, team_id=team.id, stage=stage
         )
+
+
+def notify_scout_quota_paused(team: "Team") -> None:
+    """Tell the org its self-driving credits quota is now blocking scout runs.
+
+    The quota gate skips runs with no run row and no visible state, so without this a team's
+    scouts read as silently dead until the next billing period. Idempotent per limiting episode:
+    the key carries the org's `quota_limited_until` and limit, so a new episode (period rollover,
+    or a raised limit that the org then exceeds again) notifies again. Best-effort: a failed send
+    must never fail the gate that called it. Requires `team.organization` to be loaded.
+    """
+    try:
+        usage = (team.organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value) or {}
+        quota_limited_until = usage.get("quota_limited_until") or 0
+        limit = usage.get("limit") or 0
+        from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
+            NotificationData,
+            NotificationType,
+            TargetType,
+            create_notification,
+        )
+
+        create_notification(
+            NotificationData(
+                team_id=team.id,
+                notification_type=NotificationType.USAGE_SPIKE,
+                title="Scouts paused: self-driving credits limit reached",
+                body=(
+                    "This project is over its self-driving credits limit, so scheduled scout runs are "
+                    "skipped until the limit lifts. Usage and limits: Settings > Billing."
+                ),
+                target_type=TargetType.TEAM,
+                target_id=str(team.id),
+                source_url="/organization/billing",
+                idempotency_key=f"signals_scout_quota_paused:{team.organization_id}:{quota_limited_until}:{limit}",
+            )
+        )
+    except Exception:
+        logger.warning("signals_scout_quota_notification_failed", team_id=team.id, exc_info=True)
