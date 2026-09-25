@@ -52,12 +52,12 @@ export interface supportTagsLogicActions {
         errorObject?: any
     }
     deleteTagSuccess: (
-        tags: TagUsageApi[] | null,
+        tags: TagUsageApi[],
         payload?: {
             tag: TagUsageApi
         }
     ) => {
-        tags: TagUsageApi[] | null
+        tags: TagUsageApi[]
         payload?: {
             tag: TagUsageApi
         }
@@ -113,13 +113,13 @@ export interface supportTagsLogicActions {
         errorObject?: any
     }
     renameTagSuccess: (
-        tags: TagUsageApi[] | null,
+        tags: TagUsageApi[],
         payload?: {
             tag: TagUsageApi
             name: string
         }
     ) => {
-        tags: TagUsageApi[] | null
+        tags: TagUsageApi[]
         payload?: {
             tag: TagUsageApi
             name: string

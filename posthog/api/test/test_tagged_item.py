@@ -560,7 +560,7 @@ class TestTagManagement(APIBaseTest):
 
         entries = ActivityLog.objects.filter(scope="Tag", item_id=str(tag.id))
         assert entries.count() == 1
-        assert entries.first().activity == "updated"
+        assert entries.get().activity == "updated"
 
     def test_delete_removes_the_tag_from_every_object(self):
         tag = self._tag("billing")
@@ -584,7 +584,7 @@ class TestTagManagement(APIBaseTest):
 
         entries = ActivityLog.objects.filter(scope="Tag", item_id=str(tag.id))
         assert entries.count() == 1
-        assert entries.first().activity == "deleted"
+        assert entries.get().activity == "deleted"
 
     def test_merge_moves_objects_and_drops_the_source_tag(self):
         source = self._tag("bling")
@@ -650,7 +650,7 @@ class TestTagManagement(APIBaseTest):
 
         entries = ActivityLog.objects.filter(scope="Tag", item_id=str(target.id))
         assert entries.count() == 1
-        assert entries.first().activity == "merged"
+        assert entries.get().activity == "merged"
 
     def test_cannot_manage_another_teams_tag(self):
         other_team = Team.objects.create(organization=self.organization)
