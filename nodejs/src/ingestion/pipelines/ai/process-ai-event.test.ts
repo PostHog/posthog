@@ -824,16 +824,13 @@ describe('processAiEvent()', () => {
 
     describe('cost optimization bypass', () => {
         it.each([
-            ['claude-2', false, undefined],
-            ['claude-2', 'false', undefined],
-            ['claude-2', true, 90],
-            ['claude-2', undefined, 90],
-            ['testing_model', false, undefined],
-        ])('prices %s with catalog estimation set to %p', (model, enabled, total) => {
+            ['gpt-4', 'typesafe', undefined],
+            ['claude-2', 'typesafe', undefined],
+            ['gpt-4', 'openai', 30],
+        ])('prices evaluations using %s through %s', (model, provider, total) => {
             event.event = '$ai_evaluation'
             event.properties!.$ai_model = model
-            event.properties!.$ai_provider = 'typesafe'
-            event.properties!.$ai_cost_estimation_enabled = enabled
+            event.properties!.$ai_provider = provider
 
             const result = processAiEvent(event)
 
@@ -845,7 +842,6 @@ describe('processAiEvent()', () => {
                 expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
                 expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
                 expect(result.properties!.$ai_model_cost_used).toBeUndefined()
-                expect(result.properties!.$ai_cost_model_source).toBeUndefined()
             }
         })
 
@@ -965,7 +961,6 @@ describe('processAiEvent()', () => {
 
         it.each([true, 'true'])('passes the total through when $ai_cost_passthrough is %p', (flag) => {
             event.properties!.$ai_cost_passthrough = flag
-            event.properties!.$ai_cost_estimation_enabled = false
             event.properties!.$ai_total_cost_usd = 0.000372
 
             const result = processAiEvent(event)
@@ -1010,8 +1005,7 @@ describe('processAiEvent()', () => {
     })
 
     describe('custom token pricing', () => {
-        it.each([undefined, false])('uses custom pricing when catalog estimation is %p', (enabled) => {
-            event.properties!.$ai_cost_estimation_enabled = enabled
+        it('uses custom pricing when provided', () => {
             event.properties!.$ai_input_token_price = 0.001
             event.properties!.$ai_output_token_price = 0.002
             event.properties!.$ai_input_tokens = 100

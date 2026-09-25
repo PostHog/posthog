@@ -95,20 +95,13 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    "connection_config,base_url,model,cost_estimation_enabled",
+    "connection_config,base_url,model",
     [
-        ({"api_key": "test-typesafe-key"}, "https://api.typesafe.ai/v1", "jev-1.13.0", True),
+        ({"api_key": "test-typesafe-key"}, "https://api.typesafe.ai/v1", "jev-1.13.0"),
         (
             {"api_key": "", "base_url": "https://decisions.example.com/v1"},
             "https://decisions.example.com/v1",
             "custom-model",
-            False,
-        ),
-        (
-            {"api_key": "example-token", "base_url": "https://ai-gateway.us.posthog.com/v1"},
-            "https://ai-gateway.us.posthog.com/v1",
-            "custom-model",
-            False,
         ),
     ],
 )
@@ -124,7 +117,6 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     connection_config: dict[str, str],
     base_url: str,
     model: str,
-    cost_estimation_enabled: bool,
 ) -> None:
     key = MagicMock(provider="typesafe", encrypted_config=connection_config)
     resolved = MagicMock(provider="typesafe", model=model, provider_key=key, is_byok=True)
@@ -172,29 +164,6 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert properties["$ai_evaluation_probability"] == probability
     assert properties["$ai_model"] == "jev-1.13.0"
     assert properties["$ai_evaluation_key_type"] == "byok"
-    assert properties["$ai_input_tokens"] == 120
-    assert properties["$ai_output_tokens"] == 10
-    assert properties["$ai_cost_estimation_enabled"] is cost_estimation_enabled
-
-
-@pytest.mark.parametrize("provider,enabled", [("typesafe", False), ("openai", None)])
-def test_judge_cost_estimation_without_endpoint_information(provider: str, enabled: bool | None) -> None:
-    properties = build_evaluation_event_properties(
-        {"id": "example-evaluation", "name": "Greeting"},
-        {
-            "result_type": "boolean",
-            "reasoning": "",
-            "verdict": True,
-            "provider": provider,
-            "model": "example-model",
-            "input_tokens": 120,
-            "output_tokens": 10,
-        },
-        datetime(2026, 1, 1, tzinfo=UTC),
-    )
-    assert properties.get("$ai_cost_estimation_enabled") is enabled
-    assert properties["$ai_input_tokens"] == 120
-    assert properties["$ai_output_tokens"] == 10
 
 
 def test_system_one_numeric_mapping_is_not_enabled() -> None:

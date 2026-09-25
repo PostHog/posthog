@@ -2451,11 +2451,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
             "examples": [True],
         },
-        "$ai_cost_estimation_enabled": {
-            "label": "AI cost estimation enabled (LLM)",
-            "description": "Set to false to skip automatic model pricing for custom deployments. Reported costs and custom token prices still apply. Without either, cost stays unknown.",
-            "examples": [False],
-        },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",
             "description": "The provider used to look up the cost for this model.",

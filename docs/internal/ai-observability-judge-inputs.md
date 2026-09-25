@@ -70,11 +70,8 @@ Compare results on representative inputs when changing models.
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
 The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
-Evaluations sent to the default TypeSafe endpoint use known model pricing to estimate cost.
-Custom deployments, including PostHog's gateway, retain their model name and token usage with cost left unknown.
-They set `$ai_cost_estimation_enabled` to `false`, so a matching model name cannot apply another service's price.
-System One results without endpoint pricing information also leave cost unknown.
-Ingestion still accepts explicitly reported costs and custom token prices; System One connection settings do not expose pricing overrides.
+Automatic cost estimates are deferred for all System One evaluations, including official TypeSafe connections.
+Events retain their model name and token usage, with cost left unknown.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
 Uncertainty alone does not produce N/A.
