@@ -675,6 +675,141 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - roas 
 }
 `;
 
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - clicks 1`] = `
+{
+  "custom_name": "prefix.campaign_insights clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - cost 1`] = `
+{
+  "custom_name": "prefix.campaign_insights cost",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(currency_code, 'USD'), 'USD', toFloat(spend), coalesce(toDate(start_time), today())))) + throwIf(countIf(empty(coalesce(currency_code, ''))) > 0, 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.')",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - impressions 1`] = `
+{
+  "custom_name": "prefix.campaign_insights impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_insights reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.campaign_insights reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_insights reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.campaign_insights reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_insights roas",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots OpenAIAds - roas 1`] = `
+{
+  "custom_name": "prefix.campaign_insights roas",
+  "distinct_id_field": "campaign_id",
+  "id": "OpenAIAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "openai",
+  "table_name": "prefix.campaign_insights",
+  "timestamp_field": "start_time",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots PinterestAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_analytics clicks",
