@@ -60,7 +60,6 @@ export function ChartPreviewTile({
                 <span
                     className={clsx(
                         'flex h-full flex-col [&_.text-7xl]:text-lg [&_.text-7xl]:leading-tight',
-                        // BoldNumber's full-page padding overflows the tile and shows a scrollbar.
                         response && option.display === ChartDisplayType.BoldNumber && '[&_.BoldNumber]:p-4',
                         response &&
                             option.display === ChartDisplayType.CalendarHeatmap &&
