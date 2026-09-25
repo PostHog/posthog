@@ -1121,19 +1121,31 @@ class TestEvaluateAlert:
         else:
             mock_notify.assert_not_called()
 
-    async def test_exhausted_ai_credits_record_an_error_and_keep_the_alert_on(self, alert_with_user) -> None:
+    async def test_exhausted_ai_credits_record_an_error_and_keep_the_alert_on(
+        self, alert_with_user: AlertConfiguration
+    ) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert_with_user.id).update)(
+            detector_config={"type": "llm"}
+        )
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
                 side_effect=LLMDetectorOutOfCreditsError("Your organization has used all its AI credits."),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome,
         ):
             env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            result = await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(
+                    alert_id=str(alert_with_user.id), uses_llm_detector=True, team_id=alert_with_user.team_id
+                ),
+            )
 
         assert result.new_state == AlertState.ERRORED
         mock_capture.assert_not_called()
+        mock_outcome.assert_called_once_with("out_of_credits")
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.error == {
             "code": "llm_detector_out_of_credits",
