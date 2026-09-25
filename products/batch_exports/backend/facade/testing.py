@@ -46,6 +46,7 @@ def create_batch_export(
     model: str | None = None,
     timezone: str | None = None,
     interval_offset: int | None = None,
+    integration_id: int | None = None,
     sync_schedule: bool = False,
 ) -> UUID:
     """Create a scheduled batch export and return its id.
@@ -53,7 +54,9 @@ def create_batch_export(
     ``sync_schedule`` also creates the Temporal schedule, which a test only needs when it
     exercises the schedule itself. It costs a Temporal connection, so it is off by default.
     """
-    destination = BatchExportDestination(type=destination_type, config=dict(destination_config))
+    destination = BatchExportDestination(
+        type=destination_type, config=dict(destination_config), integration_id=integration_id
+    )
     batch_export = BatchExport(
         team_id=team_id,
         destination=destination,
@@ -140,6 +143,11 @@ def create_backfill(
         start_at=start_at,
         end_at=end_at,
     ).id
+
+
+def get_batch_export(batch_export_id: UUID, *, team_id: int) -> contracts.BatchExportDetail:
+    """Return a batch export as the facade's read functions shape it."""
+    return _to_detail(BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id))
 
 
 def update_batch_export(batch_export_id: UUID, *, team_id: int, **fields: Any) -> contracts.BatchExportDetail:
