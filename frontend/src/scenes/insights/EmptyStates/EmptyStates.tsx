@@ -558,6 +558,14 @@ export function InsightLoadingState({
 export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
+    // query_id lets staff look the slow query up server-side, which is what the bug report link asks for
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'timeout',
+            query_id: queryId ?? null,
+        })
+    })
+
     return (
         <div data-attr="insight-empty-state" className="rounded px-4 py-6 h-full w-full">
             <h2 className="text-xl leading-tight mb-6 text-center text-balance">

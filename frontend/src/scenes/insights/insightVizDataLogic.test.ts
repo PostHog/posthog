@@ -8,6 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -928,6 +929,33 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
+        })
+    })
+
+    describe('timedOutQueryId', () => {
+        it.each([
+            [
+                'a client-side timeout',
+                Object.assign(new Error(QUERY_TIMEOUT_ERROR_MESSAGE), { queryId: 'query-1' }),
+                'query-1',
+                null,
+            ],
+            ['a failure from the server', { status: 500, queryId: 'query-2' }, null, 'query-2'],
+        ])('reports %s', (_, errorObject, timedOutQueryId, erroredQueryId) => {
+            builtInsightDataLogic.actions.loadDataFailure('', errorObject)
+
+            expect(builtInsightVizDataLogic.values.timedOutQueryId).toEqual(timedOutQueryId)
+            expect(builtInsightVizDataLogic.values.erroredQueryId).toEqual(erroredQueryId)
+        })
+
+        it('stays empty for a slow query that completes', async () => {
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadData('force_blocking', 'query-3')
+            }).toMatchValues({ timedOutQueryId: null })
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result: funnelResult.result })
+            }).toMatchValues({ timedOutQueryId: null })
         })
     })
 

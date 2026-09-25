@@ -65,6 +65,11 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+
+/** The client ran out of poll budget. Server-side failures arrive as an ApiError instead. */
+export function isQueryTimeoutError(error: Record<string, any> | null | undefined): boolean {
+    return error?.message === QUERY_TIMEOUT_ERROR_MESSAGE
+}
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
