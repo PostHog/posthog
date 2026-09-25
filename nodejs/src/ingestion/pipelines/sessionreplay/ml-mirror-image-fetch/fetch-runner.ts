@@ -2,7 +2,6 @@ import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 
 import type { ImageFetchBlockReason } from './block-reason'
-import { fetchCandidateHistoryKey } from './collected-urls-record'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
 import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
@@ -545,7 +544,7 @@ export class FetchRunner implements FetchPass {
             )
         }
 
-        const previous = stored.get(fetchCandidateHistoryKey(candidate))
+        const previous = stored.get(candidate.originalRef)
         const previousUrl = previous?.kind === 'url' ? previous : undefined
         const result = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
             this.fetcher.fetch(candidate.currentUrl, {
@@ -818,7 +817,7 @@ export class FetchRunner implements FetchPass {
             lost: false,
             history: {
                 kind: 'url',
-                key: fetchCandidateHistoryKey(candidate),
+                key: candidate.originalRef,
                 nextFetchAtMs,
                 storageExpiresAtMs: nextFetchAtMs,
                 outcome: String(outcome),

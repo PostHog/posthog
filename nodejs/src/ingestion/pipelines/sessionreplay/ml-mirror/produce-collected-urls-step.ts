@@ -180,7 +180,7 @@ export function createProduceCollectedUrlsStep<
         const fresh = collected
             .map((entry) => ({
                 entry,
-                cacheKey: `${key?.identity.sessionId ?? ''}:${producedUrlCacheKey(entry, timeBucket)}`,
+                cacheKey: producedUrlCacheKey(entry, timeBucket),
             }))
             .filter(({ cacheKey }) => !producedTransportUrls.has(cacheKey))
         MlMirrorMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
