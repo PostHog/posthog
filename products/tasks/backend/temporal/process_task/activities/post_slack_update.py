@@ -80,7 +80,7 @@ _RECOVERY_PROMPTS = {
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
 
 
-@dataclass
+@dataclass(frozen=False)
 class PostSlackUpdateInput:
     run_id: str
     slack_thread_context: dict[str, Any]
@@ -197,28 +197,18 @@ def _post_pr_opened_notification_once(
     task_url: str | None,
 ) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
 
     if _is_pr_opened_notified(task_run, pr_url):
         # Skip the repost but still clear any lingering progress marker.
         handler.delete_progress()
         return
 
-    # Tag the user whose request drove this run, falling back to the original
-    # mentioner. ``slack_actor_slack_user_id`` is the resolved acting user — set at
-    # task creation and re-stamped on resume — so a run someone else picked up pings
-    # them, not the original creator. We deliberately do not consult the mapping's
-    # ``latest_actor_slack_user_id``: this ping is asynchronous (it can fire long
-    # after the PR opened, once the CI follow-up loop settles), so the last person to
-    # touch the thread is often a casual joiner rather than the person who owns the work.
-    reply_target_slack_user_id = (task_run.state or {}).get("slack_actor_slack_user_id")
-    if not reply_target_slack_user_id:
-        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-        reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
-
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     handler.post_pr_opened(
         pr_url,
         task_url,
-        reply_target_slack_user_id=reply_target_slack_user_id,
+        reply_target_slack_user_id=pr_card_reply_target(task_run, mapping),
         bot_authored=_is_bot_authored_fallback(task_run),
     )
 

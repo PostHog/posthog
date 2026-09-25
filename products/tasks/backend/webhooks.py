@@ -307,6 +307,9 @@ def handle_pull_request_event(payload: dict) -> None:
         if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
 
+    if action == "closed" and task_run and pr_url in claimed_pr_urls:
+        _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
+
 
 def handle_pull_request_review_event(payload: dict) -> None:
     """Process a verified pull_request_review webhook event.
@@ -508,6 +511,28 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
     # cancel_task_run does a synchronous Temporal round-trip; on_commit keeps it out of any
     # open transaction and after the webhook's own writes have committed.
     transaction.on_commit(_cancel)
+
+
+def _notify_slack_thread_on_close(task_run: TaskRun, pr_url: str, *, merged: bool) -> None:
+    """Queue the merged or closed card for the Slack thread that announced ``pr_url``.
+
+    The cheap check here keeps the queue free of closes that no thread announced. The task
+    repeats it under a row lock. Best-effort: the webhook must stay 2xx if the broker is down.
+    """
+    if task_run.task.slack_notified_pr_url != pr_url:
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+                notify_slack_thread_pr_closed,
+            )
+
+            notify_slack_thread_pr_closed.delay(str(task_run.id), pr_url, merged=merged)
+        except Exception:
+            logger.warning("github_pr_webhook_slack_pr_closed_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_enqueue)
 
 
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
