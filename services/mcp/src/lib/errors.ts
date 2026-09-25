@@ -228,6 +228,7 @@ function requestPath(url: string): string {
 }
 
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const NUMERIC_SEGMENT = /^\d+$/
 
 /** The request path with entity ids replaced by placeholders and the query
  *  string dropped. One upstream outage hits many orgs and projects at once, and
@@ -246,7 +247,7 @@ function groupableRequestPath(url: string): string {
             if (UUID_SEGMENT.test(segment)) {
                 return ':uuid'
             }
-            return /^\d+$/.test(segment) ? ':id' : segment
+            return NUMERIC_SEGMENT.test(segment) ? ':id' : segment
         })
         .join('/')
 }
