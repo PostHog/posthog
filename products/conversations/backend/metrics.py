@@ -9,6 +9,15 @@ TICKET_ACTION_AUTH_COUNTER = Counter(
     labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | scoped_jwt
 )
 
+# Temporary (#63111): identifies which teams still call the external ticket route with the
+# legacy token, so their owner can be found before the route is removed. Bounded cardinality:
+# only teams that actually hit the route (a handful). Delete together with the route.
+LEGACY_TICKET_AUTH_BY_TEAM_COUNTER = Counter(
+    "posthog_conversations_external_ticket_legacy_team_total",
+    "Legacy secret_api_token authentications on the external ticket route, by team",
+    labelnames=["team_id"],
+)
+
 TICKET_SEARCH_DURATION_SECONDS = Histogram(
     "posthog_support_ticket_search_duration_seconds",
     "End-to-end duration of support ticket list requests that include a search term",

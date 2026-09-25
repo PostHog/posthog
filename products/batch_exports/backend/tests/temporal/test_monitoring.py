@@ -56,7 +56,7 @@ async def truncate(clickhouse_client):
 async def batch_export(ateam, temporal_client):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "a-bucket",
             "region": "us-east-1",

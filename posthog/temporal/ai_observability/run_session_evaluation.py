@@ -40,7 +40,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     payload_budget_bytes,
     should_skip_for_payload,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -354,10 +354,12 @@ def build_session_hog_globals(
     return globals_dict
 
 
-def build_session_system_prompt(prompt: str, allows_na: bool) -> str:
+def build_session_system_prompt(
+    prompt: str, allows_na: bool, *, output_type: str = "boolean", output_config: dict[str, Any] | None = None
+) -> str:
     """Session-level variant of `build_trace_system_prompt` — frames the unit under evaluation as
     a multi-trace conversation rather than one execution."""
-    config = get_output_type_config(allows_na)
+    config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     return f"""You are an evaluator. Evaluate the following AI session — every trace in one \
 user's conversation, in order — according to this criteria:
 
@@ -415,20 +417,17 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     return None
 
 
-def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
+def build_session_skip_result(
+    allows_na: bool, skip_reason: str, *, output_type: str = "boolean"
+) -> EvaluationActivityResult:
     """Session mirror of `_build_trace_skip_result` — no LLM call is made, so model/provider are
     omitted and downstream cost attribution stays clean."""
-    result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": None if allows_na else False,
-        "reasoning": _SESSION_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
-        "allows_na": allows_na,
-        "skipped": True,
-        "skip_reason": skip_reason,
-    }
-    if allows_na:
-        result["applicable"] = False
-    return result
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=_SESSION_SKIP_REASONING.get(skip_reason, "Evaluation skipped."),
+        skip_reason=skip_reason,
+    )
 
 
 @frozen
@@ -477,13 +476,15 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if not prompt:
         raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
-    if evaluation["output_type"] != "boolean":
+    if evaluation["output_type"] not in ("boolean", "numeric"):
         raise ApplicationError(
-            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean'.",
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean', 'numeric'.",
             non_retryable=True,
         )
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     outcome = fetch_session_for_evaluation(
         inputs.team_id,
@@ -492,15 +493,17 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         inputs.window_end_datetime,
     )
     if outcome.skip_reason or outcome.traces is None:
-        return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
+        return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
 
     transcript = format_session_for_judge(outcome.traces)
     if transcript is None:
-        return build_session_skip_result(allows_na, "session_too_long_to_judge")
+        return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
     return call_llm_judge(
         evaluation=evaluation,
-        system_prompt=build_session_system_prompt(prompt, allows_na),
+        system_prompt=build_session_system_prompt(
+            prompt, allows_na, output_type=output_type, output_config=output_config
+        ),
         user_prompt=transcript,
         allows_na=allows_na,
     )
@@ -521,7 +524,9 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
     if not bytecode:
         raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
 
-    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+    output_type = evaluation.get("output_type", "boolean")
+    output_config = evaluation.get("output_config") or {}
+    allows_na = output_config.get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
         outcome = fetch_session_for_evaluation(
@@ -533,17 +538,19 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
         if outcome.skip_reason or outcome.traces is None:
             return None, outcome.skip_reason or "session_not_found"
         globals_dict = build_session_hog_globals(outcome.traces, inputs.session_id, bytecode=bytecode)
-        return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
+        return execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        ), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
 
     if skip_reason or result is None:
-        return build_session_skip_result(allows_na, skip_reason or "session_not_found")
+        return build_session_skip_result(allows_na, skip_reason or "session_not_found", output_type=output_type)
 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="session")
 
 
-@dataclass
+@frozen
 class SessionHogTestResult:
     """One session's outcome from `run_hog_eval_over_recent_sessions`, shaped for the editor test
     endpoint rather than for online emission."""
@@ -554,6 +561,8 @@ class SessionHogTestResult:
     error: str | None
     input_preview: str
     output_preview: str
+    score: float | None = None
+    applicable: bool | None = None
 
 
 # Sessions whose structural activity has been quiet for the configured period, restricted to those
@@ -646,6 +655,8 @@ def run_hog_eval_over_recent_sessions(
     allows_na: bool,
     quiet_period_seconds: int,
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    output_type: str = "boolean",
+    output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
 ) -> list[SessionHogTestResult]:
     """Sample sessions that have gone quiet and run session-level Hog bytecode against each.
@@ -679,12 +690,16 @@ def run_hog_eval_over_recent_sessions(
             continue
 
         globals_dict = build_session_hog_globals(outcome.traces, session_id, bytecode=bytecode)
-        hog_result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        hog_result = execute_hog_eval_bytecode(
+            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+        )
         input_preview, output_preview = _session_io_preview(outcome.traces)
         results.append(
             SessionHogTestResult(
                 session_id=session_id,
                 verdict=hog_result.get("verdict"),
+                score=hog_result.get("score"),
+                applicable=hog_result.get("applicable"),
                 reasoning=hog_result.get("reasoning") or "",
                 error=hog_result.get("error"),
                 input_preview=input_preview,

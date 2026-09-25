@@ -10,11 +10,11 @@ from django.test import TestCase, override_settings
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import SlackFileDeliveryResult

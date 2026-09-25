@@ -1703,6 +1703,13 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The logs query to execute.'),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesCreateBodyNameMax = 255
 
 export const logsRetentionRulesCreateBodyEnabledDefault = false
@@ -1728,6 +1735,13 @@ export const LogsRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesUpdateBodyNameMax = 255
 
 export const logsRetentionRulesUpdateBodyEnabledDefault = false
@@ -1753,6 +1767,13 @@ export const LogsRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Retention rules for one record kind.
+ *
+ * `TracingRetentionRuleViewSet` reuses this for span rules, which live in their own model. It
+ * swaps the queryset, the serializer and `team_rules`, so every read and write here goes through
+ * `team_rules` rather than naming a model.
+ */
 export const logsRetentionRulesPartialUpdateBodyNameMax = 255
 
 export const logsRetentionRulesPartialUpdateBodyEnabledDefault = false

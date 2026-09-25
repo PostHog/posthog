@@ -16,7 +16,7 @@ from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -28,7 +28,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -248,6 +248,7 @@ def count_rows_for_hogql_batch_export(
     hogql_query: str,
     timeout: int = 30,
     *,
+    user: User,
     data_interval_start: dt.datetime | None = None,
     data_interval_end: dt.datetime | None = None,
 ) -> int:
@@ -256,9 +257,9 @@ def count_rows_for_hogql_batch_export(
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
     """
-    validate_hogql_query_for_batch_export(hogql_query, team)
+    validate_hogql_query_for_batch_export(hogql_query, team, user=user)
 
-    record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query)
+    record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query, user_id=user.pk)
     query_settings = get_user_hogql_batch_export_query_settings()
     query_settings.max_execution_time = timeout
 
@@ -268,6 +269,7 @@ def count_rows_for_hogql_batch_export(
     query_response = execute_hogql_query(
         query=record_batch_model.get_count_hogql_query(data_interval_start, data_interval_end),
         team=team,
+        user=user,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
     )
@@ -352,7 +354,17 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
             config["exclude_events"] = exclude
 
         destination = BatchExportDestination(type=BatchExportDestination.Destination.FILE_DOWNLOAD, config=config)
-        batch_export = BatchExportOnDemand(team_id=team_id, destination=destination, source=source, **validated_data)
+        user = self.context["request"].user
+        if not isinstance(user, User):
+            raise NotAuthenticated()
+
+        batch_export = BatchExportOnDemand(
+            team_id=team_id,
+            destination=destination,
+            source=source,
+            last_modified_by=user,
+            **validated_data,
+        )
         batch_export_run = BatchExportRun(
             status=BatchExportRun.Status.STARTING,
             batch_export_on_demand=batch_export,
@@ -528,6 +540,9 @@ class FileDownloadBatchExportOnDemandViewSet(
                     name=instance.batch_export_on_demand.model,
                     schema=None,
                     hogql_query=source.hogql_query if source is not None else None,
+                    user_id=instance.batch_export_on_demand.last_modified_by_id
+                    if instance.batch_export_on_demand.model == "hogql"
+                    else None,
                 ),
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
@@ -704,12 +719,15 @@ class FileDownloadBatchExportOnDemandViewSet(
     @validated_request(request_serializer=FileDownloadCountRowsRequestSerializer)
     def count_rows(self, request: ValidatedRequest, *args, **kwargs) -> response.Response:
         """Count the rows a HogQL batch export would produce if started now."""
+        if not isinstance(request.user, User):
+            raise NotAuthenticated()
         check_hogql_batch_exports_enabled(self.team)
 
         try:
             count = count_rows_for_hogql_batch_export(
                 self.team,
                 request.validated_data["hogql_query"],
+                user=request.user,
                 data_interval_start=request.validated_data.get("data_interval_start"),
                 data_interval_end=request.validated_data.get("data_interval_end"),
             )

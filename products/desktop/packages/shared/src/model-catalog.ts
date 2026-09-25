@@ -116,3 +116,31 @@ export function accessFlagForModel(modelId: string): string | undefined {
 export function labelForModel(modelId: string): string | undefined {
   return catalogModelFor(modelId)?.label;
 }
+
+/**
+ * Whether a picker may offer this model. A model the catalog omits is not offered however
+ * the gateway answers, and a retired one stays listed only so a pinned session keeps
+ * running under a name and a price.
+ */
+export function isOfferedModel(modelId: string): boolean {
+  const model = catalogModelFor(modelId);
+  return model !== undefined && !model.retired;
+}
+
+/**
+ * Whether the catalog has retired this model. Narrower than the inverse of `isOfferedModel`:
+ * an id the catalog never lists is not retired, because a runtime can still drive one — a
+ * person's own OpenAI subscription runs vendor variants such as `gpt-5.5-codex` that the
+ * gateway never serves. Ask this about the model a run uses, `isOfferedModel` about a picker.
+ */
+export function isRetiredModel(modelId: string): boolean {
+  return catalogModelFor(modelId)?.retired === true;
+}
+
+export function supports1MContext(modelId: string): boolean {
+  return catalogModelFor(modelId)?.supports1MContext ?? false;
+}
+
+export function supportsFastMode(modelId: string): boolean {
+  return catalogModelFor(modelId)?.supportsFastMode ?? false;
+}

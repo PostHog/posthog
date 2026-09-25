@@ -250,6 +250,10 @@ class TtlSchedule:
     non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
     still settling. `None` disables the check.
 
+    `invalidate_at_window_start` rejects jobs computed before their window starts once
+    that start is reached, even within stale grace. A future window can be warmed in
+    advance, but its snapshot must not hide new data after the window begins.
+
     `empty_result_ttl_seconds` caps the TTL of a job that wrote no rows. A zero-row insert is
     indistinguishable from a productive one at the SQL level, but it leaves the window only
     *provisionally* computed: either the source genuinely had no activity, or it hadn't been
@@ -290,6 +294,7 @@ class TtlSchedule:
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
     default_ttl_jitter_seconds: int | None = None
+    invalidate_at_window_start: bool = False
 
     def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
         """TTL for a window. `jittered=True` adds the default-band jitter offset.
@@ -347,6 +352,7 @@ def parse_ttl_schedule(
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
     default_ttl_jitter_seconds: int | None = None,
+    invalidate_at_window_start: bool = False,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -384,6 +390,7 @@ def parse_ttl_schedule(
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
             default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+            invalidate_at_window_start=invalidate_at_window_start,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -415,6 +422,7 @@ def parse_ttl_schedule(
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
         default_ttl_jitter_seconds=default_ttl_jitter_seconds,
+        invalidate_at_window_start=invalidate_at_window_start,
     )
 
 
@@ -608,6 +616,16 @@ class LazyComputationResult:
     # be cached. Serving live once and letting the next request use the jobs is the
     # intended reaction.
     freshly_built: bool = False
+    # Oldest `computed_at` across the served jobs — the moment the stalest window in the
+    # range was last materialized. None when nothing was served (not ready) or a served
+    # job predates the column. Callers surface it as "data as of X".
+    computed_at: datetime | None = None
+
+
+def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
+    """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
+    stamps = [j.computed_at for j in jobs if j.computed_at is not None]
+    return min(stamps) if stamps else None
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1206,6 +1224,7 @@ class LazyComputationExecutor:
                             ready=True,
                             job_ids=[j.id for j in covering],
                             stale=True,
+                            computed_at=_oldest_computed_at(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1448,6 +1467,7 @@ class LazyComputationExecutor:
             ready=True,
             job_ids=[j.id for j in final_ready],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
+            computed_at=_oldest_computed_at(final_ready),
         )
         _log_execution("success", result)
         return result
@@ -1542,6 +1562,9 @@ class LazyComputationExecutor:
         TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
         caps uniformly.
 
+        `invalidate_at_window_start` is a hard boundary: stale grace cannot make a
+        snapshot taken before the window began cover data arriving after it began.
+
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
@@ -1551,6 +1574,8 @@ class LazyComputationExecutor:
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
+                continue
+            if self.ttl_schedule.invalidate_at_window_start and job.created_at < job.time_range_start <= now:
                 continue
             desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)

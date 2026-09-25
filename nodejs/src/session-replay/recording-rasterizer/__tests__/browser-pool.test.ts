@@ -78,6 +78,28 @@ describe('BrowserPool', () => {
         expect(launchArgs).toContain('--crash-dumps-dir=/tmp/chrome-crash-dumps')
     })
 
+    it('launches chrome with an allowlisted environment, not the worker environment', async () => {
+        process.env.SECRET_KEY = 'worker-secret-key'
+        process.env.INTERNAL_API_SECRET = 'worker-internal-secret'
+        process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token'
+        process.env.HTTPS_PROXY = 'http://smokescreen:4750'
+        const browser = mockBrowser()
+        browser.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await pool.getPage()
+
+        const env = puppeteerCapture.launch.mock.calls[0][0].env as NodeJS.ProcessEnv
+        expect(env).not.toHaveProperty('SECRET_KEY')
+        expect(env).not.toHaveProperty('INTERNAL_API_SECRET')
+        expect(env).not.toHaveProperty('AWS_WEB_IDENTITY_TOKEN_FILE')
+        expect(env.PATH).toBe(process.env.PATH)
+        // Without --proxy-server, Chrome reads the proxy environment. Passing it would route Chrome
+        // through the proxy even after RASTERIZER_USE_PROXY=false asks for direct egress.
+        expect(env).not.toHaveProperty('HTTPS_PROXY')
+    })
+
     it('launches separate browsers for concurrent pages', async () => {
         const browser1 = mockBrowser()
         const browser2 = mockBrowser()

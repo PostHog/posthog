@@ -6,6 +6,8 @@ from django.conf import settings
 
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
+    AI_WORKFLOWS,
+    ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
@@ -92,3 +94,15 @@ def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
     workflows, activities = entries[0]
     assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
     assert set(WA_DIGEST_ACTIVITIES) <= set(activities)
+
+
+# CheckAlertWorkflow routes an AI detector's evaluation to the AI queue, because only that worker
+# holds the model provider credentials. Routed there without the activity registered, every AI
+# alert check would sit unpolled until it timed out. Queue settings collapse to a single dev queue
+# under DEBUG, so match on the spec entry that carries the AI workflows rather than on a queue name.
+def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
+    entries = [activities for _, workflows, activities in _task_queue_specs if AI_WORKFLOWS[0] in workflows]
+
+    assert len(entries) == 1
+    assert ALERT_AI_QUEUE_ACTIVITIES
+    assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])

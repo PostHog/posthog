@@ -169,11 +169,13 @@ class Migration(migrations.Migration):
 
 ### DROP TABLE lock order
 
-`DROP TABLE` takes `ACCESS EXCLUSIVE` on the dropped table and on every table its own foreign keys reference, one relation at a time while the statement runs. An application query takes `AccessShare` on the tables it reads, also one at a time, in whatever order its plan picks. When the retired table holds keys into `posthog_team`, `posthog_organization` or `posthog_user`, the two orders cross and the two sessions form a real deadlock cycle.
+`DROP TABLE` takes `ACCESS EXCLUSIVE` on the dropped table and on every table its own foreign keys reference, one relation at a time while the statement runs. `ALTER TABLE ... DROP CONSTRAINT` on a foreign key does the same: the child first, then the parent. An application query takes `AccessShare` on the tables it reads, also one at a time, and a query that joins a parent to the child locks the parent first. When the child holds keys into `posthog_team`, `posthog_organization`, `posthog_user` or any other busy table, the two orders cross and the two sessions form a real deadlock cycle.
 
-A short `lock_timeout` does not save the application query, because a cycle is resolved by the deadlock detector rather than by the lock timeout. Each waiting backend runs the detector after it has waited for `deadlock_timeout`, and the backend that finds the cycle aborts itself. The application query enters the wait first, so it is the one Postgres kills, and the user sees a 500 on a screen unrelated to the deploy.
+A short `lock_timeout` does not break the cycle, because a cycle is resolved by the deadlock detector rather than by the lock timeout. Each waiting backend runs the detector after it has waited for `deadlock_timeout`, and the backend that finds the cycle aborts itself. When the application query entered the wait first, Postgres kills the read and the user sees a 500 on a screen unrelated to the deploy. When the migration entered first, Postgres kills the migration on every `bin/migrate` retry and the deploy stays blocked.
 
-`SafeDropTable` removes the cycle from the migration side. It reads the referenced parents out of `pg_constraint`, takes `ACCESS EXCLUSIVE` on every one of them in a single `LOCK TABLE`, and only then runs the drop, so the drop needs no new lock. The lock phase runs under a `lock_timeout` and a `statement_timeout` derived from the server's `deadlock_timeout`, so the migration always abandons its wait before any peer has waited long enough to run the detector. The migration loses the race, `bin/migrate` retries it, and no application query is ever the victim.
+`SafeDropTable` and `DropForeignKey` take the locks from the migration side first. Each reads the referenced parents out of `pg_constraint`, takes `ACCESS EXCLUSIVE` on every parent and then the child in a single `LOCK TABLE`, and only then runs the drop, so the drop needs no new lock. The lock phase runs under a `lock_timeout` and a `statement_timeout` of half the server's `deadlock_timeout`, capped at one second, so the migration abandons its own wait before its own detector runs and `bin/migrate` retries it. That biases a cycle toward the migration. It does not settle every cycle: each backend arms its detector when its own wait starts, so a query that began to wait more than the budget earlier reaches its detector first.
+
+The transaction holds those locks until `COMMIT`. A second drop in the same transaction then waits for new parents while the first drop's parents stay locked, which rebuilds the crossed order. Keep a `DropForeignKey` or `SafeDropTable` alone in its migration, next to state-only operations at most, and give it every key or table of the retirement at once. The migration risk analyzer blocks a migration that does otherwise.
 
 ```python
 from posthog.migration_helpers import SafeDropTable
@@ -311,7 +313,11 @@ operations = [
 ]
 ```
 
-`DropForeignKey` reads the constraint name out of `pg_constraint`, so there is nothing to hardcode. Never hand-write `ALTER TABLE ... DROP CONSTRAINT IF EXISTS <name>`: Django names foreign keys with a hash suffix, and `IF EXISTS` turns a wrong guess into a migration that succeeds and drops nothing.
+`DropForeignKey` reads the constraint name out of `pg_constraint`, so there is nothing to hardcode. Never hand-write `ALTER TABLE ... DROP CONSTRAINT IF EXISTS <name>`: Django names foreign keys with a hash suffix, and `IF EXISTS` turns a wrong guess into a migration that succeeds and drops nothing. The drop is a catalog change, but it locks the child and the parent until `COMMIT`, so it takes its locks parent first in a bounded phase of its own. See [the lock order hazard](#drop-table-lock-order).
+
+Several keys on one table go in one operation, `DropForeignKey("posthog_mymodel", column=["owner_id", "team_id"])`, so they share one lock phase. Keep that operation alone in its migration, next to the state-only `untrack_field` at most. Keys on other tables, and any other schema change to the same table, go in migrations of their own. The migration risk analyzer blocks a migration that runs two `DropForeignKey` operations, or one beside other database operations.
+
+When the keys point at several busy parents, one lock phase has to win every parent at once, which can fail on every retry under load. Set `atomic = False` on the migration instead and give each key its own `DropForeignKey`. Each one then locks one parent and the child in a transaction of its own, and a retry skips the keys already dropped. List the migration in `atomic_false_acknowledged_migrations.txt`, because `AtomicFalsePolicy` asks for that.
 
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
 

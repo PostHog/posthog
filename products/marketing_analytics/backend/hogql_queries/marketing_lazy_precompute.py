@@ -28,23 +28,18 @@ import structlog
 from prometheus_client import Counter
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    EXPIRY_BUFFER_SECONDS,
     LazyComputationResult,
     ensure_precomputed,
 )
-from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
+from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 
 logger = structlog.get_logger(__name__)
-
-# Gates the whole mechanism, so it can be rolled out gradually and killed without a deploy. Off means a
-# read materializes inline exactly as it did before this existed — and with no grace the executor never
-# reports `stale`, so no revalidation is enqueued either. Fail-safe: `feature_enabled_or_false` returns
-# False if flag evaluation breaks, which degrades to that same pre-existing behaviour.
-SERVE_STALE_FLAG = "marketing-analytics-serve-stale"
 
 # The trigger the revalidation task runs under. Lives next to the trigger set so the two cannot drift.
 REVALIDATION_TRIGGER = "marketingAnalyticsStaleRevalidation"
@@ -53,12 +48,6 @@ REVALIDATION_TRIGGER = "marketingAnalyticsStaleRevalidation"
 # sets, so it does not need naming here; this set is the belt for the revalidation task, which would
 # otherwise serve itself stale and never recompute.
 BACKGROUND_WARMING_TRIGGERS = frozenset({REVALIDATION_TRIGGER})
-
-# How far past expiry a user-facing read may still be served from existing rows. Refresh normally lands
-# within minutes via the revalidation task (plus the hourly warmer for allowlisted teams); this grace is
-# the ceiling for when both of those fail. Must stay well under the framework's 48h ClickHouse expiry
-# buffer, so the underlying rows are guaranteed to still exist.
-STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 
 # One revalidation per (team, query shape) per window. A dashboard renders several tiles off the same
 # query shape and they all go stale together; without this they would each enqueue a rebuild of the same
@@ -70,6 +59,11 @@ REVALIDATION_DEBOUNCE_SECONDS = 10 * 60
 # adds latency to a user-facing read — short enough that revalidation resumes soon after the broker heals,
 # rather than staying suppressed for 10 minutes with no rebuild in flight.
 ENQUEUE_FAILURE_BACKOFF_SECONDS = 30
+
+# The debounce key is the user-controlled query shape, so distinct date ranges or draft goals each get
+# their own slot. This per-team budget caps the total background warms a team can queue, so a flood of
+# cold shapes cannot fill the shared analytics queue with long ClickHouse rebuilds.
+TEAM_WARM_BUDGET = Budget(burst=10, per_hour=30)
 
 # Fields that shape only the final read, never what gets materialized, so they must not split the debounce
 # key — paging or re-sorting a stale table would otherwise enqueue a rebuild per interaction. Kept
@@ -92,44 +86,41 @@ MARKETING_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
     "Revalidation enqueues that failed (e.g. broker unavailable); the stale read is still served.",
 )
 
+MARKETING_PRECOMPUTE_REVALIDATION_THROTTLED = Counter(
+    "marketing_analytics_precompute_revalidation_throttled_total",
+    "Background warms skipped because the team used up its warm budget.",
+)
 
-def serve_stale_enabled(team: Team) -> bool:
-    """Whether this team may be served stale precomputes, cached on the team instance.
+MARKETING_PRECOMPUTE_NOT_READY_WARMED = Counter(
+    "marketing_analytics_precompute_not_ready_warmed_total",
+    "Background warms enqueued because a read found no precompute for its window (cold team on-demand).",
+)
 
-    A single dashboard load calls the ensures several times (touchpoints, per-goal conversions, costs,
-    plus a previous-period runner when comparing), so caching here keeps it to one evaluation per load
-    without leaking across requests — a fresh team is loaded per request. Mirrors the caching the
-    precompute flags already do in `MarketingAnalyticsConfig`.
 
-    Test authors: the cache lives on `team._ma_serve_stale_flag`; clear it if you reuse a team across
-    cases with different flag mocks.
-    """
-    cached = getattr(team, "_ma_serve_stale_flag", None)
-    if cached is not None:
-        return cached
-    enabled = feature_enabled_or_false(
-        SERVE_STALE_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        group_properties={"organization": {"id": str(team.organization.id)}},
-    )
-    team._ma_serve_stale_flag = enabled  # type: ignore[attr-defined]
-    return enabled
+# Precompute-only reads serve stale rows up to just under the framework's 48h ClickHouse-row lifetime
+# ceiling (EXPIRY_BUFFER_SECONDS). Past that the rows may be GC'd, so a read reports not-ready instead of
+# risking a job_id that no longer has data behind it. Normal freshness is far tighter (hourly warmer +
+# short TTL); this is only the ceiling for when warming falls badly behind.
+PRECOMPUTE_ONLY_MAX_STALE_SECONDS = EXPIRY_BUFFER_SECONDS - 60 * 60  # 47h, safely below the 48h buffer
 
 
 def marketing_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
-    """`ensure_precomputed` for the marketing read path, with the product's serve-stale policy applied.
+    """`ensure_precomputed` for the marketing read path: precompute-only serving.
 
-    User-facing calls get the grace; refreshers get none, and so does everyone when the flag is off. Every
-    read-path ensure (touchpoints, conversions, costs) must go through here — one left on the raw call
-    still blocks the request thread on a stale window, which is the whole problem.
+    User-facing reads never materialize inline. They serve whatever the warmer produced — fresh, or stale
+    up to `PRECOMPUTE_ONLY_MAX_STALE_SECONDS` — and report not-ready (`ready=False`) when a window was
+    never warmed. The warmer is the sole producer, so the request thread is never blocked on a synchronous
+    INSERT. Every read-path ensure (touchpoints, conversions, costs) goes through here — one left on the
+    raw call would reintroduce inline materialization, which is the whole problem.
+
+    Background refreshers (the revalidation task) are the exception: they *are* the mechanism that keeps
+    the precompute fresh, so they must run inserts and take no grace. `is_background_warming_request`
+    classifies them by the CACHE_WARMUP tag / revalidation trigger, exactly as the old grace policy did.
     """
-    if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = (
-            resolve_stale_while_revalidate_seconds(STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
-            if serve_stale_enabled(team)
-            else None
-        )
+    if is_background_warming_request(BACKGROUND_WARMING_TRIGGERS):
+        return ensure_precomputed(team=team, **kwargs)
+    kwargs.setdefault("run_inserts", False)
+    kwargs.setdefault("stale_while_revalidate_seconds", PRECOMPUTE_ONLY_MAX_STALE_SECONDS)
     return ensure_precomputed(team=team, **kwargs)
 
 
@@ -159,6 +150,16 @@ def _scope_to_revalidation(query: Any) -> Any:
     return scoped
 
 
+def is_on_demand_revalidation() -> bool:
+    """True inside the Celery revalidation task, which a user read can trigger.
+
+    It materializes userless with warehouse access control bypassed, so it must not write cost rows: the
+    precomputed costs table holds every source's spend, and a user without access to a source could then
+    read it. The Dagster warmer still builds costs.
+    """
+    return get_query_tag_value("trigger") == REVALIDATION_TRIGGER
+
+
 def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
     """Schedule a background re-run so the next read of this query shape is fresh.
 
@@ -177,6 +178,13 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         debounce_key = f"ma_swr_reval:{team.id}:{_query_shape_key(query)}"
         claimed = bool(redis.get_client().set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True))
         if not claimed:
+            return
+        budget = consume(f"ma_swr_reval_rate:{team.id}", TEAM_WARM_BUDGET)
+        if isinstance(budget, BucketDecision) and not budget.allowed:
+            # Hold the slot only for a backoff, so this shape can retry once the budget refills.
+            redis.get_client().set(debounce_key, "1", ex=ENQUEUE_FAILURE_BACKOFF_SECONDS)
+            MARKETING_PRECOMPUTE_REVALIDATION_THROTTLED.inc()
+            logger.info("marketing_precompute.swr_revalidation_throttled", team_id=team.id)
             return
         revalidate_marketing_analytics_precompute.delay(
             team_id=team.id, query=query.model_dump(mode="json", exclude_none=True)
@@ -203,4 +211,14 @@ def handle_stale_served(*, team: Team, query: Any) -> None:
     """
     MARKETING_PRECOMPUTE_STALE_SERVED.inc()
     tag_queries(precompute_stale=True)
+    enqueue_stale_revalidation(team=team, query=query)
+
+
+def handle_not_ready(*, team: Team, query: Any) -> None:
+    """A read found no warm precompute for its window — a cold team outside the rolling warm set.
+
+    Enqueue a one-off background warm (debounced, same as revalidation) so the team's next visit is
+    served. The user sees the "computing" state until the warm lands.
+    """
+    MARKETING_PRECOMPUTE_NOT_READY_WARMED.inc()
     enqueue_stale_revalidation(team=team, query=query)
