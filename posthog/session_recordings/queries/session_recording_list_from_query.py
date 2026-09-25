@@ -29,7 +29,10 @@ from posthog.models import Team, User
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
-from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.sub_queries.events_subquery import (
+    ReplayFiltersEventsSubQuery,
+    SessionIdMatchPlan,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -158,6 +161,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Opt-in: resolve group property filters to group keys instead of joining the groups table.
         # Naming the ClickHouse user is the opt-in, since the resolution is itself a heavy query.
         resolve_group_properties: ClickHouseUser | None = None,
+        # Opt-in for the flagged combined event scan. Only the recordings list opts in, so deletes and
+        # background scans keep the separate queries while the flag is tested.
+        allow_combined_event_filters: bool = False,
         **_,
     ):
         self._user = user
@@ -168,6 +174,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
+        self._allow_combined_event_filters = allow_combined_event_filters
+        self._event_match_plan: SessionIdMatchPlan | None = None
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -280,6 +288,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 listing_tags["experiment_exposures_in_session"] = True
             if self._query.event_match_scope == EventMatchScope.RECORDING:
                 listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
+            plan = self._event_match_plan
+            if plan is not None and plan.filter_count:
+                listing_tags["replay_event_query_strategy"] = plan.strategy
+                listing_tags["replay_event_filter_count"] = plan.filter_count
+                listing_tags["replay_event_query_property_filter_count"] = plan.property_filter_count
+                listing_tags["replay_combined_event_query_eligible"] = plan.combined_eligible
+                listing_tags["replay_event_query_operand"] = self._query.operand
+                listing_tags["replay_event_query_range_days"] = (
+                    self.query_date_range.date_to() - self.query_date_range.date_from()
+                ).total_seconds() / 86400
             with tags_context(**listing_tags):
                 paginated_response = self._paginator.execute_hogql_query(
                     # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
@@ -552,8 +570,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
         )
-        events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
-        for events_sub_query in events_sub_queries:
+        self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
+            allow_combined_filters=self._allow_combined_event_filters
+        )
+        for events_sub_query in self._event_match_plan.queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table

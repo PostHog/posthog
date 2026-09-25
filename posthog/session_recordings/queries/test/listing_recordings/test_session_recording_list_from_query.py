@@ -35,6 +35,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -870,6 +871,71 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(queries) == 1
         assert queries[0].order_by is None
+
+    @parameterized.expand(
+        [
+            ("enabled", True, {}, {}, True, "combined", True),
+            ("disabled", False, {}, {}, True, "separate", True),
+            ("unavailable", None, {}, {}, True, "separate", True),
+            ("session_scope", True, {"event_match_scope": "session"}, {}, True, "combined", True),
+            ("negative_property", True, {"category_operator": "is_not"}, {}, True, "separate", False),
+            ("person_property", True, {"person_property": True}, {}, True, "separate", False),
+            ("sampled", True, {}, {"sample_factor": 0.5}, True, "separate", False),
+            (
+                "timestamp_floor",
+                True,
+                {},
+                {"events_timestamp_floor": datetime(2026, 1, 1, tzinfo=UTC)},
+                True,
+                "separate",
+                False,
+            ),
+            ("other_caller", True, {}, {}, False, "separate", False),
+        ]
+    )
+    def test_combined_event_filters_release_gate(
+        self,
+        _name: str,
+        flag: bool | None,
+        shape: dict[str, Any],
+        builder_kwargs: dict[str, Any],
+        opt_in: bool,
+        expected_strategy: str,
+        expected_eligible: bool,
+    ) -> None:
+        query: dict[str, Any] = {
+            "event_match_scope": shape.get("event_match_scope", "recording"),
+            "events": [
+                {
+                    "id": "view_item",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "type": "event",
+                            "key": "category",
+                            "operator": shape.get("category_operator", "exact"),
+                            "value": "book",
+                        }
+                    ],
+                },
+                {"id": "add_item", "type": "events", "order": 1},
+            ],
+        }
+        if shape.get("person_property"):
+            query["properties"] = [{"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"}]
+        builder = ReplayFiltersEventsSubQuery(
+            team=self.team, query=RecordingsQuery.model_validate(query), **builder_kwargs
+        )
+        with patch("posthoganalytics.get_feature_flag", return_value=flag) as evaluate:
+            plan = builder.get_session_id_match_plan(allow_combined_filters=opt_in)
+        assert (plan.strategy, plan.combined_eligible) == (expected_strategy, expected_eligible)
+        if expected_strategy == "combined":
+            assert len(plan.queries) == 1
+        if expected_eligible:
+            assert evaluate.call_args.args[0] == "replay-combined-event-filters"
+        else:
+            evaluate.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2866,6 +2932,101 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             [],
         )
+
+    # Session 2 adds the item after its recording ends, so only whole-session matching counts it.
+    @parameterized.expand(
+        [
+            ("recording", "AND", False, [0, 1, 3]),
+            ("recording", "AND", True, [0, 1]),
+            ("recording", "OR", False, [0, 1, 2, 3]),
+            ("recording", "OR", True, [0, 1, 2, 3, 4]),
+            ("session", "AND", False, [0, 1, 2, 3]),
+            ("session", "AND", True, [0, 1, 2]),
+            ("session", "OR", False, [0, 1, 2, 3]),
+            ("session", "OR", True, [0, 1, 2, 3, 4]),
+        ]
+    )
+    def test_combined_event_filters_preserve_results_and_cursors(
+        self, scope: str, operand: str, with_properties: bool, expected_indexes: list[int]
+    ) -> None:
+        sessions = [str(uuid7()) for _ in range(5)]
+        for index, session_id in enumerate(sessions):
+            start = self.an_hour_ago + relativedelta(minutes=index)
+            produce_replay_summary(
+                team_id=self.team.pk,
+                distinct_id="combined-filter-user",
+                session_id=session_id,
+                first_timestamp=start,
+                last_timestamp=start + relativedelta(minutes=5),
+                ensure_analytics_event_in_session=False,
+            )
+            for name, offset, properties in [
+                ("view_item", -30, {"category": "book" if index != 3 else "other"}),
+                ("add_item", 600 if index == 2 else 60, {}),
+                ("other_event", 120, {"category": "book", "source": "search"}),
+            ]:
+                if index == 4 and name != "other_event":
+                    continue
+                create_event(
+                    team=self.team,
+                    distinct_id="combined-filter-user",
+                    timestamp=start + relativedelta(seconds=offset),
+                    event_name=name,
+                    properties={"$session_id": session_id, **properties},
+                )
+        filters: dict[str, Any] = {
+            "event_match_scope": scope,
+            "operand": operand,
+            "events": [
+                {
+                    "id": "view_item",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"type": "event", "key": "category", "operator": "exact", "value": "book"}],
+                },
+                {"id": "add_item", "type": "events", "order": 1},
+            ],
+            "properties": [{"type": "event", "key": "source", "operator": "exact", "value": "search"}],
+            "limit": 2,
+            "order": "start_time",
+            "order_direction": "DESC",
+        }
+        if not with_properties:
+            filters["events"][0].pop("properties")
+            filters.pop("properties")
+        pages_by_strategy: list[list[SessionRecordingQueryResult]] = []
+        for enabled in [False, True]:
+            pages: list[SessionRecordingQueryResult] = []
+            after = None
+            with (
+                patch("posthoganalytics.get_feature_flag", return_value=enabled),
+                patch(
+                    "posthog.session_recordings.queries.session_recording_list_from_query.tags_context",
+                    wraps=tags_context,
+                ) as tags,
+            ):
+                for _ in range(len(sessions) + 1):
+                    page = filter_recordings_by(
+                        team=self.team, recordings_filter={**filters, "after": after}, allow_combined_event_filters=True
+                    )
+                    pages.append(page._replace(timings=None))
+                    if not page.has_more_recording:
+                        break
+                    after = page.next_cursor
+                    assert after is not None
+                assert not pages[-1].has_more_recording
+                assert any(
+                    call.kwargs.get("replay_event_query_strategy") == ("combined" if enabled else "separate")
+                    and call.kwargs.get("replay_event_filter_count") == (3 if with_properties else 2)
+                    and call.kwargs.get("replay_event_query_property_filter_count") == (2 if with_properties else 0)
+                    and call.kwargs.get("replay_combined_event_query_eligible") is True
+                    and call.kwargs.get("replay_event_query_operand") == operand
+                    for call in tags.call_args_list
+                )
+            pages_by_strategy.append(pages)
+        assert pages_by_strategy[0] == pages_by_strategy[1]
+        expected = [sessions[index] for index in reversed(expected_indexes)]
+        assert [row["session_id"] for page in pages_by_strategy[1] for row in page.results] == expected
 
     @parameterized.expand(
         [
