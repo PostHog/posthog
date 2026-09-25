@@ -465,9 +465,8 @@ class EventDefinitionViewSet(
             )
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
-        verified_param = self.request.GET.get("verified")
-        filters_by_verified = verified_param is not None and EE_AVAILABLE
-        if filters_by_verified:
+        verified_param = self.request.GET.get("verified") if EE_AVAILABLE else None
+        if verified_param is not None:
             if verified_param.lower() == "true":
                 search_query = (
                     search_query + " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
@@ -514,7 +513,7 @@ class EventDefinitionViewSet(
         sparse_filter = (
             has_search_terms
             or exclude_stale
-            or filters_by_verified
+            or verified_param is not None
             or bool(names)
             or bool(tags_list)
             or event_type == EventDefinitionType.EVENT_POSTHOG
