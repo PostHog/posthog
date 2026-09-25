@@ -12,6 +12,8 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -37,11 +39,42 @@ import {
     accountsPresenceCreate,
     accountsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountApi,
+    AccountPresenceViewerApi,
+    PatchedAccountApiProperties,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { EXTERNAL_ACCOUNT_ROUTE_PATTERN, parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
+
+export const ACCOUNT_ID_FIELDS = [
+    { key: 'website_domain', label: 'Website domain', placeholder: 'example.com' },
+    { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
+    { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
+    { key: 'sfdc_id', label: 'Salesforce ID', placeholder: 'e.g. 0011t00000AbCdEfGhI' },
+    { key: 'stripe_customer_id', label: 'Stripe ID', placeholder: 'e.g. cus_acme_123' },
+] as const
+
+type AccountIdFieldKey = (typeof ACCOUNT_ID_FIELDS)[number]['key']
+
+export type AccountEditFormValues = Record<AccountIdFieldKey, string> & {
+    name: string
+}
+
+function getAccountEditFormValues(account: AccountApi | null): AccountEditFormValues {
+    return {
+        name: account?.name ?? '',
+        website_domain: account?.properties?.website_domain ?? '',
+        billing_id: account?.properties?.billing_id ?? '',
+        slack_channel_id: account?.properties?.slack_channel_id ?? '',
+        sfdc_id: account?.properties?.sfdc_id ?? '',
+        stripe_customer_id: account?.properties?.stripe_customer_id ?? '',
+    }
+}
+
+const EMPTY_ACCOUNT_EDIT_FORM = getAccountEditFormValues(null)
 
 export interface CustomerAnalyticsAccountSceneLogicProps {
     accountId?: string
@@ -65,14 +98,27 @@ export interface customerAnalyticsAccountSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     account: AccountApi | null
+    accountEditorOpen: boolean
+    accountForm: AccountEditFormValues
+    accountFormAllErrors: Record<string, any>
+    accountFormChanged: boolean
+    accountFormErrors: DeepPartialMap<AccountEditFormValues, ValidationErrorType>
+    accountFormHasErrors: boolean
+    accountFormManualErrors: Record<string, any>
+    accountFormTouched: boolean
+    accountFormTouches: Record<string, boolean>
+    accountFormValidationErrors: DeepPartialMap<AccountEditFormValues, ValidationErrorType>
     accountLoadError: unknown
     accountLoading: boolean
     accountPresenceError: unknown
     accountPresenceViewers: AccountPresenceViewerApi[]
     activeTab: AccountExpansionTab
     breadcrumbs: Breadcrumb[]
+    isAccountFormSubmitting: boolean
+    isAccountFormValid: boolean
     isAccountMissing: boolean
     requestedTab: string
+    showAccountFormErrors: boolean
     tagsSaving: boolean
 }
 
@@ -85,6 +131,9 @@ export interface customerAnalyticsAccountSceneLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    closeAccountEditor: () => {
+        value: true
+    }
     loadAccount: () => {
         value: true
     }
@@ -103,14 +152,52 @@ export interface customerAnalyticsAccountSceneLogicActions {
     loadAccountSuccess: (account: AccountApi) => {
         account: AccountApi
     }
+    openAccountEditor: () => {
+        value: true
+    }
+    resetAccountForm: (values?: AccountEditFormValues) => {
+        values?: AccountEditFormValues
+    }
     restoreActiveTab: (tab: string | undefined) => {
         tab: string
+    }
+    setAccountFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setAccountFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setAccountFormValues: (values: DeepPartial<AccountEditFormValues>) => {
+        values: DeepPartial<AccountEditFormValues>
     }
     setActiveTab: (tab: AccountExpansionTab) => {
         tab: AccountExpansionTab
     }
     startAccountPresencePolling: (accountId: string) => {
         accountId: string
+    }
+    submitAccountForm: () => {
+        value: boolean
+    }
+    submitAccountFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitAccountFormRequest: (accountForm: AccountEditFormValues) => {
+        accountForm: AccountEditFormValues
+    }
+    submitAccountFormSuccess: (accountForm: AccountEditFormValues) => {
+        accountForm: AccountEditFormValues
+    }
+    touchAccountFormField: (key: string) => {
+        key: string
     }
     updateTags: (tags: string[]) => {
         tags: string[]
@@ -173,7 +260,49 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? DEFAULT_ACCOUNT_TAB }),
         updateTags: (tags: string[]) => ({ tags }),
         updateTagsDone: (account: AccountApi | null) => ({ account }),
+        openAccountEditor: true,
+        closeAccountEditor: true,
     }),
+    forms(({ props, values }) => ({
+        accountForm: {
+            defaults: EMPTY_ACCOUNT_EDIT_FORM,
+            errors: ({ name }: AccountEditFormValues) => ({
+                name: !name.trim()
+                    ? 'Enter an account name'
+                    : name.length > 400
+                      ? 'Use 400 characters or fewer'
+                      : undefined,
+            }),
+            submit: async ({
+                name,
+                website_domain,
+                billing_id,
+                slack_channel_id,
+                sfdc_id,
+                stripe_customer_id,
+            }: AccountEditFormValues) => {
+                if (!props.projectId || !values.account) {
+                    throw new Error('Could not determine the current project or account.')
+                }
+                const projectId = String(props.projectId)
+                const currentAccount = await accountsRetrieve(projectId, values.account.id)
+                const orNull = (value: string): string | null => value.trim() || null
+                await accountsPartialUpdate(projectId, values.account.id, {
+                    name: name.trim(),
+                    properties: {
+                        ...currentAccount.properties,
+                        website_domain: orNull(website_domain),
+                        billing_id: orNull(billing_id),
+                        slack_channel_id: orNull(slack_channel_id),
+                        sfdc_id: orNull(sfdc_id),
+                        ...(currentAccount.properties?.stripe_customer_id
+                            ? { stripe_customer_id: orNull(stripe_customer_id) }
+                            : {}),
+                    } as PatchedAccountApiProperties,
+                })
+            },
+        },
+    })),
     reducers({
         account: [
             null as AccountApi | null,
@@ -228,6 +357,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 updateTagsDone: () => false,
             },
         ],
+        accountEditorOpen: [false, { openAccountEditor: () => true, closeAccountEditor: () => false }],
     }),
     selectors({
         activeTab: [
@@ -262,6 +392,19 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         ],
     }),
     listeners(({ actions, cache, props, values }) => ({
+        openAccountEditor: () => {
+            actions.resetAccountForm(getAccountEditFormValues(values.account))
+        },
+        submitAccountFormSuccess: () => {
+            actions.closeAccountEditor()
+            actions.loadAccount()
+        },
+        submitAccountFormFailure: ({ error }) => {
+            lemonToast.error("Couldn't save the account. Try again.")
+            posthog.captureException(error instanceof Error ? error : new Error('Could not update account'), {
+                scope: 'customerAnalyticsAccountSceneLogic.submitAccountForm',
+            })
+        },
         setFeatureFlags: (_, __, ___, previousState) => {
             const previousFeatureFlags = featureFlagLogic.selectors.featureFlags(previousState)
             const previouslyReceivedFlags = featureFlagLogic.selectors.receivedFeatureFlags(previousState)
