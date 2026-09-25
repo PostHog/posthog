@@ -265,6 +265,9 @@ class TestRefreshHogFunctions(BaseTest):
         assert "bytecode_contract" not in filters
         assert "Filters stamped: 0" in out.getvalue()
         assert "Filters skipped: 1" in out.getvalue()
+        # A count alone cannot be acted on: the run has to say which function to turn off.
+        assert f"function {fn.id}" in out.getvalue()
+        assert f"team {fn.team_id}" in out.getvalue()
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_stamps_the_inputs_and_filters_of_each_mapping(self, mock_reload):

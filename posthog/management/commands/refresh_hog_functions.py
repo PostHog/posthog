@@ -148,9 +148,9 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
     return Refresh(stamped=stamped, skipped=skipped)
 
 
-def filters_compile(hog_function: HogFunction) -> bool:
-    """Whether the top-level filters compile the way the model's save compiles them, without writing them."""
-    return not compile_filters_bytecode({**(hog_function.filters or {})}, hog_function.team).get("bytecode_error")
+def filters_error(hog_function: HogFunction) -> str | None:
+    """Why the top-level filters do not compile, without writing anything. None when they do."""
+    return compile_filters_bytecode({**(hog_function.filters or {})}, hog_function.team).get("bytecode_error")
 
 
 class Command(BaseCommand):
@@ -233,17 +233,31 @@ class Command(BaseCommand):
                     refreshed = refresh_input_templates(hog_function)
                     refreshed_mapping_filters = refresh_mapping_filters(hog_function)
                     if dry_run:
-                        compiled = filters_compile(hog_function)
+                        error = filters_error(hog_function)
                     else:
                         hog_function.save()
                         total_updated += 1
                         # The save leaves the error beside filters that no longer compile, and keeps their bytecode.
-                        compiled = not (hog_function.filters or {}).get("bytecode_error")
+                        error = (hog_function.filters or {}).get("bytecode_error")
                     # Counted after the save, so the summary reports what reached the database.
-                    if compiled:
-                        filters_stamped += 1
-                    else:
+                    if error:
                         filters_skipped += 1
+                        # A destination whose filters do not compile fails on every event, so the run
+                        # names it rather than only counting it. Turning it off is the owner's call.
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"Filters do not compile: team {hog_function.team_id}, "
+                                f"function {hog_function.id} ({hog_function.name}): {error}"
+                            )
+                        )
+                        logger.warning(
+                            "hog_function_filters_no_longer_compile",
+                            hog_function_id=str(hog_function.id),
+                            team_id=hog_function.team_id,
+                            error=error,
+                        )
+                    else:
+                        filters_stamped += 1
                     inputs_stamped += refreshed.stamped
                     inputs_skipped += refreshed.skipped
                     mapping_filters_stamped += refreshed_mapping_filters.stamped
