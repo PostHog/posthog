@@ -39,7 +39,9 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 
   ```bash
   gh api "repos/$REPO/actions/runs?head_sha=<head-sha>&per_page=100" --paginate \
-      --jq '.workflow_runs[] | select(.conclusion == "cancelled") | "\(.id)\t\(.name)"'
+      --jq '.workflow_runs[] | select(.conclusion == "cancelled")
+          | select((.pull_requests | length) == 0 or any(.pull_requests[]; .number == <n>))
+          | "\(.id)\t\(.name)"'
   ```
 
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
