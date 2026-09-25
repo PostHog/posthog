@@ -2068,7 +2068,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.restoreViewStateFromRoute(method)
                 openAccountByPath(accountId)
             },
-            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }, __, ___, { method }): void => {
+            // This is a route template, not a navigable URL. `customerAnalyticsAccount` encodes
+            // tab values for real links, so append the literal matcher segment here.
+            [`${urls.customerAnalyticsAccount(':accountId')}/:tab`]: (
+                { accountId, tab },
+                __,
+                ___,
+                { method }
+            ): void => {
                 actions.restoreViewStateFromRoute(method)
                 openAccountByPath(accountId, tab)
             },
