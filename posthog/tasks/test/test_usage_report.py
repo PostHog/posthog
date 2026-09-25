@@ -69,6 +69,7 @@ from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_ai_credits_used_in_period,
+    get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
@@ -6881,12 +6882,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a later generation does not replenish the per-trace allowance",
         )
 
-    def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
-        from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
-
-        billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
-        baseline_count = billable_result_before[0][1] if billable_result_before else 0
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_non_billable_events_are_excluded(self, enhanced_persons: bool, count_distinct: bool) -> None:
+        query = (
+            get_teams_with_billable_enhanced_persons_event_count_in_period
+            if enhanced_persons
+            else get_teams_with_billable_event_count_in_period
+        )
+        baseline_count = dict(query(self.begin, self.end, count_distinct=count_distinct)).get(self.team.id, 0)
 
         for event_name in (
             "$conversations_loaded",
@@ -6897,6 +6900,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
             "$llm_prompt_fetched",
+            "$sdk_diagnostics_config",
         ):
             _create_event(
                 event=event_name,
@@ -6904,12 +6908,21 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 distinct_id="widget_user",
                 timestamp=self.begin + relativedelta(hours=6),
                 properties={"$lib": "web"},
+                person_mode="full",
             )
 
+        _create_event(
+            event="$sdk_diagnostics_config_custom",
+            team=self.team,
+            distinct_id="custom_event_user",
+            timestamp=self.begin + relativedelta(hours=6),
+            properties={},
+            person_mode="full",
+        )
         flush_persons_and_events()
 
-        billable_result_after = get_teams_with_billable_event_count_in_period(self.begin, self.end)
-        self.assertEqual(billable_result_after[0][1], baseline_count)
+        billable_result_after = dict(query(self.begin, self.end, count_distinct=count_distinct))
+        self.assertEqual(billable_result_after[self.team.id], baseline_count + 1)
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""

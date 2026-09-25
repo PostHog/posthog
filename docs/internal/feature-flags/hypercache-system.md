@@ -222,6 +222,9 @@ Changing the global setting requires restarting the config-building workers and 
 Changes take effect after the cache update and the SDK's next remote-config fetch, not immediately.
 SDKs must consume `sdkDiagnosticsEnabled` to apply this control; returning it does not implement diagnostic reporting in an SDK.
 
+The `$sdk_diagnostics_config` event is excluded from analytics ingestion usage records and from the usage report's billable event and enhanced-person event counts.
+Only this exact event name is excluded; other `$sdk_diagnostics_` event names remain billable.
+
 ### Cache lookup flow
 
 ```python
