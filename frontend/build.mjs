@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 
 import {
     buildInParallel,
+    commonConfig,
     copyIndexHtml,
     copyPublicFolder,
     copyRRWebWorkerFiles,
@@ -60,12 +61,13 @@ await buildInParallel(
             heavy: true,
             ...common,
         },
-        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
             entryPoints: [entryPoint],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', outfileName),
             ...common,
+            ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
         {
             name: 'Exporter',
