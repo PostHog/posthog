@@ -234,6 +234,17 @@ export function CodeEditor({
     // in `disposeTrackedModels` is dead code: `monaco.editor.getEditors()`
     // returns `[]` and every tracked model is unconditionally disposed.
     const monacoApiRef = useRef<Monaco | null>(null)
+    // `editor.addAction` registers a handler once, at mount, and keeps the
+    // callback it got then. A caller that closes over component state would
+    // stay on the mount-time value forever, so the shortcut would discard
+    // everything the person typed after that. Read the current callback
+    // through a ref instead.
+    const onPressCmdEnterRef = useRef(onPressCmdEnter)
+    const onPressCmdShiftEnterRef = useRef(onPressCmdShiftEnter)
+    useEffect(() => {
+        onPressCmdEnterRef.current = onPressCmdEnter
+        onPressCmdShiftEnterRef.current = onPressCmdShiftEnter
+    }, [onPressCmdEnter, onPressCmdShiftEnter])
 
     const disposeMonacoDisposables = (): void => {
         monacoDisposables.current.forEach((d) => d?.dispose())
@@ -550,15 +561,19 @@ export function CodeEditor({
                     label: 'Save and run query',
                     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
                     run: () => {
+                        const handler = onPressCmdEnterRef.current
+                        if (!handler) {
+                            return
+                        }
                         const selection = editor.getSelection()
                         const model = editor.getModel()
                         if (selection && model) {
                             const highlightedText = model.getValueInRange(selection)
-                            onPressCmdEnter(highlightedText, 'selection')
+                            handler(highlightedText, 'selection')
                             return
                         }
 
-                        onPressCmdEnter(editor.getValue(), 'full')
+                        handler(editor.getValue(), 'full')
                     },
                 })
             )
@@ -570,7 +585,7 @@ export function CodeEditor({
                     label: 'Run subquery at cursor',
                     keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
                     run: () => {
-                        onPressCmdShiftEnter()
+                        onPressCmdShiftEnterRef.current?.()
                     },
                 })
             )
