@@ -283,13 +283,14 @@ describe('subscriptionLogic', () => {
             title: 'Weekly report: Feature flag evaluations',
             target_type: 'email',
             target_value: 'ben@posthog.com',
+            summary_enabled: true,
         })
         wizardLogic.actions.submitSubscription()
         await expectLogic(wizardLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
 
         expect(posthog.capture).toHaveBeenCalledWith(
             'subscription created',
-            expect.objectContaining({ creation_source: 'wizard' })
+            expect.objectContaining({ creation_source: 'wizard', summary_enabled: true })
         )
         wizardLogic.unmount()
     })

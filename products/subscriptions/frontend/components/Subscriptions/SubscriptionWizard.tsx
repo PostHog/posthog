@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 import { IconChevronLeft, IconGraph } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
@@ -12,7 +11,6 @@ import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/Schedule
 import { TZLabel } from 'lib/components/TZLabel'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { WizardReview } from 'lib/components/WizardReview'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -41,6 +39,7 @@ import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionSummarySetting } from './SubscriptionSummarySetting'
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
@@ -636,41 +635,12 @@ function SubscriptionSettingsStep({
 }): JSX.Element {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { summaryQuota } = useValues(subscriptionLogic(logicProps))
-    const summaryCopyVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.SUBSCRIPTION_SUMMARY_COPY_EXPERIMENT)
 
     return (
         <div className="mt-6 flex flex-col gap-2">
             <LemonLabel>Advanced settings</LemonLabel>
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
-                <LemonField name="summary_enabled">
-                    {({ value, onChange }) => (
-                        <LemonSwitch
-                            checked={value}
-                            onChange={onChange}
-                            disabledReason={
-                                summaryQuota?.at_limit && !value
-                                    ? `Plan limit reached (${summaryQuota.limit} active AI summaries)`
-                                    : undefined
-                            }
-                            bordered
-                            fullWidth
-                            label={
-                                <div className="flex flex-col gap-1 py-1">
-                                    <div className="leading-tight">
-                                        {summaryCopyVariant === 'summary'
-                                            ? 'Include a report summary'
-                                            : 'Include an automatic AI summary'}
-                                    </div>
-                                    <div className="text-xs text-secondary font-normal leading-tight">
-                                        {summaryCopyVariant === 'summary'
-                                            ? 'Add an overview of the report to each delivery.'
-                                            : 'Add an AI-written overview of the report to each delivery.'}
-                                    </div>
-                                </div>
-                            }
-                        />
-                    )}
-                </LemonField>
+                <SubscriptionSummarySetting logicProps={logicProps} />
             ) : null}
             {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null ? (
                 <UsageLimitPaywall
