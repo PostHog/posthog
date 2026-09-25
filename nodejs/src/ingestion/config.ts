@@ -203,6 +203,15 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
     PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
     PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
+    // Record every person deletion in person_tombstone_publish_queue inside its own
+    // transaction, and republish the death documents of the records that outlive the grace
+    // period. Heals ClickHouse person rows left alive by a crash between a merge's commit
+    // and its produce, which the mapping re-emission above cannot reach: the source person
+    // is gone from Postgres, so nothing names it at replay time.
+    PERSON_DELETION_PUBLISH_QUEUE_ENABLED: boolean
+    PERSON_DELETION_REPUBLISH_INTERVAL_MS: number
+    PERSON_DELETION_REPUBLISH_GRACE_SECONDS: number
+    PERSON_DELETION_REPUBLISH_BATCH_SIZE: number
     // Teams whose person creation claims an existing unreachable posthog_person row holding
     // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
     // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
@@ -382,6 +391,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
+        PERSON_DELETION_PUBLISH_QUEUE_ENABLED: false,
+        PERSON_DELETION_REPUBLISH_INTERVAL_MS: 30_000,
+        PERSON_DELETION_REPUBLISH_GRACE_SECONDS: 120,
+        PERSON_DELETION_REPUBLISH_BATCH_SIZE: 500,
         PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config

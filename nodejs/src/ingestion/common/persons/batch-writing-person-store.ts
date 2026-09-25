@@ -1299,6 +1299,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return this.personRepository.fetchPersonDistinctIdMappings(teamId, distinctIds)
     }
 
+    clearPersonDeletionPublishes(teamId: Team['id'], personUuids: string[]): Promise<void> {
+        return this.personRepository.clearPersonDeletionPublishes(teamId, personUuids)
+    }
+
     async fetchForUpdate(teamId: Team['id'], distinctId: string, batchId: number): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate', distinctId)
         const cache = this.personCache.obtainForBatchId(batchId)

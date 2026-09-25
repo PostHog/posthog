@@ -27,6 +27,13 @@ export type PersonDistinctIdMapping = {
     message: PersonMessage
 }
 
+/** A person deletion whose ClickHouse death document is not confirmed yet. */
+export type PersonDeletionPublish = {
+    teamId: number
+    personUuid: string
+    personVersion: number
+}
+
 export class PersonPropertiesSizeViolationError extends Error {
     constructor(
         message: string,
@@ -170,6 +177,15 @@ export interface PersonRepository {
      * overwrite a newer mapping. Ids without a live mapping are absent from the result.
      */
     fetchPersonDistinctIdMappings(teamId: TeamId, distinctIds: string[]): Promise<PersonDistinctIdMapping[]>
+
+    /** Drops the deletion records of persons whose death document is now on the wire. */
+    clearPersonDeletionPublishes(teamId: TeamId, personUuids: string[]): Promise<void>
+
+    /**
+     * Takes up to `limit` deletion records older than the grace period, stamping the
+     * attempt so a second republisher skips them. Rows stay until the caller clears them.
+     */
+    claimPersonDeletionPublishes(graceSeconds: number, limit: number): Promise<PersonDeletionPublish[]>
 
     createPerson(
         createdAt: DateTime,
