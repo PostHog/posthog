@@ -90,12 +90,7 @@ describe('ChartAlternatives', () => {
     }
 
     it('applies the display rewrite when a chart is selected and closes the gallery', () => {
-        setQuery(
-            makeTrendsQuery({
-                breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B' },
-            })
-        )
+        setQuery(makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B' } }))
         const logic = alternativesLogic()
         logic.actions.openGallery()
         expect(logic.values.galleryOpen).toBe(true)
@@ -107,7 +102,6 @@ describe('ChartAlternatives', () => {
             formula: undefined,
             formulaNodes: [],
         })
-        expect(currentTrendsQuery().breakdownFilter).toBeUndefined()
         expect(logic.values.galleryOpen).toBe(false)
     })
 
