@@ -24,6 +24,9 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.product_analytics.backend.presentation.metadata_suggestions import (
+    GROUP_WORDS,
+    PERSON_WORDS,
+    ActorWords,
     InsightContext,
     humanize_date_range,
     math_reading,
@@ -78,7 +81,7 @@ class TestMetadataSuggestionCandidates(SimpleTestCase):
         # The schema is the source of truth for maths a series can carry. A math with no reading
         # would fall back to a bare event name and describe a different chart.
         query = _viz({"kind": "TrendsQuery", "series": [_series_with(math)]})
-        actors = ("group", "groups") if math == "unique_group" else ("user", "users")
+        actors = GROUP_WORDS if math == "unique_group" else PERSON_WORDS
         assert isinstance(query.source, TrendsQuery)
         reading = math_reading(query.source.series[0], "pageviews", actors)
         assert reading.title_base, math
@@ -87,7 +90,7 @@ class TestMetadataSuggestionCandidates(SimpleTestCase):
         assert reading.title_base in title_candidates(InsightContext(query=query))
 
     def test_group_aggregation_names_the_group_type(self) -> None:
-        names = {0: ("organization", "organizations")}
+        names = {0: ActorWords(singular="organization", plural="organizations")}
         by_series = InsightContext(
             query=_viz({"kind": "TrendsQuery", "series": [_series_with("unique_group")]}),
             group_type_names=names,

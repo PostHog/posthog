@@ -26,6 +26,7 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     MAX_TAGS,
+    ActorWords,
     InsightContext,
     suggest_tags,
     suggest_title,
@@ -129,14 +130,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         context = self._context(request.validated_data)
         suggestion = self._call(lambda: suggest_title(self.team.id, context))
         self._report("title", suggestion.confidence, candidate_count=len(suggestion.candidates))
-        return Response(
-            {
-                "value": suggestion.value,
-                "confidence": suggestion.confidence,
-                "candidates": list(suggestion.candidates),
-                "runner_up": suggestion.runner_up,
-            }
-        )
+        return Response(InsightTitleSuggestionSerializer(instance=suggestion).data)
 
     @validated_request(
         request_serializer=InsightMetadataSuggestionRequestSerializer,
@@ -168,7 +162,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             candidate_count=len(suggestion.scores),
             suggested_count=len(suggestion.tags),
         )
-        return Response({"tags": list(suggestion.tags), "scores": dict(suggestion.scores)})
+        return Response(InsightTagSuggestionSerializer(instance=suggestion).data)
 
     def _check_access(self) -> None:
         if not self.organization.is_ai_data_processing_approved:
@@ -191,12 +185,12 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             group_type_names=self._group_type_names(),
         )
 
-    def _group_type_names(self) -> dict[int, tuple[str, str]]:
-        names: dict[int, tuple[str, str]] = {}
+    def _group_type_names(self) -> dict[int, ActorWords]:
+        names: dict[int, ActorWords] = {}
         for mapping in get_group_types_for_project(self.team.project_id):
             singular = mapping.get("name_singular") or mapping["group_type"]
             plural = mapping.get("name_plural") or f"{singular}s"
-            names[int(mapping["group_type_index"])] = (str(singular), str(plural))
+            names[int(mapping["group_type_index"])] = ActorWords(singular=str(singular), plural=str(plural))
         return names
 
     def _report(self, kind: str, confidence: float, **counts: int) -> None:

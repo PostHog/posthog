@@ -40,9 +40,18 @@ logger = structlog.get_logger(__name__)
 # Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
 SUGGESTIONS_FLAG = "product-analytics-metadata-suggestions"
 
-ActorWords = tuple[str, str]
+
+@frozen
+class ActorWords:
+    """How a title names who a series counts, e.g. "user" and "users"."""
+
+    singular: str
+    plural: str
+
+
 GroupNames = Mapping[int, ActorWords]
-PERSON_WORDS: ActorWords = ("user", "users")
+PERSON_WORDS = ActorWords(singular="user", plural="users")
+GROUP_WORDS = ActorWords(singular="group", plural="groups")
 MetadataQuery = InsightVizNode | ActorsQuery | EventsQuery | GroupsQuery
 
 # A tag with a lower probability is more likely wrong than right for the person to have to remove.
@@ -258,9 +267,9 @@ def _actor_words(source: object, item: object, group_names: GroupNames) -> Actor
         group_index = getattr(source, "aggregation_group_type_index", None)
     if group_index is not None:
         try:
-            return group_names.get(int(group_index), ("group", "groups"))
+            return group_names.get(int(group_index), GROUP_WORDS)
         except (TypeError, ValueError):
-            return ("group", "groups")
+            return GROUP_WORDS
     return PERSON_WORDS
 
 
@@ -278,8 +287,8 @@ def math_reading(item: object, label: str, actors: ActorWords = PERSON_WORDS) ->
     math_property = getattr(item, "math_property", None)
     words = {
         "label": label,
-        "actor": actors[0],
-        "actors": actors[1],
+        "actor": actors.singular,
+        "actors": actors.plural,
         "prop": humanize_property(str(math_property)) if math_property else "value",
         "hogql": str(getattr(item, "math_hogql", None) or "custom expression"),
     }
@@ -700,7 +709,7 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
         lines.append(f"Broken down by: {breakdown}")
     group_index = getattr(source, "aggregation_group_type_index", None)
     if group_index is not None:
-        plural = group_names.get(int(group_index), ("group", "groups"))[1]
+        plural = group_names.get(int(group_index), GROUP_WORDS).plural
         lines.append(f"Counted per {plural[:-1] if plural.endswith('s') else plural}, not per person")
     keys = _filter_phrases(getattr(source, "properties", None))
     if keys:

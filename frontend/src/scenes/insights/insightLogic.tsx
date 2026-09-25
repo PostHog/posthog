@@ -178,7 +178,7 @@ export interface insightLogicActions {
     } // tagsModel
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     applySuggestedMetadata: (metadataUpdate: Partial<Pick<InsightModel, 'name' | 'tags'>>) => {
-        metadataUpdate: Partial<Pick<InsightModel, 'name' | 'tags'>>
+        metadataUpdate: Partial<Pick<InsightModel<Node<Record<string, any>>>, 'name' | 'tags'>>
     }
     confirmDeleteInsight: (dashboardId: number | null) => {
         dashboardId: number | null
@@ -578,13 +578,13 @@ export interface insightLogicMeta {
         insightProps: (arg: any) => InsightLogicProps
         metadataSuggestionsAvailable: (
             featureFlags: FeatureFlagsSet,
-            currentOrganization: any,
+            currentOrganization: OrganizationType | null,
             canEditInsight: boolean
         ) => boolean
         metadataSuggestionQuery: (query: Node<Record<string, any>> | null) => Node | null
         metadataSuggestionPayload: (
             insight: Partial<InsightModel<Node<Record<string, any>>>>,
-            metadataSuggestionQuery: any
+            metadataSuggestionQuery: Node<Record<string, any>> | null
         ) => InsightMetadataSuggestionRequestApi
         query: (arg: Node<Record<string, any>> | null) => Node | null
         isInDashboardContext: (arg: any) => boolean
