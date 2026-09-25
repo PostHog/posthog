@@ -124,7 +124,7 @@ describe('NavAppRow', () => {
         fireEvent.click(getByLabelText('Add to starred'))
 
         await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toEqual([fileShortcut, appShortcut]))
         expect(removeFile).not.toHaveBeenCalled()
-        expect(projectTreeDataLogic.values.shortcutData).toEqual([fileShortcut, appShortcut])
     })
 })
