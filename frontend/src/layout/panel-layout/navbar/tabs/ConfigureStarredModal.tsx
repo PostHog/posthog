@@ -75,6 +75,7 @@ export function ConfigureStarredModal(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 data-attr="configure-starred-jev-example"
+                                loading={appRankingsLoading && appRecommendationQuery === example}
                                 onClick={() => setAppRecommendationQuery(example)}
                             >
                                 {example}

@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from rest_framework.throttling import UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle
@@ -179,10 +180,11 @@ class TestDecisionThrottles(SimpleTestCase):
         other_request = Request(APIRequestFactory().post("/"))
         other_request.user = User(pk=2)
         ai_throttle = AIBurstRateThrottle()
-        cache.set(ai_throttle.get_cache_key(request, None), [ai_throttle.timer()] * 10)
+        view = APIView()
+        cache.set(ai_throttle.get_cache_key(request, view), [ai_throttle.timer()] * 10)
 
         with patch.object(throttle_class, "rate", "2/minute"):
-            assert throttle_class().allow_request(request, None)
-            assert throttle_class().allow_request(request, None)
-            assert not throttle_class().allow_request(request, None)
-            assert throttle_class().allow_request(other_request, None)
+            assert throttle_class().allow_request(request, view)
+            assert throttle_class().allow_request(request, view)
+            assert not throttle_class().allow_request(request, view)
+            assert throttle_class().allow_request(other_request, view)
