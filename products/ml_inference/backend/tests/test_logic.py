@@ -89,7 +89,7 @@ class TestDecide:
         assert json.loads(request.headers["X-PostHog-Properties"]) == {"ai_product": "ml_inference"}
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
-        assert body["model"] == "posthog/alibiserikbay/jevk5-0.2"
+        assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
         assert body["state"] == "ticket text"
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}

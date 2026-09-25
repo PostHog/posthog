@@ -12,6 +12,12 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
+Selecting a source in the `Advertising` category records Marketing analytics product intent as well as Data warehouse intent.
+This happens when the user selects the connector, before credentials are validated or data syncs.
+The category covers new advertising connectors automatically; it does not mean Marketing analytics supports their data natively.
+Selecting a source outside this category, such as BigQuery, records only Data warehouse intent.
+Supported self-managed providers keep their separate Marketing analytics intent tracking.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres
