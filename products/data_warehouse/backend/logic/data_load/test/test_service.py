@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
@@ -31,9 +31,9 @@ from products.data_warehouse.backend.logic.data_load.service import (
     a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
+    cdc_extraction_schedule_exists,
     cdc_extraction_schedule_has_running_action,
     cdc_min_interval,
-    ensure_cdc_extraction_schedule,
     get_discover_schemas_schedule,
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
@@ -608,13 +608,11 @@ def test_triggering_capture_raises_any_other_temporal_error() -> None:
 
 
 @pytest.mark.parametrize("exists", [True, False])
-def test_ensuring_capture_recreates_a_missing_schedule_without_starting_a_run(exists: bool) -> None:
-    source = MagicMock(id=uuid.uuid4())
+def test_reporting_whether_a_source_still_has_its_capture_schedule(exists: bool) -> None:
+    # The caller recreates a missing one, so it needs to know without starting a run.
+    source_id = str(uuid.uuid4())
 
-    with (
-        patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists),
-        patch(f"{SERVICE}.sync_cdc_extraction_schedule") as sync_schedule,
-    ):
-        ensure_cdc_extraction_schedule(source)
+    with patch(f"{SERVICE}.external_data_workflow_exists", return_value=exists) as workflow_exists:
+        assert cdc_extraction_schedule_exists(source_id) is exists
 
-    assert sync_schedule.call_args_list == ([] if exists else [call(source, create=True, trigger_immediately=False)])
+    workflow_exists.assert_called_once_with(_get_cdc_extraction_schedule_id(source_id))

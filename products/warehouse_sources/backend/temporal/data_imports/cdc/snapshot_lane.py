@@ -180,18 +180,18 @@ def hand_reset_to_capture(
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
-        ensure_cdc_extraction_schedule,
+        cdc_extraction_schedule_exists,
         pause_external_data_schedule,
         sync_cdc_extraction_schedule,
         trigger_cdc_extraction_schedule,
     )
 
-    if not start_capture and not schema.cdc_halted:
+    if not start_capture and not schema.cdc_halted and not cdc_extraction_schedule_exists(str(schema.source_id)):
         # Capture is the only thing that finishes this reset, and pausing the table's schedule below
         # is what stops this caller from ever running again. So recreate a missing capture schedule
-        # before that, and let a failure raise: nothing is paused or staged yet, and the table's next
-        # tick hands the reset over again.
-        ensure_cdc_extraction_schedule(schema.source)
+        # before that, without its first run, which would cancel the sync that is still finishing.
+        # A failure raises while nothing is paused or staged, and the table's next tick retries.
+        sync_cdc_extraction_schedule(schema.source, create=True, trigger_immediately=False)
 
     try:
         pause_external_data_schedule(str(schema.id))

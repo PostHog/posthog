@@ -600,10 +600,13 @@ def trigger_cdc_extraction_schedule(source_id: str) -> bool:
     return True
 
 
-def ensure_cdc_extraction_schedule(source: ExternalDataSource) -> None:
-    """Create the source's CDC extraction schedule if it is gone, without starting a run now."""
-    if not external_data_workflow_exists(_get_cdc_extraction_schedule_id(str(source.id))):
-        sync_cdc_extraction_schedule(source, create=True, trigger_immediately=False)
+def cdc_extraction_schedule_exists(source_id: str) -> bool:
+    """Whether the source's CDC extraction schedule is there.
+
+    Recreating a missing one is the caller's job, as it is for the trigger: building a schedule
+    reads the source row, and this boundary takes ids.
+    """
+    return external_data_workflow_exists(_get_cdc_extraction_schedule_id(source_id))
 
 
 def delete_cdc_extraction_schedule(source_id: str) -> None:
