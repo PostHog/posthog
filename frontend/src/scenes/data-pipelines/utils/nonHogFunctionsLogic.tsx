@@ -90,9 +90,11 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                 // NOTE: This is super temporary until we have fully migrated off of plugins
                 loadHogFunctionPluginsDestinations: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         api.loadPaginatedResults<PluginConfigTypeNew>(
                             `api/projects/${values.currentProjectId}/pipeline_destination_configs`
                         ),
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         api.loadPaginatedResults<PluginType>(
                             `api/organizations/${values.currentOrganizationId}/pipeline_destinations`
                         ),
@@ -140,9 +142,11 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                 // NOTE: This is super temporary until we have fully migrated off of plugins
                 loadHogFunctionPluginsSiteApps: async () => {
                     const [pluginConfigs, plugins] = await Promise.all([
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         api.loadPaginatedResults<PluginConfigTypeNew>(
                             `api/projects/${values.currentProjectId}/pipeline_frontend_apps_configs`
                         ),
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         api.loadPaginatedResults<PluginType>(
                             `api/organizations/${values.currentOrganizationId}/pipeline_frontend_apps`
                         ),

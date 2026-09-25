@@ -570,6 +570,21 @@ impl Client for RedisClient {
         Ok(())
     }
 
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by, expire_at) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIREAT").arg(&k).arg(expire_at).ignore();
+        }
+
+        let mut conn = self.conn();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.del::<_, ()>(k).await?;

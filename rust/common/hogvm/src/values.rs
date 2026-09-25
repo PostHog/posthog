@@ -543,11 +543,15 @@ pub(crate) fn temporal_seconds_pair(
 
 /// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
-/// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
-/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
+/// TWO ENTRY POINTS, and only one of them is opt-in, so weigh both before you edit this. The
+/// `compare_op` opcode path reaches this only when the context sets
+/// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
 /// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
 /// the strict ordering path where operands other than numbers and numeric arrays error, so this
-/// coercion of ORDERING operands does NOT change their behavior. It says nothing about equality:
+/// coercion of ORDERING operands does NOT change their opcode behavior. The named functions
+/// `less`/`greater`/`lessOrEquals`/`greaterOrEquals` are the ungated entry point: they reach this
+/// through [`compare_fn`](crate::stl) on every consumer, so an edit here moves them everywhere. It
+/// says nothing about equality:
 /// `Eq`/`NotEq` unify the int and float variants of a number on every path (see
 /// [`PartialEq for Num`](Num)). The semantics here match the Python/TS reference VMs (and ClickHouse
 /// for temporals).
@@ -570,13 +574,11 @@ pub fn compare_values(
 
     use HogLiteral::{Boolean, Null, Number, String as HString};
     match (a, b) {
+        // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
+        // `compare_op` answers a null operand before it calls here, so this arm is what the named
+        // comparison functions get, and it keeps them equal to the operators.
+        (Null, _) | (_, Null) => Ok(Boolean(false)),
         (Number(x), Number(y)) => Num::binary_op(op, x, y),
-        // JS relational coercion: null behaves as 0 against numbers and booleans.
-        (Null, Number(y)) => Num::binary_op(op, &Num::Integer(0), y),
-        (Number(x), Null) => Num::binary_op(op, x, &Num::Integer(0)),
-        (Null, Null) => Num::binary_op(op, &Num::Integer(0), &Num::Integer(0)),
-        (Null, Boolean(y)) => Num::binary_op(op, &Num::Integer(0), &bool_to_num(*y)),
-        (Boolean(x), Null) => Num::binary_op(op, &bool_to_num(*x), &Num::Integer(0)),
         (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
         (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
         (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
