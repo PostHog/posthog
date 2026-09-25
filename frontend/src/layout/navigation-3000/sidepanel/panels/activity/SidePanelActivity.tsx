@@ -11,7 +11,6 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,6 @@ import {
     SidePanelActivityTab,
     sidePanelActivityLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AccessControlLevel,
@@ -36,16 +34,6 @@ import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 
 const SCROLL_TRIGGER_OFFSET = 100
-
-export const SidePanelActivityIcon = (props: { className?: string }): JSX.Element => {
-    const { unreadCount } = useValues(sidePanelNotificationsLogic)
-
-    return (
-        <IconWithCount count={unreadCount} {...props}>
-            <IconNotification />
-        </IconWithCount>
-    )
-}
 
 export const SidePanelActivity = (): JSX.Element => {
     const { activeTab, contextFromPage } = useValues(sidePanelActivityLogic)

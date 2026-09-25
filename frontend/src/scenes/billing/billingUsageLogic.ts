@@ -479,6 +479,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 // from every report the organization has filed, cached for a day on its side.
                 loadTeamIdOptions: async (): Promise<number[]> => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingUsageTeamOptionsRetrieve() from 'products/billing/frontend/generated/api' instead.
                         const response = await api.get('api/billing/usage/team_options/')
                         return response?.team_id_options ?? []
                     } catch {
@@ -525,6 +526,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // itself when there is a cap, and reads every project on every key in one
                         // pass when there is not, so nothing is asked per usage type or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingUsageRetrieve() from 'products/billing/frontend/generated/api' instead.
                         return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)

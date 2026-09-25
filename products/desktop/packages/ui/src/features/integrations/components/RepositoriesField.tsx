@@ -12,7 +12,7 @@ import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store
 import { useGithubRepositories } from "@posthog/ui/features/integrations/useIntegrations";
 import { useState } from "react";
 
-const MAX_REPOSITORIES = 10;
+export const MAX_REPOSITORIES = 10;
 
 function RepoChip({
   repository,

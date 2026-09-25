@@ -870,7 +870,6 @@ impl TestStateBuilder {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_HOSTS", "localhost:9092"),
             ("KAFKA_TOPIC", "events_plugin_ingestion"),
         ]
         .into_iter()
