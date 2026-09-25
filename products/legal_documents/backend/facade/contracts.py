@@ -37,6 +37,8 @@ class LegalDocumentReconcileResult:
 
     newly_signed: int
     archives_requeued: int
+    drafts_resent: int
+    envelopes_recreated: int
     errors: int
 
 

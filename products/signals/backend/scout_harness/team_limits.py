@@ -10,6 +10,7 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -25,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +78,12 @@ MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
 # Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
 TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
 
+# Key inside `team_configs` / `default_team_config` that overrides `MAX_ENABLED_SCOUTS_PER_TEAM`,
+# the ceiling on how many scouts one project may have switched on at once. A project that needs
+# more capacity than the fleet default gets it in the flag UI, with no deploy and without raising
+# the allowance for every other project.
+TEAM_CONFIG_MAX_ENABLED_SCOUTS = "max_enabled_scouts"
+
 # Key inside `team_configs` / `default_team_config` controlling whether report-channel scouts get
 # the `gh` evidence-gathering prompt guidance (reviewer routing from commit history by path, PR
 # metadata — backed by the read-only token every scout sandbox gets regardless). Default ON so it
@@ -116,6 +124,22 @@ def _fallback_team_ids() -> list[int]:
     return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
 
+def read_flag_payload(flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID) -> dict | None:
+    """Read + parse one flag's JSON payload for the synthetic discovery distinct id.
+
+    Returns the parsed dict, or `None` when the payload is absent / not an object / unreadable; a
+    read error never breaks the caller, which applies its own fallback to `None`.
+    """
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(flag_key, distinct_id, match_value=True)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return payload if isinstance(payload, dict) else None
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def _read_flag_payload() -> dict | None:
     """Read + parse the `signals-scout` flag's JSON payload once.
 
@@ -126,16 +150,7 @@ def _read_flag_payload() -> dict | None:
     Enrollment and per-team configs both derive from a single call to this so they always see
     the same snapshot. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        return payload if isinstance(payload, dict) else None
-    except Exception as error:
-        capture_exception(error)
-        return None
+    return read_flag_payload(SIGNALS_SCOUT_DOGFOOD_FLAG)
 
 
 # Sentinel inside `guaranteed_team_ids` that enrolls EVERY team which already has scout configs,
@@ -298,6 +313,39 @@ def _resolve_max_runs_per_day(team_id: int, team_configs: dict[int, dict], defau
         if isinstance(override, int) and not isinstance(override, bool) and override > 0:
             return override
     return MAX_RUNS_PER_TEAM_PER_DAY
+
+
+def resolve_max_enabled_scouts(config_layers: Sequence[dict] | None) -> int:
+    """Effective enabled-scout ceiling for one project, most-specific layer first.
+
+    `config_layers` are the project's flag config layers in precedence order — its `team_configs`
+    entry, then the fleet `default_team_config`. The first layer carrying a positive int wins; an
+    absent or malformed value (null, zero, negative, fractional, string, bool) falls through to the
+    next layer and finally to `MAX_ENABLED_SCOUTS_PER_TEAM`, so a typo cannot silently widen or
+    narrow a project's allowance.
+
+    The single resolver every enforcement point reads, so the cap the API reports is the cap
+    registration and resume apply. Callers that already hold the layers (the coordinator, the
+    on-demand sync) pass them and pay no extra flag read; request-context callers use
+    `max_enabled_scouts_for_team`.
+    """
+    for source in config_layers or ():
+        override = source.get(TEAM_CONFIG_MAX_ENABLED_SCOUTS)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return override
+    return MAX_ENABLED_SCOUTS_PER_TEAM
+
+
+def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
+    """One flag-payload read → this project's enabled-scout ceiling.
+
+    `canonical_team_id` must be the parent/project id; `team_configs` keys are canonicalized so a
+    child-environment override still resolves, and an explicit parent-keyed entry wins over one
+    keyed on a child. A missing or unreadable payload yields `MAX_ENABLED_SCOUTS_PER_TEAM`.
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    return resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's
@@ -520,6 +568,7 @@ class ScoutTeamLimits:
     max_runs_per_day: int | None
     runs_today: int
     runs_remaining_today: int | None
+    max_enabled_scouts: int
 
 
 @dataclass(frozen=True)
@@ -540,6 +589,7 @@ class ScoutTeamMetadata:
                 "max_runs_per_day": self.limits.max_runs_per_day,
                 "runs_today": self.limits.runs_today,
                 "runs_remaining_today": self.limits.runs_remaining_today,
+                "max_enabled_scouts": self.limits.max_enabled_scouts,
             },
         }
 
@@ -574,5 +624,8 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
             max_runs_per_day=max_runs_per_day,
             runs_today=runs_today,
             runs_remaining_today=runs_remaining_today,
+            max_enabled_scouts=resolve_max_enabled_scouts(
+                [team_configs.get(canonical_team_id) or {}, default_team_config]
+            ),
         ),
     )

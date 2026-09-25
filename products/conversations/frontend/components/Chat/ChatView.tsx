@@ -2,7 +2,17 @@ import { JSONContent } from '@tiptap/core'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
-import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
+import { cn } from 'lib/utils/css-classes'
+
+import type {
+    AITriageSource,
+    AiReplyFeedbackRating,
+    ChatMessage,
+    MessageDeliveryStatus,
+    Ticket,
+    TicketChannel,
+    TicketStatus,
+} from '../../types'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -24,14 +34,18 @@ export interface ChatViewProps {
     header?: React.ReactNode
     minHeight?: string
     maxHeight?: string
+    /** Fill a bounded parent (the ticket scene pane). Do not opt in when the parent height is auto:
+     *  overflow-hidden plus a 0 min-height list would collapse the thread. */
+    fillParent?: boolean
+    /** Show a one-line field until the user focuses it, then the full composer. */
+    collapseUntilActive?: boolean
+    /** When this changes, the collapsed composer closes. Ticket navigation reuses the same mount. */
+    threadId?: string
     /** Channel the ticket came from; drives the reply placeholder and send-button logo */
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
+    deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** Draft content to restore (for tab persistence) */
     draftContent?: JSONContent | string | null
     /** Called when draft content changes */
@@ -59,6 +73,7 @@ export interface ChatViewProps {
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
+    latestAiDraftId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
@@ -70,6 +85,12 @@ export interface ChatViewProps {
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
     onCancelEdit?: () => void
+    fullEmailLoadingMessageId?: string | null
+    onViewFullEmail?: (messageId: string) => void
+    composerPrefillAt?: number
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: (message: ChatMessage) => void
 }
 
 export function ChatView({
@@ -83,10 +104,12 @@ export function ChatView({
     header,
     minHeight,
     maxHeight,
+    fillParent = false,
+    collapseUntilActive = false,
+    threadId,
     channel,
     showPrivateOption = false,
-    unreadCustomerCount,
-    showDeliveryStatus = false,
+    deliveryStatusByMessageId,
     draftContent,
     onDraftChange,
     isPrivate,
@@ -101,6 +124,7 @@ export function ChatView({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     latestAiMessageId,
+    latestAiDraftId,
     feedbackByMessageId,
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
@@ -111,12 +135,21 @@ export function ChatView({
     onEditMessage,
     onDeleteMessage,
     onCancelEdit,
+    fullEmailLoadingMessageId,
+    onViewFullEmail,
+    composerPrefillAt,
+    aiSources,
+    aiDraftApplying,
+    onApplyAiDraft,
 }: ChatViewProps): JSX.Element {
-    const listMinHeight = minHeight ?? '400px'
-    const listMaxHeight = maxHeight ?? '600px'
+    const listMinHeight = minHeight ?? (fillParent ? '0' : '400px')
+    const listMaxHeight = maxHeight ?? (fillParent ? 'none' : '600px')
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden p-3">
+        <LemonCard
+            hoverEffect={false}
+            className={cn('flex flex-col overflow-hidden p-3', fillParent && 'h-full min-h-0 flex-1')}
+        >
             {header}
             <MessageList
                 messages={messages}
@@ -127,9 +160,9 @@ export function ChatView({
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
-                unreadCustomerCount={unreadCustomerCount}
-                showDeliveryStatus={showDeliveryStatus}
+                deliveryStatusByMessageId={deliveryStatusByMessageId}
                 latestAiMessageId={latestAiMessageId}
+                latestAiDraftId={latestAiDraftId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
@@ -139,8 +172,13 @@ export function ChatView({
                 canEditTicket={canEditTicket}
                 onEditMessage={onEditMessage}
                 onDeleteMessage={onDeleteMessage}
+                fullEmailLoadingMessageId={fullEmailLoadingMessageId}
+                onViewFullEmail={onViewFullEmail}
+                aiSources={aiSources}
+                aiDraftApplying={aiDraftApplying}
+                onApplyAiDraft={onApplyAiDraft}
             />
-            <div className="border-t pt-3">
+            <div className="border-t pt-3 shrink-0">
                 <MessageInput
                     onSendMessage={onSendMessage}
                     messageSending={messageSending}
@@ -160,6 +198,9 @@ export function ChatView({
                     unsavedTicketChanges={unsavedTicketChanges}
                     editingMessageId={editingMessageId}
                     onCancelEdit={onCancelEdit}
+                    collapseUntilActive={collapseUntilActive}
+                    threadId={threadId}
+                    composerPrefillAt={composerPrefillAt}
                 />
             </div>
         </LemonCard>

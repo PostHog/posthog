@@ -155,10 +155,9 @@ pub enum StashedRequest {
 pub struct Changelog {
     /// Number of records appended (the HWM).
     pub len: u8,
-    /// The pod whose transactional producer the broker currently accepts,
-    /// under `Variant::EpochFenced` (production: the latest
-    /// `init_transactions` wins and every earlier producer is fenced out).
-    /// Always `None` under `Current`, which has no broker-side fence.
+    /// The pod whose transactional producer the broker currently accepts:
+    /// the latest `init_transactions` wins and every earlier producer is
+    /// fenced out.
     ///
     /// This is an owner rather than an epoch number because nothing
     /// compares epochs for order — the single consumer asks whether *this*
@@ -167,6 +166,21 @@ pub struct Changelog {
     /// and, being a `u8`, would eventually have wrapped a stale epoch onto
     /// a live one and admitted a write it should reject.
     pub epoch_holder: Option<PodId>,
+}
+
+/// One planned-but-unapplied handoff from a chunked plan: the placement
+/// decision plus its plan-time guards (production: a later `apply_plan`
+/// chunk, applied without re-reading).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingUnit {
+    pub partition: Partition,
+    pub old_owner: Option<PodId>,
+    pub new_owner: PodId,
+    /// Freeze requirement snapshotted at plan time.
+    pub quorum: BTreeSet<RouterId>,
+    /// Assignment version at plan time (production: the mod_revision
+    /// its `AssignmentPrecondition` compares; 0 = Absent).
+    pub expected_assignment_version: u8,
 }
 
 /// The entire distributed system. One value = one node in the explored
@@ -188,6 +202,13 @@ pub struct SystemState {
     pub warmed_acks: BTreeMap<(Partition, PodId), HandoffId>,
     /// Monotonic handoff id allocator (production: `new_handoff_id`).
     pub next_handoff_id: HandoffId,
+    /// Unapplied suffix of a chunked plan, front unit next
+    /// (production: `apply_plan`'s later chunks).
+    pub pending_plan: Vec<PendingUnit>,
+    /// partition → count of assignment writes (production: the
+    /// mod_revision an `AssignmentPrecondition` compares). Only
+    /// maintained under `chunked_plans`.
+    pub assignment_versions: BTreeMap<Partition, u8>,
 
     // ── processes ──────────────────────────────────────────────
     pub pods: BTreeMap<PodId, Pod>,
@@ -238,6 +259,10 @@ pub struct SystemState {
     /// for the partition — the composition the replacement design must
     /// keep safe and live.
     pub cancelled_while_stash_parked: bool,
+    /// A pending chunk unit applied after its plan's first transaction.
+    pub pending_unit_applied: bool,
+    /// A pending chunk unit dropped by a failed plan-time guard.
+    pub pending_unit_dropped: bool,
 }
 
 /// Everything that can happen, from every actor, including failures.
@@ -269,6 +294,13 @@ pub enum Action {
     /// in flight, create Freezing handoffs for every assignment diff in
     /// one transaction.
     Rebalance,
+    /// The same rebalance applying its plan in chunks (production:
+    /// `apply_plan` past the txn budget): the first planned handoff
+    /// lands now, the rest wait in `pending_plan`.
+    RebalanceChunked,
+    /// Apply the front `pending_plan` unit — or drop it when its
+    /// plan-time guards no longer hold (a conflicted unit standing down).
+    ApplyPendingUnit,
     /// `check_phase_advance` for one partition (watch nudge or tick).
     AdvancePhase(Partition),
     /// Post-Complete cleanup: delete the handoff record and its acks

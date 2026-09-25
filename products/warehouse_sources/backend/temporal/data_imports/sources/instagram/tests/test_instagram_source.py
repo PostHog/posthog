@@ -5,8 +5,7 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import SourceFieldOauthConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -98,6 +97,18 @@ class TestInstagramSource:
         observed_error = "Instagram API error (retryable): status=429, code=4, message=rate limited"
 
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Instagram API error (retryable): status=429, code=4, message=rate limited",
+            "Instagram API error (retryable): status=500, code=2, message=An unexpected error has occurred. "
+            "Please retry your request later.",
+            "Instagram API error (retryable): status=503, message=response body was not JSON",
+        ],
+    )
+    def test_a_transient_meta_blip_is_kept_out_of_error_tracking_as_noise(self, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
 
     def test_validate_credentials_uses_the_connection_token_and_the_chosen_account(self) -> None:
         with (

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { userLogic } from 'scenes/userLogic'
@@ -19,14 +19,16 @@ import { AccountsTabFilters } from './AccountsTabFilters'
 describe('AccountsTabFilters', () => {
     let logic: ReturnType<typeof accountsLogic.build>
     let savedViews: ColumnConfigurationApi[]
+    let tagsRequest: jest.Mock
 
     beforeEach(() => {
         savedViews = []
+        tagsRequest = jest.fn(() => [200, ['enterprise']])
         useMocks({
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
-                '/api/projects/:team_id/tags': () => [200, []],
-                '/api/environments/:team_id/column_configurations': () => [
+                '/api/projects/:team_id/tags': tagsRequest,
+                '/api/projects/:team_id/column_configurations': () => [
                     200,
                     { count: savedViews.length, results: savedViews },
                 ],
@@ -63,7 +65,7 @@ describe('AccountsTabFilters', () => {
         return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
     }
 
-    it('offers shared saved views when none is selected', async () => {
+    it('offers edit and delete for a shared saved view', async () => {
         savedViews = [
             {
                 id: 'shared-view',
@@ -83,7 +85,30 @@ describe('AccountsTabFilters', () => {
 
         fireEvent.click(await screen.findByText('Select view'))
 
-        expect(await screen.findByText('Shared accounts')).toBeInTheDocument()
+        const sharedViewLabel = await screen.findByText('Shared accounts')
+        const viewMenuItem = sharedViewLabel.closest('li')
+        expect(viewMenuItem).not.toBeNull()
+
+        const viewButtons = viewMenuItem!.querySelectorAll('button')
+        expect(viewButtons).toHaveLength(2)
+        fireEvent.click(viewButtons[1])
+
+        expect(await screen.findByText('Edit')).toBeInTheDocument()
+        expect(screen.getByText('Delete')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Edit'))
+        expect(await screen.findByText('Edit view')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Shared accounts')).toBeInTheDocument()
+    })
+
+    it('loads existing tags when the tag filter opens', async () => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All tags'))
+        await waitFor(() => expect(tagsRequest).toHaveBeenCalled())
+        fireEvent.focus(screen.getByPlaceholderText('Select or type tags...'))
+
+        expect(await screen.findByText('enterprise')).toBeInTheDocument()
     })
 
     it('renders the "My accounts" checkbox', () => {
@@ -114,25 +139,16 @@ describe('AccountsTabFilters', () => {
     it('renders the "Assigned to" picker with its default label', () => {
         renderFilters()
 
-        expect(screen.getByText('Assigned to anyone')).toBeInTheDocument()
+        // Default shows every account regardless of assignment.
+        expect(screen.getByText('All accounts')).toBeInTheDocument()
     })
 
-    // Regression: the picker must summarize a URL-restored filter from the id count
-    // alone, without waiting on the lazily-loaded org members list — otherwise the
-    // control looks empty (the default label) until the dropdown is opened.
-    it('reflects a restored assigned-to filter as a count', () => {
-        logic.actions.setAssignedToFilter([1, 2])
+    it('updates the Accounts assignment status from the shared picker', () => {
         renderFilters()
 
-        expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
-    })
+        fireEvent.click(screen.getByText('All accounts'))
+        fireEvent.click(screen.getByText('Assigned to anyone'))
 
-    it('labels the assigned-to picker "Unassigned" when unassigned-only is active', () => {
-        logic.actions.setAllRolesUnassigned(true)
-        renderFilters()
-
-        expect(screen.getByText('Unassigned')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+        expect(logic.values.assignmentStatus).toBe('assigned')
     })
 })

@@ -80,6 +80,12 @@ export interface PrecomputeTimeseriesResponse {
         total: number[]
         precomputed: number[]
         fallback: number[]
+        // Successful precomputed-path reads only; 0 where a bucket has none
+        precomputed_p50_duration_ms: number[]
+        precomputed_p90_duration_ms: number[]
+        // Reads with both exposures and metric events precomputed; read_bytes on a partly
+        // precomputed read includes the metric-events events scan, which swamps the cache read
+        fully_precomputed_avg_read_bytes: number[]
     }
     builds: {
         failed_by_code: Record<string, number[]>
@@ -445,9 +451,11 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     if (values.search) {
                         params.append('search', values.search)
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/debug_ch_queries/precomputation_teams/?${params.toString()}`)
                 },
                 setPrecomputation: async ({ teamId, enabled }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const updated: PrecomputationTeam = await api.create('api/debug_ch_queries/precomputation_teams/', {
                         team_id: teamId,
                         experiment_precomputation_enabled: enabled,
@@ -466,6 +474,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             null as CacheHealthResponse | null,
             {
                 loadCacheHealth: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get('api/debug_ch_queries/cache_health/')
                 },
             },
@@ -474,6 +483,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             null as CacheGrowthResponse | null,
             {
                 loadCacheGrowth: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/debug_ch_queries/cache_growth/?hours=${values.cacheGrowthHoursBack}`)
                 },
             },
@@ -482,6 +492,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             null as PrecomputeOverviewResponse | null,
             {
                 loadPrecomputeOverview: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/debug_ch_queries/precompute_overview/?hours=${values.overviewHoursBack}`)
                 },
             },
@@ -490,6 +501,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             null as PrecomputeTimeseriesResponse | null,
             {
                 loadPrecomputeTimeseries: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(
                         `api/debug_ch_queries/precompute_timeseries/?hours=${values.timeseriesHoursBack}`
                     )
@@ -518,6 +530,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     if (values.exceptionCodeFilter) {
                         params.append('exception_code', values.exceptionCodeFilter)
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },

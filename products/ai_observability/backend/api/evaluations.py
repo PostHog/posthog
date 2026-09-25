@@ -1,6 +1,8 @@
-from typing import Any
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, cast
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404
 
@@ -17,7 +19,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
@@ -29,7 +30,8 @@ from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, posthog_feature_flag_enabled
+from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -41,6 +43,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 
+from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
@@ -62,6 +65,7 @@ from ..models.evaluation_configs import (
     TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
     EvaluationType,
+    OutputType,
     evaluation_supports_reports,
     evaluation_uses_model_configuration,
     get_evaluation_config_content_key,
@@ -75,7 +79,31 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
+if TYPE_CHECKING:
+    from posthog.models import User
+
 logger = structlog.get_logger(__name__)
+
+NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
+
+
+def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool:
+    request = serializer.context.get("request")
+    get_team = serializer.context.get("get_team")
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False) or not callable(get_team):
+        return False
+
+    team = get_team()
+    try:
+        return posthog_feature_flag_enabled(
+            NUMERIC_EVALUATIONS_FEATURE_FLAG,
+            str(user.distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        )
+    except Exception:
+        return False
 
 
 @extend_schema_field(
@@ -101,7 +129,7 @@ logger = structlog.get_logger(__name__)
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "description": "Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -131,6 +159,8 @@ class _EvaluationConfigField(serializers.JSONField):
     pass
 
 
+# Keep defaults in BooleanOutputConfig: nested schema defaults become explicit MCP PATCH values
+# and overwrite stored settings even when the caller omits them.
 @extend_schema_field(
     {
         "type": "object",
@@ -138,14 +168,58 @@ class _EvaluationConfigField(serializers.JSONField):
             "allows_na": {
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
-                "default": False,
-            }
+            },
+            "true_is_failure": {
+                "type": "boolean",
+                "description": "Boolean output only. Omit for numeric and sentiment "
+                "output. Whether a true result means the evaluation found "
+                "a problem. False (the default) suits pass/fail "
+                "evaluations, where a true result satisfied the criteria. "
+                "Set it to true for detector-style evaluations, so a true "
+                "result is counted and labeled as a fail.",
+            },
+            "min": {
+                "type": "number",
+                "nullable": True,
+                "description": "Inclusive minimum numeric score. Omit for no lower bound.",
+            },
+            "max": {
+                "type": "number",
+                "nullable": True,
+                "description": "Inclusive maximum numeric score. Omit for no upper bound.",
+            },
+            "step": {
+                "type": "number",
+                "nullable": True,
+                "exclusiveMinimum": True,
+                "minimum": 0,
+                "description": "Optional positive input increment. Does not round evaluation results.",
+            },
+            "passing_rule": {
+                "type": "object",
+                "nullable": True,
+                "required": ["operator", "threshold"],
+                "description": "Optional numeric passing rule. Null removes the rule; "
+                "historical scores use the current rule.",
+                "properties": {
+                    "operator": {
+                        "type": "string",
+                        "enum": ["gte", "lte"],
+                        "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "Finite passing threshold within any configured score bounds.",
+                    },
+                },
+                "additionalProperties": False,
+            },
         },
         "additionalProperties": False,
     }
 )
-class _OutputConfigField(serializers.JSONField):
-    pass
+class _OutputConfigField(serializers.DictField):
+    child = serializers.JSONField(allow_null=True)
 
 
 @extend_schema_field(
@@ -318,7 +392,12 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     )
     output_config = _OutputConfigField(
         required=False,
-        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+        help_text=(
+            "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
+            "{true_is_failure} to declare that a true result means the evaluation found a problem. "
+            "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
+            "Do not send true_is_failure for numeric output. For 'sentiment': {}."
+        ),
     )
     target_config = _TargetConfigField(
         required=False,
@@ -389,7 +468,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             },
             "output_type": {
                 "help_text": (
-                    "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis."
+                    "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis."
                 )
             },
             "target": {
@@ -410,6 +489,19 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        is_new_numeric_evaluation = output_type == "numeric" and (
+            self.instance is None or self.instance.output_type != "numeric"
+        )
+        if is_new_numeric_evaluation and not _numeric_evaluations_enabled(self):
+            raise serializers.ValidationError({"output_type": "Numeric evaluations are not enabled for this project."})
+        if (
+            self.instance
+            and output_type != self.instance.output_type
+            and "numeric" in (output_type, self.instance.output_type)
+        ):
+            raise serializers.ValidationError(
+                {"output_type": "Create a new evaluation to change between numeric and other output types."}
+            )
         model_configuration = data.get(
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
@@ -449,6 +541,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 "output_config",
                 getattr(self.instance, "output_config", {}) if self.instance else {},
             )
+            if self.partial and self.instance is not None and "output_config" in data:
+                output_config = {**self.instance.output_config, **output_config}
             try:
                 data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
                     evaluation_type, output_type, evaluation_config, output_config
@@ -755,11 +849,30 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
     )
 
 
+class HogEvaluationOutputType(models.TextChoices):
+    BOOLEAN = OutputType.BOOLEAN.value, OutputType.BOOLEAN.label
+    NUMERIC = OutputType.NUMERIC.value, OutputType.NUMERIC.label
+
+
 class TestHogRequestSerializer(serializers.Serializer):
+    output_type = serializers.ChoiceField(
+        choices=HogEvaluationOutputType.choices,
+        required=False,
+        default=OutputType.BOOLEAN,
+        help_text="Expected output: boolean or numeric. Sentiment is not supported by Hog.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        default=dict,
+        help_text="Output settings used to validate the preview, including numeric bounds and allows_na.",
+    )
     source = serializers.CharField(
         required=True,
         min_length=1,
-        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+        help_text=(
+            "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. "
+            "Output settings determine which boolean counts as a failure."
+        ),
     )  # type: ignore[assignment]
     sample_count = serializers.IntegerField(
         required=False,
@@ -796,8 +909,23 @@ class TestHogRequestSerializer(serializers.Serializer):
         ),
     )
 
+    def validate(self, data: dict) -> dict:
+        output_config = {"allows_na": data["allows_na"], **data["output_config"]}
+        try:
+            _, output_config = validate_evaluation_configs(
+                "hog", data["output_type"], {"source": data["source"]}, output_config
+            )
+        except ValueError as error:
+            raise serializers.ValidationError({"output_config": str(error)}) from error
+        data["output_config"] = output_config
+        data["allows_na"] = output_config.get("allows_na", False)
+        return data
+
 
 class TestHogResultItemSerializer(serializers.Serializer):
+    score = serializers.FloatField(
+        required=False, allow_null=True, help_text="Raw numeric score, or null when no numeric score was produced."
+    )
     sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation, trace, or session.")
     sample_type = serializers.ChoiceField(
         choices=EvaluationTarget.choices,
@@ -810,7 +938,9 @@ class TestHogResultItemSerializer(serializers.Serializer):
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
     output_preview = serializers.CharField(help_text="First 200 characters of output from the sampled unit.")
-    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    result = serializers.BooleanField(
+        allow_null=True, help_text="Raw boolean result, or null when the evaluation returns N/A or raises an error."
+    )
     reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
     error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
 
@@ -820,6 +950,24 @@ class TestHogResponseSerializer(serializers.Serializer):
     message = serializers.CharField(
         required=False, help_text="Optional message, e.g. when no recent events were found."
     )
+
+
+def _hog_test_result_counts(
+    results: Sequence[Mapping[str, object]], output_type: str, output_config: dict[str, object] | None
+) -> dict[str, int]:
+    config = output_config or {}
+    # Preview telemetry and reports must agree on polarity and thresholds.
+    definition = get_outcome_definition(
+        output_type, true_is_failure=config.get("true_is_failure") is True, output_config=config
+    )
+    counts: Counter[str | None] = Counter()
+    for result in results:
+        if result["error"]:
+            counts["error"] += 1
+        else:
+            value = result.get("score") if output_type == "numeric" else result["result"]
+            counts[definition.label_for(value, applicable=value is not None)] += 1
+    return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
 
 
 def _humanize_seconds(seconds: int) -> str:
@@ -844,6 +992,8 @@ def _test_hog_over_sessions(
     allows_na: bool,
     conditions: list[dict[str, Any]],
     quiet_period_seconds: int,
+    output_type: str = "boolean",
+    output_config: dict | None = None,
 ) -> Response:
     """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
     against session-level globals, so the editor preview matches how a session eval runs online."""
@@ -851,10 +1001,13 @@ def _test_hog_over_sessions(
     try:
         session_results = run_hog_eval_over_recent_sessions(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
             allows_na=allows_na,
+            output_type=output_type,
+            output_config=output_config,
             quiet_period_seconds=quiet_period_seconds,
         )
     except AIEventsUnavailableError:
@@ -869,6 +1022,7 @@ def _test_hog_over_sessions(
             "input_preview": r.input_preview,
             "output_preview": r.output_preview,
             "result": r.verdict,
+            **({"score": r.score} if output_type == "numeric" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -881,6 +1035,7 @@ def _test_hog_over_sessions(
         {
             "sample_count": sample_count,
             "results_count": len(results),
+            **_hog_test_result_counts(results, output_type, output_config),
             "target": EvaluationTarget.SESSION.value,
             "condition_count": len(conditions),
         },
@@ -914,6 +1069,8 @@ def _test_hog_over_traces(
     allows_na: bool,
     conditions: list[dict[str, Any]],
     window_seconds: int,
+    output_type: str = "boolean",
+    output_config: dict | None = None,
 ) -> Response:
     """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
     against trace-level globals, so the editor preview matches how a trace eval runs online."""
@@ -921,10 +1078,13 @@ def _test_hog_over_traces(
     try:
         trace_results = run_hog_eval_over_recent_traces(
             team=team,
+            user=cast("User", request.user),
             bytecode=bytecode,
             condition_filter=condition_filter,
             sample_count=sample_count,
             allows_na=allows_na,
+            output_type=output_type,
+            output_config=output_config,
             window_seconds=window_seconds,
         )
     except AIEventsUnavailableError:
@@ -939,6 +1099,7 @@ def _test_hog_over_traces(
             "input_preview": r.input_preview,
             "output_preview": r.output_preview,
             "result": r.verdict,
+            **({"score": r.score} if output_type == "numeric" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -953,10 +1114,7 @@ def _test_hog_over_traces(
             "allows_na": allows_na,
             "condition_count": len(conditions),
             "result_count": len(results),
-            "pass_count": sum(1 for r in results if r["result"] is True),
-            "fail_count": sum(1 for r in results if r["result"] is False),
-            "error_count": sum(1 for r in results if r["error"]),
-            "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+            **_hog_test_result_counts(results, output_type, output_config),
             "no_events": not results,
             "target": EvaluationTarget.TRACE.value,
         },
@@ -995,7 +1153,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at", "id")
         if not self._wants_slim_list():
             queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
@@ -1029,7 +1187,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            if evaluation_supports_reports(instance.output_type, instance.target):
+            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
@@ -1062,6 +1220,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         )
 
     def perform_update(self, serializer):
+        previously_supported_reports = evaluation_supports_reports(
+            serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
+        )
         # Check if this is a deletion (soft delete)
         is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
@@ -1114,7 +1275,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         if old_content != new_content:
                             config_content_changed = True
 
-        instance = serializer.save()
+        with transaction.atomic():
+            instance = serializer.save()
+            if (
+                not previously_supported_reports
+                and not instance.deleted
+                and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
+            ):
+                report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
+                if not created:
+                    report.restart_reporting()
 
         # Track appropriate event
         if is_deletion:
@@ -1191,6 +1361,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         source = serializer.validated_data["source"]
         sample_count = serializer.validated_data["sample_count"]
         allows_na = serializer.validated_data["allows_na"]
+        output_type = serializer.validated_data["output_type"]
+        output_config = serializer.validated_data["output_config"]
         conditions = serializer.validated_data.get("conditions", [])
         target = serializer.validated_data["target"]
         target_config = serializer.validated_data["target_config"]
@@ -1205,18 +1377,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         team = Team.objects.get(id=self.team_id)
 
-        # Build the trigger-condition filter once (OR between condition sets, AND within each).
-        # Both targets reuse it — for traces it filters which triggering generation qualifies.
-        condition_exprs: list[ast.Expr] = []
-        for condition in conditions:
-            props = condition.get("properties", [])
-            if props:
-                condition_exprs.append(property_to_expr(props, team))
-        condition_filter: ast.Expr | None = None
-        if len(condition_exprs) == 1:
-            condition_filter = condition_exprs[0]
-        elif condition_exprs:
-            condition_filter = ast.Or(exprs=condition_exprs)
+        # Both targets reuse it; for traces it filters which triggering generation qualifies.
+        condition_filter = build_condition_filter(conditions, team)
 
         if target == EvaluationTarget.SESSION.value:
             return _test_hog_over_sessions(
@@ -1226,6 +1388,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 condition_filter=condition_filter,
                 sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
                 allows_na=allows_na,
+                output_type=output_type,
+                output_config=output_config,
                 conditions=conditions,
                 quiet_period_seconds=target_config.get(
                     "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
@@ -1240,6 +1404,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 condition_filter=condition_filter,
                 sample_count=sample_count,
                 allows_na=allows_na,
+                output_type=output_type,
+                output_config=output_config,
                 conditions=conditions,
                 window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
             )
@@ -1287,6 +1453,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 query=query,
                 placeholders={"where_clause": ast.And(exprs=where_exprs)},
                 team=team,
+                user=cast("User", request.user),
                 query_type="EvaluationTestHog",
                 fall_back_to_events=False,
                 limit_context=None,
@@ -1339,7 +1506,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "timestamp": timestamp,
             }
 
-            result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
+            result = run_hog_eval(
+                bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
+            )
 
             io = extract_event_io(event_type, properties)
             input_preview = extract_text_from_messages(io.input_raw)[:200]
@@ -1353,7 +1522,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "trace_id": properties.get("$ai_trace_id"),
                     "input_preview": input_preview,
                     "output_preview": output_preview,
-                    "result": result["verdict"],
+                    "result": result.get("verdict"),
+                    **({"score": result.get("score")} if output_type == "numeric" else {}),
                     "reasoning": result["reasoning"],
                     "error": result["error"],
                 }
@@ -1367,10 +1537,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "allows_na": allows_na,
                 "condition_count": len(conditions),
                 "result_count": len(results),
-                "pass_count": sum(1 for r in results if r["result"] is True),
-                "fail_count": sum(1 for r in results if r["result"] is False),
-                "error_count": sum(1 for r in results if r["error"]),
-                "na_count": sum(1 for r in results if r["result"] is None and not r["error"]),
+                **_hog_test_result_counts(results, output_type, output_config),
                 "no_events": False,
                 "target": target,
             },

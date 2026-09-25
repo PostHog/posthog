@@ -17,6 +17,8 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
+from products.conversations.backend.ai.ticket_context import extra_ticket_context, format_session_context
+
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
@@ -37,23 +39,15 @@ def _get_author_label(message: Comment) -> str:
 
     if author_type == "customer":
         return "Customer"
+    if author_type == "AI":
+        return "AI (private note)" if is_private else "AI assistant"
     if is_private:
         return "Support (private note)"
     return "Support"
 
 
 def format_conversation(ticket: Ticket, messages: Iterable[Comment]) -> str:
-    parts: list[str] = []
-
-    current_url = None
-    if ticket.session_context and isinstance(ticket.session_context, dict):
-        current_url = ticket.session_context.get("current_url")
-
-    if current_url:
-        parts.append(f"The customer was on the page: {current_url}")
-        parts.append("")
-
-    parts.append("Conversation:")
+    parts: list[str] = ["Conversation:"]
 
     truncated: list[str] = []
     total_messages = 0
@@ -280,6 +274,12 @@ def _build_ticket_context(
 ) -> str:
     """Build the full context string that gets injected into the agent as a ContextMessage."""
     conversation_text = format_conversation(ticket, messages)
+    session_text = format_session_context(ticket.session_context)
+    if session_text:
+        conversation_text = f"{session_text}\n\n{conversation_text}"
+    extra = extra_ticket_context(ticket, messages, team)
+    if extra:
+        conversation_text = f"{conversation_text}\n\n{extra}"
     events: list[dict] = []
     exceptions: list[dict] = []
 

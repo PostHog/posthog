@@ -3,9 +3,11 @@ from typing import Optional, cast
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -13,10 +15,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,8 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
     GoogleSearchConsoleResumeConfig,
+    _is_quota_error,
     google_search_console_session,
     google_search_console_source,
+    is_search_console_ui_url,
     list_sites,
     normalize_site_url,
     suggest_registered_site,
@@ -61,6 +61,34 @@ _LOAD_CONNECTION_ERROR = (
 _LIST_SITES_ERROR = (
     "PostHog couldn't reach Google Search Console to list your properties. Please try again in a few minutes."
 )
+
+# Listing properties fails three ways that need three different next steps, and Google reports the
+# first two both as a 403: an exhausted quota, an account that can't read any property, and a token
+# that no longer works. Telling a user to reconnect covers only the last one.
+_PROPERTY_LIST_QUOTA_ERROR = "Google is rate limiting Search Console requests. Wait a minute, then try again."
+_PROPERTY_LIST_ACCESS_ERROR = (
+    "The connected Google account can't read any Search Console property. Reconnect and allow "
+    "Search Console access, or use the account that owns the property."
+)
+_PROPERTY_LIST_CREDENTIALS_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then pick a property."
+)
+# Search Console's own address is what sits in the browser bar while people hunt for the value to
+# paste, so it gets pasted. It is no account's property, and the "not visible to the connected
+# account" wording sends them off to check permissions instead of the field they filled in.
+_SEARCH_CONSOLE_UI_ERROR = (
+    "That's the address of the Search Console dashboard, not one of your properties. Enter the "
+    "property as 'https://example.com/' or 'sc-domain:example.com'."
+)
+
+
+def _property_list_http_error(error: requests.HTTPError) -> str:
+    response = error.response
+    if response is not None and _is_quota_error(response):
+        return _PROPERTY_LIST_QUOTA_ERROR
+    if response is not None and response.status_code == 403:
+        return _PROPERTY_LIST_ACCESS_ERROR
+    return _PROPERTY_LIST_CREDENTIALS_ERROR
 
 
 @SourceRegistry.register
@@ -93,6 +121,14 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_query_search_analytics` already retries Search Analytics quota exhaustion in-line with
+        # backoff; if it stays exhausted once those retries run out, the property's quota refills
+        # over time and the resumable source picks up from the last saved date and row, so let
+        # Temporal retry the activity without paging it as a bug. The three quota raise sites carry a
+        # stable `(retryable)` marker, which does not collide with the 401/403 non-retryable keys.
+        return {"(retryable)"}
+
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
     ) -> list[IntegrationAccount]:
@@ -109,13 +145,10 @@ class GoogleSearchConsoleSource(
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to read
-                # Search Console — a customer-side connection issue. Surface an actionable message the
-                # endpoint turns into a 400 rather than an unhandled 500.
-                raise IntegrationAccountListingError(
-                    "Google Search Console rejected the credentials. Please reconnect your account "
-                    "and ensure it has read access to the property."
-                )
+                # The token refreshed fine but Google still refused the listing — a customer-side
+                # connection issue. Surface an actionable message the endpoint turns into a 400
+                # rather than an unhandled 500.
+                raise IntegrationAccountListingError(_property_list_http_error(e))
             raise
         except RefreshError:
             # The stored OAuth token is revoked/expired/missing scopes — raised while AuthorizedSession
@@ -231,6 +264,10 @@ class GoogleSearchConsoleSource(
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        site_url = normalize_site_url(config.site_url)
+        if is_search_console_ui_url(site_url):
+            return False, _SEARCH_CONSOLE_UI_ERROR
+
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
         except Integration.DoesNotExist:
@@ -252,10 +289,7 @@ class GoogleSearchConsoleSource(
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
-                return (
-                    False,
-                    "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
-                )
+                return False, _property_list_http_error(e)
             capture_exception(e)
             return False, _LIST_SITES_ERROR
         except RefreshError:
@@ -274,7 +308,11 @@ class GoogleSearchConsoleSource(
             return False, _LIST_SITES_ERROR
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
-        site_url = normalize_site_url(config.site_url)
+        if not normalized:
+            # The account owns no property at all, so no value can ever validate. The "not visible"
+            # message below sends the user back to re-checking the URL format they got right, which
+            # is the loop we keep seeing. Same failure the 403 listing path names, so same wording.
+            return False, _PROPERTY_LIST_ACCESS_ERROR
         if site_url not in normalized:
             suggestion = suggest_registered_site(site_url, normalized.keys())
             if suggestion is not None:
@@ -301,7 +339,7 @@ class GoogleSearchConsoleSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            name=ExternalDataSourceType.GOOGLESEARCHCONSOLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             keywords=["gsc", "seo", "search analytics", "organic search"],
             label="Google Search Console",

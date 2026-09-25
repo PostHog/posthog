@@ -11,13 +11,17 @@ from posthog.schema import (
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
     QueryStatus,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
@@ -65,6 +69,39 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.random_uuid = self._create_random_persons()
 
+    def test_calculate_with_query_modifiers_matches_unthreaded_executor_sql(self):
+        # The runner hands the executor a context wired to its shared database, which is
+        # built from the runner's resolved modifiers. Query-level modifiers reshape that
+        # database (e.g. which sessions table backs `sessions`), so the printed SQL must
+        # match what the executor produces when it builds the database itself.
+        query = "select count() from sessions limit 1"
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
+        runner = self._create_runner(HogQLQuery(query=query, modifiers=modifiers))
+        threaded = runner.calculate()
+        baseline = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+        assert threaded.clickhouse == baseline.clickhouse
+
+    def test_calculate_reports_modifiers_matching_its_shared_database(self):
+        # The shared database is built from the runner's resolved modifiers, which prefer the
+        # constructor modifiers over the query's own. The executor must run and report those same
+        # modifiers, or a caller that sets both gets SQL built for one schema and a response that
+        # describes another. sessionTableVersion picks which table backs `sessions`.
+        query = "select count() from sessions limit 1"
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query=query, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)),
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1),
+        )
+        response = runner.calculate()
+        baseline = execute_hogql_query(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
+        )
+        # SQL is built from the shared database's modifiers (V1), and the reported modifiers agree.
+        assert response.clickhouse == baseline.clickhouse
+        assert response.modifiers is not None
+        assert response.modifiers.sessionTableVersion == SessionTableVersion.V1
+        assert runner.get_cache_payload()["hogql_modifier_precedence"] == "runner"
+
     def test_default_hogql_query(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
         query = runner.to_query()
@@ -86,6 +123,20 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results is not None
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
+
+    @parameterized.expand([(3, False), (4, True)])
+    def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
+        query = HogQLQuery(query=f"SELECT arrayJoin(range({row_count + 2})) AS value ORDER BY value LIMIT 3 OFFSET 2")
+        runner = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.SQL_ALERT)
+        normal = HogQLQueryRunner(query=query, team=self.team, limit_context=LimitContext.QUERY_ASYNC)
+        assert runner.get_cache_key() != normal.get_cache_key()
+        response = runner.calculate()
+        assert response.results == [(2,), (3,), (4,)]
+        assert response.hasMore is has_more
+        normal_response = normal.calculate()
+        assert normal_response.results == response.results
+        assert normal_response.hasMore is None
+        assert query.query.endswith("LIMIT 3 OFFSET 2")
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(
@@ -154,6 +205,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("tables", "select * from system.information_schema.tables", True),
             ("relationships", "select * from system.information_schema.relationships", True),
             ("columns", "select * from system.information_schema.columns", True),
+            # system.activity_logs is floored to the plan's retention window, which moves with the clock,
+            # so a stored row outlives the entitlement that let it be read.
+            ("activity_logs", "select * from system.activity_logs", True),
             ("other_system_table", "select id, name from system.insights", False),
             ("events", "select count(event) from events", False),
             ("unparseable", "INVALID SQL SYNTAX", False),
@@ -476,6 +530,18 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect):
             response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    def test_query_service_runs_do_not_share_a_flight_with_app_runs(self):
+        app_runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        service_runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        service_runner.is_query_service = True
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST", {self.team.pk + 1}
+        ):
+            assert (service_runner.get_cache_key(), service_runner.single_flight_variant()) != (
+                app_runner.get_cache_key(),
+                app_runner.single_flight_variant(),
+            )
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):

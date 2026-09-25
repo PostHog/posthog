@@ -1,14 +1,14 @@
 ---
 name: signals-scout-observability-gaps
+scout-display-name: Observability gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
-  or alert coverage. Files a report recommending new insights, dashboards, or alerts as the
-  team's product evolves.
+  or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity
   tools in the MCP tools section (read-data-schema, query-trends, query-paths, execute-sql
-  over system.* tables, event-definitions-list, alerts-list, dashboards-get-all).
+  over system.* tables, alerts-list, dashboards-get-all).
 allowed_tools:
   - emit_report
   - edit_report
@@ -72,10 +72,10 @@ Custom event (not a `$builtin` like `$pageview` / `$identify`) firing meaningful
 Direct calls:
 
 - `read-data-schema events` — surface event names + 24h volumes.
-- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`.
-- Check `event-definitions-list` for `last_seen_at` recency and the `verified` flag — the team flagged it as worth tracking.
+- `execute-sql` against `system.insights` — find insights mentioning the event name in `name`, `description`, or `query` JSON. Pattern: `query::text ILIKE '%{event_name}%'`. Event names come from ingestion, so treat one as data and never as SQL: escape every quote and backslash before it goes into the literal, and drop a candidate whose name you cannot escape cleanly. Escape `%` and `_` too — `ILIKE` reads them as wildcards, so an unescaped `checkout_started` also matches `checkoutXstarted`. Treat a hit as a candidate either way, and confirm the insight names the exact event before you call it covered.
+- `execute-sql` against `events` — count the event's active days over a wide window (`count(DISTINCT toDate(timestamp))` alongside `min(timestamp)`), so you can tell steady activity from two isolated bursts weeks apart. A wide first-to-last range on a handful of active days is a new or sporadic event, not a settled one.
 
-Strong signal: event > 1000/day, no insight, `verified=true`. Weak signal: event < 100/day, untyped, sporadic.
+Strong signal: event > 1000/day, no insight, active on most days across the window. Weak signal: event < 100/day, active on few days, sporadic.
 
 Volume ranking has a blind spot: a recently-born event with broad reach but low per-user frequency may never rank into the count-ranked `top_events`, and a 7-day query window clamps `min(timestamp)` so it cannot tell new events from old ones. Probe emergence directly with a wide window — events table, last 60 days, `event NOT LIKE '$%'`, grouped by event, keeping only groups where `min(timestamp) >= now() - 14d` (genuinely new) and distinct users in the last 7 days clear a reach floor (~500+), ordered by that reach. Each hit is a candidate the top-events lens structurally cannot see; run it through the same coverage check and disqualifiers as any other candidate.
 
@@ -91,7 +91,7 @@ Direct calls:
 
 - `execute-sql` over `system.insights` to extract the events series each insight filters on.
 - `query-trends` to measure recent volume of those events.
-- For zero-volume events, search `event-definitions-list` for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
+- For zero-volume events, search the event vocabulary from `read-data-schema` (`kind=events`) for similar names suggesting a rename (Levenshtein-close, same prefix, same property shape).
 
 Strong signal: the insight is live (recent `last_modified_at`, or pinned to a live dashboard via `system.dashboard_tiles`) AND its primary event has 0 firings in 7d AND a similar-named event is firing > 100/day. Note `system.insights` exposes `last_modified_at` but has **no** `last_viewed_at` column — prove "live" by modification recency or a live dashboard tile, not view recency.
 
@@ -162,7 +162,7 @@ The bar trades off:
 
 Then, for each candidate that clears the bar:
 
-- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — `append_note` the fresh numbers rather than minting a near-duplicate.
+- **Edit** when a still-live report already recommends this gap and its evidence has only moved (volume climbed further, reach widened) — add the fresh numbers with `append_evidence` rather than minting a near-duplicate.
 - **Author** a fresh report only when nothing live covers the gap. Recommendations are investigations, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority is almost always **P3** (a suggestion); a critical failure-semantics event (family 3 — `payment_failed`, `*_error`, `*_blocked`) firing with zero alert coverage is **P2**.
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
@@ -208,7 +208,6 @@ Direct calls (read-only):
 - `query-paths` — sequence detection for funnel candidates.
 - `insights-list` — paginated insight catalog (use sparingly; SQL is faster).
 - `dashboards-get-all` — active dashboards + tags.
-- `event-definitions-list` — event-definition metadata: `verified` flag, `last_seen_at`, `created_at`, custom-vs-builtin marker.
 - `alerts-list` — existing alert configurations and what events they target.
 - `execute-sql` over `system.insights` / `system.dashboards` / `system.cohorts` — the fast path for "does an insight reference event X?" type queries.
 

@@ -6,20 +6,15 @@ import { LemonBadge, LemonTableColumns, LemonTag, Spinner, Tooltip } from '@post
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeDisplay, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay'
+import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
-import {
-    type Ticket,
-    aiTriageProcessingLabel,
-    aiTriageResultLabel,
-    aiTriageResultTagType,
-    aiTriageTicketTypeLabel,
-} from '../../types'
+import { type Ticket, aiTriageProcessingLabel, aiTriageTicketTypeLabel, ticketListAiTriage } from '../../types'
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -151,11 +146,11 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             title: 'AI status',
             key: 'ai_triage',
             render: (_, ticket) => {
-                const triage = ticket.ai_triage
-                if (!triage || !triage.status) {
+                const display = ticketListAiTriage(ticket.ai_triage)
+                if (display.kind === 'empty') {
                     return <span className="text-muted-alt text-xs">—</span>
                 }
-                if (triage.status === 'in_progress') {
+                if (display.kind === 'processing') {
                     return (
                         <span className="flex items-center gap-1 text-xs">
                             <Spinner className="text-sm" />
@@ -163,24 +158,19 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         </span>
                     )
                 }
-                if (triage.result) {
-                    const tooltipContent = [
-                        triage.ticket_type &&
-                            `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
-                        triage.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
-                        triage.attempts != null && `Attempts: ${triage.attempts}`,
-                    ]
-                        .filter(Boolean)
-                        .join(' · ')
-                    return (
-                        <Tooltip title={tooltipContent || undefined}>
-                            <LemonTag type={aiTriageResultTagType(triage.result)}>
-                                {aiTriageResultLabel[triage.result]}
-                            </LemonTag>
-                        </Tooltip>
-                    )
-                }
-                return <span className="text-muted-alt text-xs">—</span>
+                const triage = ticket.ai_triage
+                const tooltipContent = [
+                    triage?.ticket_type && `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
+                    triage?.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
+                    triage?.attempts != null && `Attempts: ${triage.attempts}`,
+                ]
+                    .filter(Boolean)
+                    .join(' · ')
+                return (
+                    <Tooltip title={tooltipContent || undefined}>
+                        <LemonTag type={display.tagType}>{display.label}</LemonTag>
+                    </Tooltip>
+                )
             },
         },
     },

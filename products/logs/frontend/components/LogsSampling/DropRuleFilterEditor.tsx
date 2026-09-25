@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -17,7 +17,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFilte
 // editors mounted simultaneously (e.g. during fast scene navigation) don't share
 // universalFiltersLogic / taxonomicFilterLogic instances.
 const ROOT_KEY_PREFIX = 'logs-drop-rule'
-const TAXONOMIC_GROUP_TYPES = [
+const LOG_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.Logs,
     TaxonomicFilterGroupType.LogResourceAttributes,
     TaxonomicFilterGroupType.LogAttributes,
@@ -27,11 +27,14 @@ export const DropRuleFilterEditor = memo(function DropRuleFilterEditor({
     filterGroup,
     onChange,
     logicKey,
+    taxonomicGroupTypes = LOG_TAXONOMIC_GROUP_TYPES,
 }: {
     filterGroup: UniversalFiltersGroup
     onChange: (group: UniversalFiltersGroup) => void
     /** Optional explicit key (e.g. `rule-${id}`); defaults to a per-mount React id. */
     logicKey?: string
+    /** Property vocabulary offered. Defaults to the log one; span rules pass the span groups. */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
 }): JSX.Element {
     const fallback = useId()
     const rootKey = logicKey ?? `${ROOT_KEY_PREFIX}:${fallback}`
@@ -39,18 +42,24 @@ export const DropRuleFilterEditor = memo(function DropRuleFilterEditor({
         <UniversalFilters
             rootKey={rootKey}
             group={filterGroup}
-            taxonomicGroupTypes={TAXONOMIC_GROUP_TYPES}
+            taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={onChange}
         >
             <div className="space-y-2">
-                <DropRuleFilterSearch logicKey={rootKey} />
+                <DropRuleFilterSearch logicKey={rootKey} taxonomicGroupTypes={taxonomicGroupTypes} />
                 <DropRuleAppliedFilters />
             </div>
         </UniversalFilters>
     )
 })
 
-function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
+function DropRuleFilterSearch({
+    logicKey,
+    taxonomicGroupTypes,
+}: {
+    logicKey: string
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+}): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -68,7 +77,7 @@ function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = useMemo(
         () => ({
             taxonomicFilterLogicKey: logicKey,
-            taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
+            taxonomicGroupTypes,
             onChange: (taxonomicGroup, value, item) => {
                 if (item.value === undefined) {
                     addGroupFilter(taxonomicGroup, value, item)
@@ -93,7 +102,7 @@ function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
             },
             autoSelectItem: true,
         }),
-        [addGroupFilter, setGroupValues, logicKey]
+        [addGroupFilter, setGroupValues, logicKey, taxonomicGroupTypes]
     )
 
     const showDropdown = useCallback(() => setVisible(true), [])
@@ -129,6 +138,16 @@ function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
 function DropRuleAppliedFilters(): JSX.Element | null {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    // Chips present on mount came from stored or seeded filters and already hold a complete
+    // value, so they must stay closed — otherwise every seeded chip stacks an editing popover
+    // over the form on first render. Only a chip that was just appended needs input, so track
+    // growth rather than a mount-time count, which would stop opening new chips once one of
+    // the seeded chips had been removed.
+    const previousValueCount = useRef(filterGroup.values.length)
+    const appendedIndex = filterGroup.values.length > previousValueCount.current ? filterGroup.values.length - 1 : -1
+    useEffect(() => {
+        previousValueCount.current = filterGroup.values.length
+    })
 
     if (filterGroup.values.length === 0) {
         return null
@@ -148,7 +167,7 @@ function DropRuleAppliedFilters(): JSX.Element | null {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={filterOrGroup.type !== PropertyFilterType.HogQL}
+                        initiallyOpen={index === appendedIndex && filterOrGroup.type !== PropertyFilterType.HogQL}
                     />
                 )
             })}

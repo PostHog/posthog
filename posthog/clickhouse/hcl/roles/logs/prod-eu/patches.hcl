@@ -12,29 +12,12 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
   }
-  patch_table "kafka_logs_avro" {
-    column "bytes_uncompressed" {
-      type  = "Int64"
-      after = "attributes"
-    }
-    engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 16
-      skip_broken_messages = 100
-      poll_timeout_ms      = 3000
-      poll_max_batch_size  = 1000
-      thread_per_consumer  = true
-    }
-  }
   patch_table "kafka_trace_spans_avro" {
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
       num_consumers        = 2
       skip_broken_messages = 100
       poll_timeout_ms      = 3000

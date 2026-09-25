@@ -22,6 +22,11 @@ export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `
 export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsCreateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsCreateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -36,7 +41,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -114,6 +119,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -187,7 +198,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -220,6 +231,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -243,7 +260,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -276,6 +293,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -294,9 +317,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -316,10 +338,100 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigPropertiesDataTypeDefault)
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsCreateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -333,8 +445,10 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -479,6 +593,7 @@ export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -512,7 +627,6 @@ export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
@@ -555,6 +669,7 @@ export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -588,7 +703,6 @@ export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
@@ -624,6 +738,11 @@ export const batchExportsUpdateBodyDestinationOneFiveConfigFileFormatDefault = `
 export const batchExportsUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsUpdateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsUpdateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsUpdateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsUpdateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -638,7 +757,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -716,6 +835,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -789,7 +914,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -822,6 +947,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -845,7 +976,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -878,6 +1009,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -896,9 +1033,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -918,10 +1054,100 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault)
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsUpdateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -935,8 +1161,10 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -979,6 +1207,11 @@ export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefa
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsPartialUpdateBodyDestinationOneSevenConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPortDefault = 5439
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault = `varchar`
+export const batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault = `INSERT`
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -993,7 +1226,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1071,6 +1304,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1146,7 +1385,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1179,6 +1418,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1202,7 +1447,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1235,6 +1480,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -1253,9 +1504,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1275,10 +1525,102 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Redshift']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneEightConfigPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsPartialUpdateBodyDestinationOneEightConfigModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a Redshift batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -1294,8 +1636,10 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -1341,6 +1685,11 @@ export const batchExportsPauseCreateBodyDestinationOneConfigOneFiveFileFormatDef
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsPauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsPauseCreateBodyOffsetDayMin = 0
 export const batchExportsPauseCreateBodyOffsetDayMax = 6
 
@@ -1446,6 +1795,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1524,6 +1879,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1570,6 +1931,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -1599,22 +1966,104 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsPauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1640,8 +2089,10 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -1681,6 +2132,11 @@ export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFiveFileFor
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsRunTestStepCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepCreateBodyOffsetDayMax = 6
 
@@ -1790,6 +2246,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1876,6 +2338,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1924,6 +2392,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -1955,22 +2429,106 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightTableNameDefault
+                                    )
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1996,8 +2554,10 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2040,6 +2600,11 @@ export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFiveFileFormatD
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsUnpauseCreateBodyOffsetDayMin = 0
 export const batchExportsUnpauseCreateBodyOffsetDayMax = 6
 
@@ -2147,6 +2712,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2227,6 +2798,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2273,6 +2850,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -2302,22 +2885,104 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightSchemaDefault)
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightTableNameDefault)
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPortDefault)
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsUnpauseCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneEightModeDefault)
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2343,8 +3008,10 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2384,6 +3051,11 @@ export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFiveFile
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSixUseVirtualStyleAddressingDefault = false
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneSevenTableNameDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightSchemaDefault = `public`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightTableNameDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPortDefault = 5439
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault = `varchar`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightModeDefault = `INSERT`
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMax = 6
 
@@ -2495,6 +3167,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2583,6 +3261,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2631,6 +3315,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
                                     .default(
@@ -2662,22 +3352,112 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                        zod
+                            .object({
+                                database: zod.string().describe('Redshift database name to connect to.'),
+                                host: zod
+                                    .string()
+                                    .optional()
+                                    .describe(
+                                        'Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves.'
+                                    ),
+                                schema: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightSchemaDefault
+                                    )
+                                    .describe('Redshift schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightTableNameDefault
+                                    )
+                                    .describe('Redshift table name to write exported rows into.'),
+                                port: zod
+                                    .number()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPortDefault
+                                    )
+                                    .describe('Port the Redshift server listens on.'),
+                                properties_data_type: zod
+                                    .enum(['varchar', 'super'])
+                                    .describe('\* `varchar` - varchar\n\* `super` - super')
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightPropertiesDataTypeDefault
+                                    )
+                                    .describe(
+                                        'Data type used for JSON-like columns such as event properties.\n\n\* `varchar` - varchar\n\* `super` - super'
+                                    ),
+                                mode: zod
+                                    .enum(['INSERT', 'COPY'])
+                                    .describe('\* `INSERT` - INSERT\n\* `COPY` - COPY')
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneEightModeDefault
+                                    )
+                                    .describe(
+                                        'How rows reach Redshift: batched INSERT statements, or COPY from files staged in S3.\n\n\* `INSERT` - INSERT\n\* `COPY` - COPY'
+                                    ),
+                                copy_inputs: zod
+                                    .object({
+                                        s3_bucket: zod
+                                            .string()
+                                            .describe('S3 bucket where files are staged before the Redshift COPY.'),
+                                        region_name: zod.string().describe('AWS region of the staging S3 bucket.'),
+                                        s3_key_prefix: zod
+                                            .string()
+                                            .describe('Key prefix for staged files in the S3 bucket.'),
+                                        authorization: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod
+                                                    .string()
+                                                    .describe('ARN of an IAM role attached to the Redshift cluster.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                            ),
+                                        bucket_credentials: zod
+                                            .union([
+                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
+                                                zod.object({
+                                                    aws_access_key_id: zod.string(),
+                                                    aws_secret_access_key: zod.string(),
+                                                }),
+                                            ])
+                                            .describe(
+                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'S3 staging configuration for a Redshift batch export running in COPY mode.'
+                                    )
+                                    .optional()
+                                    .describe("S3 staging configuration, required when mode is 'COPY'."),
+                                type: zod.enum(['Redshift']),
+                            })
+                            .describe(
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake (inline credentials remain supported); unused for other types.'
+                        'ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a\ntyped OpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,\nAwsS3, S3Compatible, Snowflake, Redshift). Other destination types accept the same JSON shape\nbut without a typed OpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -2703,8 +3483,10 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2735,15 +3517,19 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
  * Create and start a batch export on demand run to download a file.
  */
 export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
@@ -2773,7 +3559,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['events']),
@@ -2809,7 +3598,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['persons']),
@@ -2843,7 +3635,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['sessions']),
@@ -2877,14 +3672,29 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['hogql']),
             hogql_query: zod
                 .string()
                 .describe(
-                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                ),
+            data_interval_start: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+                ),
+            data_interval_end: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
                 ),
         })
         .describe('Typed configuration for the hogql model.'),
@@ -2894,6 +3704,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
  * Cancel an ongoing file-download batch export.
  */
 export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
@@ -2922,7 +3733,10 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
                     .number()
                     .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
                     .nullish()
-                    .describe('Split download into multiple files of at most this size in MB'),
+                    .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
+                    .describe(
+                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                    ),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod
@@ -2934,12 +3748,48 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('Start of the data interval to export'),
-        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
+            ),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
+
+/**
+ * Count the rows a HogQL batch export would produce if started now.
+ */
+export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
+    .object({
+        model: zod
+            .enum(['hogql'])
+            .describe('\* `hogql` - hogql')
+            .describe("Model to count rows for. Only 'hogql' is supported.\n\n\* `hogql` - hogql"),
+        hogql_query: zod
+            .string()
+            .describe(
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
+            ),
+    })
+    .describe('Request shape for counting the rows a file download batch export would produce.')

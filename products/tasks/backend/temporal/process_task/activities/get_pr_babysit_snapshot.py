@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
     get_github_integration,
     get_user_github_integration,
+    merge_queue_push_would_eject,
 )
 
 
@@ -41,7 +42,7 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         try:
             task_run = TaskRun.objects.get(id=ctx.run_id)
         except TaskRun.DoesNotExist:
-            activity.logger.warning("get_pr_babysit_snapshot_task_run_not_found", run_id=ctx.run_id)
+            activity.logger.warning("get_pr_babysit_snapshot_task_run_not_found", extra={"run_id": ctx.run_id})
             return None
 
         pr_url = (task_run.output or {}).get("pr_url")
@@ -57,13 +58,18 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         except ObjectDoesNotExist:
             activity.logger.warning(
                 "get_pr_babysit_snapshot_github_integration_not_found",
-                github_integration_id=ctx.github_integration_id,
-                github_user_integration_id=ctx.github_user_integration_id,
+                extra={
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
             )
             return None
 
         try:
             raw = github_integration.get_pull_request_babysit_snapshot(pr_url)
+            # A closed PR ends the loop anyway, so a failed queue read must not fail its last tick.
+            if raw.get("success") and raw.get("state") not in ("closed", "merged"):
+                raw["merge_queue_push_would_eject"] = merge_queue_push_would_eject(github_integration, pr_url)
         except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as e:
             retry_after = getattr(e, "retry_after", None) or DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS
             raise GitHubRateLimitedError(
@@ -89,9 +95,7 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         if not raw.get("success"):
             activity.logger.warning(
                 "get_pr_babysit_snapshot_failed",
-                run_id=ctx.run_id,
-                pr_url=pr_url,
-                error=raw.get("error"),
+                extra={"run_id": ctx.run_id, "pr_url": pr_url, "error": raw.get("error")},
             )
             increment_pr_babysit_snapshot("unavailable")
             return None

@@ -1,15 +1,29 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
     buildRunCreateRequest,
-    DEFAULT_COMPOSER_EFFORT,
     DEFAULT_COMPOSER_MODEL,
+    getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
@@ -27,29 +41,47 @@ import {
     type ModelChoiceApi,
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    type TaskRunDetailDTOApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
-import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
+import type { PendingAttachment } from '../utils/attachments'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
+import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
+import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
-import { taskWarmLogic } from './taskWarmLogic'
+import { taskDraftListeners } from './taskDraftListeners'
+import type { DraftRecovery } from './taskDraftPersistence'
+import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
+import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
+    /** Empty until creation attaches a real task and run. */
     taskId: string
     runId: string
+    /** Keeps the composer state alive across an optimistic creation's ID handoff. */
+    interactionKey?: string
     /**
-     * Optional override for the bound `runStreamLogic` key. The logic still keys its own per-run state by
-     * `runId` (queue, model/effort overrides), but connects to the stream under `streamKey ?? runId` so it
+     * Optional override for the bound `runStreamLogic` key. The logic keys its own state by
+     * `interactionKey ?? runId`, but connects to the stream under `streamKey ?? runId` so it
      * can adopt an optimistic-create instance seeded under a client `streamKey` — sharing the exact stream
      * `RunSurface` binds, never diverging from it. API calls still use the real `runId`.
      */
     streamKey?: string
+    initialDraft?: string
+    onDraftAdopted?: () => void
+    flushDraft?: () => void
+    /** Context exclusive to the runner that owns this interaction. */
+    contextItems?: AttachedContextItem[]
     /** The run's stored model / reasoning effort / launch mode, injected by the consumer. They seed the picker's
      * display and the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -59,17 +91,32 @@ export interface RunInteractionLogicProps {
     currentRuntimeAdapter?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
-    onRunStarted?: (runId: string) => void
+    onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
 }
 
-/** The follow-up staged in the "Up next" buffer while the agent is mid-turn. */
+export interface RunContinuationHandoff {
+    run: TaskRunDetailDTOApi
+    streamKey: string
+    draft: string
+}
+
+/**
+ * Why a staged message is waiting on the user instead of draining on its own. `cancelled` covers a Stop or
+ * a run that ended, where nothing reached the agent, so the next thing the user submits can carry it. After
+ * `unconfirmed` the message may already be with the agent — only an explicit send may repeat it.
+ */
+export type QueueHold = 'cancelled' | 'unconfirmed' | null
+
+/** One follow-up staged in the queue while the agent is mid-turn. */
 export interface QueuedMessage {
     id: string
     content: string
 }
 
-/** Stable id for the single staged "Up next" message — the queue never holds more than one. */
-const QUEUED_MESSAGE_ID = 'queued'
+// Identifies a staged message for the duration of its stay in the buffer, so editing or removing one row
+// leaves the others alone. Module-scoped because the ids only have to be unique within a single buffer.
+let queuedMessageSequence = 0
+const nextQueuedMessageId = (): string => `queued-${++queuedMessageSequence}`
 
 // Agent-server (ACP) session config option ids — see the `/code` agent's buildConfigOptions. The model
 // option's id is `model`; the effort option's id is `effort` (its category is `thought_level`).
@@ -79,9 +126,37 @@ const EFFORT_CONFIG_ID = 'effort'
 // `set_config_option { configId: 'mode' }` is how `/code` applies a live shift+tab mode change.
 const MODE_CONFIG_ID = 'mode'
 
+/** Hands the echo each file's name plus a handle to its bytes, so the message can draw it right away. */
+function stageAttachmentPreviews(attachments: PendingAttachment[]): StagedAttachment[] {
+    return attachments.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+}
+
 /** Matches a bare `/clear` invocation, not a longer command that starts with it. */
 function isClearCommand(content: string): boolean {
     return /^\/clear(?:\s|$)/.test(content)
+}
+
+const GENERIC_RUN_START_FAILURE = 'Failed to start a new run. Please try again.'
+
+/**
+ * The run-create endpoint refuses for many distinct reasons and words each one for a person, so the
+ * body says whether to retry, change branch, or start over where the generic string cannot.
+ *
+ * Only a refusal below 500 speaks for itself. A 5xx is a fault on our side or in the gateway, and
+ * its body is either empty or an internal message. The warm-run retry code is the one 5xx
+ * exception, because the backend words that one for the user.
+ */
+function runStartFailureMessage(error: unknown): string {
+    if (!(error instanceof ApiError)) {
+        return GENERIC_RUN_START_FAILURE
+    }
+    if (error.code === 'warm_run_activation_unavailable') {
+        return "Couldn't start this run yet. Please try again."
+    }
+    if (error.status === undefined || error.status >= 500) {
+        return GENERIC_RUN_START_FAILURE
+    }
+    return readableErrorMessage(error.data) ?? GENERIC_RUN_START_FAILURE
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -90,16 +165,28 @@ export interface runInteractionLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
+    queuedAttachments: PendingAttachment[] // composerAttachmentsLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
+    cancellationState: CancellationState // runCancellationLogic
+    bootstrappedRunId: string | null // runStreamLogic
+    bootstrappedTaskId: string | null // runStreamLogic
     conversationClearSupported: boolean // runStreamLogic
     currentMode: string | null // runStreamLogic
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
+    permissionResponseRequestIds: Set<string> // runStreamLogic
     respondingToPermission: boolean // runStreamLogic
+    runOpening: boolean // runStreamLogic
+    runStarted: boolean // runStreamLogic
+    defaultEffort: string | null // taskRunDefaultsLogic
+    defaultModel: string | null // taskRunDefaultsLogic
     canSend: boolean
     clearing: boolean
+    composerActive: boolean
+    composerFocused: boolean
     composerForm: {
         draft: string
     }
@@ -122,7 +209,11 @@ export interface runInteractionLogicValues {
         ValidationErrorType
     >
     consentBlocked: boolean
+    consentBlockedSource: 'draft' | 'queue' | 'steer'
+    deferredSteerRequestId: string | null
+    draftRecovery: DraftRecovery
     effortOverride: string | null
+    hasUnresolvedApproval: boolean
     isBusy: boolean
     isComposerFormSubmitting: boolean
     isComposerFormValid: boolean
@@ -131,6 +222,9 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
+    queueEditing: boolean
+    queueHeld: boolean
+    queueHold: QueueHold
     queuedMessages: QueuedMessage[]
     selectedEffort: ReasoningEffortEnumApi
     selectedMode: PermissionMode
@@ -141,6 +235,8 @@ export interface runInteractionLogicValues {
     sentModel: string | null
     showComposerFormErrors: boolean
     startingRun: boolean
+    steerPending: boolean
+    unsentStartupMode: PermissionMode | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -152,6 +248,31 @@ export interface runInteractionLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    claimAttachmentsForQueue: () => {
+        value: true
+    } // composerAttachmentsLogic
+    releaseQueuedAttachments: () => {
+        value: true
+    } // composerAttachmentsLogic
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
+    requestCancellation: () => {
+        value: true
+    } // runCancellationLogic
+    attachOptimisticResume: (
+        taskId: string,
+        run: TaskRunDetailDTOApi
+    ) => {
+        run: TaskRunDetailDTOApi
+        taskId: string
+    } // runStreamLogic
+    cancelPermissionDelivery: () => {
+        value: true
+    } // runStreamLogic
     cancelRun: (
         run?:
             | {
@@ -167,6 +288,9 @@ export interface runInteractionLogicActions {
               }
             | undefined
     } // runStreamLogic
+    clearPermissionRequest: () => {
+        value: true
+    } // runStreamLogic
     handleTerminalStatus: (status: {
         errorMessage?: string | null
         replayedFromHistory?: boolean
@@ -176,14 +300,37 @@ export interface runInteractionLogicActions {
         replayedFromHistory?: boolean | undefined
         status: RunStatus
     } // runStreamLogic
-    markTurnComplete: () => {
+    ingestPermissionRequest: (
+        record: PermissionRequestRecord,
+        replayedFromHistory?: boolean | undefined
+    ) => {
+        record: PermissionRequestRecord
+        replayedFromHistory: boolean
+    } // runStreamLogic
+    markPermissionRequestResolved: (requestId: string) => {
+        requestId: string
+    } // runStreamLogic
+    markTurnComplete: (isReplay?: boolean | undefined) => {
+        isReplay: boolean
+    } // runStreamLogic
+    permissionResponseFailed: (requestId: string) => {
+        requestId: string
+    } // runStreamLogic
+    permissionRunChanged: () => {
         value: true
     } // runStreamLogic
     pushConversationCleared: () => {
         value: true
     } // runStreamLogic
-    pushHumanMessage: (content: string) => {
+    pushHumanMessage: (
+        content: string,
+        stagedAttachments?: StagedAttachment[] | undefined
+    ) => {
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
+    } // runStreamLogic
+    resetStream: () => {
+        value: true
     } // runStreamLogic
     respondToPermission: (payload: {
         answers?: Record<string, string>
@@ -196,37 +343,30 @@ export interface runInteractionLogicActions {
         optionId: string
         requestId: string
     } // runStreamLogic
+    rollbackOptimisticResume: () => {
+        value: true
+    } // runStreamLogic
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
-    consumeWarm: () => {
-        value: true
-    } // taskWarmLogic
-    noteDraft: (
-        hasText: boolean,
-        request: import('./taskWarmLogic').TaskWarmRequest
+    startOptimisticResume: (
+        message: string,
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
-        hasText: boolean
-        request: import('./taskWarmLogic').TaskWarmRequest
-    } // taskWarmLogic
-    releaseWarm: () => {
-        value: true
-    } // taskWarmLogic
+        message: string
+        stagedAttachments: StagedAttachment[] | undefined
+    } // runStreamLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
     releaseApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
-    transferApplyBackTargets: (
-        fromStreamKey: string,
-        toStreamKey: string
-    ) => {
-        fromStreamKey: string
-        toStreamKey: string
-    } // toolStreamEventsLogic
-    blockOnConsent: () => {
-        value: true
+    beginTaskDraftDelivery: (content: string) => {
+        content: string
+    }
+    blockOnConsent: (source?: 'draft' | 'queue' | 'steer') => {
+        source: 'draft' | 'queue' | 'steer'
     }
     clearConsentBlock: () => {
         value: true
@@ -237,14 +377,37 @@ export interface runInteractionLogicActions {
     clearQueue: () => {
         value: true
     }
+    enableTaskDraftPersistence: (
+        userId: string,
+        projectId: number
+    ) => {
+        projectId: number
+        userId: string
+    }
     enqueueMessage: (content: string) => {
         content: string
+        id: string
     }
-    flushQueue: () => {
+    finishTaskDraftDelivery: () => {
         value: true
     }
-    prependQueuedMessage: (content: string) => {
-        content: string
+    flushQueue: (steer?: boolean) => {
+        steer: boolean
+    }
+    handleEscape: () => {
+        value: true
+    }
+    hydrateTaskDraft: (taskId?: string) => {
+        taskId: string | undefined
+    }
+    persistTaskDraft: () => {
+        value: true
+    }
+    prependQueuedMessages: (rows: QueuedMessage[]) => {
+        rows: QueuedMessage[]
+    }
+    queueDeliveryFailed: () => {
+        value: true
     }
     removeQueuedMessage: (id: string) => {
         id: string
@@ -256,13 +419,20 @@ export interface runInteractionLogicActions {
     }
     sendNow: (
         content: string,
-        source: 'draft' | 'queue'
+        source: 'draft' | 'queue',
+        steer?: boolean,
+        rows?: QueuedMessage[]
     ) => {
         content: string
+        rows: QueuedMessage[]
         source: 'draft' | 'queue'
+        steer: boolean
     }
     setClearing: (clearing: boolean) => {
         clearing: boolean
+    }
+    setComposerFocused: (focused: boolean) => {
+        focused: boolean
     }
     setComposerFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -283,14 +453,24 @@ export interface runInteractionLogicActions {
             draft: string
         }>
     }
+    setDeferredSteer: (requestId: string | null) => {
+        requestId: string | null
+    }
+    setDraftRecovery: (recovery: DraftRecovery) => {
+        recovery: DraftRecovery
+    }
     setEffort: (effort: string) => {
         effort: string
     }
     setMode: (mode: PermissionMode) => {
+        beforeStart: boolean
         mode: PermissionMode
     }
     setModel: (model: string) => {
         model: string
+    }
+    setQueueEditing: (editing: boolean) => {
+        editing: boolean
     }
     setSending: (sending: boolean) => {
         sending: boolean
@@ -299,6 +479,7 @@ export interface runInteractionLogicActions {
         effort: string
     }
     setSentMode: (mode: PermissionMode) => {
+        hasStartupOverride: boolean
         mode: PermissionMode
     }
     setSentModel: (model: string) => {
@@ -309,6 +490,12 @@ export interface runInteractionLogicActions {
     }
     startNewRun: (content: string) => {
         content: string
+    }
+    steerQueue: () => {
+        value: true
+    }
+    submitAfterConsent: () => {
+        value: true
     }
     submitComposerForm: () => {
         value: boolean
@@ -346,28 +533,65 @@ export interface runInteractionLogicActions {
 export interface runInteractionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        hasUnresolvedApproval: (
+            pendingPermissionRequest: PermissionRequestRecord | null,
+            permissionResponseRequestIds: Set<string>
+        ) => boolean
+        steerPending: (deferredSteerRequestId: string | null, sending: boolean) => boolean
+        composerActive: (
+            pendingPermissionRequest: PermissionRequestRecord | null,
+            respondingToPermission: boolean,
+            isTerminal: boolean
+        ) => boolean
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
-        selectedModel: (modelOverride: string | null, arg: any) => string
+        selectedModel: (
+            modelOverride: string | null,
+            arg: any,
+            defaultModel: string | null,
+            catalogue: ModelChoiceApi[],
+            arg2: any,
+            isTerminal: boolean
+        ) => string
         selectedEffort: (
             effortOverride: string | null,
             arg: any,
+            defaultEffort: string | null,
             selectedModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
         selectedMode: (
+            unsentStartupMode: PermissionMode | null,
             modeOverride: PermissionMode | null,
             currentMode: string | null,
             arg: any,
             arg2: any
         ) => PermissionMode
-        isBusy: (isThinking: boolean) => boolean
-        canSend: (sending: boolean, isTerminal: boolean, currentProjectId: number | null) => boolean
+        isBusy: (
+            isThinking: boolean,
+            runOpening: boolean,
+            runStarted: boolean,
+            isTerminal: boolean,
+            runId: string
+        ) => boolean
+        canSend: (
+            sending: boolean,
+            cancellationState: CancellationState,
+            isTerminal: boolean,
+            currentProjectId: number | null,
+            currentRunStatus: RunStatus | null,
+            bootstrappedRunId: string | null,
+            bootstrappedTaskId: string | null,
+            runId: string,
+            taskId: string,
+            runStarted: boolean
+        ) => boolean
+        queueHeld: (queuedMessages: QueuedMessage[], queueHold: QueueHold) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
         pendingContextItems: (
-            contextItems: AttachedContextItem[],
+            arg: AttachedContextItem[],
             sentContextKeysByTask: Record<string, string[]>,
             seenContextLinesByTask: Record<string, string[]>,
-            arg: string
+            arg2: string
         ) => AttachedContextItem[]
     }
 }
@@ -386,16 +610,20 @@ export type runInteractionLogicType = MakeLogicType<
  * transport: the SSE stream, thread projection, run status, and permission routing all live in
  * `runStreamLogic`, which this connects to by `streamKey` (the `runId`).
  *
- * Queueing is client-side and holds at most a single message: a follow-up typed while the agent is working
- * a turn is staged here (editable, removable), and a second follow-up typed before the turn ends is
- * concatenated onto it rather than fanning out into separate messages. The single staged message is flushed
- * as one `user_message` when the turn completes. This mirrors the PostHog AI sandbox flush path without any
- * conversation/Max coupling.
+ * Queueing is client-side: a follow-up typed while the agent is working a turn is staged here, and each one
+ * keeps its own row so the user can edit or drop it on its own. The staged rows are flushed as a single
+ * `user_message` when the turn completes, so follow-ups never fan out into separate turns. This mirrors the
+ * PostHog AI sandbox flush path without any conversation/Max coupling.
  */
 export const runInteractionLogic = kea<runInteractionLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'runInteractionLogic']),
     props({} as RunInteractionLogicProps),
-    key((props) => props.runId),
+    key((props) => {
+        if (!props.runId && (!props.interactionKey || !props.streamKey)) {
+            throw new Error('A pending composer requires interactionKey and streamKey')
+        }
+        return props.interactionKey ?? props.runId
+    }),
 
     connect((props: RunInteractionLogicProps) => ({
         values: [
@@ -407,8 +635,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'pendingPermissionRequest',
                 'respondingToPermission',
                 'isThinking',
+                'runOpening',
+                'runStarted',
                 'currentMode',
                 'conversationClearSupported',
+                'permissionResponseRequestIds',
+                'bootstrappedRunId',
+                'bootstrappedTaskId',
             ],
             attachedContextLogic,
             ['contextItems', 'sentContextKeysByTask', 'seenContextLinesByTask'],
@@ -416,31 +649,57 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['dataProcessingAccepted'],
             modelCatalogueLogic,
             ['catalogue'],
+            taskRunDefaultsLogic,
+            ['defaultModel', 'defaultEffort'],
+            runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
+            ['cancellationState'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['stagedAttachments', 'queuedAttachments'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             [
                 'pushHumanMessage',
+                'startOptimisticResume',
+                'rollbackOptimisticResume',
+                'attachOptimisticResume',
                 'pushConversationCleared',
                 'respondToPermission',
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
                 'handleTerminalStatus',
+                'markPermissionRequestResolved',
+                'permissionResponseFailed',
+                'ingestPermissionRequest',
+                'permissionRunChanged',
+                'cancelPermissionDelivery',
+                'clearPermissionRequest',
+                'reset as resetStream',
             ],
             attachedContextLogic,
             ['markContextSent'],
             toolStreamEventsLogic,
-            ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
-            taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
-            ['noteDraft', 'consumeWarm', 'releaseWarm'],
+            ['claimApplyBackTargets', 'releaseApplyBackTargets'],
+            runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
+            ['requestCancellation'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['removeAttachments', 'setUploading', 'claimAttachmentsForQueue', 'releaseQueuedAttachments'],
         ],
     })),
 
-    actions({
+    actions(({ values }) => ({
+        enableTaskDraftPersistence: (userId: string, projectId: number) => ({ userId, projectId }),
+        hydrateTaskDraft: (taskId?: string) => ({ taskId }),
+        persistTaskDraft: true,
+        beginTaskDraftDelivery: (content: string) => ({ content }),
+        finishTaskDraftDelivery: true,
+        setDraftRecovery: (recovery: DraftRecovery) => ({ recovery }),
+        setComposerFocused: (focused: boolean) => ({ focused }),
         setSending: (sending: boolean) => ({ sending }),
-        blockOnConsent: true,
+        blockOnConsent: (source: 'draft' | 'queue' | 'steer' = 'draft') => ({ source }),
         clearConsentBlock: true,
+        submitAfterConsent: true,
         // Start a fresh run on the task, seeded with this message and chained from the finished run.
         startNewRun: (content: string) => ({ content }),
         setStartingRun: (starting: boolean) => ({ starting }),
@@ -449,16 +708,28 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // Internal: POST one `user_message` now. `source` says where the content lives so a successful send
         // clears the right place and a failed send preserves it for retry ('draft' → composer, 'queue' →
         // the staged buffer combined into this send).
-        sendNow: (content: string, source: 'draft' | 'queue') => ({ content, source }),
-        // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
-        enqueueMessage: (content: string) => ({ content }),
-        // Re-stage unsent content ahead of anything queued since — used to restore a failed queue flush.
-        prependQueuedMessage: (content: string) => ({ content }),
+        sendNow: (content: string, source: 'draft' | 'queue', steer: boolean = false, rows: QueuedMessage[] = []) => ({
+            content,
+            source,
+            steer,
+            rows,
+        }),
+        // Stage a follow-up as its own row under the ones already queued.
+        enqueueMessage: (content: string) => ({ id: nextQueuedMessageId(), content }),
+        // Re-stage unsent rows ahead of anything queued since — used to restore a failed queue flush with
+        // the rows it took, so one failure doesn't fuse them into a single uneditable row.
+        prependQueuedMessages: (rows: QueuedMessage[]) => ({ rows }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
         removeQueuedMessage: (id: string) => ({ id }),
         clearQueue: true,
         // Internal: drain the staged "Up next" message when the agent is idle.
-        flushQueue: true,
+        flushQueue: (steer: boolean = false) => ({ steer }),
+        steerQueue: true,
+        handleEscape: true,
+        setDeferredSteer: (requestId: string | null) => ({ requestId }),
+        queueDeliveryFailed: true,
+        // Mirrors the queue editor's open/closed state into the logic, so an automatic drain waits for it.
+        setQueueEditing: (editing: boolean) => ({ editing }),
         // Pick the model / reasoning effort for the next message. Selection is held client-side only and
         // synced to the running agent (via `set_config_option`) at send time — not on each pick. The backend
         // doesn't persist live changes back to the run state, so the override is the source of truth.
@@ -466,15 +737,55 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         setEffort: (effort: string) => ({ effort }),
         // Pick the permission mode for the run. Like model/effort, selection is held client-side and synced to
         // the running agent (via `set_config_option { configId: 'mode' }`) at send time, or seeds the next run.
-        setMode: (mode: PermissionMode) => ({ mode }),
+        setMode: (mode: PermissionMode) => ({ mode, beforeStart: !values.runStarted }),
         // Internal: record the model / effort / mode last synced to the agent session, so a send only fires a
         // `set_config_option` when the pick actually differs from what the session is already running.
         setSentModel: (model: string) => ({ model }),
         setSentEffort: (effort: string) => ({ effort }),
-        setSentMode: (mode: PermissionMode) => ({ mode }),
-    }),
+        setSentMode: (mode: PermissionMode) => ({ mode, hasStartupOverride: values.unsentStartupMode !== null }),
+    })),
 
     reducers({
+        composerFocused: [false, { setComposerFocused: (_, { focused }) => focused }],
+        queueHold: [
+            null as QueueHold,
+            {
+                queueDeliveryFailed: () => 'unconfirmed',
+                requestCancellation: () => 'cancelled',
+                handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? 'cancelled' : state),
+                // A Stop or a terminal run holds the message it caught, not what the user types afterwards.
+                // Submitting text is an explicit "send this", so it lifts that hold and the buffer drains on
+                // turn end. Without it, every later submit joined a buffer nothing would ever deliver.
+                // An `unconfirmed` hold survives: the send that failed may have reached the agent anyway, so
+                // repeating it needs the user to look at the thread and ask for it.
+                enqueueMessage: (state) => (state === 'cancelled' ? null : state),
+                clearQueue: () => null,
+            },
+        ],
+        // Set while a staged row is open in its editor, so an automatic drain can't send the text the user
+        // is halfway through replacing. The editor itself lives in component state.
+        queueEditing: [
+            false,
+            {
+                setQueueEditing: (_, { editing }) => editing,
+                clearQueue: () => false,
+            },
+        ],
+        consentBlockedSource: ['draft' as 'draft' | 'queue' | 'steer', { blockOnConsent: (_, { source }) => source }],
+        deferredSteerRequestId: [
+            null as string | null,
+            {
+                setDeferredSteer: (_, { requestId }) => requestId,
+                permissionResponseFailed: () => null,
+                ingestPermissionRequest: (state, { record }) => (state === record.requestId ? state : null),
+                permissionRunChanged: () => null,
+                cancelPermissionDelivery: () => null,
+                clearPermissionRequest: () => null,
+                resetStream: () => null,
+                handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? null : state),
+                clearQueue: () => null,
+            },
+        ],
         sending: [
             false,
             {
@@ -501,22 +812,26 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 setClearing: (_, { clearing }) => clearing,
             },
         ],
+        draftRecovery: [
+            null as DraftRecovery,
+            {
+                setDraftRecovery: (_, { recovery }) => recovery,
+                submitComposerForm: () => null,
+                resetComposerForm: () => null,
+            },
+        ],
         queuedMessages: [
             [] as QueuedMessage[],
             {
-                // The buffer holds a single message under a stable id — a second follow-up concatenates onto
-                // the staged content rather than appending a new entry.
-                enqueueMessage: (state, { content }) =>
-                    state.length > 0
-                        ? [{ id: QUEUED_MESSAGE_ID, content: `${state[0].content}\n\n${content}` }]
-                        : [{ id: QUEUED_MESSAGE_ID, content }],
-                // Restore the unsent content in front of anything staged since, preserving send order.
-                prependQueuedMessage: (state, { content }) =>
-                    state.length > 0
-                        ? [{ id: QUEUED_MESSAGE_ID, content: `${content}\n\n${state[0].content}` }]
-                        : [{ id: QUEUED_MESSAGE_ID, content }],
+                // Each follow-up keeps its own row, in the order it was typed, so the user can edit or drop
+                // one of them without rewriting the rest. They go out together as one message.
+                enqueueMessage: (state, { id, content }) => [...state, { id, content }],
+                // Restore the unsent rows in front of anything staged since, preserving send order.
+                prependQueuedMessages: (state, { rows }) => [...rows, ...state],
                 updateQueuedMessage: (state, { id, content }) =>
-                    state.map((message) => (message.id === id ? { ...message, content } : message)),
+                    state.flatMap((message) =>
+                        message.id === id ? (content.trim() ? [{ ...message, content }] : []) : [message]
+                    ),
                 removeQueuedMessage: (state, { id }) => state.filter((message) => message.id !== id),
                 clearQueue: () => [],
             },
@@ -539,10 +854,19 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as PermissionMode | null,
             {
                 setMode: (_, { mode }) => mode,
+                setSentMode: (state, { mode, hasStartupOverride }) => (hasStartupOverride ? mode : state),
                 // Unlike model/effort, the mode genuinely changes server-side (e.g. a plan approval moves the
                 // session out of Plan mode) — the agent's confirmed mode is authoritative, so a stale manual
                 // pick must not keep shadowing the stream's `current_mode_update`.
                 setCurrentMode: () => null,
+            },
+        ],
+        // The initial session mode describes the first prompt, not the queued follow-up's selection.
+        unsentStartupMode: [
+            null as PermissionMode | null,
+            {
+                setMode: (_, { mode, beforeStart }) => (beforeStart ? mode : null),
+                setSentMode: () => null,
             },
         ],
         // The model/effort last synced to the agent session via `set_config_option`. null means "not synced
@@ -583,7 +907,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             }),
             submit: ({ draft }) => {
                 const content = draft.trim()
-                if (!content) {
+                if (!content || values.cancellationState) {
                     return
                 }
                 if (!values.dataProcessingAccepted) {
@@ -603,14 +927,33 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         actions.clearConversation()
                         return
                     }
-                    actions.startNewRun(content)
+                    // A row editor keeps its text in the component until the user saves, so sending now
+                    // would carry the row as it stood before the edit. Wait, as the drain does.
+                    if (values.queueEditing) {
+                        lemonToast.info('Save or cancel your edit first')
+                        return
+                    }
+                    // A finished run can't drain the queue — `canSend` is false for the rest of its life —
+                    // so the staged rows ride along into the run this send starts. Leaving them behind
+                    // stranded them on screen, promising a delivery nothing would ever make.
+                    const staged = values.queuedMessages.map((message) => message.content)
+                    if (staged.length > 0) {
+                        actions.clearQueue()
+                    }
+                    actions.startNewRun([...staged, content].join('\n\n'))
                     return
                 }
                 // While the agent is working, a send is in flight, or a message is already staged — concatenate
                 // this onto the single queued message so follow-ups never jump ahead or fan out; otherwise send
                 // it straight from the draft. `flushQueue` self-guards, draining only when the run is fully idle.
-                if (values.isBusy || values.sending || values.queuedMessages.length > 0) {
+                if (
+                    values.isBusy ||
+                    values.hasUnresolvedApproval ||
+                    values.sending ||
+                    values.queuedMessages.length > 0
+                ) {
                     actions.enqueueMessage(content)
+                    actions.claimAttachmentsForQueue()
                     actions.resetComposerForm()
                     actions.flushQueue()
                 } else {
@@ -621,25 +964,63 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     })),
 
     selectors({
+        hasUnresolvedApproval: [
+            (s) => [s.pendingPermissionRequest, s.permissionResponseRequestIds],
+            (request: PermissionRequestRecord | null, deliveries: Set<string>): boolean =>
+                !!request || deliveries.size > 0,
+        ],
+        steerPending: [
+            (s) => [s.deferredSteerRequestId, s.sending],
+            (requestId: string | null, sending: boolean): boolean => requestId !== null || sending,
+        ],
+        composerActive: [
+            (s) => [s.pendingPermissionRequest, s.respondingToPermission, s.isTerminal],
+            (request: PermissionRequestRecord | null, responding: boolean, terminal: boolean): boolean =>
+                !request || responding || terminal,
+        ],
         isTerminal: [
             (s) => [s.currentRunStatus],
             (status: null | import('./runStreamLogic').RunStatus): boolean => isTerminalRunStatus(status),
         ],
         // The model/effort to display in the picker and launch the next run with: the optimistic client-side
-        // override, else the run's stored value, else the default. Effort is clamped to one the model supports.
+        // override, else the run's stored value, else the server-resolved default (user preference over
+        // project default), else the built-in default. Effort is clamped to one the model supports.
         selectedModel: [
-            (s) => [s.modelOverride, (_, p) => p.currentModel],
-            (override: string | null, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
-        ],
-        selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel, s.catalogue],
+            (s) => [
+                s.modelOverride,
+                (_, p) => p.currentModel,
+                s.defaultModel,
+                s.catalogue,
+                (_, p) => p.currentRuntimeAdapter,
+                s.isTerminal,
+            ],
             (
                 override: string | null,
                 current: string | null | undefined,
+                serverDefault: string | null,
+                catalogue: ModelChoiceApi[],
+                runtimeAdapter: string | null | undefined,
+                terminal: boolean
+            ): string => {
+                const compatibleOverride =
+                    override &&
+                    !terminal &&
+                    runtimeAdapter &&
+                    getRuntimeAdapterForModel(catalogue, override) !== runtimeAdapter
+                        ? null
+                        : override
+                return compatibleOverride ?? current ?? serverDefault ?? DEFAULT_COMPOSER_MODEL
+            },
+        ],
+        selectedEffort: [
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.defaultEffort, s.selectedModel, s.catalogue],
+            (
+                override: string | null,
+                current: string | null | undefined,
+                serverDefault: string | null,
                 model: string,
                 catalogue: ModelChoiceApi[]
-            ): ReasoningEffortEnumApi =>
-                resolveEffortForModel(catalogue, override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
+            ): ReasoningEffortEnumApi => resolveEffortForModel(catalogue, override ?? current ?? serverDefault, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -647,8 +1028,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // mode, another runtime's vocabulary) degrades to the next fallback instead of leaking out as a
         // fake `PermissionMode`.
         selectedMode: [
-            (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode, (_, p) => p.currentRuntimeAdapter],
+            (s) => [
+                s.unsentStartupMode,
+                s.modeOverride,
+                s.currentMode,
+                (_, p) => p.currentMode,
+                (_, p) => p.currentRuntimeAdapter,
+            ],
             (
+                startupOverride: PermissionMode | null,
                 override: PermissionMode | null,
                 current: string | null,
                 initial: string | null | undefined,
@@ -658,16 +1046,58 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 // (a run started from desktop or Slack), and showing `full access` on a Claude run — or
                 // sending it — is a mode that runtime rejects.
                 const adapter = runtimeAdapter ?? RuntimeAdapterEnumApi.Claude
-                const picked = override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value
+                const picked =
+                    startupOverride ?? override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value
                 return picked ? resolveModeForRuntimeAdapter(adapter, picked) : getDefaultModeForRuntimeAdapter(adapter)
             },
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
-        isBusy: [(s) => [s.isThinking], (isThinking: boolean): boolean => isThinking],
+        isBusy: [
+            (s, p) => [s.isThinking, s.runOpening, s.runStarted, s.isTerminal, p.runId],
+            (thinking: boolean, opening: boolean, started: boolean, terminal: boolean, runId: string): boolean =>
+                thinking || opening || (!terminal && (!runId || !started)),
+        ],
         canSend: [
-            (s) => [s.sending, s.isTerminal, s.currentProjectId],
-            (sending: boolean, isTerminal: boolean, currentProjectId: number | null): boolean =>
-                !sending && !isTerminal && currentProjectId != null,
+            (s, p) => [
+                s.sending,
+                s.cancellationState,
+                s.isTerminal,
+                s.currentProjectId,
+                s.currentRunStatus,
+                s.bootstrappedRunId,
+                s.bootstrappedTaskId,
+                p.runId,
+                p.taskId,
+                s.runStarted,
+            ],
+            (
+                sending: boolean,
+                cancellationState: CancellationState,
+                isTerminal: boolean,
+                currentProjectId: number | null,
+                status: RunStatus | null,
+                activeRunId: string | null,
+                activeTaskId: string | null,
+                runId: string,
+                taskId: string,
+                runStarted: boolean
+            ): boolean =>
+                !sending &&
+                !cancellationState &&
+                !isTerminal &&
+                currentProjectId != null &&
+                status !== null &&
+                !!taskId &&
+                !!runId &&
+                runStarted &&
+                (!activeRunId || activeRunId === runId) &&
+                (!activeTaskId || activeTaskId === taskId),
+        ],
+        // Whether the staged message is waiting on the user rather than on the agent. The queue looks the
+        // same in both cases, so the banner says which it is.
+        queueHeld: [
+            (s) => [s.queuedMessages, s.queueHold],
+            (queued: QueuedMessage[], hold: QueueHold): boolean => queued.length > 0 && hold !== null,
         ],
         // In-flight indicator for the composer's send button — a live send, a new-run start, or a clear.
         isSubmitting: [
@@ -683,7 +1113,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
             (s) => [
-                s.contextItems,
+                (state, p: RunInteractionLogicProps) => p.contextItems ?? s.contextItems(state, p),
                 s.sentContextKeysByTask,
                 s.seenContextLinesByTask,
                 (_, p: RunInteractionLogicProps) => p.taskId,
@@ -705,12 +1135,37 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, cache }) => {
+        const getWarmLogic = (): ReturnType<typeof taskWarmLogic> | undefined => {
+            if (!props.taskId || !props.runId) {
+                return
+            }
+            const warm = taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId })
+            if (cache.warmLogicKey !== warm.key || cache.warmDisposables !== cache.disposables) {
+                cache.disposables.add(() => warm.mount(), 'composer-warm', { pauseOnPageHidden: false })
+                cache.warmLogicKey = warm.key
+                cache.warmDisposables = cache.disposables
+            }
+            return warm
+        }
+        const invalidateSend = (): void => {
+            cache.sendGeneration = (cache.sendGeneration ?? 0) + 1
+            actions.setSending(false)
+        }
+
         const noteTerminalDraft = (): void => {
             // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
             // the task's repository snapshot, so typing must not start one before the organization
             // accepts AI data processing.
-            if (!values.isTerminal || !values.dataProcessingAccepted) {
+            if (
+                !props.taskId ||
+                !props.runId ||
+                !values.isTerminal ||
+                !values.dataProcessingAccepted ||
+                values.startingRun ||
+                values.draftRecovery ||
+                cache.restoringTaskDraft
+            ) {
                 return
             }
             const createRequest = buildRunCreateRequest(
@@ -720,7 +1175,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedMode,
                 { resume_from_run_id: props.runId }
             )
-            actions.noteDraft(Boolean(values.composerForm.draft.trim()), createRequest as WarmTaskResumeRequestApi)
+            getWarmLogic()?.actions.noteDraft(
+                Boolean(values.composerForm.draft.trim()),
+                createRequest as WarmTaskResumeRequestApi
+            )
+        }
+
+        // A queue send that never landed goes back as the rows it took, so one failure doesn't fuse them
+        // into a single uneditable row. A send with no rows attached still has its text, so it returns as
+        // one row rather than vanishing.
+        const restoreQueuedRows = (rows: QueuedMessage[], content: string): void => {
+            actions.prependQueuedMessages(rows.length > 0 ? rows : [{ id: nextQueuedMessageId(), content }])
         }
 
         // Record the non-text refs just wrapped into a send under the task, so no later send anywhere in
@@ -733,29 +1198,126 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
 
         return {
-            // Drain the staged "Up next" message — only when the run is idle and can actually take it, so a flush
-            // against a busy/terminal/in-flight send is a no-op rather than dropping the message. The buffer is
-            // cleared up-front (not after the send) so a follow-up typed during the in-flight send stages cleanly
-            // instead of being wiped along with this send on success; `sendNow` re-stages it if the send fails.
-            flushQueue: () => {
-                const [queued] = values.queuedMessages
-                if (!queued || values.isBusy || !values.canSend) {
+            handleEscape: () => {
+                if (values.cancellationState || values.steerPending) {
+                    return
+                }
+                if (values.queuedMessages.length > 0) {
+                    actions.steerQueue()
+                } else if (values.isBusy || (!values.composerActive && !values.isTerminal)) {
+                    actions.requestCancellation()
+                }
+            },
+            submitAfterConsent: () => {
+                actions.clearConsentBlock()
+                if (values.consentBlockedSource === 'steer') {
+                    actions.steerQueue()
+                } else if (values.consentBlockedSource === 'queue') {
+                    actions.flushQueue()
+                } else {
+                    actions.submitComposerForm()
+                }
+            },
+            // Clear before awaiting delivery so new follow-ups survive completion. A failed send restores the
+            // rows it took, and holds them until the user asks again, so nothing is delivered twice.
+            flushQueue: ({ steer }) => {
+                const rows = values.queuedMessages
+                // The staged rows go out as one `user_message`, so follow-ups never fan out into separate
+                // turns — the second would otherwise wait for the turn the first one starts.
+                const queued = rows.map((message) => message.content).join('\n\n')
+                if (
+                    !queued ||
+                    (!steer && (values.isBusy || values.queueHold !== null)) ||
+                    values.queueEditing ||
+                    values.hasUnresolvedApproval ||
+                    !values.canSend
+                ) {
+                    return
+                }
+                if (!values.dataProcessingAccepted) {
+                    actions.blockOnConsent(steer ? 'steer' : 'queue')
                     return
                 }
                 actions.clearQueue()
-                actions.sendNow(queued.content, 'queue')
+                actions.sendNow(queued, 'queue', steer, rows)
             },
 
-            sendNow: async ({ content, source }) => {
-                if (values.sending || !content.trim() || values.isTerminal || values.currentProjectId == null) {
+            steerQueue: () => {
+                if (!values.queuedMessages.length || values.steerPending || !values.canSend) {
+                    return
+                }
+                if (!values.dataProcessingAccepted) {
+                    actions.blockOnConsent('steer')
+                    return
+                }
+                if (values.pendingPermissionRequest && values.pendingPermissionRequest.sourceRunId !== props.runId) {
+                    return
+                }
+                const requestId =
+                    values.pendingPermissionRequest?.requestId ?? [...values.permissionResponseRequestIds][0]
+                if (requestId) {
+                    actions.setDeferredSteer(requestId)
+                } else {
+                    actions.flushQueue(true)
+                }
+            },
+
+            markPermissionRequestResolved: ({ requestId }) => {
+                const steer = values.deferredSteerRequestId === requestId
+                if (steer) {
+                    actions.setDeferredSteer(null)
+                }
+                actions.flushQueue(steer)
+            },
+            // An emptied queue hands its files back rather than deleting them for the user.
+            removeQueuedMessage: () => {
+                if (!values.queuedMessages.length) {
+                    actions.clearQueue()
+                    actions.releaseQueuedAttachments()
+                }
+            },
+            updateQueuedMessage: () => {
+                if (!values.queuedMessages.length) {
+                    actions.clearQueue()
+                    actions.releaseQueuedAttachments()
+                }
+            },
+            // A turn that ended while a row was open skipped the drain, and an idle agent sends no further
+            // turn completion — so retry the drain once the editor closes.
+            setQueueEditing: ({ editing }) => {
+                if (!editing) {
+                    actions.flushQueue()
+                }
+            },
+
+            sendNow: async ({ content, source, steer, rows }) => {
+                if (
+                    !values.canSend ||
+                    !content.trim() ||
+                    values.hasUnresolvedApproval ||
+                    !values.dataProcessingAccepted
+                ) {
                     // Nothing was sent. The queue buffer was already cleared in `flushQueue`, so re-stage for
                     // retry; the draft path leaves its content untouched in the composer.
                     if (source === 'queue') {
-                        actions.prependQueuedMessage(content)
+                        restoreQueuedRows(rows, content)
                     }
                     return
                 }
+                const projectId = values.currentProjectId
+                const runId = props.runId
+                const taskId = props.taskId
+                const disposables = cache.disposables
+                const generation = (cache.sendGeneration = (cache.sendGeneration ?? 0) + 1)
+                const isCurrent = (): boolean =>
+                    !disposables.isDisposed &&
+                    cache.sendGeneration === generation &&
+                    values.currentProjectId === projectId &&
+                    !values.isTerminal &&
+                    props.runId === runId &&
+                    props.taskId === taskId
                 actions.setSending(true)
+                actions.beginTaskDraftDelivery(content)
                 const streamKey = props.streamKey ?? props.runId
                 // `/clear` goes unwrapped: a context block would hide the command behind it (the
                 // agent reads the command off the front) and mark refs sent that nothing ever read.
@@ -767,16 +1329,18 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 if (source === 'draft') {
                     actions.resetComposerForm()
                 }
+                actions.persistTaskDraft()
                 try {
                     // Sync the picked model/effort to the agent session first, but only what the user actually
                     // changed since the last sync — mid-run config lives as session state, so it must go via a
                     // `set_config_option` command before the message rather than ride inside `user_message`. A
                     // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                     // successful sync so the next send retries an unsent change.
-                    const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
+                    const activeModel =
+                        values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
                     const activeEffort = resolveEffortForModel(
                         values.catalogue,
-                        values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
+                        values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
                         activeModel
                     )
                     if (values.selectedModel !== activeModel) {
@@ -785,6 +1349,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             method: 'set_config_option',
                             params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
                         })
+                        if (!isCurrent()) {
+                            return
+                        }
                         actions.setSentModel(values.selectedModel)
                     }
                     if (values.selectedEffort !== activeEffort) {
@@ -793,6 +1360,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             method: 'set_config_option',
                             params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
                         })
+                        if (!isCurrent()) {
+                            return
+                        }
                         actions.setSentEffort(values.selectedEffort)
                     }
                     const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
@@ -809,38 +1379,95 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             method: 'set_config_option',
                             params: { configId: MODE_CONFIG_ID, value: values.selectedMode },
                         })
-                        actions.setSentMode(values.selectedMode)
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
+                    actions.setSentMode(values.selectedMode)
+                    // A drain carries the files queued with its text, not whatever the composer holds now.
+                    const sending = source === 'queue' ? values.queuedAttachments : values.stagedAttachments
+                    let artifactIds: string[] = []
+                    if (sending.length > 0) {
+                        actions.setUploading(true)
+                        artifactIds = await uploadRunAttachments(
+                            String(projectId),
+                            taskId,
+                            runId,
+                            sending.map((attachment) => attachment.file)
+                        )
+                        if (!isCurrent()) {
+                            return
+                        }
                     }
                     // Wrap the outgoing content with the on-screen context block (invisible to the user —
                     // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
-                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                    if (!isCurrent() || values.hasUnresolvedApproval) {
+                        throw new Error('The run cannot accept this message yet')
+                    }
+                    const response = await tasksRunsCommandCreate(String(projectId), taskId, runId, {
                         jsonrpc: '2.0',
                         method: 'user_message',
-                        params: { content: wrapWithPosthogContext(content, pendingContext) },
+                        params: {
+                            content: wrapWithPosthogContext(content, pendingContext),
+                            ...(steer ? { steer: true } : {}),
+                            ...(artifactIds.length > 0 ? { artifact_ids: artifactIds } : {}),
+                        },
                     })
+                    if (!isCurrent()) {
+                        return
+                    }
+                    const result = response?.result
+                    if (
+                        response?.jsonrpc !== '2.0' ||
+                        'error' in response ||
+                        typeof result !== 'object' ||
+                        result === null ||
+                        !('queued' in result) ||
+                        result.queued !== true
+                    ) {
+                        throw new Error('The agent did not confirm this message')
+                    }
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
-                    actions.pushHumanMessage(content)
+                    // The names ride along so the chips show on send, not when the turn echoes back.
+                    actions.pushHumanMessage(content, stageAttachmentPreviews(sending))
                     markPendingContextSent(pendingContext)
+                    // One attached while this send was in flight belongs to the next message.
+                    actions.removeAttachments(sending.map((attachment) => attachment.id))
+                    actions.finishTaskDraftDelivery()
                 } catch {
+                    if (!isCurrent()) {
+                        return
+                    }
                     actions.releaseApplyBackTargets(streamKey)
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
                     if (source === 'draft') {
+                        // Land the pending keystroke first: writing the draft cancels the composer's debounced
+                        // sync, so text typed inside that window would be dropped rather than merged behind.
+                        props.flushDraft?.()
                         actions.setComposerFormValues({
                             draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
                         })
                     } else {
-                        actions.prependQueuedMessage(content)
+                        actions.queueDeliveryFailed()
+                        restoreQueuedRows(rows, content)
                     }
+                    actions.finishTaskDraftDelivery()
                     lemonToast.error('Failed to send message. Please try again.')
                 } finally {
-                    actions.setSending(false)
+                    if (isCurrent()) {
+                        actions.setSending(false)
+                    }
+                    // Drops the spinners off chips that outlived a failed send.
+                    actions.setUploading(false)
                 }
             },
 
             // The agent finished a turn — drain any staged follow-ups.
-            markTurnComplete: () => {
-                actions.flushQueue()
+            markTurnComplete: ({ isReplay }) => {
+                if (!isReplay) {
+                    actions.flushQueue()
+                }
             },
 
             // The new model may not support the current effort — clamp the override so it never holds an
@@ -858,16 +1485,50 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             setMode: noteTerminalDraft,
             setComposerFormValue: noteTerminalDraft,
             setComposerFormValues: noteTerminalDraft,
-            handleTerminalStatus: noteTerminalDraft,
+            handleTerminalStatus: () => {
+                if (values.isTerminal) {
+                    invalidateSend()
+                }
+                noteTerminalDraft()
+            },
+            permissionRunChanged: invalidateSend,
+            resetStream: invalidateSend,
+            cancelPermissionDelivery: invalidateSend,
 
             startNewRun: async ({ content }) => {
-                if (values.startingRun || !content.trim() || values.currentProjectId == null) {
+                if (
+                    !props.taskId ||
+                    !props.runId ||
+                    values.startingRun ||
+                    !content.trim() ||
+                    values.currentProjectId == null
+                ) {
                     return
                 }
                 actions.setStartingRun(true)
                 const streamKey = props.streamKey ?? props.runId
-                let claimedStreamKey = streamKey
                 const pendingContext = values.pendingContextItems
+                const disposables = cache.disposables
+                const projectId = String(values.currentProjectId)
+                const taskId = props.taskId
+                const runId = props.runId
+                const isCurrent = (): boolean =>
+                    !disposables.isDisposed &&
+                    String(values.currentProjectId) === projectId &&
+                    props.taskId === taskId &&
+                    props.runId === runId
+                let optimisticStarted = false
+                let accepted = false
+                const stream = runStreamLogic({ streamKey })
+                disposables.add(
+                    () => () => {
+                        if (optimisticStarted && !accepted && stream.isMounted()) {
+                            stream.actions.rollbackOptimisticResume()
+                        }
+                    },
+                    'optimistic-resume',
+                    { pauseOnPageHidden: false }
+                )
                 actions.claimApplyBackTargets(streamKey)
                 try {
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
@@ -884,28 +1545,89 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
-                    actions.consumeWarm()
-                    const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
-                    actions.resetComposerForm()
-                    markPendingContextSent(pendingContext)
-                    const latestRunId = result.latest_run?.id
-                    if (latestRunId) {
-                        actions.transferApplyBackTargets(streamKey, latestRunId)
-                        claimedStreamKey = latestRunId
-                        props.onRunStarted?.(latestRunId)
-                    } else {
-                        actions.releaseApplyBackTargets(streamKey)
+                    // The task already exists here, so staged artifacts hold the files whether this request
+                    // activates a warm run or cold-boots one.
+                    // The queue rides along into the run this send starts, so its files come too.
+                    const sending = [...values.queuedAttachments, ...values.stagedAttachments]
+                    let stagedArtifactIds: string[] = []
+                    if (sending.length > 0) {
+                        actions.setUploading(true)
+                        stagedArtifactIds = await uploadStagedTaskAttachments(
+                            projectId,
+                            taskId,
+                            sending.map((attachment) => attachment.file)
+                        )
+                        if (!isCurrent()) {
+                            return
+                        }
                     }
-                } catch {
-                    actions.releaseApplyBackTargets(claimedStreamKey)
-                    lemonToast.error('Failed to start a new run. Please try again.')
+                    const warmSubmission: WarmSubmission = { projectId, lease: null }
+                    getWarmLogic()?.actions.prepareSubmit(warmSubmission)
+                    actions.beginTaskDraftDelivery(content)
+                    actions.resetComposerForm()
+                    actions.startOptimisticResume(content, stageAttachmentPreviews(sending))
+                    optimisticStarted = true
+                    const result = await submitWithWarmRunRetry(
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                taskId,
+                                stagedArtifactIds.length > 0
+                                    ? { ...createRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : createRequest,
+                                options
+                            ),
+                        disposables
+                    )
+                    if (!isCurrent()) {
+                        return
+                    }
+                    getWarmLogic()?.actions.consumeWarm(warmSubmission, result.latest_run?.id ?? null)
+                    const run = result.latest_run
+                    if (!run?.id) {
+                        throw new Error('The run response did not include a run')
+                    }
+                    accepted = true
+                    actions.finishTaskDraftDelivery()
+                    markPendingContextSent(pendingContext)
+                    // A failure leaves them staged for the retry.
+                    actions.removeAttachments(sending.map((attachment) => attachment.id))
+                    props.flushDraft?.()
+                    const handoff = { run, streamKey, draft: values.composerForm.draft }
+                    actions.attachOptimisticResume(taskId, run)
+                    props.onRunStarted?.(run.id, handoff)
+                } catch (error) {
+                    if (!isCurrent()) {
+                        return
+                    }
+                    if (accepted) {
+                        throw error
+                    }
+                    if (optimisticStarted) {
+                        actions.rollbackOptimisticResume()
+                    }
+                    actions.releaseApplyBackTargets(streamKey)
+                    if (optimisticStarted) {
+                        props.flushDraft?.()
+                        actions.setComposerFormValues({
+                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                        })
+                        optimisticStarted = false
+                    }
+                    actions.finishTaskDraftDelivery()
+                    lemonToast.error(runStartFailureMessage(error))
                 } finally {
-                    actions.setStartingRun(false)
+                    disposables.dispose('optimistic-resume')
+                    if (isCurrent()) {
+                        actions.setStartingRun(false)
+                    }
+                    // Drops the spinners off chips that outlived a failed start.
+                    actions.setUploading(false)
                 }
             },
 
             clearConversation: async () => {
-                if (values.clearing || values.currentProjectId == null) {
+                if (!props.taskId || !props.runId || values.clearing || values.currentProjectId == null) {
                     return
                 }
                 actions.setClearing(true)
@@ -914,7 +1636,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // Any successor held right now was warmed before this boundary was written, so its
                     // restored session still carries the conversation the clear just removed. Hand it
                     // back; the next keystroke warms a fresh one on the cleared state.
-                    actions.releaseWarm()
+                    getWarmLogic()?.actions.releaseWarm()
                     actions.resetComposerForm()
                     // A finished run has no live stream to echo these back, so paint them from here.
                     // They match what the backend persisted, so a later replay folds the same thread.
@@ -927,5 +1649,37 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
             },
         }
+    }),
+    listeners(taskDraftListeners),
+    propsChanged(({ actions }) => {
+        actions.hydrateTaskDraft()
+    }),
+    afterMount((logic) => {
+        const { actions, props, cache } = logic
+        if (props.initialDraft) {
+            actions.setComposerFormValues({ draft: props.initialDraft })
+            props.onDraftAdopted?.()
+        }
+        cache.disposables.add(
+            () => {
+                const flush = (): void => {
+                    logic.props.flushDraft?.()
+                    actions.persistTaskDraft()
+                }
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'hidden') {
+                        flush()
+                    }
+                }
+                window.addEventListener('pagehide', flush)
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => {
+                    window.removeEventListener('pagehide', flush)
+                    document.removeEventListener('visibilitychange', onVisibilityChange)
+                }
+            },
+            'task-draft-page-exit',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

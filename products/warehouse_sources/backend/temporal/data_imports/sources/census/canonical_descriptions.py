@@ -82,4 +82,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_file_system_destination": "Whether this destination writes to a file system rather than an API.",
         },
     },
+    "datasets": {
+        "description": "A Census dataset: the SQL query against a source connection that defines the records a sync reads.",
+        "docs_url": "https://fivetran.com/docs/activations/rest-api/api-reference/workspace-apis/datasets/list-datasets",
+        "columns": {
+            "id": "Unique identifier for the dataset.",
+            "type": "Type of dataset. Census documents `sql` as the only value on this endpoint.",
+            "query": "The SQL query that defines the dataset.",
+            "source_id": "Identifier of the source connection the query runs against.",
+        },
+    },
+    "workspaces": {
+        "description": "A Census workspace: the container that scopes an organization's sources, destinations, and syncs.",
+        "docs_url": "https://fivetran.com/docs/activations/rest-api/api-reference/organization-apis/workspaces/list-workspaces",
+        "columns": {
+            "id": "Unique identifier for the workspace.",
+            "name": "Name of the workspace, unique within the organization.",
+            "organization_id": "Identifier of the organization that owns the workspace.",
+            "created_at": "Timestamp the workspace was created.",
+        },
+    },
 }

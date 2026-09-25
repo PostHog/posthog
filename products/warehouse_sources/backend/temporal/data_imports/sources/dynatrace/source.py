@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,7 +39,17 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "services": "Services active in the last 30 days",
     "applications": "Applications active in the last 30 days",
     "process_groups": "Process groups active in the last 30 days",
+    "databases": "Relational database services (for example Amazon RDS) active in the last 30 days",
+    "disks": "Disks active in the last 30 days",
+    "queues": "Messaging queues active in the last 30 days",
+    "kubernetes_clusters": "Kubernetes clusters active in the last 30 days",
+    "kubernetes_nodes": "Kubernetes nodes active in the last 30 days",
+    "cloud_applications": "Kubernetes workloads active in the last 30 days",
+    "custom_devices": "Custom devices active in the last 30 days",
+    "metric_data_points": "One row per metric, dimension and hour, for the metric keys you entered. Only syncs the last 30 days on initial sync",
     "slos": "Includes the current evaluation (status, error budget) of each SLO",
+    "synthetic_monitors": "Name, type and enabled state of each synthetic monitor",
+    "synthetic_executions": "On-demand executions only. Dynatrace serves the last 6 hours, so sync often to build up history",
 }
 
 
@@ -62,12 +70,12 @@ class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DYNATRACE,
+            name=ExternalDataSourceType.DYNATRACE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Dynatrace",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["apm", "observability", "monitoring"],
-            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, audit logs, vulnerabilities, metric metadata, and SLOs into the PostHog Data warehouse.
+            caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, audit logs, vulnerabilities, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
 
 The environment URL is where you open Dynatrace — for SaaS it looks like `https://abc12345.live.dynatrace.com`; for Managed it's `https://your-domain/e/your-environment-id`.
 
@@ -79,6 +87,8 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
 - `securityProblems.read`
 - `metrics.read`
 - `slo.read`
+- `ReadSyntheticData`
+- `syntheticExecutions.read`
 """,
             iconPath="/static/services/dynatrace.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynatrace",
@@ -100,6 +110,15 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
                         required=True,
                         placeholder="dt0c01.…",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="metric_selector",
+                        label="Metric keys",
+                        caption="Up to 10 comma-separated [metric keys](https://docs.dynatrace.com/docs/dynatrace-api/environment-api/metric-v2/metric-selector) to sync hourly values for. Leave empty to sync only the metric catalog.",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="builtin:host.cpu.usage,builtin:service.response.time",
+                        secret=False,
                     ),
                 ],
             ),
@@ -156,7 +175,9 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
     ) -> dict[str, str | None]:
         # Dynatrace scopes are granted per API area, so per-table access varies with the token.
         # Probe each scope so the schema picker can flag tables the token can't read.
-        return check_endpoint_permissions(config.environment_url, config.api_token, endpoints, team_id)
+        return check_endpoint_permissions(
+            config.environment_url, config.api_token, endpoints, team_id, metric_selector=config.metric_selector
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DynatraceResumeConfig]:
         return ResumableSourceManager[DynatraceResumeConfig](inputs, DynatraceResumeConfig)
@@ -178,4 +199,5 @@ Create an [access token](https://docs.dynatrace.com/docs/manage/identity-access-
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            metric_selector=config.metric_selector,
         )

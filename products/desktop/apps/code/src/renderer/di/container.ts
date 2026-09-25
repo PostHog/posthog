@@ -48,14 +48,6 @@ import {
   CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
-  LOCAL_HANDOFF_DIALOG,
-  LOCAL_HANDOFF_HOST,
-  LOCAL_HANDOFF_NOTIFIER,
-  LOCAL_HANDOFF_SERVICE,
-  type LocalHandoffHost,
-  LocalHandoffService,
-} from "@posthog/core/sessions/localHandoffService";
-import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
@@ -99,6 +91,10 @@ import { TrpcCloudTaskClient } from "@posthog/host-router/cloud-task-client";
 import { TrpcPiRunner } from "@posthog/host-router/pi-runner";
 import { TrpcPiSessionFactory } from "@posthog/host-router/pi-session-factory";
 import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
@@ -131,16 +127,8 @@ import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
-import {
-  QUICK_ASK_SETTINGS_CLIENT,
-  type QuickAskSettingsClient,
-} from "@posthog/ui/features/quick-ask/identifiers";
 import { ARTIFACT_HTML_FRAME_COMPONENT } from "@posthog/ui/features/sessions/components/artifactHtmlFrameHost";
 import { MCP_TOOL_BLOCK_COMPONENT } from "@posthog/ui/features/sessions/components/session-update/identifiers";
-import {
-  localHandoffDialog,
-  localHandoffNotifier,
-} from "@posthog/ui/features/sessions/localHandoffService";
 import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import {
   DEV_MODE_CLIENT,
@@ -193,6 +181,14 @@ container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
 
+container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
+  captureScreenshot: () =>
+    hostTrpcClient.feedbackContext.captureScreenshot.query(),
+  readRecentLogs: () => hostTrpcClient.feedbackContext.readRecentLogs.query(),
+  submitFeedback: (input) =>
+    hostTrpcClient.feedbackContext.submitFeedback.mutate(input),
+} satisfies IFeedbackContext);
+
 container.bind(UPDATES_CLIENT).toConstantValue(updatesClient);
 
 // dev mode client — exposes the dev-toolbar flag store to the shared settings UI
@@ -220,7 +216,8 @@ const browserTabsClient: BrowserTabsClient = {
   reset: () => trpcClient.browserTabs.reset.mutate(),
   openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
-  close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  close: (tabId, newTabId) =>
+    trpcClient.browserTabs.close.mutate({ tabId, newTabId }),
   closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
   setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
@@ -253,24 +250,6 @@ const discordPresenceClient: DiscordPresenceClient = {
   },
 };
 container.bind(DISCORD_PRESENCE_CLIENT).toConstantValue(discordPresenceClient);
-
-const quickAskSettingsClient: QuickAskSettingsClient = {
-  getState: () => trpcClient.quickAsk.getState.query(),
-  setShortcut: (accelerator) =>
-    trpcClient.quickAsk.setShortcut.mutate({ accelerator }),
-  setSettings: (patch) =>
-    trpcClient.quickAsk.setSettings.mutate({
-      ...patch,
-      defaultAdapter: patch.defaultAdapter as
-        | ""
-        | "claude"
-        | "codex"
-        | undefined,
-    }),
-};
-container
-  .bind(QUICK_ASK_SETTINGS_CLIENT)
-  .toConstantValue(quickAskSettingsClient);
 
 // mission control overlay client
 const missionControlClient: MissionControlClient = {
@@ -367,24 +346,6 @@ container
   .bind<SessionService>(SESSION_SERVICE)
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
-container.bind<LocalHandoffHost>(LOCAL_HANDOFF_HOST).toConstantValue({
-  getRepositoryByRemoteUrl: (input) =>
-    trpcClient.folders.getRepositoryByRemoteUrl.query(input),
-  selectDirectory: () => trpcClient.os.selectDirectory.query(),
-  addFolder: (input) => trpcClient.folders.addFolder.mutate(input),
-  getWorktreeLocation: () => trpcClient.os.getWorktreeLocation.query(),
-  cloneRepository: (input) => trpcClient.git.cloneRepository.mutate(input),
-  addAdditionalDirectory: async (input) => {
-    await trpcClient.additionalDirectories.addForTask.mutate(input);
-  },
-});
-container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
-container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
-container
-  .bind<LocalHandoffService>(LOCAL_HANDOFF_SERVICE)
-  .to(LocalHandoffService)
-  .inSingletonScope();
-
 // git-interaction
 container.bind(GIT_WRITE_CLIENT).toConstantValue(gitWriteClient);
 container.bind(GIT_INTERACTION_EFFECTS).toConstantValue(gitInteractionEffects);
@@ -518,7 +479,3 @@ container.bind(TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT).toConstantValue({
 container
   .bind(TITLE_GENERATOR_LOGGER)
   .toConstantValue(logger.scope("title-generator"));
-
-export function get<T>(token: symbol): T {
-  return container.get<T>(token);
-}

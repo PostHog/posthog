@@ -196,6 +196,12 @@ database "posthog" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -341,6 +347,12 @@ database "posthog" {
     column "_record_count" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"
@@ -585,7 +597,19 @@ SQL
   patch_materialized_view "kafka_trace_spans_avro_mv" {
     query = <<SQL
 SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -597,7 +621,11 @@ SELECT
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   observed_timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
@@ -609,4 +637,49 @@ FROM posthog.kafka_trace_spans_avro
 SQL
 
   }
+
+  # Local stacks create every topic with one partition, so only one consumer of this group can
+  # get an assignment. The rest retry forever, which holds threads and floods the server log.
+  patch_table "kafka_metrics_avro" {
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
+  patch_table "kafka_metrics_avro2" {
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro2"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
+  patch_table "kafka_trace_spans_avro" {
+    engine "kafka" {
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
 }

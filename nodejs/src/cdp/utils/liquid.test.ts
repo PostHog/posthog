@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import { LiquidRenderer } from './liquid'
+import { LiquidRenderBudget, LiquidRenderer } from './liquid'
 
 describe('LiquidRenderer', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
@@ -57,6 +57,19 @@ describe('LiquidRenderer', () => {
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(LiquidRenderer['_liquid']).toBeDefined()
             expect(result).toMatchInlineSnapshot(`"Hello test_person!"`)
+        })
+    })
+
+    describe('warehouse row record alias', () => {
+        it.each([
+            ['$warehouse_view_row', 'row@example.com'],
+            ['$warehouse_source_row', 'row@example.com'],
+            ['test_event', ''],
+        ])('renders {{ record.email }} for %s as "%s"', (eventName, expected) => {
+            globals.event.event = eventName
+            globals.event.properties = { email: 'row@example.com' }
+
+            expect(LiquidRenderer.renderWithHogFunctionGlobals('{{ record.email }}', globals)).toBe(expected)
         })
     })
 
@@ -247,6 +260,73 @@ describe('LiquidRenderer', () => {
                 fs.unlinkSync(fixturePath)
                 LiquidRenderer['_liquid'] = null
             }
+        })
+    })
+
+    describe('resource limits', () => {
+        it.each([
+            [
+                'exponential string growth',
+                "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
+                'memory alloc limit exceeded',
+            ],
+            [
+                'CPU-bound nested loop',
+                '{% assign a = (1..100) %}{% for i in a %}{% for j in a %}{% for k in a %}{% for l in a %}{% endfor %}{% endfor %}{% endfor %}{% endfor %}',
+                'template render limit exceeded',
+            ],
+            ['oversized template source', '{{ person.name }}'.padEnd(6_000_000, ' '), 'parse length limit exceeded'],
+            [
+                'literal output amplification',
+                `{% for i in (1..1100) %}${'a'.repeat(10_000)}{% endfor %}`,
+                'liquid output limit exceeded',
+            ],
+        ])('rejects a template with %s instead of blocking the process', (_name, template, expectedError) => {
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(expectedError)
+        })
+
+        it('renders an email body whose size comes from an inlined image, not from tags', () => {
+            // Real bodies reach megabytes because a logo is inlined as a base64 data URI. They carry a
+            // handful of tags, so tightening the length caps toward the typical template breaks them.
+            const inlinedImage = `<img src="data:image/png;base64,${'A'.repeat(1_500_000)}" />`
+            const template = `<html>${inlinedImage}<p>Hello {{ person.name }}</p></html>`
+
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
+
+            expect(result).toContain('Hello test_person')
+            expect(result.length).toBeGreaterThan(1_500_000)
+        })
+
+        it('rejects expression filters, which the render deadline cannot interrupt', () => {
+            const template = '{{ (1..3) | where_exp: "x", "x > 1" | size }}'
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow(
+                'liquid filter where_exp is not supported'
+            )
+        })
+
+        it('decodes many unmatched openers in linear time', () => {
+            const template = '{{'.repeat(50_000)
+            const start = performance.now()
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toThrow('not closed')
+            expect(performance.now() - start).toBeLessThan(1000)
+        })
+
+        it('shares one budget across renders when given one', () => {
+            const budget = new LiquidRenderBudget()
+            const template = `{% for i in (1..600) %}${'a'.repeat(10_000)}{% endfor %}`
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toHaveLength(6_000_000)
+            expect(() => LiquidRenderer.renderWithHogFunctionGlobals(template, globals, budget)).toThrow(
+                'liquid output limit exceeded'
+            )
+        })
+
+        it('renders normally after a rejected template', () => {
+            expect(() =>
+                LiquidRenderer.renderWithHogFunctionGlobals('{{ person.name }}'.padEnd(6_000_000, ' '), globals)
+            ).toThrow('parse length limit exceeded')
+            expect(LiquidRenderer.renderWithHogFunctionGlobals('Hello {{ person.name }}!', globals)).toBe(
+                'Hello test_person!'
+            )
         })
     })
 

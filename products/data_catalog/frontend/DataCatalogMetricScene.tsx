@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 
 import {
     IconCheck,
@@ -20,11 +20,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -38,17 +40,23 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 import { InsightShortId, SidePanelTab } from '~/types'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
+import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
     definitionField,
+    MetricSceneTab,
 } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
+import { MetricLineageTab } from './MetricLineageTab'
+import { MetricTestsTab } from './tabs/MetricTestsTab'
+import { MetricTestsTabLabel } from './tabs/MetricTestsTabLabel'
 
 export const scene: SceneExport<DataCatalogMetricSceneLogicProps> = {
     component: DataCatalogMetricScene,
@@ -68,9 +76,23 @@ interface MetricAction {
 
 const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source insight. Refresh it first.'
 
+function tabPanelClassName(tab: MetricSceneTab, activeTab: MetricSceneTab): string {
+    return tab === activeTab ? 'flex flex-col gap-y-4' : 'hidden'
+}
+
 export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
-    const { metric, metricLoading, mutating, runResult, runResultLoading, editingDefinition, draftMarkdown } =
-        useValues(dataCatalogMetricSceneLogic)
+    const {
+        metric,
+        metricLoading,
+        mutating,
+        runResult,
+        runResultLoading,
+        editingDefinition,
+        draftMarkdown,
+        activeTab,
+        mountedTabs,
+        metricChecksEnabled,
+    } = useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
         refreshMetricFromInsight,
@@ -81,19 +103,37 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         setEditingDefinition,
         setDraftMarkdown,
         startEditingMarkdown,
+        setActiveTab,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const contextItems = useMemo(
+        () => buildDataCatalogMetricAgentContext(name, editingDefinition ? draftMarkdown : null),
+        [draftMarkdown, editingDefinition, name]
+    )
+
+    useSceneAgentPanel({
+        sceneKey: 'data-catalog',
+        contextItems,
+        headlines: DATA_CATALOG_METRIC_AGENT_HEADLINES,
+        active: !!metric,
+    })
 
     const runMarkdownMetricWithAI = (): void => {
         if (!metric) {
             return
         }
-        // Still record the run server-side so last run time and run analytics stay accurate.
-        loadRunResult()
-        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(buildMetricRunPrompt(metric.name)))
+        if (!sceneIntegrationEnabled) {
+            // Still record the run server-side so last run time and run analytics stay accurate.
+            loadRunResult()
+        }
+        openSidePanel(
+            SidePanelTab.Max,
+            autoRunMaxPrompt(buildMetricRunPrompt(metric.name, { metricAttached: sceneIntegrationEnabled }))
+        )
     }
 
     if (metricLoading && !metric) {
@@ -319,27 +359,56 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </LemonBanner>
                 )}
 
-                <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
-
-                <MetricDefinition
-                    metric={metric}
-                    editingDefinition={editingDefinition}
-                    draftMarkdown={draftMarkdown}
-                    saving={mutating}
-                    runResult={runResult}
-                    runResultLoading={runResultLoading}
-                    onDraftMarkdown={setDraftMarkdown}
-                    onEdit={setEditingDefinition}
-                    onStartEditingMarkdown={startEditingMarkdown}
-                    onSaveMarkdown={(markdown) =>
-                        confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
-                    }
-                    onRun={loadRunResult}
-                    onRunWithAI={runMarkdownMetricWithAI}
-                    runWithAIDisabledReason={
-                        isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
-                    }
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={setActiveTab}
+                    tabs={[
+                        { key: 'definition', label: 'Definition' },
+                        { key: 'lineage', label: 'Lineage' },
+                        metricChecksEnabled && {
+                            key: 'tests',
+                            label: <MetricTestsTabLabel metricId={metric.id} />,
+                        },
+                    ]}
                 />
+
+                {mountedTabs.includes('definition') && (
+                    <div className={tabPanelClassName('definition', activeTab)}>
+                        <MetricMetadata metric={metric} onSaveUnit={(unit) => confirmAndUpdate({ unit })} />
+
+                        <MetricDefinition
+                            metric={metric}
+                            editingDefinition={editingDefinition}
+                            draftMarkdown={draftMarkdown}
+                            saving={mutating}
+                            runResult={runResult}
+                            runResultLoading={runResultLoading}
+                            onDraftMarkdown={setDraftMarkdown}
+                            onEdit={setEditingDefinition}
+                            onStartEditingMarkdown={startEditingMarkdown}
+                            onSaveMarkdown={(markdown) =>
+                                confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
+                            }
+                            onRun={loadRunResult}
+                            onRunWithAI={runMarkdownMetricWithAI}
+                            runWithAIDisabledReason={
+                                isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
+                            }
+                        />
+                    </div>
+                )}
+
+                {mountedTabs.includes('lineage') && (
+                    <div className={tabPanelClassName('lineage', activeTab)}>
+                        <MetricLineageTab metric={metric} />
+                    </div>
+                )}
+
+                {metricChecksEnabled && mountedTabs.includes('tests') && (
+                    <div className={tabPanelClassName('tests', activeTab)}>
+                        <MetricTestsTab />
+                    </div>
+                )}
             </SceneContent>
 
             <ScenePanel>
@@ -391,9 +460,6 @@ function MetricMetadata({
     metric: DataCatalogMetricApi
     onSaveUnit: (unit: string) => void
 }): JSX.Element {
-    const referencedTables = Array.isArray(metric.referenced_table_names)
-        ? (metric.referenced_table_names as string[])
-        : []
     const showProvenance = metric.created_source === 'ai_generated'
 
     return (
@@ -410,18 +476,6 @@ function MetricMetadata({
                     label="Last run"
                     value={metric.last_run_at ? <TZLabel time={metric.last_run_at} /> : 'Never'}
                 />
-                {referencedTables.length > 0 && (
-                    <div className="flex flex-col gap-1">
-                        <span className="text-secondary">Referenced tables</span>
-                        <div className="flex flex-wrap gap-1">
-                            {referencedTables.map((table) => (
-                                <LemonTag key={table} type="option">
-                                    {table}
-                                </LemonTag>
-                            ))}
-                        </div>
-                    </div>
-                )}
             </div>
             {showProvenance && (
                 <LemonCollapse

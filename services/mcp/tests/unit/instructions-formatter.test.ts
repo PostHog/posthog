@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GroupType } from '@/api/client'
 import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
-const realisticGroupTypes: GroupType[] = [
-    { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
-]
 // `tools` mirrors production: the full tool set, query-* included (the domain
 // extractor collapses them into the single `query` domain). `queryTools` below
 // is the parallel catalog projection with hints.
@@ -17,6 +13,9 @@ const realisticTools = [
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'project-get', category: 'Core' },
+    { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+    { name: 'docs-search', category: 'Docs' },
     { name: 'query-trends', category: 'Query wrappers' },
     { name: 'query-funnel', category: 'Query wrappers' },
 ]
@@ -24,15 +23,11 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
-const realisticMetadata =
-    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
-    'Project timezone: America/New_York.\n' +
-    "The user's name is Jane Doe (jane@acme.com)."
+const ENV_POINTER = 'Call `project-get` without an ID to read the active project'
+const GROUP_TYPES_POINTER = 'run `execute-sql` on `system.group_type_mappings`'
 
 const fullCtx: InstructionsContext = {
     guidelines: 'some guidelines',
-    groupTypes: realisticGroupTypes,
-    metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
     renderUiEnabled: true,
@@ -43,23 +38,23 @@ describe('InstructionsFormatter', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
-            expect(result).toContain('Defined group types: organization')
-            expect(result).toContain("The user's name is Jane Doe")
-            expect(result).toContain('Project timezone: America/New_York.')
+            expect(result).toContain(ENV_POINTER)
             expect(result).toContain('- dashboard')
             expect(result).toContain('- feature-flag')
             expect(result).toContain('- execute-sql')
             expect(result).toContain('- `query-funnel` — conversion rate')
             expect(result).toContain('- `query-trends` — time series')
-            expect(result).not.toMatch(
-                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
-            )
+            expect(result).not.toMatch(/\{tool_domains\}|\{query_tools\}|\{guidelines\}/)
         })
 
         it('renders the basic functionality, retrieving data, and examples sections', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### PostHog knowledge sources')
+            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
+                result.indexOf('`docs-search`')
+            )
             expect(result).toContain('### Retrieving data')
             expect(result).toContain('### Examples')
         })
@@ -76,10 +71,37 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions({ guidelines: 'rules' })
             expect(result).not.toContain('{guidelines}')
-            expect(result).not.toContain('{defined_groups}')
             expect(result).not.toContain('{tool_domains}')
             expect(result).not.toContain('{query_tools}')
-            expect(result).not.toContain('{metadata}')
+        })
+
+        it('omits business knowledge guidance when search is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).not.toContain(
+                '### PostHog knowledge sources'
+            )
+        })
+
+        it('includes Inkeep guidance when only docs search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildToolsInstructions({
+                guidelines: 'rules',
+                tools: [{ name: 'docs-search', category: 'Docs' }],
+            })
+
+            expect(result).toContain('### PostHog knowledge sources')
+            expect(result).not.toContain('`business-knowledge-documents-search`')
+            expect(result).toContain('check current PostHog documentation through Inkeep')
+        })
+
+        it('omits knowledge guidance when only business knowledge search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildToolsInstructions({
+                guidelines: 'rules',
+                tools: [{ name: 'business-knowledge-documents-search', category: 'Business knowledge' }],
+            })
+
+            expect(result).not.toContain('### PostHog knowledge sources')
         })
 
         it('always includes the agent-feedback section', () => {
@@ -96,15 +118,15 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions(fullCtx)
             // query-* tools surface as the single `query` domain, not a separate catalog line
-            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(result).toContain(
+                'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query'
+            )
+            expect(result).not.toContain('### PostHog knowledge sources')
             expect(result).not.toContain('query-*:')
             // Env context is not here — it rides the exec command description, which has no
             // truncation cap, leaving this payload's whole budget to the domain index.
-            expect(result).not.toContain('Defined group types: organization')
-            expect(result).not.toContain("The user's name is Jane Doe")
-            expect(result).not.toMatch(
-                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
-            )
+            expect(result).not.toContain(ENV_POINTER)
+            expect(result).not.toMatch(/\{tool_domains\}|\{query_tools\}|\{guidelines\}/)
         })
 
         // Synthetic fixture: 60 uniform `domain-N-get` names collapse to short domains and
@@ -125,8 +147,6 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions({
                 guidelines: 'guidelines',
-                groupTypes: realisticGroupTypes,
-                metadata: realisticMetadata,
                 tools: manyTools,
                 queryTools: manyQueryTools,
             })
@@ -164,84 +184,97 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
+            expect(result).not.toContain('### PostHog knowledge sources')
+        })
+
+        it('includes docs guidance without business knowledge when only docs search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ docsSearchEnabled: true })
+
+            expect(result).toContain('### PostHog knowledge sources')
+            expect(result).not.toContain('`business-knowledge-documents-search`')
+            expect(result.indexOf('### PostHog knowledge sources')).toBeLessThan(
+                result.indexOf('Using the `posthog` tool')
+            )
+            // The mandate leads the description, ahead of the grammar it depends on.
+            expect(result).toContain('`call docs-search <json_input>`')
+        })
+
+        it('omits knowledge guidance when only business knowledge search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ businessKnowledgeSearchEnabled: true })
+
+            expect(result).not.toContain('### PostHog knowledge sources')
+        })
+
+        it('loads skills before checking business knowledge and docs', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({
+                skillsEnabled: true,
+                docsSearchEnabled: true,
+                businessKnowledgeSearchEnabled: true,
+            })
+
+            expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
+            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(result.indexOf('docs-search'))
+            expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
 
     describe('buildExecCommandReference', () => {
-        it('carries the CLI mechanics regardless of stripEnvContext', () => {
+        it.each([
+            { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },
+            { name: 'only project-get', tools: ['project-get'], project: true, groups: false },
+            { name: 'only execute-sql', tools: ['execute-sql'], project: false, groups: true },
+            { name: 'neither lookup tool', tools: [], project: false, groups: false },
+        ])('names only the env lookup tools the roster has: $name', ({ tools, project, groups }) => {
+            const ctx = { ...fullCtx, tools: tools.map((name) => ({ name, category: 'Core' })) }
+            const result = new InstructionsFormatter().buildExecCommandReference(ctx)
+            expect(result.includes(ENV_POINTER)).toBe(project)
+            expect(result.includes(GROUP_TYPES_POINTER)).toBe(groups)
+            expect(result.includes('### Active environment')).toBe(project || groups)
+        })
+
+        it('carries the CLI mechanics', () => {
             const formatter = new InstructionsFormatter()
-            for (const stripEnvContext of [true, false]) {
-                const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(result).toContain('SCHEMA DRILL-DOWN RULE')
-                expect(result).toContain('### Basic functionality')
-                expect(result).toContain('### Examples')
-            }
+            const result = formatter.buildExecCommandReference(fullCtx)
+            expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+            expect(result).not.toContain('### PostHog knowledge sources')
+            expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### Examples')
         })
 
         it('does not include the exec-tool blurb (that lives on the tool description)', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
+            const result = formatter.buildExecCommandReference(fullCtx)
             expect(result).not.toContain('Using the `posthog` tool')
         })
 
-        it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
+        it('embeds the env-context pointer and query-tool catalog', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
-            expect(result).toContain("The user's name is Jane Doe")
-            expect(result).toContain('Defined group types: organization')
+            const result = formatter.buildExecCommandReference(fullCtx)
+            expect(result).toContain(ENV_POINTER)
             // Tool domains are temporarily omitted from the command reference while
             // probing claude.ai's per-tool size cap; discovery rides on `search`.
             expect(result).not.toContain('dashboard|execute-sql')
             expect(result).toContain('- `query-trends` — time series')
         })
 
-        it('strips env-context and tool-domain list but keeps the query-tool catalog when stripEnvContext is true', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
-            expect(result).not.toContain("The user's name is Jane Doe")
-            expect(result).not.toContain('Defined group types: organization')
-            // The query catalog stays on the exec command reference even when env is stripped.
-            expect(result).toContain('- `query-trends` — time series')
-            expect(result).not.toContain('dashboard|execute-sql')
-        })
-
-        it('keeps the env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildExecCommandReference(fullCtx, {
-                stripEnvContext: true,
-                keepEnvContext: true,
-            })
-            // Project metadata and group types survive for clients (Claude
-            // web/desktop) that ignore the `instructions` payload, so they still
-            // reach the model via the command reference. Tool domains are
-            // temporarily omitted (size-cap probe).
-            expect(result).not.toContain('dashboard|execute-sql')
-            expect(result).toContain("The user's name is Jane Doe")
-            expect(result).toContain('Defined group types: organization')
-        })
-
         it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
-            for (const stripEnvContext of [true, false]) {
-                const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withFeedback).toContain('### Sharing feedback on PostHog')
-            }
+            const withFeedback = formatter.buildExecCommandReference(fullCtx)
+            expect(withFeedback).toContain('### Sharing feedback on PostHog')
         })
 
         it('includes the rendering section only when render-ui is available for the client', () => {
             const formatter = new InstructionsFormatter()
-            for (const stripEnvContext of [true, false]) {
-                const withRendering = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withRendering).toContain('### Rendering visualizations')
+            const withRendering = formatter.buildExecCommandReference(fullCtx)
+            expect(withRendering).toContain('### Rendering visualizations')
 
-                // The raw flag being on isn't enough — a non-UI-host client (e.g. Claude Code)
-                // resolves `renderUiEnabled` to false and must not see the rendering section.
-                const withoutRendering = formatter.buildExecCommandReference(
-                    { ...fullCtx, renderUiEnabled: false },
-                    { stripEnvContext }
-                )
-                expect(withoutRendering).not.toContain('### Rendering visualizations')
-            }
+            // The raw flag being on isn't enough — a non-UI-host client (e.g. Claude Code)
+            // resolves `renderUiEnabled` to false and must not see the rendering section.
+            const withoutRendering = formatter.buildExecCommandReference({ ...fullCtx, renderUiEnabled: false })
+            expect(withoutRendering).not.toContain('### Rendering visualizations')
         })
     })
 
@@ -249,6 +282,10 @@ describe('InstructionsFormatter', () => {
         it('keeps routine guidance inline and advertises optional topics', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
+
+            // Skills off is the shipped default: the reference must carry no skill syntax.
+            expect(result).not.toContain('(posthog|project):<skill>')
+            expect(result).not.toContain('SKILLS FIRST')
 
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
             expect(result).toContain('learn <topic...> - load one or more learning topics')
@@ -276,28 +313,56 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Tool search')
             expect(result).toContain(buildToolDomainsCompact(realisticTools))
-            expect(result).toContain("The user's name is Jane Doe")
-            expect(result).toContain('Defined group types: organization')
+            expect(result).toContain(ENV_POINTER)
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
             expect(result).not.toContain('### Rendering visualizations')
             expect(result).not.toContain('### URL patterns')
             expect(result).not.toContain('### Sharing feedback on PostHog')
             expect(result).not.toContain('- `query-trends` — time series')
-            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
+            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{guidelines\}/)
+        })
+
+        it('advertises skill syntax inside the schema budget only when skills are enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: true })
+
+            expect(result).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('(posthog|project):<skill> [path...]')
+            // The compact variant, not the full routing paragraph, which belongs to the uncapped reference.
+            expect(result).not.toContain('never clone, grep, or web-search PostHog internals')
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+        })
+
+        it('keeps URL patterns inline when learn is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+                learnEnabled: false,
+                skillsEnabled: false,
+            })
+
+            expect(result).toContain('### URL patterns')
+            expect(result).not.toContain('- urls:')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('adds the full skills-first routing to the uncapped reference only when enabled', () => {
+            const formatter = new InstructionsFormatter()
+            const off = formatter.buildExecCommandReference(fullCtx)
+            const on = formatter.buildExecCommandReference(fullCtx, { learnEnabled: true })
+
+            expect(off).not.toContain('SKILLS FIRST')
+            expect(on).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
+            expect(on).toContain('never clone, grep, or web-search PostHog internals')
         })
 
         it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
-                { id: 'analytics', kind: 'guide' },
-                { id: 'visualizations', kind: 'guide' },
-                { id: 'urls', kind: 'guide' },
-                { id: 'feedback', kind: 'guide' },
-            ])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
@@ -317,7 +382,7 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
                 'urls',
                 'feedback',
@@ -327,6 +392,35 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
+        })
+    })
+
+    // A blanket "search before every answer" mandate fired a docs or business-knowledge search
+    // on unrelated requests. The exec description reaches any client that lists tool
+    // descriptions, so both surfaces carrying the section must scope it by topic.
+    describe('knowledge-search scoping', () => {
+        it.each([
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter: InstructionsFormatter) => formatter.buildToolsInstructions(fullCtx),
+            },
+            {
+                name: 'buildExecToolDescription',
+                render: (formatter: InstructionsFormatter) =>
+                    formatter.buildExecToolDescription({
+                        docsSearchEnabled: true,
+                        businessKnowledgeSearchEnabled: true,
+                    }),
+            },
+        ])('$name only mandates a search for PostHog and company questions', ({ render }) => {
+            const result = render(new InstructionsFormatter())
+
+            expect(result).toContain('### PostHog knowledge sources')
+            expect(result).not.toMatch(/every user request|even when the request looks simple/)
+            expect(result).toContain('call neither search')
+            // The gate is the topic, never the location: a PostHog SDK question that names a
+            // file in the user's repository still has to reach docs-search.
+            expect(result).toContain('The topic decides, not the location')
         })
     })
 
@@ -344,43 +438,35 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
                 name: 'buildExecCommandReference',
-                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx),
                 mustPrecede: ['SCHEMA DRILL-DOWN RULE', '### Retrieving data'],
             },
         ]
 
-        it.each(surfaces)(
-            '$name puts gated metric routing before generic analytics guidance',
-            ({ render, mustPrecede }) => {
-                const formatter = new InstructionsFormatter()
-                const flagOn = render(formatter, { ...fullCtx, dataCatalogEnabled: true })
-                const metricRoutingPosition = flagOn.indexOf('#### Metric discovery (semantic layer)')
-                expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
-                expect(flagOn).toContain('system.information_schema.metrics')
-                expect(flagOn).toContain('data-catalog-metric-run')
-                for (const genericGuidance of mustPrecede) {
-                    expect(metricRoutingPosition).toBeLessThan(flagOn.indexOf(genericGuidance))
-                }
-
-                // Flag-off must be byte-identical to a context without the field, so orgs
-                // without the catalog are never steered at a table that doesn't exist.
-                const flagOff = render(formatter, { ...fullCtx, dataCatalogEnabled: false })
-                expect(flagOff).not.toContain('#### Metric discovery')
-                expect(flagOff).toBe(render(formatter, fullCtx))
-            }
-        )
-
-        it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
+        it.each(surfaces)('$name puts metric routing before generic analytics guidance', ({ render, mustPrecede }) => {
             const formatter = new InstructionsFormatter()
-            const analyticsDescription = (ctx: InstructionsContext): string =>
-                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
-            expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
-            expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+            const rendered = render(formatter, fullCtx)
+            const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
+            expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
+            expect(rendered).toContain('metric-list')
+            expect(rendered).toContain('metric-describe')
+            expect(rendered).toContain('data-catalog-metric-run')
+            for (const genericGuidance of mustPrecede) {
+                expect(metricRoutingPosition).toBeLessThan(rendered.indexOf(genericGuidance))
+            }
+        })
+
+        it('advertises governed metrics in the analytics topic description', () => {
+            const formatter = new InstructionsFormatter()
+            const analyticsEntry = formatter
+                .buildClaudeExecLearnGuides(fullCtx)
+                .find((entry) => entry.id === 'analytics')!
+            expect(analyticsEntry.description).toContain('governed metrics')
         })
     })
 
@@ -396,11 +482,11 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
             },
             {
                 name: 'buildExecCommandReference',
-                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx),
             },
         ]
 
@@ -439,10 +525,7 @@ describe('InstructionsFormatter', () => {
         ])('$name: splits product context between instructions and commandReference', ({ supportsInstructions }) => {
             const formatter = new InstructionsFormatter()
             const instructions = supportsInstructions ? formatter.buildExecInstructions(fullCtx) : ''
-            const commandReference = formatter.buildExecCommandReference(fullCtx, {
-                stripEnvContext: supportsInstructions,
-                keepEnvContext: true,
-            })
+            const commandReference = formatter.buildExecCommandReference(fullCtx)
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
             expect(commandReference).toContain('### Basic functionality')
@@ -451,19 +534,18 @@ describe('InstructionsFormatter', () => {
 
             if (supportsInstructions) {
                 // queries surface in instructions only as the `query` tool domain
-                expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
+                expect(instructions).toContain(
+                    'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query'
+                )
                 expect(instructions).not.toContain('- `query-trends` — time series')
-                expect(instructions).not.toContain("The user's name is Jane Doe")
-                expect(instructions).not.toContain('Defined group types: organization')
-                expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).toContain('Defined group types: organization')
+                expect(instructions).not.toContain(ENV_POINTER)
+                expect(commandReference).toContain(ENV_POINTER)
                 expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
-                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain(ENV_POINTER)
                 expect(commandReference).not.toContain('dashboard|execute-sql')
-                expect(commandReference).toContain('Defined group types: organization')
             }
         })
     })

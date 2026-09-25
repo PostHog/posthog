@@ -47,11 +47,14 @@ from posthog.settings.web import *
 from posthog.settings.web_bot_auth import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.managed_migrations import *
+from posthog.settings.nextgensquash import *
 from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
+from posthog.settings.signals import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
 from posthog.settings.personhog import *
+from posthog.settings.security_hub import *
 from posthog.settings.ses import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
@@ -85,6 +88,10 @@ SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@po
 # trigger can pick it up. Off by default: this is the only thing admitting the full channel
 # firehose, so it doubles as the kill switch.
 SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
+
+# Same for GitHub App deliveries. Off by default for the same reason: a busy repository is a
+# firehose, and this is the only thing admitting it.
+GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
 
 # Vapi voice-AI integration (used by user_interviews to host public interview pages).
 VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
@@ -124,6 +131,14 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+# When on, the person bulk delete API hands profile deletion to a Celery task that pages through
+# each person's distinct IDs, instead of tombstoning them inline in the request.
+PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
+# Person deletes tombstone the Postgres rows (version kept, properties scrubbed) and publish the
+# ClickHouse tombstones at the versions the replica wrote, instead of hard-deleting and guessing
+# version + 100. Ingestion must revive tombstones for every team before this is on.
+PERSON_DELETE_TOMBSTONE: bool = get_from_env("PERSON_DELETE_TOMBSTONE", False, type_cast=str_to_bool)
+
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
 # enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
 EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
@@ -142,8 +157,6 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
-
-QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

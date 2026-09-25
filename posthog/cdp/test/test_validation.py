@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -17,6 +18,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    reserved_functions_used,
 )
 from posthog.models.integration import Integration
 
@@ -150,6 +152,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert json.loads(json.dumps(validate_inputs(inputs_schema, inputs))) == {
             "url": {
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -166,6 +169,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "person": "{person}",
                     "event_url": "{f'{event.url}-test'}",
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
                     "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
@@ -195,6 +199,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             },
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "version": [
                         "_H",
@@ -257,6 +262,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         ) == {
             "html": {
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -572,6 +578,28 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
 
+    @parameterized.expand(
+        [
+            ("single_slack", "integration", "slack"),
+            ("multi_slack", "integration_multi", "slack"),
+            ("single_posthog_connection", "integration", "posthog"),
+            ("multi_posthog_connection", "integration_multi", "posthog"),
+        ]
+    )
+    def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
+        integration = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
+        value = integration.id if item_type == "integration" else [integration.id]
+        inputs_schema = [{"key": "connection", "type": item_type, "integration": "slack", "required": True}]
+        inputs = {"connection": {"value": value}}
+        context_extra = {"get_team": lambda: self.team}
+
+        if kind == "slack":
+            assert validate_inputs(inputs_schema, inputs, context_extra=context_extra)["connection"]["value"] == value
+        else:
+            with pytest.raises(ValidationError) as ctx:
+                validate_inputs(inputs_schema, inputs, context_extra=context_extra)
+            assert "PostHog connection" in str(ctx.value.detail)
+
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(
             team=self.team,
@@ -760,6 +788,50 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["first"]["bytecode"] is not None
         assert validated["second"]["bytecode"] is not None
 
+    def test_filters_carry_a_stamp_only_beside_bytecode(self):
+        # A client echoes stored filters back on save. The stamp it sends is ignored: bytecode filters
+        # get the compiler's stamp, transpiled filters have no bytecode and get none.
+        filters = {"events": [{"id": "$pageview", "type": "events"}], "bytecode_contract": "older"}
+        compiled = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+        assert compiled.is_valid(), compiled.errors
+        assert compiled.validated_data["bytecode_contract"] == RUNTIME_CONTRACT
+
+        transpiled = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": "site_destination"}
+        )
+        assert transpiled.is_valid(), transpiled.errors
+        assert "bytecode" not in transpiled.validated_data
+        assert "bytecode_contract" not in transpiled.validated_data
+
+    def test_validate_inputs_stamps_compiled_templates_with_the_runtime_contract(self):
+        # A hog template gets the stamp beside its bytecode. A liquid template has no bytecode and no
+        # stamp, and a plain value compiles to nothing that could drift.
+        inputs_schema = [
+            {"key": "hog", "type": "string", "required": False},
+            {"key": "liquid", "type": "string", "required": False},
+            {"key": "body", "type": "json", "required": False},
+        ]
+        inputs = {
+            "hog": {"value": "{event.uuid}", "bytecode_contract": "older"},
+            "liquid": {"value": "{{ event.uuid }}", "templating": "liquid"},
+            "body": {"value": {"id": "{event.uuid}", "kind": "x"}},
+        }
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["hog"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert validated["body"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert "bytecode_contract" not in validated["liquid"]
+
+    def test_validate_inputs_refuses_a_call_the_runtime_would_reject(self):
+        # The stamp says "checked against this runtime", so a call with an argument count the runtime
+        # refuses must not compile, or it would later read as a compiler bug instead of a typo.
+        inputs_schema = [{"key": "amount", "type": "string", "required": False}]
+        with pytest.raises(Exception) as ctx:
+            validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2, 3)}"}})
+        assert "round" in str(ctx.value) and "2" in str(ctx.value)
+
+        validated = validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2)}"}})
+        assert validated["amount"]["bytecode_contract"] == RUNTIME_CONTRACT
+
     def test_validate_transformation_inputs_allows_stl_and_runtime_functions(self):
         # STL functions (e.g. now) and transformation runtime helpers (e.g. geoipLookup)
         # are valid root identifiers because the Hog VM falls back to STL/runtime lookups
@@ -767,15 +839,20 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs_schema = [
             {"key": "ts", "type": "string", "required": True},
             {"key": "geo", "type": "string", "required": True},
+            {"key": "ua", "type": "string", "required": True},
         ]
         inputs = {
             "ts": {"value": "{now()}"},
             "geo": {"value": "{geoipLookup(event.properties.$ip)}"},
+            # A bare reference is the only form that reaches the runtime-helper list; an
+            # inline call resolves as a function and never hits the global check.
+            "ua": {"value": "{parseUserAgent}"},
         }
 
         validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
         assert validated["ts"]["bytecode"] is not None
         assert validated["geo"]["bytecode"] is not None
+        assert validated["ua"]["bytecode"] is not None
 
     def test_validate_inputs_with_secret_values(self):
         inputs_schema = [
@@ -869,6 +946,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "events",
             "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
@@ -939,10 +1017,80 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "person-updates",
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
         }
+
+    def test_internal_destination_filters_are_normalized_to_internal_events(self):
+        serializer = HogFunctionFiltersSerializer(
+            data={"events": [{"id": "$internal_event", "type": "events"}]},
+            context={**self.filters_context, "function_type": "internal_destination"},
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        assert serializer.validated_data["source"] == "internal-events"
+
+    @parameterized.expand(
+        [
+            ("no_events", {"source": "internal-events"}),
+            ("empty_event_id", {"source": "internal-events", "events": [{"id": "", "type": "events"}]}),
+            (
+                "actions",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "actions": [{"id": "1", "type": "actions"}],
+                },
+            ),
+            (
+                "data_warehouse",
+                {
+                    "source": "internal-events",
+                    "events": [{"id": "$internal_event", "type": "events"}],
+                    "data_warehouse": [{"id": "1"}],
+                },
+            ),
+        ]
+    )
+    def test_internal_event_filters_require_explicit_events(self, _name, filters):
+        serializer = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
+
+    def test_warehouse_row_filter_needs_its_table(self):
+        # The row filter compiles against the entry's table name, so an entry without one never matches.
+        row_filter = [{"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}]
+        serializer = HogFunctionFiltersSerializer(
+            data={"source": "data-warehouse-table", "data_warehouse": [{"properties": row_filter}]},
+            context=self.filters_context,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            serializer.is_valid(raise_exception=True)
+        assert "Pick a table" in str(ctx.exception)
+
+        # The picker's placeholder entry is dropped on save; a filter on it must not vanish with it.
+        serializer = HogFunctionFiltersSerializer(
+            data={
+                "source": "data-warehouse-table",
+                "data_warehouse": [{"name": "Select a table", "table_name": "", "properties": row_filter}],
+            },
+            context=self.filters_context,
+        )
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
+
+        serializer = HogFunctionFiltersSerializer(
+            data={
+                "source": "data-warehouse-table",
+                "data_warehouse": [{"table_name": "accounts", "properties": row_filter}],
+            },
+            context=self.filters_context,
+        )
+        assert serializer.is_valid(), serializer.errors
 
     @parameterized.expand(
         [
@@ -950,7 +1098,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("valid_bracket", "{person.properties['self-serve']}", False),
             ("hyphenated_single", "{person.properties.self-serve}", True),
             ("hyphenated_multi", "{event.properties.multi-word-name}", True),
-            ("subtraction_with_spaces", "{event.properties.count - total}", False),
+            ("subtraction_with_spaces", "{event.properties.count - inputs.total}", False),
             ("subtraction_field_minus_field", "{event.properties.amount - event.properties.discount}", False),
         ]
     )
@@ -982,11 +1130,54 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         expected = generate_template_bytecode(equivalent, set(), function_type="destination", is_dwh_source=False)
         assert rewritten == expected
 
+    def test_destination_templates_accept_lambda_locals_and_node_callables(self):
+        for template in (
+            "{arrayMap(a -> { let b := a return b }, [1])}",
+            "{arrayMap(tryBase64Decode, event.properties.ids)}",
+        ):
+            assert generate_template_bytecode(template, set(), function_type="destination"), template
+
+    def test_template_globals_check_covers_every_function_type_and_input_shape(self):
+        # Every non-transformation type resolves its inputs against the same invocation globals, and a
+        # bad root inside a json input or a list fails the same way as a plain string.
+        for function_type, template in (
+            ("destination", {"headers": {"x-id": "{distinct_id}"}}),
+            ("destination", ["ok", "{properties.foo}"]),
+            ("source_webhook", "{distinct_id}"),
+            ("internal_destination", "{timestamp}"),
+        ):
+            with self.assertRaises(Exception) as ctx:
+                generate_template_bytecode(template, set(), function_type=function_type)
+            assert "Variable not available in inputs" in str(ctx.exception), (function_type, template)
+
+        # Roots a specific path provides stay allowed everywhere, so a template valid on one path is
+        # never refused on another.
+        for function_type, template in (
+            ("source_webhook", "{request.body.distinct_id}"),
+            ("destination", "{variables.total}"),
+            ("destination", "{groups.company.properties.name}"),
+            ("transformation", "{arrayMap(a -> a, [1])}"),
+        ):
+            assert generate_template_bytecode(template, set(), function_type=function_type), (function_type, template)
+
+    def test_destination_templates_refuse_a_python_only_callback(self):
+        # max2 is in the Python standard library and not in the Node VM, so a template that passes it
+        # as a callback fails on every event.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
+        assert "Variable not available in inputs: max2" in str(ctx.exception)
+
+    def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
+        with self.assertRaises(Exception):
+            generate_template_bytecode("{distinct_id}", set(), function_type="destination")
+        assert generate_template_bytecode("{distinct_id}", set(), function_type="destination", validate_globals=False)
+
     def test_record_alias_not_rewritten_without_dwh_source(self):
-        # Without a warehouse source, `record` is left untouched (compiles like any other global).
-        untouched = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
-        rewritten = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
-        assert untouched != rewritten
+        # Without a warehouse source there is no `record` global at run time, so it is refused like any other.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
+        assert "Variable not available in inputs: record" in str(ctx.exception)
+        assert generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
 
     def test_record_alias_rewriter_only_touches_record_fields(self):
         # AST-level: a `record` field is rewritten; a non-record field and a same-named string
@@ -1140,12 +1331,23 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
         # Without the opt-in into transpilation, the dict values ship without bytecode and the
         # Node runtime sets the literal placeholder string instead of the interpolated value.
+        clear_marker = {"__posthog_clear_property": True}
         inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
-        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+        inputs = {
+            "properties": {
+                "value": {
+                    "Plan tier": "{event.properties.plan}",
+                    "MRR": "5000",
+                    "Property to clear": clear_marker,
+                }
+            }
+        }
 
         validated = validate_inputs(inputs_schema, inputs)
 
         assert validated["properties"].get("bytecode") is not None
+        assert validated["properties"]["value"]["Property to clear"] == clear_marker
+        assert validated["properties"]["bytecode"]["Property to clear"] == clear_marker
 
     def test_customer_analytics_account_relationships_validates_assignment_dict(self):
         # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
@@ -1208,6 +1410,11 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
             ("installations_not_list", "task_mcp_installations", "id-1", False),
             ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+            ("signals_scout_string", "signals_scout", "signals-scout-error-tracking", True),
+            ("signals_scout_not_string", "signals_scout", 123, False),
+            ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
+            ("skills_not_list", "task_skills", "error-triage", False),
+            ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
@@ -1219,3 +1426,25 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestReservedFunctionsUsed(SimpleTestCase):
+    # The worker's async function registry is global, so the save-time check is the only thing
+    # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
+    @parameterized.expand(
+        [
+            ("direct_call", "let res := sendEmail(inputs.email)", {"sendEmail"}),
+            ("bare_reference", "let f := sendEmail", {"sendEmail"}),
+            ("inside_block", "if (true) { sendEmail(inputs.email) }", {"sendEmail"}),
+            ("inside_lambda", "let f := (to) -> sendEmail(to)", {"sendEmail"}),
+            ("as_argument", "print(sendEmail)", {"sendEmail"}),
+            ("two_names", "sendEmail(1)\nsendPushNotification(2)", {"sendEmail", "sendPushNotification"}),
+            ("supported_function", "let res := fetch('https://example.com', {})", set()),
+            ("similar_name", "let res := sendEmails(inputs.email)", set()),
+            ("property_of_same_name", "return inputs.sendEmail", set()),
+            ("string_only", "return f'sendEmail is not called here'", set()),
+            ("does_not_parse", "let res := sendEmail(", set()),
+        ]
+    )
+    def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
+        assert reserved_functions_used(hog) == expected

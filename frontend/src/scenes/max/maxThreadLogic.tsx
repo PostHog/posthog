@@ -84,10 +84,13 @@ import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
 import {
     EnhancedToolCall,
+    MESSAGE_TOO_LONG,
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
+    getToolDefinition,
     getModeDisplayName,
+    messageLength,
 } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
@@ -310,8 +313,15 @@ export interface maxThreadLogicActions {
     clearSandboxAttachments: () => {
         value: true
     } // posthogAiContextLogic
-    bootstrapSandboxRun: (payload: { justCreatedRun?: boolean; runId: string; taskId: string; traceId?: string }) => {
+    bootstrapSandboxRun: (payload: {
+        justCreatedRun?: boolean
+        retainedMessage?: string
+        runId: string
+        taskId: string
+        traceId?: string
+    }) => {
         justCreatedRun?: boolean | undefined
+        retainedMessage?: string | undefined
         runId: string
         taskId: string
         traceId?: string | undefined
@@ -344,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -1265,6 +1283,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const traceId = uuid()
             actions.setTraceId(traceId)
 
+            // How long the message was, never the message itself. A prompt that arrives truncated is
+            // otherwise invisible outside session recordings, because no send event records a length.
+            // Null content means resume/continue rather than a new message.
+            const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
             // entered for sandbox conversations.
@@ -1310,9 +1333,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         const attachedContext: AttachedContext[] = [...values.sandboxAttachments]
                         // Merge context from the new `attachedContextLogic` store (e.g. a future @-mention
                         // picker, or trace refs only the new store knows) into the legacy send. Known entity
-                        // types map to `{ type, id, name }`; anything else degrades to a text item (the
-                        // backend validates against its fixed type set). Server-side `prune_repeated_entity_refs`
-                        // collapses any overlap with `sandboxAttachments`.
+                        // types map to `{ type, id, name }`; `instructions` passes through so the backend can
+                        // keep it trusted; anything else degrades to a text item (the backend validates against
+                        // its fixed type set). Server-side `prune_repeated_entity_refs` collapses any overlap
+                        // with `sandboxAttachments`.
                         const allowedEntityTypes = new Set<AttachedContext['type']>([
                             'dashboard',
                             'insight',
@@ -1326,7 +1350,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // scene bridge or a `useAttachedContext` consumer); a bare legacy chat must not
                         // fail the send over an unmounted logic.
                         for (const item of attachedContextLogic.findMounted()?.values.contextItems ?? []) {
-                            if (
+                            if (item.type === 'instructions') {
+                                // Degrading this to `text` would put our own guidance in the untrusted block,
+                                // alongside values read off the page the user has open.
+                                const value = item.value?.trim()
+                                if (value) {
+                                    attachedContext.push({ type: 'instructions', value })
+                                }
+                            } else if (
                                 item.type !== 'text' &&
                                 allowedEntityTypes.has(item.type as AttachedContext['type']) &&
                                 item.key != null &&
@@ -1351,8 +1382,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             }
                         }
                         if (values.agentMode) {
+                            // Built from the mode's display name, and only works if the agent acts on it,
+                            // which the untrusted block tells it not to do.
                             attachedContext.push({
-                                type: 'text',
+                                type: 'instructions',
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
@@ -1494,6 +1527,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         trace_id: traceId,
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
+                        prompt_length: promptLength,
                     })
                 }
 
@@ -1534,10 +1568,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 releaseException = false
                             }
 
-                            // Validation exception for the content length
+                            // Validation exception for the content length. The user is told what to do
+                            // and can retry, so this is an expected condition rather than a crash, and
+                            // it stays out of error tracking. `releaseException` is left alone so the
+                            // turn is still counted as a failure in telemetry.
                             if (e.data?.attr === 'content') {
-                                relevantErrorMessage.content =
-                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                relevantErrorMessage.content = MESSAGE_TOO_LONG
+                                reportException = false
                             } else if (e.detail) {
                                 relevantErrorMessage.content = e.detail
                             }
@@ -1605,6 +1642,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 : e instanceof ApiError
                                   ? 'api_error'
                                   : 'unknown_error',
+                            prompt_length: promptLength,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1629,6 +1667,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         trace_id: traceId,
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
+                        prompt_length: promptLength,
                     })
                 }
                 actions.completeThreadGeneration()
@@ -1662,7 +1701,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
         return {
-            [sandboxStreamActionTypes.markTurnComplete]: completeSandboxTurn,
+            [sandboxStreamActionTypes.markTurnComplete]: ({ isReplay }: { isReplay?: boolean }) => {
+                if (!isReplay) {
+                    completeSandboxTurn()
+                }
+            },
             // handleTerminalStatus fires for every task_run_state frame, including the initial
             // non-terminal queued/in_progress ones — only tear down on an actually terminal
             // status, mirroring runStreamLogic's own guard.
@@ -3259,6 +3302,12 @@ export async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    const alreadyProcessed = parsedResponse.id
+                        ? cache.processedToolResultIds?.has(parsedResponse.id)
+                        : false
+                    if (!alreadyProcessed) {
+                        getToolDefinition(toolName)?.onResult?.(toolResult)
+                    }
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
                     }
@@ -3268,6 +3317,10 @@ export async function onEventImplementation(
                         actions.setPendingApproval(proposalId)
                     }
                     await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                }
+                if (parsedResponse.id) {
+                    cache.processedToolResultIds ??= new Set()
+                    cache.processedToolResultIds.add(parsedResponse.id)
                 }
             }
             actions.addMessage({

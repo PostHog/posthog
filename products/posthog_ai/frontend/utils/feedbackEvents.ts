@@ -10,6 +10,7 @@ function feedbackContext(sessionId: string, traceId: string | null, run: RunRef 
     return {
         $ai_session_id: sessionId,
         $ai_trace_id: traceId,
+        ai_product: 'posthog_ai',
         agent_runtime: 'sandbox',
         task_id: run?.taskId ?? null,
         run_id: run?.runId ?? null,
@@ -40,10 +41,36 @@ export function captureTurnFeedbackText(
 ): void {
     posthog.capture('$ai_feedback', {
         $ai_feedback_text: feedbackText,
-        ai_product: 'posthog_ai',
         turn_index: turnIndex,
         ...feedbackContext(sessionId, traceId, run),
     })
+}
+
+/** Feedback typed as a `/good`, `/bad`, or `/feedback` command. A rating without text is valid, and so is text without a rating. */
+export function captureCommandFeedback(
+    sessionId: string,
+    traceId: string | null,
+    rating: 'good' | 'bad' | null,
+    run: RunRef,
+    feedbackText?: string
+): void {
+    if (rating) {
+        posthog.capture('$ai_metric', {
+            $ai_metric_name: 'feedback',
+            $ai_metric_value: rating,
+            feedback_trigger_type: 'slash_command',
+            turn_index: null,
+            ...feedbackContext(sessionId, traceId, run),
+        })
+    }
+    if (feedbackText) {
+        posthog.capture('$ai_feedback', {
+            $ai_feedback_text: feedbackText,
+            feedback_trigger_type: 'slash_command',
+            turn_index: null,
+            ...feedbackContext(sessionId, traceId, run),
+        })
+    }
 }
 
 export type FeedbackPromptRating = 'bad' | 'okay' | 'good' | 'dismissed' | 'implicit_dismiss'
@@ -69,7 +96,6 @@ export function capturePromptFeedback(
     if (feedbackText) {
         posthog.capture('$ai_feedback', {
             $ai_feedback_text: feedbackText,
-            ai_product: 'posthog_ai',
             turn_index: turnIndex,
             ...feedbackContext(sessionId, traceId, run),
         })

@@ -130,6 +130,9 @@ pub enum Commands {
     /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
+    /// Update posthog-cli to the latest version
+    Update,
+
     /// Experimental commands, not quite ready for prime time
     Exp {
         #[command(subcommand)]
@@ -268,6 +271,7 @@ impl Commands {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
             Commands::Login => "login",
+            Commands::Update => "update",
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -385,6 +389,9 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                // Updating talks to the release bucket, never to PostHog, so
+                // requiring credentials would lock out anyone without a token.
+                | Commands::Update
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -405,6 +412,9 @@ impl Cli {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
             }
+            Commands::Update => {
+                crate::update::update()?;
+            }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
                     crate::sourcemaps::plain::inject::inject(&input_args, None)?;
@@ -421,8 +431,20 @@ impl Cli {
                         inject_args.release.clone(),
                         std::iter::empty(),
                     )?;
-                    crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
-                    crate::sourcemaps::plain::upload::upload(&upload_args, release.as_ref())?;
+                    // Hand the pairs inject wrote straight to upload, instead of letting
+                    // upload re-walk the directory: a bundler writing into it mid-run
+                    // (e.g. Turbopack's background filesystem-cache flush on Next.js
+                    // 16.3+) would otherwise give upload files inject never stamped,
+                    // aborting the build with "Chunk ID not found" (posthog-js#4667).
+                    let pairs =
+                        crate::sourcemaps::plain::inject::inject(&inject_args, release.as_ref())?;
+                    let file_selection = upload_args.file_selection.clone();
+                    crate::sourcemaps::plain::upload::upload_pairs(
+                        &upload_args,
+                        pairs,
+                        release.as_ref(),
+                        file_selection,
+                    )?;
                 }
             },
             Commands::Dsym { cmd } => match cmd {

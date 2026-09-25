@@ -21,7 +21,7 @@ import {
     InsightLogicProps,
     IntervalType,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import type { AnnotationData } from '../../../models/annotationsModel'
@@ -31,7 +31,7 @@ import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 
 export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'dashboardId'> {
     dashboardId: DashboardType['id'] | undefined
-    insightNumericId: QueryBasedInsightModel['id'] | 'new'
+    insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: { value: number }[]
     /** Disambiguator for charts that mount more than one overlay against the same insight
@@ -81,7 +81,8 @@ export interface annotationsOverlayLogicValues {
     annotationsLoading: boolean // annotationsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
     insightId: number | null // insightLogic
-    savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
+    savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    annotationsScope: AnnotationScope | null | undefined // insightVizDataLogic
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
     interval: IntervalType | null | undefined // insightVizDataLogic
     properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined // insightVizDataLogic
@@ -158,9 +159,10 @@ export interface annotationsOverlayLogicMeta {
             featureFlags: FeatureFlagsSet,
             insightNumericId: number | 'new',
             dashboardId: number | undefined,
-            savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+            savedInsight: Partial<InsightModel<Node<Record<string, any>>>>,
             properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
-            breakdownFilter: BreakdownFilter | null | undefined
+            breakdownFilter: BreakdownFilter | null | undefined,
+            annotationsScope: AnnotationScope | null | undefined
         ) => DatedAnnotationType[]
         groupedAnnotations: (
             relevantAnnotations: DatedAnnotationType[],
@@ -195,7 +197,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             insightLogic,
             ['insightId', 'savedInsight'],
             insightVizDataLogic,
-            ['interval', 'properties', 'breakdownFilter'],
+            ['interval', 'properties', 'breakdownFilter', 'annotationsScope'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
             teamLogic,
@@ -290,6 +292,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.savedInsight,
                 s.properties,
                 s.breakdownFilter,
+                s.annotationsScope,
             ],
             (
                 annotations: AnnotationType[],
@@ -299,10 +302,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 insightNumericId: number | 'new',
                 dashboardId: number | undefined,
                 savedInsight: Partial<
-                    QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+                    InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
                 >,
                 properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
-                breakdownFilter: BreakdownFilter | null | undefined
+                breakdownFilter: BreakdownFilter | null | undefined,
+                annotationsScope: AnnotationScope | null | undefined
             ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
@@ -325,7 +329,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                         ))) &&
                               annotation.date_marker &&
                               annotation.date_marker >= dateRange[0] &&
-                              annotation.date_marker < dateRange[1]
+                              annotation.date_marker < dateRange[1] &&
+                              (!annotationsScope || annotation.scope === annotationsScope)
                       )
                     : []
 

@@ -41,23 +41,27 @@ export function ArtifactChip({
       data-orientation="horizontal"
       className={cn(
         buttonGroupVariants(),
-        "mx-0.5 inline-flex max-w-full align-middle",
+        "mx-0.5 inline-block max-w-full whitespace-nowrap align-middle",
       )}
     >
       <Button
         onClick={onOpen}
         disabled={disabled || !onOpen}
         aria-label={name ? `Open ${name}` : undefined}
-        // Quill's base button is `shrink-0`; restore shrinking so a long name
-        // truncates inside a narrow message or activity row instead of pushing
-        // the download half out of reach.
-        className="min-w-0 shrink"
+        className={cn(
+          "inline-block select-text truncate align-top leading-[1.375rem]",
+          onDownload ? "max-w-[calc(100%-1.5rem)]" : "max-w-full",
+        )}
         variant="outline"
         size="sm"
       >
-        {typeof name === "string" && <FileIcon filename={name} size={12} />}
-        <span className="min-w-0 truncate">{label}</span>
-        {meta && <span className="shrink-0 text-muted-foreground">{meta}</span>}
+        {typeof name === "string" && (
+          <span className="mr-1 inline-block align-[-0.125em]">
+            <FileIcon filename={name} size={12} />
+          </span>
+        )}
+        {label}
+        {meta && <span className="text-muted-foreground"> {meta}</span>}
       </Button>
       {onDownload && (
         <Tooltip content={downloading ? "Downloading…" : "Download"}>
@@ -67,6 +71,7 @@ export function ArtifactChip({
             onClick={onDownload}
             disabled={downloading}
             aria-label={name ? `Download ${name}` : "Download"}
+            className="align-top"
           >
             <DownloadSimpleIcon size={12} />
           </Button>

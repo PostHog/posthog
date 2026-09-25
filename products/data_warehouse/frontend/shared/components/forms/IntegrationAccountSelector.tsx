@@ -7,13 +7,14 @@ import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@po
 import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
@@ -86,6 +87,15 @@ export function normalizeMultiValue(value: unknown, legacySingle?: unknown): str
         }
     }
     return normalized
+}
+
+/** What the picker's dropdown says when it has no accounts to list. A failed listing request also
+ *  leaves the list empty, and claiming the connection reaches no accounts sends the user to fix
+ *  permissions they never lost. */
+export function accountsDropdownEmptyMessage(accountsError: string | null): string {
+    return accountsError
+        ? "Couldn't load your accounts. Reconnect the integration, or type the value in above."
+        : 'No accounts accessible by this integration.'
 }
 
 /** Generic account/resource picker for OAuth ad sources: a dropdown of the connected integration's
@@ -182,6 +192,17 @@ function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
 }
 
+/** Where the in-place reconnect returns to. The wizard keeps the chosen source in `?kind=`, so a
+ *  bare pathname lands the user back on the source catalog. The previous callback's result params
+ *  are dropped because the new callback sets its own. */
+export function reconnectReturnUrl(pathname: string, search: string): string {
+    const params = new URLSearchParams(search)
+    params.delete('integration_id')
+    params.delete(INTEGRATION_ERROR_PARAM)
+    const query = params.toString()
+    return query ? `${pathname}?${query}` : pathname
+}
+
 /** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
  *  without hunting for the disconnect/reconnect action elsewhere on the page. */
 function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
@@ -190,7 +211,10 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
-            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+            to={api.integrations.authorizeUrl({
+                kind: integrationKind,
+                next: reconnectReturnUrl(window.location.pathname, window.location.search),
+            })}
             onClick={() =>
                 reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')
             }
@@ -436,7 +460,7 @@ function IntegrationAccountFieldWithDropdown({
     placeholder,
     caption,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
-    const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
+    const { accounts, accountsLoading, accountsLoaded, accountsError, search } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
     const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
@@ -444,6 +468,11 @@ function IntegrationAccountFieldWithDropdown({
     useEffect(() => {
         loadAccounts()
     }, [loadAccounts])
+
+    // The list is filtered server-side, so while a search term is active `accounts` holds the
+    // matches rather than everything the connection can reach. Every "we found nothing" hint below
+    // is about the connection, so hold them back until the list is unfiltered.
+    const filtering = !!search.trim()
 
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
@@ -475,7 +504,11 @@ function IntegrationAccountFieldWithDropdown({
             {({ value, onChange }) => {
                 const accountValues = accounts.map((account) => account.value)
                 const savedValueMissing =
-                    !!value && !accountsLoading && accounts.length > 0 && !accountValues.includes(String(value))
+                    !!value &&
+                    !accountsLoading &&
+                    !filtering &&
+                    accounts.length > 0 &&
+                    !accountValues.includes(String(value))
                 return (
                     <div className="flex flex-col gap-2">
                         <InputWithSuggestionsDropdown
@@ -487,7 +520,10 @@ function IntegrationAccountFieldWithDropdown({
                             suggestionsLoading={accountsLoading}
                             onSearchChange={setSearch}
                             searchPlaceholder="Filter accounts…"
-                            emptyMessage="No accounts accessible by this integration."
+                            emptyMessage={accountsDropdownEmptyMessage(accountsError)}
+                            noMatchMessage={() =>
+                                'No accounts match your filter. Clear it to see every account this connection can reach.'
+                            }
                             loadingMessage="Loading accounts…"
                         />
                         {accountsError && (
@@ -495,12 +531,17 @@ function IntegrationAccountFieldWithDropdown({
                                 {accountsError} <ReconnectLink integrationKind={integrationKind} />
                             </p>
                         )}
-                        {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
-                            <p className="m-0 text-xs text-warning">
-                                No accounts to show. If you know the {fieldLabel}, enter it above and save. You can also{' '}
-                                <ReconnectLink integrationKind={integrationKind} /> to grant access to more accounts.
-                            </p>
-                        )}
+                        {accountsLoaded &&
+                            !accountsLoading &&
+                            !accountsError &&
+                            !filtering &&
+                            accounts.length === 0 && (
+                                <p className="m-0 text-xs text-warning">
+                                    No accounts to show. If you know the {fieldLabel}, enter it above and save. You can
+                                    also <ReconnectLink integrationKind={integrationKind} /> to grant access to more
+                                    accounts.
+                                </p>
+                            )}
                         {savedValueMissing && (
                             <p className="m-0 text-xs text-warning">
                                 The currently saved {fieldLabel} <code>{value}</code> isn't in the accessible list for

@@ -208,11 +208,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     })
                                                 )
                                             } else if (insight.short_id) {
-                                                const editUrl = dashboardId
-                                                    ? combineUrl(urls.insightEdit(insight.short_id), {
-                                                          dashboard: dashboardId,
-                                                      }).url
-                                                    : urls.insightEdit(insight.short_id)
+                                                const editUrl = combineUrl(
+                                                    urls.insightEdit(insight.short_id),
+                                                    dashboardId ? { dashboard: dashboardId } : {},
+                                                    // Carry unsaved view-mode filter edits into the editor so they can be saved
+                                                    queryChanged ? { q: JSON.stringify(query) } : {}
+                                                ).url
                                                 push(editUrl)
                                             } else {
                                                 setInsightMode(ItemMode.Edit, null)

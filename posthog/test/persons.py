@@ -17,6 +17,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import TYPE_CHECKING, Any
 
+import time_machine
+
 from django.utils.timezone import now
 
 from posthog.models import signals
@@ -157,7 +159,7 @@ def _seed_distinct_id_into_fake(team_id: int, person_id: int, distinct_id: str, 
     if fake is None:
         return
 
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+    from personhog.types.v1 import person_pb2  # noqa: PLC0415
 
     person_proto = fake._persons_by_id.get((team_id, person_id))
     if person_proto is None:
@@ -281,7 +283,7 @@ def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
     Each spec is a create_person() kwargs dict (team/team_id, distinct_ids, uuid, ...). Row values
     mirror what create_person writes via posthog.models.person.util.create_person /
     create_person_distinct_id — only batched. Note: distinct-id rows use Python-side
-    (freezegun-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
+    (time-machine-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
     pdi2 dedup uses version, not _timestamp. The persons-DB-layer path (fake off) falls back to
     per-person create_person.
     """
@@ -412,7 +414,7 @@ def delete_person(person: Person) -> None:
     fake = _get_active_fake()
     if fake is None:
         return
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+    from personhog.types.v1 import person_pb2  # noqa: PLC0415
 
     dids_with_version = list(fake._distinct_ids.get((person.team_id, person.pk), []))
     _ch_create_person(
@@ -479,9 +481,7 @@ def stage_person_for_bulk_create(*args: Any, **kwargs: Any) -> Person:
     else:
         _next_deterministic_uuid()
 
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
+    if kwargs.get("immediate") or time_machine.escape_hatch.is_travelling():
         kwargs.pop("immediate", None)
         return create_person(**kwargs)
 

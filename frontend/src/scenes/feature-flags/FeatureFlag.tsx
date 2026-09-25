@@ -76,10 +76,10 @@ import {
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
 } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
+import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
@@ -94,6 +94,7 @@ import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
+import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -149,6 +150,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         saveDescriptionInline,
         saveTagsInline,
         updateFeatureFlagArchived,
+        refreshFeatureFlagAfterAgentChange,
     } = useActions(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
@@ -187,10 +189,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
     // this the agent on a flag page has no visibility into the targeting.
     const featureFlagContext = useMemo(
-        () => (isNewFeatureFlag || !featureFlag?.key ? null : featureFlagContextItems(featureFlag)),
+        () =>
+            isNewFeatureFlag || !featureFlag?.key
+                ? null
+                : // Without the apply-back instruction the agent narrates a change instead of making it.
+                  [...featureFlagContextItems(featureFlag), AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM],
         [isNewFeatureFlag, featureFlag]
     )
     useAttachedContext(featureFlagContext)
+
+    useFeatureFlagAgentRefresh({
+        flagId: isNewFeatureFlag ? null : (featureFlag?.id ?? null),
+        onAgentChange: refreshFeatureFlagAfterAgentChange,
+    })
 
     // Mounting the edit form is a multi-second render (Monaco editors + dnd-kit sortables). Mount it
     // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
@@ -478,6 +489,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             experiments and surveys keep their data.
                         </LemonBanner>
                     )}
+                    <FeatureFlagStaleBanner />
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
                             This feature flag is assigned to an early access feature in the{' '}
@@ -654,7 +666,7 @@ function ConnectedUsageDashboard({
     const { dashboard, error404 } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
     ) as {
-        dashboard: DashboardType<QueryBasedInsightModel> | null
+        dashboard: DashboardType | null
         error404: boolean
     }
     const { enrichUsageDashboard } = useActions(featureFlagLogic)

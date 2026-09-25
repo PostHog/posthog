@@ -1,11 +1,9 @@
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
-
-from parameterized import parameterized
 
 from posthog.schema import (
     Breakdown,
@@ -23,7 +21,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
@@ -31,7 +29,7 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.bas
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
@@ -142,10 +140,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.key)
                 self.assertIsNotNone(variant.number_of_samples)
 
-    @parameterized.expand([("new_query_builder", True)])
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_mean_metric_breakdown_with_changing_property_values(self, name, use_new_query_builder):
+    def test_mean_metric_breakdown_with_changing_property_values(self):
         """
         Regression test for bug where users with different breakdown values across exposures
         were counted multiple times (once per unique breakdown value).
@@ -155,7 +152,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -283,10 +280,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertEqual(firefox_breakdown.baseline.number_of_samples, 1)
         self.assertEqual(firefox_breakdown.baseline.sum, 50)
 
-    @parameterized.expand([("new_query_builder", True)])
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_funnel_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
@@ -388,7 +384,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
@@ -524,7 +520,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_null_breakdown_values(self):
         """Test that NULL breakdown values are handled correctly"""
@@ -605,7 +601,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # variants can be empty if no test variants exist for this breakdown
             self.assertIsInstance(breakdown_result.variants, list)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_winsorization_and_breakdown(self):
         """Test that winsorization computes per-breakdown percentiles, not global percentiles"""
@@ -715,7 +711,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_two_breakdowns(self):
         """Test mean metric calculations work correctly with 2 breakdown dimensions"""
@@ -846,7 +842,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.number_of_samples)
                 self.assertEqual(variant.number_of_samples, 2)  # 2 users per combination
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_two_breakdowns(self):
         """Test funnel metrics work with 2 breakdown dimensions"""
@@ -947,7 +943,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_funnel_metric_breakdown_query_builds_without_ambiguity_error(self):
         """
         Regression test for ambiguous query error with UNORDERED funnel breakdowns.
@@ -982,7 +978,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         # If it does, that means the breakdown field references are not properly qualified
         query_runner._evaluate_experiment_query()
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_two_breakdowns(self):
         """Test ratio metrics work with 2 breakdown dimensions"""
@@ -1126,7 +1122,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         # Verify error message mentions too many items
         self.assertIn("at most 3 items", str(context.exception))
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_missing_variants_across_breakdown_combinations(self):
         """Verify correct handling when control has all breakdown combinations but test is missing some"""
@@ -1258,10 +1254,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertTrue(chrome_windows_found, "Chrome+Windows breakdown should exist")
         self.assertTrue(safari_mac_found, "Safari+Mac breakdown should exist")
 
-    @parameterized.expand([("new_query_builder", True)])
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_retention_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_retention_metric_with_breakdown(self):
         """
         Test retention metric with single breakdown dimension.
 
@@ -1270,7 +1265,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRetentionMetric(
@@ -1408,10 +1403,9 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.number_of_samples)
                 self.assertIsNotNone(variant.sum)
 
-    @parameterized.expand([("new_query_builder", True)])
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_retention_metric_with_two_breakdowns(self, name, use_new_query_builder):
+    def test_retention_metric_with_two_breakdowns(self):
         """
         Test retention metric with two breakdown dimensions.
 
@@ -1419,7 +1413,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRetentionMetric(
@@ -1557,7 +1551,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_retention_metric_breakdown_with_missing_control_variant(self):
         """
         Regression test: Retention metrics with breakdowns should handle cases where
@@ -1569,7 +1563,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": True}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRetentionMetric(
@@ -1680,7 +1674,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertIsNotNone(safari_breakdown.baseline)
         self.assertEqual(safari_breakdown.baseline.number_of_samples, 0)  # No control users with Safari
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_person_property_breakdown(self):
         """Test that mean metrics can be broken down by person properties"""
@@ -1788,7 +1782,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.number_of_samples)
                 self.assertEqual(variant.number_of_samples, 2)  # 2 users per country per variant
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_null_person_property_breakdown(self):
         """Test that NULL person properties are handled correctly with BREAKDOWN_NULL_STRING_LABEL"""
@@ -1882,7 +1876,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertIn(["US"], breakdown_values)
         self.assertIn([BREAKDOWN_NULL_STRING_LABEL], breakdown_values)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_funnel_metric_with_person_property_breakdown(self):
         """Test that funnel metrics can be broken down by person properties"""
@@ -1962,7 +1956,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # 1 out of 2 users converted in each country
             self.assertEqual(breakdown_result.baseline.number_of_samples, 2)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_mean_metric_with_null_type_defaults_to_event_breakdown(self):
         """Test backward compatibility: type=None defaults to event property"""
@@ -2037,7 +2031,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         # Should have breakdown combinations for browser x url
         self.assertGreater(len(result.breakdown_results), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ratio_metric_with_person_property_breakdown(self):
         """Test that ratio metrics can be broken down by person properties"""
@@ -2145,7 +2139,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_metric_with_person_property_breakdown(self):
         """Test that retention metrics can be broken down by person properties"""
@@ -2259,7 +2253,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_person_property_breakdown_attribution_at_exposure(self):
         """

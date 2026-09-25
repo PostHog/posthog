@@ -7,10 +7,11 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
-from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
-from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
+from .skill_serializers import validate_allowed_tool, validate_new_skill_name_value, validate_skill_file_path
+from .skill_services import HARNESS_OWNED_METADATA_KEYS, MAX_SKILL_FILE_BYTES, create_skill
 from .skill_template_services import parse_template_variables, render_template_skill
 
 # Namespaces where PostHog auto-registers and runs a skill under privileged scopes on an enrolled
@@ -27,11 +28,6 @@ RESERVED_INSTALL_NAME_PREFIXES: dict[str, str] = {
     "review-hog-": "PostHog-managed review skills",
 }
 
-# Provenance keys ReviewHog stamps on the rows it manages. Its prune keys on `seeded_by`, so if a
-# catalog entry carried these they could make a user's freshly installed skill disappear on the next
-# review sync — strip them before stamping community provenance, the way duplicate_skill drops seeded_by.
-_INTERNAL_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
-
 
 class CommunitySkillNotFoundError(Exception):
     pass
@@ -39,8 +35,8 @@ class CommunitySkillNotFoundError(Exception):
 
 class CommunitySkillInvalidPayloadError(Exception):
     """The synced catalog entry can't be safely copied into a team — a traversal/reserved file path,
-    oversized file content, a whitespace-bearing tool name, an empty body, or a reserved privileged
-    namespace. Surfaced as a 400 rather than persisting a malformed team skill."""
+    oversized content, a whitespace-bearing tool name, an empty body, or a reserved privileged namespace.
+    Surfaced as a 400 rather than persisting a malformed team skill."""
 
     def __init__(self, detail: str) -> None:
         self.detail = detail
@@ -102,7 +98,7 @@ def install_community_skill(
         raise CommunitySkillNotFoundError()
 
     try:
-        target_name = validate_skill_name_value(new_name or community_skill.slug)
+        target_name = validate_new_skill_name_value(new_name or community_skill.slug)
     except DRFValidationError as err:
         raise CommunitySkillInvalidPayloadError(_first_error_detail(err)) from err
 
@@ -133,13 +129,20 @@ def install_community_skill(
         # fail export validation, so reject it here rather than persisting an un-exportable skill.
         if not (locked.description or "").strip():
             raise CommunitySkillInvalidPayloadError("This community skill has no description and can't be installed.")
+        if len(locked.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise CommunitySkillInvalidPayloadError(
+                f"This community skill has a description longer than {SPEC_DESCRIPTION_MAX_LENGTH} characters. "
+                "Ask its publisher to shorten it before installing."
+            )
         files = _validate_installable_files(locked)
         body = locked.body
 
         # Stamp provenance so an installed skill can be traced back to its community source, but
-        # first drop any internal ReviewHog ownership keys the catalog entry might carry.
+        # first drop any harness-owned keys the catalog entry might carry. ReviewHog's prune keys on
+        # `seeded_by`, so a catalog entry carrying it could make a freshly installed skill disappear
+        # on the next review sync.
         metadata: dict[str, Any] = {
-            **{k: v for k, v in (locked.metadata or {}).items() if k not in _INTERNAL_METADATA_KEYS},
+            **{k: v for k, v in (locked.metadata or {}).items() if k not in HARNESS_OWNED_METADATA_KEYS},
             "community_skill_slug": locked.slug,
             "community_skill_id": str(locked.id),
         }

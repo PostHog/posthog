@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconInfo, IconLogomark, IconNotebook } from '@posthog/icons'
@@ -7,6 +8,7 @@ import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -16,9 +18,11 @@ import { AccessControlLevel } from '~/types'
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { LIMIT_REACHED_TOOLTIP } from '../replay_scanners/scannerCopy'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { dockObservations, isUnsuccessfulScan } from '../utils/observation'
+import { BUILT_IN_SUMMARY_LABEL, dockObservations, isUnsuccessfulScan } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
+import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { VisionDocsLink, visionDocsUrl } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
 
@@ -28,39 +32,69 @@ const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
 export function ObservationsDock(): JSX.Element | null {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    // The dock is a sibling of the player frame, so it kept its summarize button on screen even when
+    // the frame had swapped itself for the "Recording not found" or "deleted" screen — a control that
+    // could never summarize a recording that is not there. There is nothing to scan, so drop the dock.
+    const { isNotFound, isRecordingDeleted } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    if (!sessionRecordingId) {
+    if (!sessionRecordingId || isNotFound || isRecordingDeleted) {
         return null
     }
     return <ObservationsDockContent sessionId={sessionRecordingId} />
 }
 
+/**
+ * Why a summary cannot run on this recording right now, whatever summarizer would run it.
+ *
+ * Both paths are scanner writes: an inline scan mints a scanner, and `observe` is a write action on
+ * the scanner it runs. Each also exposes recording contents, so both need recording read as well. A
+ * recording the scan-time gate would refuse is refused for every summarizer, so it blocks the button
+ * and each menu row rather than spending a scan that comes back ineligible. Pass a scanner for the
+ * object-level check, so one this user cannot edit is refused here rather than by a 403.
+ *
+ * The bar reads this too: a disabled button explains itself on hover only, which is why people kept
+ * clicking one that could never run.
+ */
+function useSummarizeBlockedReason(
+    scanBlock: ScanBlock | null
+): (scanner?: ReplayScannerApi | null) => string | null | undefined {
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason } = quotaUx(quota)
+    return (scanner) =>
+        getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
+        // `observe` answers 402 for a scanner that has spent its own credit limit, so a capped one is
+        // refused here rather than by a failed request. The built-in prompt has no per-scanner limit.
+        (scanner?.limit_reached ? LIMIT_REACHED_TOOLTIP : null) ??
+        scanBlock?.reason ??
+        quotaDisabledReason
+}
+
 /** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
-function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
+function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBlock: ScanBlock | null }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { summarizing, defaultSummarizer, summarizerScanners } = useValues(logic)
+    const { summarizePending, defaultSummarizer, summarizerScanners } = useValues(logic)
     const { summarize, summarizeWith } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    const { tooltip: quotaTooltip } = quotaUx(quota)
+    const blockedReason = useSummarizeBlockedReason(scanBlock)
     // `loading` only disables the button itself. The caret and the menu rows are their own buttons, so
     // without this a second summarizer is one click away mid-run, and it spends the quota again.
-    const inFlightDisabledReason = summarizing ? 'A summary is already running' : null
-    // Both paths are scanner writes: an inline scan mints a scanner, and `observe` is a write action on
-    // the scanner it runs. Each also exposes recording contents, so both need recording read as well.
-    const builtInDisabledReason = inFlightDisabledReason ?? getReplayVisionEditDisabledReason() ?? quotaDisabledReason
-    // Object-level, so a scanner this user cannot edit is disabled rather than answering with a 403.
+    const inFlightDisabledReason = summarizePending ? 'A summary is already running' : null
+    const builtInDisabledReason = inFlightDisabledReason ?? blockedReason()
     const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
-        inFlightDisabledReason ??
-        getReplayVisionEditDisabledReason(scanner.user_access_level as AccessControlLevel | null) ??
-        quotaDisabledReason
-    // Nobody could tell which summarizer the button used, so it says so.
-    const label = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
-    const summarizerTooltip = defaultSummarizer
-        ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
-        : 'Writes a summary using a built-in prompt.'
+        inFlightDisabledReason ?? blockedReason(scanner)
+    // Nobody could tell which summarizer the button used, so it says so. While a scan is running the
+    // label is the only thing that says the click landed: the summary takes minutes to arrive.
+    const idleLabel = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
+    const label = summarizePending ? 'Summarizing…' : idleLabel
+    const summarizerTooltip = summarizePending
+        ? 'Watching this recording. The summary appears below when it is ready.'
+        : defaultSummarizer
+          ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
+          : 'Writes a summary using a built-in prompt.'
 
     const menuItems: LemonMenuItem[] = [
         ...summarizerScanners.map((scanner) => ({
@@ -77,7 +111,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             // carries the logomark and says so, rather than reading as a scanner they cannot find.
             label: (
                 <span className="flex items-center justify-between gap-2 w-full">
-                    <span className="truncate">Quick summary</span>
+                    <span className="truncate">{BUILT_IN_SUMMARY_LABEL}</span>
                     <span className="flex items-center gap-1.5 text-xs shrink-0">
                         <IconLogomark className="text-base text-primary" />
                         <span className="text-muted">Built in</span>
@@ -97,9 +131,22 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             size="small"
             type="secondary"
             icon={<IconNotebook />}
-            loading={summarizing}
+            loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
-            onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
+            onClick={() => {
+                posthog.capture('replay_vision_summarize_clicked', {
+                    // Repeat clicks are the point of this event, and `$session_id` cannot tell them
+                    // apart from one click each on two recordings.
+                    recording_id: sessionId,
+                    summarizer: defaultSummarizer ? 'configured' : 'built-in',
+                    consent_needed: !dataProcessingAccepted,
+                })
+                if (dataProcessingAccepted) {
+                    summarize()
+                } else {
+                    setConsentRequested(true)
+                }
+            }}
             disabledReason={defaultSummarizer ? scannerDisabledReason(defaultSummarizer) : builtInDisabledReason}
             tooltip={quotaTooltip ?? summarizerTooltip}
             data-attr="vision-summarize-recording"
@@ -174,14 +221,21 @@ function SummarizeExplainer(): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
+    const { observations, observationsLoading, dockOpen, retryingObservationIds, defaultSummarizer, summarizePending } =
+        useValues(logic)
     const { setDockOpen, retryObservation } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
+    const scanBlock = recordingScanBlock(sessionPlayerMetaData)
+    // Why the button the bar just rendered cannot run, whatever summarizer it points at. Shown as a
+    // visible line so the reason no longer hides behind a hover, which is what left people clicking a
+    // control that could never fire. A running summary is not a block, so it is left out.
+    const blockedReason = useSummarizeBlockedReason(scanBlock)
+    const summarizeBlockedReason = summarizePending ? null : blockedReason(defaultSummarizer)
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -212,8 +266,19 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
         >
             {dockOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
-                <SummarizeButton sessionId={sessionId} />
+                <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
                 <SummarizeExplainer />
+                {summarizeBlockedReason &&
+                    !hasContent && (
+                        // Collapsed with nothing to expand, the disabled button's tooltip is the only place
+                        // the reason is explained, so the bar says it outright. A scan-block has a short
+                        // label to lead with; a quota or access block carries only its full sentence.
+                        <Tooltip title={summarizeBlockedReason}>
+                            <span className="ml-auto text-muted text-xs truncate" data-attr="vision-dock-skipped">
+                                {scanBlock ? `Skipped: ${scanBlock.label.toLowerCase()}` : summarizeBlockedReason}
+                            </span>
+                        </Tooltip>
+                    )}
                 {hasContent && (
                     <div className="ml-auto flex items-center gap-2 min-w-0">
                         {!dockOpen && unsuccessfulCount > 0 && (
@@ -240,6 +305,13 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                     {observationsLoading && shown.length === 0 ? (
                         <div className="flex items-center gap-2 text-muted py-4">
                             <Spinner /> Loading summaries…
+                        </div>
+                    ) : shown.length === 0 && scanBlock ? (
+                        <div className="text-muted text-sm py-4">
+                            Replay vision skipped this recording, so it has no summary. {scanBlock.reason}{' '}
+                            <VisionDocsLink page="observations" dataAttr="vision-skipped-docs-link-dock">
+                                Learn how observations work
+                            </VisionDocsLink>
                         </div>
                     ) : shown.length === 0 ? (
                         <div className="text-muted text-sm py-4">

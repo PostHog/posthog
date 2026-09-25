@@ -1,4 +1,4 @@
-import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
+import type { AuthService } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
@@ -9,7 +9,9 @@ import type {
   AUTH_TOKEN_OVERRIDE,
 } from "@posthog/core/auth/identifiers";
 import type {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
+  ClaudeSubscriptionTokenStore,
   ICloudTaskAuth,
   MCP_RELAY_EXECUTOR,
   McpRelayExecutor,
@@ -19,6 +21,10 @@ import type {
   IContextMenuExternalApps,
 } from "@posthog/core/context-menu/identifiers";
 import type {
+  CUSTOM_CLOUD_STORE,
+  CustomCloudStore,
+} from "@posthog/core/custom-cloud/identifiers";
+import type {
   FOCUS_SESSION_STORE,
   FOCUS_WORKSPACE_CLIENT,
   FOCUS_WORKTREE_PATHS,
@@ -26,6 +32,10 @@ import type {
   FocusWorkspaceClient,
   FocusWorktreePaths,
 } from "@posthog/core/focus/host-focus";
+import type {
+  FOCUS_SERVICE,
+  IFocusService,
+} from "@posthog/core/focus/identifiers";
 import type {
   GitWorkspaceLookup,
   HostGitWorkspaceClient,
@@ -39,7 +49,6 @@ import type {
   GIT_DIFF_SOURCE,
   GitDiffSource,
 } from "@posthog/core/git-pr/identifiers";
-import type { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import type { GitHubIntegrationService } from "@posthog/core/integrations/github";
 import type {
   GITHUB_INTEGRATION_SERVICE,
@@ -119,24 +128,28 @@ import type { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import type { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
+import type {
+  ISettingsBackupFiles,
+  SETTINGS_BACKUP_FILES,
+} from "@posthog/platform/settings-backup-files";
 import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import type {
-  QUICK_ASK_FETCH,
-  QUICK_ASK_RUN_DEFAULTS,
-  QuickAskRunDefaults,
-} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
-import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import type {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import type {
   AGENT_AUTH,
@@ -156,6 +169,7 @@ import type {
 } from "@posthog/workspace-server/services/archive/ports";
 import type { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import type { AuthProxyAuth } from "@posthog/workspace-server/services/auth-proxy/ports";
+import type { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import type {
   ENRICHMENT_AUTH,
   ENRICHMENT_FILE_READER,
@@ -172,15 +186,6 @@ import type {
   FsCapability,
 } from "@posthog/workspace-server/services/fs/identifiers";
 import type { GitService } from "@posthog/workspace-server/services/git/service";
-import type {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type {
-  HandoffGitGateway,
-  HandoffLogGateway,
-} from "@posthog/workspace-server/services/handoff/ports";
-import type { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import type {
   ILogsService,
   LOGS_SERVICE,
@@ -241,6 +246,7 @@ import type { ElectronContextMenu } from "../platform-adapters/electron-context-
 import type { ElectronCrypto } from "../platform-adapters/electron-crypto";
 import type { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import type { ElectronDialog } from "../platform-adapters/electron-dialog";
+import type { ElectronFeedbackContext } from "../platform-adapters/electron-feedback-context";
 import type { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import type { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import type { ElectronMainWindow } from "../platform-adapters/electron-main-window";
@@ -256,7 +262,6 @@ import type { AppLifecycleService } from "../services/app-lifecycle/service";
 import type {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -267,6 +272,7 @@ import type { DevLogsService } from "../services/dev-logs/service";
 import type { DevMetricsService } from "../services/dev-metrics/service";
 import type { DevNetworkService } from "../services/dev-network/service";
 import type { DiscordPresenceService } from "../services/discord-presence/service";
+import type { DiskCache } from "../services/disk-cache/service";
 import type { EncryptionService } from "../services/encryption/service";
 import type { SecureStoreService } from "../services/secure-store/service";
 import type { settingsStore } from "../services/settingsStore";
@@ -324,6 +330,7 @@ import type {
 } from "./tokens";
 
 export interface MainBindings {
+  [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // Platform adapters
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
@@ -332,6 +339,7 @@ export interface MainBindings {
   [CLIPBOARD_SERVICE]: ElectronClipboard;
   [CRYPTO_SERVICE]: ElectronCrypto;
   [ANALYTICS_SERVICE]: IAnalytics;
+  [FEEDBACK_CONTEXT_SERVICE]: ElectronFeedbackContext;
   [FILE_ICON_SERVICE]: ElectronFileIcon;
   [SECURE_STORAGE_SERVICE]: ElectronSecureStorage;
   [MAIN_WINDOW_SERVICE]: ElectronMainWindow;
@@ -345,6 +353,7 @@ export interface MainBindings {
   [WORKSPACE_SETTINGS_SERVICE]: ElectronWorkspaceSettings;
   [APP_METRICS_SERVICE]: ElectronAppMetrics;
   [DEV_HOST_ACTIONS_SERVICE]: ElectronDevHostActions;
+  [DISK_CACHE_SERVICE]: DiskCache;
 
   // Database (main aliases + ws-server source tokens via toService)
   [MAIN_DATABASE_SERVICE]: DatabaseService;
@@ -375,18 +384,17 @@ export interface MainBindings {
   [AUTH_PREFERENCE_STORE]: AuthPreferencePortAdapter;
   [AUTH_OAUTH_FLOW_SERVICE]: OAuthFlowPortAdapter;
   [AUTH_TOKEN_CIPHER]: TokenCipherPortAdapter;
-  [AUTH_CONNECTIVITY]: ConnectivityPortAdapter;
+  [AUTH_CONNECTIVITY]: ConnectivityService;
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
-  [QUICK_ASK_FETCH]: FetchLike;
-  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
   [MCP_PROXY_AUTH]: McpProxyAuth;
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
+  [CLAUDE_SUBSCRIPTION_TOKEN_STORE]: ClaudeSubscriptionTokenStore;
 
   // Archive / suspension host ports
   [ARCHIVE_SESSION_CANCELLER]: SessionCanceller;
@@ -429,14 +437,10 @@ export interface MainBindings {
   [GIT_WORKSPACE_LOOKUP]: GitWorkspaceLookup;
   [GIT_PR_STATUS_PROVIDER]: IGitPrStatus;
 
-  // Handoff
-  [HANDOFF_HOST]: HandoffHostService;
-  [HANDOFF_GIT_GATEWAY]: HandoffGitGateway;
-  [HANDOFF_LOG_GATEWAY]: HandoffLogGateway;
-
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;
   [OAUTH_HOST]: OAuthHost;
+  [CUSTOM_CLOUD_STORE]: CustomCloudStore;
 
   // Process tracking / posthog plugin
   [MAIN_PROCESS_TRACKING_SERVICE]: ProcessTrackingService;
@@ -505,6 +509,7 @@ export interface MainBindings {
 
   // ws-server git service (bound to(GitService))
   [WS_GIT_SERVICE]: GitService;
+  [WS_CONNECTIVITY_SERVICE]: ConnectivityService;
 
   // index.ts runtime bindings
   [MAIN_WORKSPACE_CLIENT]: WorkspaceClient;
@@ -516,6 +521,7 @@ export interface MainBindings {
   [FOCUS_WORKSPACE_CLIENT]: FocusWorkspaceClient;
   [FOCUS_SESSION_STORE]: FocusSessionStore;
   [FOCUS_WORKTREE_PATHS]: FocusWorktreePaths;
+  [FOCUS_SERVICE]: IFocusService;
   [MAIN_FS_SERVICE]: FsCapability;
   [FS_SERVICE]: FsCapability;
 

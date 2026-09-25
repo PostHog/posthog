@@ -1,26 +1,30 @@
+import uuid
+import hashlib
 import datetime as dt
 from typing import cast
+from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
-from posthog.api.email_verification import email_verification_token_generator
+from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
+    MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
     send_async_migration_complete_email,
@@ -29,10 +33,11 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
-    send_email_verification,
+    send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
+    send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -44,25 +49,43 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_matview_failure_digest,
     send_wizard_pr_ready_email,
+    send_workflow_email_sending_paused,
+    send_workflow_email_sending_warning,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.access_control.backend.models.access_control import AccessControl
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
+def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team_id,
+        name="A batch export",
+        destination_type=DestinationType.AWS_S3,
+        destination_config={"bucket_name": "my_production_s3_bucket"},
+    )
+    now = dt.datetime.now()
+    batch_export_run_id = batch_exports_testing.create_batch_export_run(
+        batch_export_id=batch_export_id,
+        status=BatchExportRunStatus.FAILED,
+        data_interval_start=now - dt.timedelta(hours=1),
+        data_interval_end=now,
+    )
+    return batch_export_id, batch_export_run_id
+
+
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
-    with freeze_time(creation_date):
+    with time_machine.travel(creation_date, tick=False):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
@@ -148,6 +171,38 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_workflow_email_subjects_survive_a_newline_in_the_name(self, MockEmailMessage: MagicMock) -> None:
+        # A CR or LF in the workflow name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so a name with an embedded newline would
+        # silently drop this notice to every project admin.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        name_with_newline = "Welcome series\nBcc: sneaky@example.com"
+
+        send_workflow_email_sending_paused(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 2% of the 400 emails this workflow sent in the last hour.",
+            paused_at="2026-01-01T00:00:00+00:00",
+        )
+        send_workflow_email_sending_warning(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 0.2% of the 10,000 emails this workflow sent in the last 24 hours.",
+            pause_rate="0.3%",
+            warned_at="2026-01-01T00:00:00+00:00",
+        )
+
+        subjects = [call.kwargs["subject"] for call in MockEmailMessage.call_args_list]
+        assert len(subjects) == 2
+        for subject in subjects:
+            assert "\n" not in subject
+            assert "\r" not in subject
+            assert "Welcome series" in subject
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -521,15 +576,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         task.refresh_from_db()
         assert task.pr_ready_email_sent_at is not None
 
-    @patch("posthoganalytics.capture")
-    def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = email_verification_token_generator.make_token(self.user)
-        send_email_verification(user.id, token)
+        send_email_verification_code(user.id, "123456")
 
-        mock_capture.assert_called_once_with(
-            event="verification email sent",
+        mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
+            event="verification code sent",
             distinct_id=user.distinct_id,
             groups={"organization": str(user.current_organization_id)},
         )
@@ -573,21 +627,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        team_id = cast(Team, user.team).id
+        _, batch_export_run_id = _create_failed_batch_export_run(team_id)
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, team_id)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -595,44 +638,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            self.team.pk,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "my_production_s3_bucket"},
         )
-        with team_scope(team_id=self.team.pk, canonical=True):
-            on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
         now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export_on_demand=on_demand_export,
-            status=BatchExportRun.Status.FAILED,
+        batch_export_run_id = batch_exports_testing.create_batch_export_run(
+            on_demand_id=on_demand_id,
+            status=BatchExportRunStatus.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.pk)
 
         assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
@@ -641,28 +672,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 
     def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Default threshold is 1% - failure rate 0.5 exceeds it, so notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
@@ -672,17 +691,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.6)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.6)
         assert len(mocked_email_messages) == 2
         assert mocked_email_messages[1].send.call_count == 1
 
         # Test with threshold 0.5 and failure rate 0.4 - should NOT notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.4)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.4)
         # Should still be 2 messages (no new message sent)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.5 and failure rate exactly 0.5 - should NOT notify (threshold is exclusive)
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.0 explicitly set - should notify on any failure
@@ -691,25 +710,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.0,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.1)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.1)
         assert len(mocked_email_messages) == 3
         assert mocked_email_messages[2].send.call_count == 1
 
     def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Test with plugin_disabled=False - should not notify even with high failure rate
         self.user.partial_notification_settings = {
@@ -717,13 +724,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
 
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -765,7 +772,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 09:59:00"):
+        with time_machine.travel("2024-05-15 09:59:00", tick=False):
             send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -825,7 +832,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             record, _ = MessagingRecord.objects.get_or_create(
                 raw_email="someone@posthog.com",
                 campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
@@ -892,7 +899,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
             }
         ]
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
 
         assert mocked_email_messages[0].to == [
@@ -902,11 +909,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        with freeze_time("2024-05-15 18:00:00"):
+        with time_machine.travel("2024-05-15 18:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages) == 1
 
-        with freeze_time("2024-05-16 10:00:00"):
+        with time_machine.travel("2024-05-16 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
 
@@ -1068,30 +1075,258 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
 
+    def test_send_hog_function_filters_uncompilable_reaches_admins_and_the_creator(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # A plain member who happens to have created the destination. The admins get it because
+        # they can act on it; the creator gets it because they know what it was for.
+        creator = self._create_user("creator@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        # Written past save(), which recompiles the filters and would clear the error again. This is
+        # also the shape the row has in the database: a null bytecode beside the reason.
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "creator@posthog.com" in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_lists_every_destination_in_one_email(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A shared mistake breaks several destinations at once, so the project gets one message
+        # naming each of them beside its own error rather than one message each.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        ids = []
+        for name, error in (
+            ("Send pageviews to Slack", "Cohort membership can't be evaluated in real-time filters"),
+            ("Forward signups to a webhook", "Select queries are not allowed in filters"),
+        ):
+            hog_function = HogFunction.objects.create(team=self.team, name=name, enabled=True)
+            HogFunction.objects.filter(id=hog_function.id).update(filters={"bytecode": None, "bytecode_error": error})
+            ids.append(str(hog_function.id))
+
+        send_hog_function_filters_uncompilable(self.team.id, ids)
+
+        assert len(mocked_email_messages) == 1
+        html = mocked_email_messages[0].html_body
+        # Apostrophe-free slices: how Django escapes a quote is framework behavior, not this email's.
+        for fragment in (
+            "Send pageviews to Slack",
+            "Forward signups to a webhook",
+            "evaluated in real-time filters",
+            "Select queries are not allowed in filters",
+        ):
+            assert fragment in html
+
+    def test_send_hog_function_filters_uncompilable_skips_a_destination_still_on_its_last_bytecode(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. The email says the listed destinations dropped events, which
+        # would be wrong for this one.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Still delivering", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": ["_H", 1, 29], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("gone@posthog.com")
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+        # The email names the project and quotes the error, so it must not follow a stale created_by.
+        OrganizationMembership.objects.filter(user=creator, organization=self.organization).delete()
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "gone@posthog.com" not in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_skips_a_creator_denied_project_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        creator = self._create_user("denied@posthog.com")
+        creator_membership = OrganizationMembership.objects.get(user=creator, organization=self.organization)
+        creator_membership.level = OrganizationMembership.Level.MEMBER
+        creator_membership.save()
+        # The project is private, so organization membership alone no longer grants access to it.
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination", enabled=True, created_by=creator
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        recipients = {entry["recipient"] for entry in mocked_email_messages[0].to}
+        assert "denied@posthog.com" not in recipients
+        assert self.user.email in recipients
+
+    def test_send_hog_function_filters_uncompilable_tells_a_switched_off_destination_to_switch_back_on(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+        HogFunction.objects.filter(id=hog_function.id).update(enabled=False)
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert "switch it back on" not in mocked_email_messages[0].html_body
+        assert "switch it back on" in mocked_email_messages[1].html_body
+        # Fixing the filters leaves the destination off, so the second email must reach the
+        # recipients rather than being deduped away by the first.
+        assert mocked_email_messages[0].campaign_key != mocked_email_messages[1].campaign_key
+
+    def test_send_hog_function_filters_uncompilable_keys_the_campaign_on_a_stable_digest(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        hog_function = HogFunction.objects.create(team=self.team, name="Broken destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": bytecode_error}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        # The key decides whether a re-run emails the same people again, so it has to survive a
+        # worker restart. hash() is salted per interpreter and would not. It covers the whole set,
+        # because one email now lists every broken destination in the project.
+        fingerprint = f"{hog_function.id}:{bytecode_error}:1"
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
+
+    def test_send_hog_function_filters_uncompilable_orders_same_named_destinations_by_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        bytecode_error = "Cohort membership can't be evaluated"
+        # Two destinations can share a name, and the query that reads them has no ORDER BY. The
+        # higher id is written first, so the rows come back in the reverse of the order the key
+        # has to use, and a key built on names alone would flip between runs and mail twice.
+        earlier = uuid.UUID("00000000-0000-0000-0000-0000000000a0")
+        later = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
+        for hog_function_id in (later, earlier):
+            HogFunction.objects.create(id=hog_function_id, team=self.team, name="Shared name", enabled=True)
+            HogFunction.objects.filter(id=hog_function_id).update(
+                filters={"bytecode": None, "bytecode_error": bytecode_error}
+            )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(later), str(earlier)])
+
+        fingerprint = ";".join(f"{hog_function_id}:{bytecode_error}:1" for hog_function_id in (earlier, later))
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]
+        assert mocked_email_messages[0].campaign_key == f"hog_function_filters_uncompilable_{self.team.id}_{digest}"
+
+    def test_send_hog_function_filters_uncompilable_subject_survives_a_newline_in_a_name(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A CR or LF in either name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so every recipient would lose this notice.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.name = "Production\nBcc: sneaky@example.com"
+        self.team.save()
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Broken destination\nBcc: sneaky@example.com", enabled=True
+        )
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        subject = MockEmailMessage.call_args.kwargs["subject"]
+        assert "\n" not in subject
+        assert "\r" not in subject
+        assert "Production" in subject
+
+    @parameterized.expand(
+        [
+            ("filters that compile", {"bytecode": ["_H", 1]}, False),
+            (
+                "an archived destination",
+                {"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"},
+                True,
+            ),
+        ]
+    )
+    def test_send_hog_function_filters_uncompilable_sends_nothing_for(
+        self, MockEmailMessage: MagicMock, _name: str, filters: dict, deleted: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        # An admin, so an email would have a recipient and the assertion is about the skip.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="A destination", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(filters=filters, deleted=deleted)
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        batch_export_id, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
         user2 = self._create_user("test2@posthog.com")
 
         self.user.partial_notification_settings = {
             "plugin_disabled": True,
-            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export_id}": True},
         }
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
 
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
@@ -2161,6 +2396,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
+                "never_deleted_view_has_null_flag",
+                {"deleted": None, "sync_frequency_interval": dt.timedelta(hours=1)},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            (
                 # the broken parent is the one reported; mailing every descendant would bury it
                 "view_blocked_by_a_broken_parent",
                 {"sync_frequency_interval": None},
@@ -2210,7 +2451,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         else:
             assert len(mocked_email_messages) == 0
 
-    def test_send_matview_failure_digest_ignores_duckgres_shadow(self, MockEmailMessage: MagicMock) -> None:
+    def test_send_matview_failure_digest_ignores_managed_warehouse_shadow(self, MockEmailMessage: MagicMock) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2233,8 +2474,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres translation gap",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse translation gap",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2268,8 +2509,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
-            error="duckgres boom",
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="managed warehouse boom",
             last_run_at=timezone.now() - dt.timedelta(hours=1),
         )
 
@@ -2277,7 +2518,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert "clickhouse boom" in mocked_email_messages[0].html_body
-        assert "duckgres boom" not in mocked_email_messages[0].html_body
+        assert "managed warehouse boom" not in mocked_email_messages[0].html_body
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
 
@@ -2329,6 +2570,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 name=name,
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=dt.timedelta(hours=1),
+                is_materialized=True,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2349,6 +2591,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=None,
                 latest_error=error,
+                is_materialized=False,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2364,9 +2607,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html = mocked_email_messages[0].html_body
         for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        # The digest never flags views as paused, so every row renders the em-dash glyph.
-        assert "&#10003;" not in html
-        assert "&#8212;" in html
+        assert html.count("Will retry") == len(failed_cases)
+        assert html.count("Not scheduled") == len(unscheduled_cases)
+        assert "action required" not in html
 
     @parameterized.expand(
         [
@@ -2404,6 +2647,250 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
         assert rendered_error == expected_error
         assert len(rendered_error) <= 255
+
+    @parameterized.expand(
+        [
+            (
+                "job_error_is_shown",
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                None,
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            ),
+            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "..."),
+            ("falls_back_to_the_saved_query_error", "", "Query exceeded timeout limit", "Query exceeded timeout limit"),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_includes_the_error(
+        self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
+    ) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="failing_view",
+            query={"query": "SELECT 1"},
+            latest_error=latest_error,
+        )
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error=job_error,
+            last_run_at=timezone.now(),
+        )
+
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].properties["error"] == expected_error
+        assert expected_error[:80] in mocked_email_messages[0].html_body
+
+    def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        for user in (self.user, self._create_user("restricted@posthog.com")):
+            user.partial_notification_settings = {"materialized_view_sync_failed": True}
+            user.save()
+
+        for name in ("shared_view", "restricted_view"):
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error=f"{name} broke",
+                last_run_at=timezone.now(),
+            )
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                return not (self.user.email == "restricted@posthog.com" and obj.name == "restricted_view")
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 2
+        named = sorted(tuple(sorted(v["name"] for v in m.properties["views"])) for m in mocked_email_messages)
+        assert named == [("restricted_view", "shared_view"), ("shared_view",)]
+
+        restricted_email = next(m for m in mocked_email_messages if len(m.properties["views"]) == 1)
+        assert "restricted_view" not in restricted_email.html_body
+        assert "restricted_view broke" not in restricted_email.html_body
+
+    def test_send_matview_failure_digest_retries_when_no_audience_can_be_resolved(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="broken_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+
+        class UnreachableUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                pass
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                raise OperationalError("access control store is down")
+
+        with patch("posthog.tasks.email.UserAccessControl", UnreachableUserAccessControl):
+            with self.assertRaises(OperationalError):
+                send_team_matview_failure_digest(self.team.id, [str(sq.id)], [])
+
+        assert len(mocked_email_messages) == 0
+
+    @parameterized.expand(
+        [
+            (
+                "serving_marker",
+                DataModelingJobEngine.CLICKHOUSE,
+                False,
+                [("suspended_view", True), ("retrying_view", False)],
+                True,
+            ),
+            ("shadow_marker_only", DataModelingJobEngine.LEGACY_DUCKGRES, False, [("retrying_view", False)], False),
+            ("reverted_after_suspension", DataModelingJobEngine.CLICKHOUSE, True, [("retrying_view", False)], False),
+        ]
+    )
+    def test_send_matview_failure_digest_marks_a_row_suspended_only_on_a_live_serving_marker(
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        marker_engine: str,
+        revert: bool,
+        expected_rows: list[tuple[str, bool]],
+        expected_has_suspended: bool,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        suspended = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=suspended,
+            status=DataModelingJob.Status.FAILED,
+            # Suspending rewrites the job error to lead with this sentence, so the row must not use it.
+            error=(
+                "This model has been suspended after 5 consecutive failed materializations. "
+                "Error: Code: 241. DB::Exception: Memory limit (for query) exceeded"
+            ),
+            last_run_at=timezone.now() - dt.timedelta(days=4),
+        )
+        node = sync_saved_query_to_dag(suspended)
+        assert node is not None
+        mark_node_suspended(
+            node,
+            engine=marker_engine,
+            reason="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            job_id=str(uuid.uuid4()),
+        )
+        node.save()
+
+        if revert:
+            suspended.revert_materialization()
+
+        retrying = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="retrying_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=retrying,
+            status=DataModelingJob.Status.FAILED,
+            error="Query exceeded timeout limit",
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        views = mocked_email_messages[0].properties["views"]
+        assert [(v["name"], v["suspended"]) for v in views] == expected_rows
+        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
+
+        html = mocked_email_messages[0].html_body
+        assert "Will retry" in html
+        if expected_has_suspended:
+            assert "action required" in html
+            assert "Memory limit (for query) exceeded" in html
+            assert "has been suspended after" not in html
+        else:
+            assert "action required" not in html
+            assert "suspended_view" not in html
+
+    def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        for index in range(MAX_VIEWS_PER_DIGEST_EMAIL + 4):
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"failing_view_{index}",
+                query={"query": "SELECT 1"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Query exceeded timeout limit",
+                last_run_at=timezone.now() - dt.timedelta(minutes=index + 1),
+            )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert len(mocked_email_messages[0].properties["views"]) == MAX_VIEWS_PER_DIGEST_EMAIL
+        assert mocked_email_messages[0].properties["omitted_count"] == 4
+        assert "4</strong> more failing views" in mocked_email_messages[0].html_body
 
     @parameterized.expand(
         [

@@ -29,11 +29,13 @@ from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 
 from products.customer_analytics.backend.facade.api import create_account
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models.account import Account, AccountProperties
 from products.customer_analytics.backend.models.relationship import AccountRelationshipDefinition
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 
 ACCOUNT_GROUP_TYPE_INDEX = 0
 
@@ -206,7 +208,7 @@ class Command(BaseCommand):
                 account=account,
                 definition=definition,
                 user=user_pool[(index + offset) % len(user_pool)],
-                created_by=creator,
+                actor=relationships_logic.Actor(source=AccountRelationshipSource.MIGRATION, user=creator),
                 emit_event=False,
             )
 
@@ -233,14 +235,10 @@ class Command(BaseCommand):
                     team.id,
                     account.id,
                     title=f"{account.name} — {title}",
-                    content=_paragraph_doc(body),
+                    content=build_markdown_notebook_content(body),
                     text_content=body,
                     created_by_id=author.id if author else None,
                     last_modified_by_id=author.id if author else None,
                 )
                 created += 1
         self.stdout.write(f"Created {created} note(s) across up to {len(selected)} account(s).")
-
-
-def _paragraph_doc(text: str) -> dict[str, Any]:
-    return {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}

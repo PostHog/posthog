@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 
@@ -28,6 +30,7 @@ const repo: RepoApi = {
     repo_full_name: 'PostHog/posthog',
     baseline_file_paths: {},
     enable_pr_comments: true,
+    debt_digest_enabled: false,
     created_at: '2026-06-10T00:00:00Z',
 }
 
@@ -41,7 +44,7 @@ const run: RunApi = {
     pr_number: 42,
     approved: false,
     approved_at: null,
-    summary: { total: 7, changed: 1, new: 1, removed: 0, unchanged: 5 },
+    summary: { total: 7, changed: 2, new: 1, removed: 0, unchanged: 4 },
     error_message: null,
     created_at: '2026-06-10T00:00:00Z',
     completed_at: '2026-06-10T00:01:00Z',
@@ -65,7 +68,7 @@ const snapshot = (overrides: Partial<SnapshotApi>): SnapshotApi => ({
 })
 
 const snapshots = {
-    count: 2,
+    count: 4,
     next: null,
     previous: null,
     quarantined_count: 0,
@@ -84,6 +87,48 @@ const snapshots = {
             diff_percentage: null,
             diff_pixel_count: null,
             current_artifact: artifact('curr_new'),
+        }),
+        // A panel grew by a row, so the page below it moved. Absorbed as
+        // noise, and the chip is the only trace the run leaves.
+        snapshot({
+            id: 'snapshot-absorbed-shift',
+            identifier: 'Components/Card--with-footer',
+            result: 'unchanged',
+            classification_reason: 'below_threshold',
+            diff_percentage: 0.03,
+            diff_pixel_count: 42,
+            baseline_artifact: artifact('base_absorbed'),
+            current_artifact: artifact('curr_absorbed'),
+            row_shift: {
+                inserted_rows: 1,
+                deleted_rows: 0,
+                residual_percentage: 0.001,
+                raw_diff_percentage: 2.4,
+                bands: [{ y: 60, rows: 1, kind: 'inserted' }],
+            },
+        }),
+        // A block appeared, so the shift is past the absorb cap and stays in review.
+        snapshot({
+            id: 'snapshot-layout-shift',
+            identifier: 'Components/Navigation--expanded',
+            result: 'changed',
+            change_kind: 'layout',
+            diff_percentage: 1.4,
+            diff_pixel_count: 896,
+            baseline_artifact: artifact('base_layout'),
+            current_artifact: artifact('curr_layout'),
+            row_shift: {
+                inserted_rows: 40,
+                deleted_rows: 12,
+                residual_percentage: 0.0,
+                raw_diff_percentage: 31.6,
+                bands: [
+                    { y: 80, rows: 40, kind: 'inserted' },
+                    // A deletion at the bottom edge. Its seam sits at the image
+                    // height, so the viewer must clamp it back into frame.
+                    { y: 200, rows: 12, kind: 'deleted' },
+                ],
+            },
         }),
     ],
 }
@@ -137,4 +182,49 @@ export const TrackingOnlyMasterRun: StoryObj = {
             },
         }),
     ],
+}
+
+const repeatedTolerations = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: ['2026-06-02', '2026-06-05', '2026-06-08'].map((day, index) => ({
+        id: `tolerated-${index}`,
+        alternate_hash: `alt_${index}`,
+        baseline_hash: 'base_changed',
+        reason: 'human',
+        diff_percentage: 2.6,
+        created_at: `${day}T10:00:00Z`,
+        source_run_id: null,
+    })),
+}
+
+// A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
+export const TolerateSuggestsQuarantine: StoryObj = {
+    parameters: {
+        // Not `fullscreen`: the runner rejects snapshotTargetSelector for fullscreen stories.
+        layout: 'padded',
+        testOptions: {
+            waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: repeatedTolerations,
+            },
+        }),
+    ],
+    play: async () => {
+        const tolerateButton = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>('[data-attr="visual-review-snapshot-tolerate"]')
+            // The nudge reads the tolerated hashes, so wait for the sidebar to list them.
+            if (!element || !document.body.textContent?.includes('alt_0')) {
+                throw new Error('Tolerate button or tolerated hashes not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(tolerateButton)
+    },
 }

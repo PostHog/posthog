@@ -24,9 +24,10 @@ const puppeteerCapture = require('puppeteer-capture')
 
 const ORIGINAL_ENV = process.env
 
-function mockBrowser(): jest.Mocked<Browser> {
+function mockBrowser(spawnfile = '/usr/local/bin/chrome-headless-shell'): jest.Mocked<Browser> {
     const handlers: Record<string, () => void> = {}
     return {
+        process: jest.fn(() => ({ spawnfile })),
         newPage: jest.fn(),
         close: jest.fn(),
         on: jest.fn((event: string, handler: () => void) => {
@@ -77,6 +78,28 @@ describe('BrowserPool', () => {
         expect(launchArgs).toContain('--crash-dumps-dir=/tmp/chrome-crash-dumps')
     })
 
+    it('launches chrome with an allowlisted environment, not the worker environment', async () => {
+        process.env.SECRET_KEY = 'worker-secret-key'
+        process.env.INTERNAL_API_SECRET = 'worker-internal-secret'
+        process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token'
+        process.env.HTTPS_PROXY = 'http://smokescreen:4750'
+        const browser = mockBrowser()
+        browser.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await pool.getPage()
+
+        const env = puppeteerCapture.launch.mock.calls[0][0].env as NodeJS.ProcessEnv
+        expect(env).not.toHaveProperty('SECRET_KEY')
+        expect(env).not.toHaveProperty('INTERNAL_API_SECRET')
+        expect(env).not.toHaveProperty('AWS_WEB_IDENTITY_TOKEN_FILE')
+        expect(env.PATH).toBe(process.env.PATH)
+        // Without --proxy-server, Chrome reads the proxy environment. Passing it would route Chrome
+        // through the proxy even after RASTERIZER_USE_PROXY=false asks for direct egress.
+        expect(env).not.toHaveProperty('HTTPS_PROXY')
+    })
+
     it('launches separate browsers for concurrent pages', async () => {
         const browser1 = mockBrowser()
         const browser2 = mockBrowser()
@@ -94,6 +117,22 @@ describe('BrowserPool', () => {
         await pool.releasePage(p1)
         await pool.releasePage(p2)
         expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('rejects launch() and closes the browser when it is not chrome-headless-shell', async () => {
+        const browser = mockBrowser('/usr/bin/chromium')
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await expect(pool.launch()).rejects.toThrow('/usr/bin/chromium')
+        expect(browser.close).toHaveBeenCalled()
+
+        // The refused browser must not stay in the idle pool for getPage to hand out.
+        const good = mockBrowser()
+        good.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(good)
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
     it('closes the browser instead of orphaning it when newPage throws', async () => {

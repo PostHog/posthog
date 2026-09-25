@@ -18,8 +18,16 @@ from pydantic.dataclasses import dataclass
 
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
-# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+# Keep in sync with products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/sourceMapsFixWizardLogic.ts.
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+
+
+@dataclass(frozen=True)
+class DocumentEmbeddingTable:
+    """One per-model embeddings table: the sharded storage table and the Distributed table that reads it."""
+
+    sharded_table: str
+    distributed_table: str
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,25 @@ class ErrorTrackingExternalReference:
     id: UUID
     integration: ErrorTrackingExternalReferenceIntegration
     external_url: str
+    external_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class GitHubExternalReferenceJob:
+    team_id: int
+    installation_id: str
+    repository_full_name: str
+    number: int
+    title: str
+    resource_type: Literal["issue", "pull_request"]
+    actor_login: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
 
 
 @dataclass(frozen=True)
@@ -272,5 +299,32 @@ class ErrorTrackingRecommendation:
     status: str
     computed_at: datetime | None
     dismissed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertDestination:
+    id: UUID
+    channel_type: str
+    integration_id: int | None
+    config: dict
+    last_delivered_at: datetime | None
+    last_failure_at: datetime | None
+    last_error: str
+    consecutive_failures: int
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlert:
+    id: UUID
+    name: str
+    enabled: bool
+    triggers: list[str]
+    filters: dict
+    throttle_seconds: int
+    destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime

@@ -7,7 +7,7 @@ use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
 use futures::stream;
 use limiters::redis::QuotaResource;
-use metrics::counter;
+use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,7 +34,7 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{
-    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+    exceeds_max_ai_event_bytes, AiLanePredicate, DataType, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
 
@@ -310,7 +310,7 @@ async fn ai_handler_inner(
         retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
 
     // Step 6: Parse the parts
-    let mut parsed = parse_multipart_data(parts)?;
+    let mut parsed = parse_multipart_data(parts, state.ai_lane_predicate)?;
 
     // AI-gateway provenance: stamp the trusted marker (overwriting client values) on a
     // verified event, else strip the whole $ai_gateway* namespace so a forged marker
@@ -396,11 +396,16 @@ async fn ai_handler_inner(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
-    // Step 9: Send event to Kafka
-    state.sink.send(processed_event).await.map_err(|e| {
-        warn!("Failed to send AI event to Kafka: {:?}", e);
-        e
-    })?;
+    // Step 9: Publish the event. One event per request on this endpoint.
+    histogram!("capture_event_batch_size").record(1.0);
+    state
+        .outputs
+        .publish(vec![processed_event])
+        .await
+        .map_err(|e| {
+            warn!("Failed to send AI event to Kafka: {:?}", e);
+            e
+        })?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");
@@ -778,6 +783,7 @@ async fn retrieve_multipart_parts(
 /// Parse retrieved multipart parts and validate event structure.
 fn parse_multipart_data(
     parts: RetrievedMultipartParts,
+    ai_lane_predicate: AiLanePredicate,
 ) -> Result<ParsedMultipartData, AiRejection> {
     // Merge properties into the event
     let mut event = parts.event_json;
@@ -788,7 +794,7 @@ fn parse_multipart_data(
     }
 
     // Now validate the complete event structure
-    validate_event_structure(&event)?;
+    validate_event_structure(&event, ai_lane_predicate)?;
 
     // Extract event_name, distinct_id, uuid, and timestamp for later use
     let event_name = event
@@ -840,7 +846,10 @@ fn parse_multipart_data(
 }
 
 /// Validate the structure and content of an AI event
-fn validate_event_structure(event: &Value) -> Result<(), AiRejection> {
+fn validate_event_structure(
+    event: &Value,
+    ai_lane_predicate: AiLanePredicate,
+) -> Result<(), AiRejection> {
     // Check if event is an object
     let event_obj = event.as_object().ok_or(AiRejection::EventNotObject)?;
 
@@ -854,8 +863,16 @@ fn validate_event_structure(event: &Value) -> Result<(), AiRejection> {
         return Err(AiRejection::EventNameEmpty);
     }
 
-    if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(AiRejection::EventNameNotAllowed(event_name.to_string()));
+    // The rejection names the rule the deployment applied, so the client's 400
+    // body (and the warning details) say what a valid name looks like here.
+    match ai_lane_predicate {
+        AiLanePredicate::Allowlist if !ALLOWED_AI_EVENTS.contains(&event_name) => {
+            return Err(AiRejection::EventNameNotAllowed(event_name.to_string()));
+        }
+        AiLanePredicate::Prefix if !ai_lane_predicate.is_ai_event(event_name) => {
+            return Err(AiRejection::EventNameNotAiPrefixed(event_name.to_string()));
+        }
+        _ => {}
     }
 
     // Validate distinct_id

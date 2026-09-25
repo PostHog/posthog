@@ -8,7 +8,6 @@ import {
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -25,6 +24,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
+import { CopyCanvasLinkButton } from "@posthog/ui/features/canvas/components/CopyCanvasLinkButton";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { SpaceHeaderRow } from "@posthog/ui/features/canvas/components/SpaceHeaderRow";
@@ -41,6 +41,8 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
@@ -61,10 +63,11 @@ import {
   PRIVATE_SPACE_MENTIONS_DISABLED,
 } from "@posthog/ui/features/sessions/mentionAvailability";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
-import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   useNavigate,
@@ -73,9 +76,8 @@ import {
 } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
-// Edit toggle + autosave status for a canvas. Source is server-versioned now —
-// version browsing and revert live in the canvas view's own toolbar — so the
-// only autosave surfaced here is the author-context buffer's saveContext.
+// Edit toggle and options menu for a canvas. Source is server-versioned;
+// version browsing and revert live in the canvas view's own toolbar.
 function FreeformEditControls({
   channelId,
   dashboardId,
@@ -91,7 +93,9 @@ function FreeformEditControls({
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openBlocks = useCanvasChatPanelStore((state) => state.openBlocks);
   const { dashboard } = useDashboard(dashboardId);
+  const builtByAgent = !!dashboard?.generationTaskId;
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
@@ -144,14 +148,6 @@ function FreeformEditControls({
       });
   };
 
-  // Any in-flight saveContext mutation (the side panel's context editor
-  // commits through it) drives the toolbar's autosave spinner.
-  const trpc = useHostTRPC();
-  const isSavingContext =
-    useIsMutating({
-      mutationKey: trpc.dashboards.saveContext.mutationKey(),
-    }) > 0;
-
   const queryClient = useQueryClient();
   const remountFrame = useCanvasFrameStore((s) => s.remount);
   // Fully remount the mounted canvas iframe: drop the host-side read cache so
@@ -169,14 +165,7 @@ function FreeformEditControls({
   };
 
   return (
-    <Flex align="center" gap="2" className="no-drag">
-      {editing && (
-        // Autosave status — a non-interactive button showing a spinner while a
-        // context save is in flight, "Saved" otherwise.
-        <Button variant="outline" size="sm" disabled loading={isSavingContext}>
-          Saved
-        </Button>
-      )}
+    <div className="no-drag flex items-center gap-2">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -263,7 +252,8 @@ function FreeformEditControls({
             dashboard_id: dashboardId,
             editing: !editing,
           });
-          if (!editing) openChat();
+          if (!editing && builtByAgent) openChat();
+          if (!editing && !builtByAgent) openBlocks();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -274,7 +264,7 @@ function FreeformEditControls({
         )}
         {editing ? "Done" : "Edit"}
       </Button>
-    </Flex>
+    </div>
   );
 }
 
@@ -326,6 +316,9 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
+      leafTrailing={
+        <CopyCanvasLinkButton channelId={channelId} dashboardId={dashboardId} />
+      }
       trailing={
         <>
           {commentTaskId && (
@@ -344,16 +337,26 @@ function CanvasBreadcrumb({
   );
 }
 
-// Canvas toolbar + content outlet for the Website space (channel-scoped). A
-// single toolbar carries the channel breadcrumb (left) and data controls /
-// actions (right).
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const params = useParams({ strict: false });
-
-  const channelId = params.channelId;
-  const dashboardId = params.dashboardId;
+  const workLayout = useWorkLayout();
+  const pathname = useRouterState({
+    select: (s) =>
+      s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
+  });
+  const selectedCanvasId = useSelectedCanvasId();
+  // Select each param on its own so an unrelated route param (a settings
+  // category) changing cannot re-render the shell. `useParams` without a
+  // selector subscribes to the whole param set, which the nearest match carries
+  // for the entire route chain.
+  const channelId = useParams({ strict: false, select: (p) => p.channelId });
+  const dashboardId = useParams({
+    strict: false,
+    select: (p) => p.dashboardId,
+  });
+  const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
+  const toolbarDashboardId = dashboardId ?? selectedCanvasId;
+  const toolbarChannelId = channelId ?? selectedCanvas?.channelId;
 
   // Activity reads a task into its pane off the feed, so the session is not
   // always the one in the URL.
@@ -380,17 +383,19 @@ export function ShellLayout() {
     : spacesLayout
       ? "Space"
       : "Channel";
+  const toolbarChannelName = toolbarChannelId
+    ? (channels.find((c) => c.id === toolbarChannelId)?.name ?? channelName)
+    : channelName;
 
-  const isDashboardDetail = Boolean(channelId && dashboardId);
+  const isDashboardDetail = Boolean(toolbarDashboardId);
   // The canvases grid (its own sub-route now that the channel index is the
   // static homepage, which carries its own header content).
   const isDashboardsGrid =
-    Boolean(channelId) && pathname === `${base}/canvases`;
+    !workLayout && Boolean(channelId) && pathname === `${base}/canvases`;
 
   // Whether the single toolbar should render: the canvases grid, or any single
   // canvas (so Edit lives here too).
-  const showToolbar =
-    Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
+  const showToolbar = isDashboardsGrid || isDashboardDetail;
 
   return (
     <Flex direction="column" height="100%" overflow="hidden">
@@ -405,29 +410,29 @@ export function ShellLayout() {
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
-      {showToolbar && channelId && (
-        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
-          {isDashboardDetail && dashboardId ? (
+      {showToolbar && (
+        <ChromeBar inset="title">
+          {isDashboardDetail && toolbarDashboardId && toolbarChannelId ? (
             <CanvasBreadcrumb
-              channelName={channelName}
-              channelId={channelId}
-              dashboardId={dashboardId}
+              channelName={toolbarChannelName}
+              channelId={toolbarChannelId}
+              dashboardId={toolbarDashboardId}
               trailing={
                 <FreeformEditControls
-                  channelId={channelId}
-                  dashboardId={dashboardId}
+                  channelId={toolbarChannelId}
+                  dashboardId={toolbarDashboardId}
                 />
               }
             />
-          ) : (
+          ) : channelId ? (
             <ChannelBreadcrumb
               channelName={channelName}
               channelId={channelId}
               leafLabel="Canvases"
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
-          )}
-        </div>
+          ) : null}
+        </ChromeBar>
       )}
       {/* The right panel lays itself over this row's right edge and pins its
           switcher to the row's top right, so the row is its positioning context

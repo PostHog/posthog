@@ -11,12 +11,47 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import { urls } from './urls'
 import { userLogic } from './userLogic'
+
+/** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
+const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-deactivated': [
+        '/organization-deactivated',
+        '/signup/',
+        '/organization/billing',
+        '/billing/authorization_status',
+    ],
+}
+
+/**
+ * A client-side push reaches no server, so `AutoProjectMiddleware` never resolves the destination's
+ * organization. Defer to the page load. False while the team list is unknown, which keeps the block on.
+ */
+function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
+    const teams = organization?.teams
+    if (!teams) {
+        return false
+    }
+    const projectId = pathname.match(/^\/project\/([^/]+)/)?.[1]
+    return projectId !== undefined && !teams.some((team) => String(team.id) === projectId)
+}
+
+function organizationBlockPage(organization: OrganizationType | null): string | null {
+    if (organization?.is_pending_deletion) {
+        return '/organization-pending-deletion'
+    }
+    if (organization?.is_active === false) {
+        return '/organization-deactivated'
+    }
+    return null
+}
 
 export type OrganizationUpdatePayload = Partial<
     Pick<
@@ -29,9 +64,9 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_create_projects'
         | 'members_can_use_personal_api_keys'
         | 'members_can_see_org_members'
+        | 'read_only_mcp_access'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
-        | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
         | 'default_anonymize_ips'
@@ -233,13 +268,23 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get('api/organizations/@current')
-                    } catch {
-                        return null
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status && error.status < 500) {
+                            // The organization is gone or out of reach, so let the
+                            // unavailable-organization screen take over.
+                            return null
+                        }
+                        // A transient failure keeps the organization we already have. Dropping it leaves
+                        // every reader of `currentOrganization.teams` with nothing for the rest of the
+                        // session, which is why the project switcher then lists one project.
+                        return values.currentOrganization
                     }
                 },
                 createOrganization: async (name: string) => {
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use create() from 'products/platform_features/frontend/generated/api' instead.
                     return await api.create('api/organizations/', { name })
                 },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
@@ -248,6 +293,7 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                     // Check if re-authentication is required, if so, await its completion (or failure)
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use partialUpdate() from 'products/platform_features/frontend/generated/api' instead.
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
@@ -256,8 +302,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
@@ -335,15 +383,17 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            const blockPage = organizationBlockPage(values.currentOrganization)
+            if (blockPage === null || pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
                 return
             }
-            // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
-                router.actions.replace(urls.organizationDeactivated())
+            // Compare on the route: the pathname can carry a `/project/<id>` prefix, and then the
+            // replace below never matches its own destination.
+            const route = removeProjectIdIfPresent(pathname)
+            if (ALLOWED_WHILE_BLOCKED[blockPage].some((allowed) => route.startsWith(allowed))) {
+                return
             }
+            router.actions.replace(blockPage)
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
@@ -358,6 +408,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. destroy() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
             } catch (e) {

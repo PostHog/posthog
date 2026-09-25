@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { BaseMathType, QueryBasedInsightModel } from '~/types'
+import { BaseMathType, InsightModel } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 
@@ -43,7 +43,7 @@ export function RecentFeatureFlagInsights(): JSX.Element {
                 },
             }}
             items={relatedInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel, index) => (
+            renderRow={(insight: InsightModel, index) => (
                 <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" allowWrap />
             )}
             contentHeightBehavior="shrink"

@@ -11,6 +11,7 @@ from pyarrow.parquet import write_table
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -21,6 +22,11 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
     binding_staged_prefix,
     job_staged_prefix,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+    aretry_staged_write,
+    is_object_store_configuration_error,
 )
 
 # A sibling job prefix whose newest file is older than this is considered abandoned (its consumer
@@ -105,10 +111,16 @@ class PersonPropertyRowSink:
 
     async def _get_projection(self) -> list[PersonPropertySourceProjection] | None:
         """One projection per enabled person source on the binding (key + mapped columns), or None
-        when nothing needs staging. Resolved once per run."""
+        when nothing needs staging. Resolved once per run.
+
+        The resolver reads the app DB (team scoping, enabled profile sources), so a long-lived
+        worker's pooled connection can have gone stale (pooler recycle, failover, deploy) since it
+        was last used. Retry once on a fresh connection rather than let that escape as
+        error-tracking noise, or as a silently skipped person-property sync for the run.
+        """
         if not self._projection_resolved:
-            self._projection = await database_sync_to_async_pool(person_property_projection_for)(
-                self.team_id, self.binding
+            self._projection = await aretry_on_db_connection_drop(
+                lambda: database_sync_to_async_pool(person_property_projection_for)(self.team_id, self.binding)
             )
             self._projection_resolved = True
         return self._projection
@@ -135,13 +147,18 @@ class PersonPropertyRowSink:
         await self.logger.adebug(
             f"Staging person-property chunk {chunk} ({len(columns)} cols) to {self._get_path_prefix()}"
         )
-        await asyncio.to_thread(
-            write_table,
-            projected,
-            f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet",
-            filesystem=self._get_fs(),
-            compression="zstd",
-            use_dictionary=True,
+        path = f"{self._get_path_prefix()}/chunk_{self._attempt_token}_{chunk:06d}.parquet"
+        await aretry_staged_write(
+            lambda: asyncio.to_thread(
+                write_table,
+                projected,
+                path,
+                filesystem=self._get_fs(),
+                compression="zstd",
+                use_dictionary=True,
+            ),
+            path=path,
+            logger=self.logger,
         )
 
     async def clear(self) -> None:
@@ -161,8 +178,12 @@ class PersonPropertyRowSink:
         ran.
 
         The two clears are independent backstops, so a failure in one (e.g. a permissions error
-        deleting the own prefix) must not skip the other — the sweep always runs, and any
-        own-prefix error is re-raised only afterward.
+        deleting the own prefix) must not skip the other — the sweep always runs, and any error is
+        re-raised only afterward.
+
+        Both clears address the same binding prefix with the same credentials, so a refused grant
+        fails both. That is one configuration problem, so it is raised once, as a typed error that
+        a retry cannot resolve.
         """
         async with aget_s3_client() as s3_client:
             own_prefix_error: Exception | None = None
@@ -173,9 +194,21 @@ class PersonPropertyRowSink:
                     pass
                 except Exception as e:
                     own_prefix_error = e
-            await self._sweep_abandoned_sibling_prefixes(s3_client)
-            if own_prefix_error is not None:
-                raise own_prefix_error
+
+            sweep_error: Exception | None = None
+            try:
+                await self._sweep_abandoned_sibling_prefixes(s3_client)
+            except Exception as e:
+                sweep_error = e
+
+            failure = own_prefix_error or sweep_error
+            if failure is None:
+                return
+            if is_object_store_configuration_error(failure):
+                raise ObjectStoreConfigurationError(
+                    f"Object store refused to clear staged person-property rows under {self._get_binding_prefix()}"
+                ) from failure
+            raise failure
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
         try:

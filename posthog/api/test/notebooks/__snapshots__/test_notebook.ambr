@@ -67,13 +67,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -158,13 +158,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -274,9 +274,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
@@ -298,13 +295,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -330,7 +327,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -365,13 +363,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -401,10 +399,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -444,13 +440,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -485,6 +481,7 @@
          "posthog_notebook"."kernel_cpu_cores",
          "posthog_notebook"."kernel_memory_gb",
          "posthog_notebook"."kernel_idle_timeout_seconds",
+         "posthog_notebook"."variables",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -584,9 +581,6 @@
          "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -694,7 +688,8 @@
          "posthog_notebook"."last_modified_by_id",
          "posthog_notebook"."kernel_cpu_cores",
          "posthog_notebook"."kernel_memory_gb",
-         "posthog_notebook"."kernel_idle_timeout_seconds"
+         "posthog_notebook"."kernel_idle_timeout_seconds",
+         "posthog_notebook"."variables"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -717,7 +712,8 @@
          "posthog_notebook"."last_modified_by_id",
          "posthog_notebook"."kernel_cpu_cores",
          "posthog_notebook"."kernel_memory_gb",
-         "posthog_notebook"."kernel_idle_timeout_seconds"
+         "posthog_notebook"."kernel_idle_timeout_seconds",
+         "posthog_notebook"."variables"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -818,9 +814,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
@@ -842,13 +835,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -959,9 +952,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -990,13 +980,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1185,7 +1175,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1259,13 +1250,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1375,9 +1366,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
@@ -1399,13 +1387,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1431,7 +1419,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1466,13 +1455,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1502,10 +1491,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -1545,13 +1532,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1668,13 +1655,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1704,10 +1691,8 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
+         "ee_accesscontrol"."updated_at"
   FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -1747,13 +1732,13 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1888,9 +1873,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999

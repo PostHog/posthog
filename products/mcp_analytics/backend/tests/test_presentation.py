@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
@@ -7,7 +8,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
@@ -25,6 +26,7 @@ from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_MAX_LIMIT,
     MCP_TOOL_CALLS_DEFAULT_LIMIT,
     MCP_TOOL_CALLS_MAX_LIMIT,
+    MCPActivityOverviewQuerySerializer,
     MCPSessionListQuerySerializer,
     MCPSessionToolCallsQuerySerializer,
 )
@@ -74,7 +76,6 @@ def _tool_blob(tool: str, cluster_ids: list[int]) -> dict:
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -100,25 +101,32 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
     @parameterized.expand(
         [
-            ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
+            (
+                "feedback_create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+                status.HTTP_201_CREATED,
+            ),
             (
                 "missing_capability_create",
                 "post",
                 "missing_capabilities/",
                 {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+                status.HTTP_201_CREATED,
             ),
-            ("feedback_list", "get", "feedback/", None),
-            ("missing_capability_list", "get", "missing_capabilities/", None),
+            ("feedback_list", "get", "feedback/", None, status.HTTP_200_OK),
+            ("missing_capability_list", "get", "missing_capabilities/", None, status.HTTP_200_OK),
         ]
     )
-    def test_endpoints_require_feature_flag(
-        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    def test_endpoints_do_not_require_any_feature_flag(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None, expected_status: int
     ) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):
             request = getattr(self.client, method)
             response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == expected_status
 
     def test_create_feedback_submission(self) -> None:
         response = self.client.post(
@@ -161,13 +169,16 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
 
-    def test_create_missing_capability_submission_defaults_blocked(self) -> None:
+    @patch("products.mcp_analytics.backend.facade.api.capture_internal")
+    def test_create_missing_capability_submission_defaults_blocked(self, mock_capture_internal: MagicMock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/",
             {
                 "goal": "debug why my survey is not showing",
                 "missing_capability": "I need a tool that explains survey eligibility for a specific user.",
                 "attempted_tool": "survey_get",
+                "mcp_session_id": "mcp-session-123",
+                "mcp_trace_id": "mcp-trace-456",
             },
             format="json",
         )
@@ -178,6 +189,28 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["kind"] == MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
         assert data["blocked"] is True
         assert data["attempted_tool"] == "survey_get"
+
+        mock_capture_internal.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$mcp_missing_capability",
+            event_source="mcp_analytics_missing_capability",
+            distinct_id=self.user.distinct_id,
+            properties={
+                "submission_id": data["id"],
+                "kind": MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+                "attempted_tool_present": True,
+                "mcp_client_name_present": False,
+                "mcp_session_id_present": True,
+                "mcp_trace_id_present": True,
+                "$mcp_source": "posthog_mcp_analytics",
+                "$mcp_tool_name": "mcp-missing-capability-report",
+                "missing_capability_blocked": True,
+                "$mcp_session_id": "mcp-session-123",
+                "$mcp_trace_id": "mcp-trace-456",
+            },
+            event_uuid=data["id"],
+            process_person_profile=False,
+        )
 
     @parameterized.expand(
         [
@@ -208,6 +241,19 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"] == []
         assert data["last_computed_at"] is None
         assert data["computed_with"] is None
+
+    @parameterized.expand(
+        [
+            ("snapshot", "get", "intent_clusters/"),
+            ("recompute", "post", "intent_clusters/recompute/"),
+        ]
+    )
+    def test_intent_clusters_require_intent_routing_feature_flag(self, _name: str, method: str, path: str) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            request = getattr(self.client, method)
+            response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", {}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_intent_clusters_returns_stored_snapshot(self) -> None:
         MCPIntentClusterSnapshot.objects.create(
@@ -586,7 +632,6 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -595,17 +640,11 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_requires_feature_flag(self) -> None:
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.post(self._url("abc"))
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
     def test_returns_cached_intent_in_response_shape(self) -> None:
         session_id = "session-123"
         MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = self.client.post(self._url(session_id))
+        response = self.client.post(self._url(session_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
@@ -614,7 +653,6 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-fresh"
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
         ):
@@ -627,7 +665,6 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"
         with (
-            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(
                 intent_generation,
@@ -664,20 +701,114 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
                 properties={"$session_id": session_id, "$mcp_tool_name": tool},
             )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
-            assert listed.status_code == status.HTTP_200_OK
-            session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
-            # Hand the serialized session_start straight back, exactly as the UI does.
-            response = self.client.get(
-                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
-                {"date_from": session["session_start"]},
-            )
+        listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
+        assert listed.status_code == status.HTTP_200_OK
+        session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
+        # Hand the serialized session_start straight back, exactly as the UI does.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+            {"date_from": session["session_start"]},
+        )
 
         assert response.status_code == status.HTTP_200_OK
         # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
         # still include it after the round-trip — otherwise we'd get just ["last_tool"].
         assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+    @parameterized.expand(
+        [
+            ("sessions_list", "", {"date_from": "-7d"}),
+            ("tool_calls", "{session_id}/tool_calls/", {"date_from": "-7d"}),
+            ("activity_overview", "activity_overview/", {}),
+        ]
+    )
+    def test_shared_filters_reach_the_query(self, _name: str, suffix: str, extra: dict[str, str]) -> None:
+        session_id = str(uuid7())
+        for tool in ["kept_tool", "dropped_tool"]:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="seed",
+                timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+                properties={"$session_id": session_id, "$mcp_tool_name": tool},
+            )
+        path = f"/api/environments/{self.team.id}/mcp_analytics/sessions/{suffix.format(session_id=session_id)}"
+        properties = json.dumps(
+            [{"key": "$mcp_tool_name", "value": ["kept_tool"], "operator": "exact", "type": "event"}]
+        )
+
+        response = self.client.get(path, {**extra, "properties": properties})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "kept_tool" in response.content.decode()
+        assert "dropped_tool" not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("sessions_list", "", {"date_from": "-7d"}),
+            ("tool_calls", "{session_id}/tool_calls/", {"date_from": "-7d"}),
+            ("activity_overview", "activity_overview/", {}),
+        ]
+    )
+    def test_property_restrictions_are_resolved_for_the_caller(
+        self, _name: str, suffix: str, extra: dict[str, str]
+    ) -> None:
+        path = f"/api/environments/{self.team.id}/mcp_analytics/sessions/{suffix.format(session_id=uuid7())}"
+        with patch(
+            "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+            return_value=set(),
+        ) as resolve_restrictions:
+            response = self.client.get(path, extra)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert resolve_restrictions.call_count > 0
+        assert all(call.kwargs["user"] == self.user for call in resolve_restrictions.call_args_list)
+
+    def test_unparseable_properties_are_a_400(self) -> None:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"properties": "{not json"}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestSharedFilterQueryParams(SimpleTestCase):
+    QUERY_SERIALIZERS = [
+        ("sessions_list", MCPSessionListQuerySerializer),
+        ("tool_calls", MCPSessionToolCallsQuerySerializer),
+        ("activity_overview", MCPActivityOverviewQuerySerializer),
+    ]
+
+    @parameterized.expand(QUERY_SERIALIZERS)
+    def test_shared_filters_default_to_off(self, _name: str, serializer_class: type[serializers.Serializer]) -> None:
+        serializer = serializer_class(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["properties"] == []
+        assert serializer.validated_data["filter_test_accounts"] is False
+
+    @parameterized.expand(QUERY_SERIALIZERS)
+    def test_properties_parse_into_schema_filters(
+        self, _name: str, serializer_class: type[serializers.Serializer]
+    ) -> None:
+        raw = json.dumps([{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}])
+        serializer = serializer_class(data={"properties": raw})
+        assert serializer.is_valid(), serializer.errors
+        parsed = serializer.validated_data["properties"]
+        assert [(f.key, f.value) for f in parsed] == [("$mcp_tool_name", ["query_run"])]
+
+    @parameterized.expand(
+        [
+            ("not_json", "{definitely not json"),
+            ("not_a_list", '{"key": "$mcp_tool_name"}'),
+            ("unknown_filter_type", '[{"key": "a", "value": "b", "type": "nonsense"}]'),
+            ("hogql_filter", '[{"key": "1 = 1", "value": true, "type": "hogql"}]'),
+            ("cohort_filter", '[{"key": "id", "value": 1, "type": "cohort"}]'),
+        ]
+    )
+    def test_unparseable_properties_are_rejected(self, _name: str, raw: str) -> None:
+        serializer = MCPSessionListQuerySerializer(data={"properties": raw})
+        assert not serializer.is_valid()
+        assert "properties" in serializer.errors
 
 
 class TestMCPSessionListQuerySerializer(SimpleTestCase):
@@ -747,15 +878,13 @@ class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    """Team A must never reach Team B's submissions. Now that the submission endpoints are
-    reachable by anyone inside the mcp-analytics flag (no longer staff-only), pin the tenant
-    boundary: another team's rows never appear in this team's list, and a user who is not a
+    """Team A must never reach Team B's submissions. The submission endpoints are reachable by
+    every project, so pin the tenant boundary: another team's rows never appear in this team's list, and a user who is not a
     member of another team's org is denied when hitting that team's URL.
     """
 
     def setUp(self) -> None:
         super().setUp()
-        # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
         # A team in a different organization that self.user is NOT a member of.
         self.other_org = Organization.objects.create(name="other-org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other-team")

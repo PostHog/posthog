@@ -1,6 +1,7 @@
 import { Circle } from "@phosphor-icons/react";
 import {
-  formatResetTime,
+  codeUsageResetLabel,
+  codeUsageWindowSuffix,
   formatUsageBreakdown,
   formatUsdAmount,
 } from "@posthog/core/billing/usageDisplay";
@@ -16,6 +17,7 @@ import {
   ANALYTICS_EVENTS,
   type UpgradePromptClickedSurface,
 } from "@posthog/shared/analytics-events";
+import { settingsSourceHref } from "@posthog/ui/router/reportNavigation";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { track } from "../../shell/analytics";
@@ -64,14 +66,14 @@ export function UsageButton() {
     : meter.kind === "dollars"
       ? `Usage: ${formatUsdAmount(meter.usedUsd)}`
       : `Usage: ${percent}%`;
-  const amountLabel =
+  const usedLabel =
     meter.kind === "dollars"
       ? `${formatUsdAmount(meter.usedUsd)} of ${formatUsdAmount(meter.limitUsd)} used`
       : `${percent}% used`;
-  const resetLabel =
-    meter.kind === "dollars"
-      ? formatResetTime(meter.resetAt, { label: "Billing period ends" })
-      : formatResetTime(meter.bucket.reset_at);
+  // The window belongs next to the amount: on its own the figure reads as
+  // today's spend.
+  const amountLabel = `${usedLabel} ${codeUsageWindowSuffix(meter)}`;
+  const resetLabel = codeUsageResetLabel(meter);
   const breakdownLabel =
     meter.kind === "dollars" && meter.breakdown
       ? formatUsageBreakdown(meter.breakdown)
@@ -122,6 +124,7 @@ export function UsageButton() {
               <Link
                 to="/settings/$category"
                 params={{ category: "plan-usage" }}
+                search={{ from: settingsSourceHref() }}
                 onClick={handleTriggerClick}
               />
             }

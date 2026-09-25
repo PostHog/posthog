@@ -1,4 +1,10 @@
+from uuid import UUID
+
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
@@ -9,9 +15,13 @@ from posthog.schema import (
     PropertyMathType,
 )
 
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.test.utils import pretty_print_in_tests
+
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
     PATH_MAX_LENGTH,
     MarketingAnalyticsAttributionPathsQueryRunner,
@@ -395,3 +405,38 @@ class TestMarketingAnalyticsAttributionPathsQueryRunner(ClickhouseTestMixin, Bas
         ctes = runner.to_query().ctes
         assert ctes is not None
         self.assertTrue(ctes["per_conversion_path"].materialized)
+
+    # Same three shapes as the attribution table: direct read, alias normalization, classifier.
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, False),
+            ("source", MarketingAnalyticsAttributionBreakdown.SOURCE, False),
+            ("channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, False),
+            ("cached_campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, True),
+            ("cached_source", MarketingAnalyticsAttributionBreakdown.SOURCE, True),
+            ("cached_channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, True),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_paths_sql(
+        self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown, precomputed: bool
+    ) -> None:
+        query = MarketingAnalyticsAttributionPathsQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            breakdownBy=breakdown,
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        runner = MarketingAnalyticsAttributionPathsQueryRunner(query=query, team=self.team)
+        runner.config.sessions_precomputation_enabled = precomputed
+        context = runner._shared_hogql_context
+        context.enable_select_queries = True
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.ensure_marketing_sessions_precomputed",
+            return_value=LazyComputationResult(ready=True, job_ids=[UUID(int=1)]),
+        ):
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._sessions_precompute_used == precomputed
+        sql = printed[0] if isinstance(printed, tuple) else printed
+        pretty = pretty_print_in_tests(sql, self.team.pk)
+        assert pretty == self.sql_snapshot(pretty)

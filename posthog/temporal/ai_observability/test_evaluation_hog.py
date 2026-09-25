@@ -27,12 +27,82 @@ NON_BOOLEAN_SOURCE = """
 return 42
 """
 
-# Nothing validates builtin arity at save time, so this compiles and raises IndexError in the STL.
+# A builtin called with the wrong argument count. The VM validates arity at the dispatch site, so
+# this raises HogVMException rather than an IndexError from inside the STL function.
 MISSING_ARGUMENT_SOURCE = """
 return jsonParse()
 """
 
 EVALUATION = {"id": "01890000-0000-0000-0000-000000000000", "team_id": 1}
+
+
+@pytest.mark.parametrize("source,score", [("return 0", 0), ("return 0.25", 0.25), ("return 1", 1)])
+def test_numeric_hog_preserves_scores_and_bounds(source: str, score: float) -> None:
+    config = {"min": 0, "max": 1, "step": 0.5}
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"),
+        {},
+        False,
+        output_type="numeric",
+        output_config=config,
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert result == {
+        "result_type": "numeric",
+        "score": score,
+        "score_min": 0,
+        "score_max": 1,
+        "reasoning": "",
+        "allows_na": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "source,terminal",
+    [("return true", True), ("return '0.5'", True), ("return -1", False), ("return 2", False), ("return null", True)],
+)
+def test_invalid_numeric_hog_only_skips_bounds_errors(source: str, terminal: bool) -> None:
+    config = {"min": 0, "max": 1}
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"),
+        {},
+        False,
+        output_type="numeric",
+        output_config=config,
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert result["result_type"] == "numeric"
+    assert is_terminal_user_error_result(result) is terminal
+    assert result["skipped"] is True
+    assert result["skip_reason"] == ("hog_error" if terminal else "score_out_of_bounds")
+    assert "score" not in result
+    assert "verdict" not in result
+
+
+def test_numeric_hog_na_omits_score() -> None:
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog("return null", "destination"),
+        {},
+        True,
+        output_type="numeric",
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric"},
+        allows_na=True,
+        unit_label=None,
+    )
+    assert result == {"result_type": "numeric", "reasoning": "", "allows_na": True, "applicable": False}
 
 
 def run_source(source: str, property_value: object = "", *, allows_na: bool = True) -> dict:
@@ -61,15 +131,21 @@ class TestHogInputErrorClassification:
         assert result["error"] is None
         assert result["verdict"] is False
 
-    # The exclusions from HOG_INPUT_ERROR_TYPES are invisible otherwise: widening the tuple back to
-    # Exception leaves every case above classifying identically, so only a case that must NOT be an
-    # input error can catch it. A source that fails on every unit has to stay loud, or it skips
-    # forever while blaming the customer's data.
-    def test_source_that_can_never_run_stays_our_bug(self) -> None:
+    # A source that fails on every unit must not be classified as an input error, or it skips
+    # forever while blaming the customer's data. A wrong-arity builtin is a broken source: the VM
+    # raises HogVMException, which is neither an input error nor our bug. finalize_hog_eval_result
+    # turns it into a terminal hog_error that disables the evaluation and tells the user, instead of
+    # paging us once per unit.
+    def test_wrong_arity_builtin_is_a_broken_source(self) -> None:
         result = run_source(MISSING_ARGUMENT_SOURCE)
 
-        assert result["unexpected"] is True
+        assert result["error"] is not None
         assert "user_input_error" not in result
+        assert "unexpected" not in result
+
+        finalized = finalize_hog_eval_result(result, evaluation=EVALUATION, allows_na=True, unit_label=None)
+        assert finalized["skip_reason"] == "hog_error"
+        assert is_terminal_user_error_result(finalized) is True
 
 
 class TestFinalizeHogEvalResult:

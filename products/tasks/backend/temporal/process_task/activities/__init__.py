@@ -4,6 +4,7 @@ from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce_self_driving_run_quota
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
 from .forward_pending_message import forward_pending_user_message
+from .get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
 from .get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     GetSandboxForRepositoryOutput,
@@ -63,19 +64,30 @@ from .send_permission_response_to_sandbox import (
 )
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
+    CollectAgentShadowResultInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     launch_agent_server,
     mark_repo_ready,
     start_agent_server,
+)
+from .start_dev_stack_preview import (
+    StartDevStackPreviewInput,
+    StartDevStackPreviewOutput,
+    WaitDevStackPreviewInput,
+    WaitDevStackPreviewOutput,
+    start_dev_stack_preview,
+    wait_dev_stack_preview,
 )
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
 __all__ = [
     "CleanupSandboxInput",
+    "CollectAgentShadowResultInput",
     "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
@@ -93,6 +105,10 @@ __all__ = [
     "InjectFreshTokensOnResumeInput",
     "InvalidateResumeSnapshotInput",
     "PostSlackUpdateInput",
+    "StartDevStackPreviewInput",
+    "StartDevStackPreviewOutput",
+    "WaitDevStackPreviewInput",
+    "WaitDevStackPreviewOutput",
     "PrepareSandboxForRepositoryInput",
     "PrepareSandboxForRepositoryOutput",
     "ReadSandboxLogsInput",
@@ -126,6 +142,8 @@ __all__ = [
     "forward_pending_user_message",
     "relay_agent_design_signals",
     "relay_sandbox_events",
+    "GetSandboxExitReasonInput",
+    "get_sandbox_exit_reason",
     "relay_sandbox_events_deferred_completion",
     "post_permission_delivery_failure_notice",
     "send_permission_denial_guidance",
@@ -137,6 +155,8 @@ __all__ = [
     "restore_sandbox_connection_state",
     "invalidate_resume_snapshot",
     "post_slack_update",
+    "start_dev_stack_preview",
+    "wait_dev_stack_preview",
     "prepare_sandbox_for_repository",
     "read_sandbox_logs",
     "refresh_sandbox_credentials",
@@ -144,6 +164,7 @@ __all__ = [
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",
+    "collect_agent_shadow_result",
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",

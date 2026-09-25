@@ -17,7 +17,7 @@ import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } fro
 import { Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { DataWarehouseSavedQuery, LinkBreadcrumb, QueryBasedInsightModel } from '../../../types'
+import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 
@@ -62,7 +62,7 @@ export interface EditorSceneLogicProps {
 export function buildSqlNotebook(
     queryInput: string,
     activeTab: QueryTab | null,
-    editingInsight: QueryBasedInsightModel | null,
+    editingInsight: InsightModel | null,
     featureFlags: FeatureFlagsSet
 ): { title: string; content: JSONContent[] } {
     const activeTabName = activeTab?.name === NEW_QUERY ? undefined : activeTab?.name
@@ -102,7 +102,7 @@ export interface editorSceneLogicValues {
     activeTab: QueryTab | null // sqlEditorLogic
     dashboardId: number | null // sqlEditorLogic
     dataLogicKey: string // sqlEditorLogic
-    editingInsight: QueryBasedInsightModel | null // sqlEditorLogic
+    editingInsight: InsightModel | null // sqlEditorLogic
     editingView: DataWarehouseSavedQuery | undefined // sqlEditorLogic
     editorSource: SqlEditorSource // sqlEditorLogic
     featureFlags: FeatureFlagsSet // sqlEditorLogic
@@ -192,9 +192,7 @@ export interface editorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (activeTab: QueryTab | null) => Breadcrumb[]
         titleSectionProps: (
-            editingInsight: QueryBasedInsightModel<
-                import('~/queries/schema/schema-general').Node<Record<string, any>>
-            > | null,
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
             insightLoading: boolean,
             editingView: DataWarehouseSavedQuery | undefined,
             viewLoading: boolean,
@@ -228,8 +226,7 @@ export interface editorSceneLogicMeta {
               }
         saveAsMenuItems: (
             editorSource: SqlEditorSource,
-            dashboardId: number | null,
-            featureFlags: FeatureFlagsSet
+            dashboardId: number | null
         ) => {
             primary: SaveAsMenuItem
             secondary: SaveAsMenuItem[]
@@ -237,9 +234,7 @@ export interface editorSceneLogicMeta {
         updateInsightButtonEnabled: (
             sourceQuery: DataVisualizationNode,
             activeTab: QueryTab | null,
-            editingInsight: QueryBasedInsightModel<
-                import('~/queries/schema/schema-general').Node<Record<string, any>>
-            > | null
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
         ) => boolean
     }
 }
@@ -348,7 +343,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 s.activeTab,
             ],
             (
-                editingInsight: null | import('~/types').QueryBasedInsightModel,
+                editingInsight: null | import('~/types').InsightModel,
                 insightLoading: boolean,
                 editingView: import('~/types').DataWarehouseSavedQuery | undefined,
                 viewLoading: boolean,
@@ -472,13 +467,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         saveAsMenuItems: [
-            (s) => [s.editorSource, s.dashboardId, s.featureFlags],
+            (s) => [s.editorSource, s.dashboardId],
             (
                 editorSource: import('./sqlEditorLogic').SqlEditorSource,
-                dashboardId: number | null,
-                featureFlags: import('../../../lib/logic/featureFlagLogic').FeatureFlagsSet
+                dashboardId: number | null
             ): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
-                const metricsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
                     label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
@@ -496,9 +489,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     action: 'metric',
                     label: 'Save as metric',
                 }
-                const extraItems = [saveAsEndpointItem, ...(metricsEnabled ? [saveAsMetricItem] : [])]
+                const extraItems = [saveAsEndpointItem, saveAsMetricItem]
 
-                if (editorSource === 'metric' && metricsEnabled) {
+                if (editorSource === 'metric') {
                     return {
                         primary: saveAsMetricItem,
                         secondary: [saveAsInsightItem, saveAsViewItem, saveAsEndpointItem],
@@ -508,7 +501,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 if (editorSource === 'endpoint') {
                     return {
                         primary: saveAsEndpointItem,
-                        secondary: [saveAsInsightItem, saveAsViewItem, ...(metricsEnabled ? [saveAsMetricItem] : [])],
+                        secondary: [saveAsInsightItem, saveAsViewItem, saveAsMetricItem],
                     }
                 }
 
@@ -530,7 +523,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             (
                 sourceQuery: DataVisualizationNode,
                 activeTab: null | import('./sqlEditorLogic').QueryTab,
-                editingInsight: null | import('~/types').QueryBasedInsightModel
+                editingInsight: null | import('~/types').InsightModel
             ) => {
                 if (!editingInsight?.query) {
                     return false

@@ -1,11 +1,13 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -30,6 +32,7 @@ jest.mock('~/lib/api', () => {
     const actual = jest.requireActual('~/lib/api')
     return {
         __esModule: true,
+        ApiConfig: actual.ApiConfig,
         default: {
             ...actual.default,
             createResponse: jest.fn(),
@@ -43,9 +46,7 @@ jest.mock('~/lib/api', () => {
             },
             conversationsTickets: {
                 ...actual.default?.conversationsTickets,
-                submitAiFeedback: jest.fn().mockResolvedValue(undefined),
                 get: jest.fn(),
-                update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
             tags: {
@@ -56,21 +57,28 @@ jest.mock('~/lib/api', () => {
     }
 })
 
-jest.mock('products/business_knowledge/frontend/generated/api', () => ({
-    businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
-    businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
-}))
-
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsPartialUpdate: jest.fn(),
 }))
 
 import api from '~/lib/api'
 
-import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
+import {
+    conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsMessagesFullEmailRetrieve,
+    conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
+} from 'products/conversations/frontend/generated/api'
 
-const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
+const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
+const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
@@ -156,7 +164,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'good',
         })
@@ -172,7 +180,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
         })
@@ -185,7 +193,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         await new Promise((r) => setTimeout(r, 10))
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
             feedback_text: 'Wrong answer',
@@ -221,14 +229,19 @@ function makeCustomerComment(id: string, itemContext: Record<string, any> = {}):
     } as unknown as CommentType
 }
 
-describe('supportTicketSceneLogic chatMessages author attribution', () => {
+describe('supportTicketSceneLogic chatMessages mapping', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     beforeEach(() => {
         initKeaTests()
+        fullEmailRetrieveMock.mockClear()
         logic = supportTicketSceneLogic({ id: 'new' })
         logic.mount()
         logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
     })
 
     // A thread reply from a second Teams/Slack participant must show its own author,
@@ -236,10 +249,152 @@ describe('supportTicketSceneLogic chatMessages author attribution', () => {
     test.each<[string, Record<string, any>, string]>([
         ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
         ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['github comment author', { from_github: true, github_login: 'chris' }, 'chris'],
         ['requester fallback without per-message author', {}, 'Mark'],
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
         expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+
+    it('shows a workflow reply as a teammate message named Workflow', () => {
+        logic.actions.setMessages([
+            {
+                id: 'msg-workflow',
+                content: 'We are on it.',
+                scope: 'conversations_ticket',
+                item_id: 'ticket-1',
+                item_context: { author_type: 'workflow', author_name: 'Workflow', is_private: false },
+                created_at: '2026-01-01T00:00:00Z',
+                created_by: null,
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages[0]).toEqual(
+            expect.objectContaining({
+                authorType: 'human',
+                authorName: 'Workflow',
+                isPrivate: false,
+            })
+        )
+    })
+
+    it('loads the full email when the inbound message retained one', async () => {
+        logic.actions.setMessages([makeCustomerComment('msg-1', { has_full_email_content: true })])
+        expect(logic.values.chatMessages[0].hasFullEmailContent).toBe(true)
+
+        logic.actions.loadFullEmail('msg-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(fullEmailRetrieveMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', 'msg-1')
+        expect(logic.values.fullEmailContent).toBe('Full email body')
+    })
+
+    it('closes the full email modal and shows a retry message when loading fails', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        fullEmailRetrieveMock.mockRejectedValueOnce(new Error('Network failure'))
+
+        logic.actions.loadFullEmail('msg-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fullEmailMessageId).toBeNull()
+        expect(errorToast).toHaveBeenCalledWith("Couldn't load the full email. Try again.")
+        errorToast.mockRestore()
+    })
+
+    it('maps AI citation and persist_as fields onto chat messages', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            {
+                ...makeAiComment('msg-ai-1'),
+                item_context: {
+                    author_type: 'AI',
+                    is_private: true,
+                    persist_as: 'reply',
+                    confidence: 0.64,
+                    citations: ['https://example.com/docs/sdk'],
+                    clarifying_questions: ['Which SDK?'],
+                },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages[0]).toEqual(
+            expect.objectContaining({
+                persistAs: 'reply',
+                confidence: 0.64,
+                citations: ['https://example.com/docs/sdk'],
+                clarifyingQuestions: ['Which SDK?'],
+            })
+        )
+    })
+
+    it('selects the latest applicable AI draft', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
+            { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
+            { ...makeAiComment('old-draft'), created_at: '2026-01-01T00:00:00Z' },
+        ])
+
+        expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('selects widget delivery statuses for public team messages', () => {
+        logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
+        logic.actions.setMessages([
+            makeSupportComment({ id: 'read', created_at: '2026-01-01T00:00:00Z' }),
+            makeCustomerComment('customer'),
+            makeSupportComment({ id: 'private', item_context: { author_type: 'support', is_private: true } }),
+            makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
+        ])
+
+        expect(logic.values.deliveryStatusByMessageId).toEqual(
+            new Map([
+                ['read', 'read'],
+                ['sent', 'sent'],
+            ])
+        )
+    })
+})
+
+describe('supportTicketSceneLogic applyAiDraft', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        submitAiHumanOutcomeMock.mockClear()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setTicket(makeTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('prefills a public reply and records used', async () => {
+        const message = {
+            id: 'msg-ai-1',
+            content: 'Add the snippet to every page.',
+            authorType: 'AI' as const,
+            authorName: 'PostHog Assistant',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            persistAs: 'reply' as const,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.applyAiDraft(message)
+        }).toFinishAllListeners()
+
+        expect(logic.values.draftIsPrivate).toBe(false)
+        expect(logic.values.composerPrefillAt).toBe(1)
+        expect(logic.values.aiDraftApplying).toBe(false)
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+        expect(submitAiHumanOutcomeMock).toHaveBeenCalledWith('997', 'ticket-1', {
+            message_id: 'msg-ai-1',
+            outcome: 'used',
+        })
     })
 })
 
@@ -343,7 +498,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
     const createResponseMock = api.createResponse as jest.Mock
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
 
     // Unlike makeTicket(), API responses always carry priority/assignee; without them the
     // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
@@ -382,6 +537,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         }).toDispatchActions(['updateTicket', 'setTicket'])
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
+            expect.any(String),
             '42',
             expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
         )
@@ -423,7 +579,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
                     resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
                 })
         )
-        ticketUpdateMock.mockImplementationOnce((_id: string, data: Record<string, unknown>) =>
+        ticketUpdateMock.mockImplementationOnce((_projectId: string, _id: string, data: Record<string, unknown>) =>
             Promise.resolve({ ...loadedTicket(), ...data })
         )
 
@@ -437,7 +593,11 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
-        expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
+        expect(ticketUpdateMock).toHaveBeenLastCalledWith(
+            expect.any(String),
+            '42',
+            expect.objectContaining({ status: 'pending' })
+        )
         expect(logic.values.status).toBe('pending')
         expect(logic.values.ticketUpdating).toBe(false)
     })
@@ -616,27 +776,20 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
-    const tagsListMock = api.tags.list as jest.Mock
-
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
 
     beforeEach(async () => {
         initKeaTests()
-        tagsListMock.mockReset().mockResolvedValue(['known'])
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         ticketUpdateMock.mockReset()
-        // Prime the shared lazy-loaded tag pool so availableTags reflects the existing tags.
         tagsModel.mount()
-        tagsModel.actions.loadTags()
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        tagsModel.actions.setActiveProjectId(MOCK_DEFAULT_TEAM.id)
+        tagsModel.actions.setProjectTags(MOCK_DEFAULT_TEAM.id, ['known'])
         logic = supportTicketSceneLogic({ id: 42 })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['setTicket'])
         expect(logic.values.availableTags).toEqual(['known'])
-        // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
-        tagsListMock.mockClear()
     })
 
     afterEach(() => {
@@ -647,15 +800,13 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
     // on other tickets; an already-known tag needs no reload.
     it('reloads the shared tag pool when a new tag was saved', async () => {
         ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
-        tagsListMock.mockResolvedValue(['known', 'brand-new'])
 
         logic.actions.setTags(['known', 'brand-new'])
-        await expectLogic(logic, () => {
+        await expectLogic(tagsModel, () => {
             logic.actions.updateTicket()
-        }).toDispatchActions(['setTicket'])
-        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        }).toDispatchActions(['loadTags'])
+        tagsModel.actions.loadTagsSuccess(['known', 'brand-new'], MOCK_DEFAULT_TEAM.id)
 
-        expect(tagsListMock).toHaveBeenCalledTimes(1)
         expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
     })
 
@@ -667,7 +818,6 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
             logic.actions.updateTicket()
         }).toDispatchActions(['setTicket'])
 
-        expect(tagsListMock).not.toHaveBeenCalled()
         expect(logic.values.availableTags).toEqual(['known'])
     })
 })

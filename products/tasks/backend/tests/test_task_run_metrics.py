@@ -154,15 +154,11 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
 
-    def test_activation_claims_the_run_before_signaling_the_first_message(self) -> None:
-        # Activation cannot clear `await_user_message` until the signal lands — a failed signal would
-        # otherwise drop a never-activated run out of the warm pool and strand its sandbox. So it
-        # claims the run first, and a terminal transition arriving mid-signal must read that claim
-        # rather than book the run as a miss it is also counting as activated.
+    def test_failed_startup_during_activation_does_not_count_as_activated(self) -> None:
         from products.tasks.backend.facade import api as facade
         from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated
 
@@ -173,15 +169,22 @@ class TestTaskRunMetrics(TestCase):
         )
         labels = {"origin_product": "user_created", "reason": "other"}
         before = _sample_value("posthog_tasks_prewarmed_unused_total", labels)
+        activation_labels = {"origin_product": "user_created"}
+        activated_before = _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels)
 
         def _terminalize_during_signal(*_args: object, **_kwargs: object) -> bool:
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.FAILED)
             observe_prewarmed_unused_if_never_activated(TaskRun.objects.get(id=run.id), reason="other")
             return True
 
-        with patch.object(facade, "signal_task_run_user_message", side_effect=_terminalize_during_signal):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+        with (
+            patch.object(facade, "signal_task_run_user_message", side_effect=_terminalize_during_signal),
+            self.assertRaises(facade.WarmRunActivationUnavailable),
+        ):
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
-        assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before
+        assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
+        assert _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels) == activated_before
 
     def test_direct_terminal_write_counts_a_released_warm(self) -> None:
         # The cancel fallback writes the terminal status itself when the workflow is already gone, so
@@ -220,7 +223,7 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before
 
@@ -340,10 +343,21 @@ class TestTaskRunMetrics(TestCase):
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
         assert mock_capture.called is capture_analytics
 
-    def test_patch_terminal_failure_captures_single_typed_task_run_failed(self) -> None:
+    @parameterized.expand(
+        [
+            ("modal", {}),
+            ("hogland", {"sandbox_backend": "hogland"}),
+        ]
+    )
+    def test_patch_terminal_failure_captures_single_typed_task_run_failed(
+        self, sandbox_backend: str, sandbox_state: dict[str, str]
+    ) -> None:
         from products.tasks.backend.facade import api as facade
 
-        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            extra_state={"sandbox_id": "sandbox-example", **sandbox_state},
+        )
         long_error = "w" * 1400 + "Error: wizard exited with code 7"
 
         with (
@@ -362,6 +376,7 @@ class TestTaskRunMetrics(TestCase):
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["error_type"] == "agent_reported"
+        assert props["sandbox_backend"] == sandbox_backend
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")
 

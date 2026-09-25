@@ -1,121 +1,121 @@
 import { ApiConfig, ApiError } from 'lib/api'
 
 import {
-    warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
-    warehouseSavedQueriesCheckSuiteRunsList,
-    warehouseSavedQueriesCheckSuiteRunsRetrieve,
-    warehouseSavedQueriesChecksCheckTypesList,
-    warehouseSavedQueriesChecksCreate,
-    warehouseSavedQueriesChecksDestroy,
-    warehouseSavedQueriesChecksHealthRetrieve,
-    warehouseSavedQueriesChecksList,
-    warehouseSavedQueriesChecksPartialUpdate,
-    warehouseSavedQueriesChecksRunAllCreate,
-    warehouseSavedQueriesChecksRunCreate,
-    warehouseSavedQueriesChecksRunsList,
-    warehouseTablesCheckSuiteRunsCheckRunsList,
-    warehouseTablesCheckSuiteRunsList,
-    warehouseTablesCheckSuiteRunsRetrieve,
-    warehouseTablesChecksCheckTypesList,
-    warehouseTablesChecksCreate,
-    warehouseTablesChecksDestroy,
-    warehouseTablesChecksHealthRetrieve,
-    warehouseTablesChecksList,
-    warehouseTablesChecksPartialUpdate,
-    warehouseTablesChecksRunAllCreate,
-    warehouseTablesChecksRunCreate,
-    warehouseTablesChecksRunsList,
+    dataQualityChecksCheckTypesList,
+    dataQualityChecksCreate,
+    dataQualityChecksDestroy,
+    dataQualityChecksHealthList,
+    dataQualityChecksList,
+    dataQualityChecksMetricSubjectsList,
+    dataQualityChecksOutputSchemaRetrieve,
+    dataQualityChecksPartialUpdate,
+    dataQualityChecksRunCreate,
+    dataQualityChecksRunsList,
+    dataQualityChecksSchedulePartialUpdate,
+    dataQualityChecksScheduleRetrieve,
+    dataQualityChecksSchedulesList,
+    dataQualityChecksSubjectsList,
+    dataQualityRunsCheckRunsList,
+    dataQualityRunsCreate,
+    dataQualityRunsList,
+    dataQualityRunsRetrieve,
 } from './generated/api'
 import type {
     DataQualityCheckApi,
     DataQualityCheckRunApi,
+    DataQualityCheckScheduleApi,
     DataQualityCheckTypeApi,
+    DataQualityMetricSubjectApi,
+    DataQualityOutputSchemaApi,
+    DataQualitySubjectApi,
     DataQualitySubjectHealthApi,
+    DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
-    PaginatedDataQualityCheckListApi,
+    PatchedDataQualityCheckScheduleUpdateApi,
+    PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
+    SubjectTypeEnumApi,
 } from './generated/api.schemas'
 
 export function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
-export type DataQualitySubjectType = 'table' | 'view'
+export type DataQualitySubjectType = SubjectTypeEnumApi
 
 export interface DataQualitySubjectRef {
     subjectType: DataQualitySubjectType
     subjectId: string
 }
 
-type CreateBody = Parameters<typeof warehouseSavedQueriesChecksCreate>[2]
-type PatchBody = Parameters<typeof warehouseSavedQueriesChecksPartialUpdate>[3]
+type CreateBody = Omit<Parameters<typeof dataQualityChecksCreate>[1], 'subject_type' | 'subject_uuid'>
+type PatchBody = Parameters<typeof dataQualityChecksPartialUpdate>[2]
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
 }
 
-function isView({ subjectType }: DataQualitySubjectRef): boolean {
-    return subjectType === 'view'
+function subjectParams(ref: DataQualitySubjectRef): { subject_type: DataQualitySubjectType; subject_uuid: string } {
+    return { subject_type: ref.subjectType, subject_uuid: ref.subjectId }
+}
+
+function emptyHealth(ref: DataQualitySubjectRef): DataQualitySubjectHealthApi {
+    return { ...subjectParams(ref), health: 'unknown', checks_total: 0, checks_failing: 0 }
 }
 
 export const checksApi = {
-    list: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualityCheckListApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksList(projectId(), ref.subjectId, { limit })
-            : warehouseTablesChecksList(projectId(), ref.subjectId, { limit }),
+    metricSubjects: (): Promise<DataQualityMetricSubjectApi[]> => dataQualityChecksMetricSubjectsList(projectId()),
+
+    subjects: (): Promise<DataQualitySubjectApi[]> => dataQualityChecksSubjectsList(projectId()),
+
+    outputSchema: (ref: DataQualitySubjectRef): Promise<DataQualityOutputSchemaApi> => {
+        if (ref.subjectType !== 'metric') {
+            return Promise.resolve({ columns: [] })
+        }
+        return dataQualityChecksOutputSchemaRetrieve(projectId(), subjectParams(ref))
+    },
+
+    list: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualityOverviewCheckListApi> =>
+        dataQualityChecksList(projectId(), { ...subjectParams(ref), limit }),
 
     create: (ref: DataQualitySubjectRef, body: CreateBody): Promise<DataQualityCheckApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksCreate(projectId(), ref.subjectId, body)
-            : warehouseTablesChecksCreate(projectId(), ref.subjectId, body),
+        dataQualityChecksCreate(projectId(), { ...body, ...subjectParams(ref) }),
 
-    partialUpdate: (ref: DataQualitySubjectRef, id: string, body: PatchBody): Promise<DataQualityCheckApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksPartialUpdate(projectId(), ref.subjectId, id, body)
-            : warehouseTablesChecksPartialUpdate(projectId(), ref.subjectId, id, body),
+    partialUpdate: (id: string, body: PatchBody): Promise<DataQualityCheckApi> =>
+        dataQualityChecksPartialUpdate(projectId(), id, body),
 
-    destroy: (ref: DataQualitySubjectRef, id: string): Promise<void> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksDestroy(projectId(), ref.subjectId, id)
-            : warehouseTablesChecksDestroy(projectId(), ref.subjectId, id),
+    destroy: (id: string): Promise<void> => dataQualityChecksDestroy(projectId(), id),
 
-    run: (ref: DataQualitySubjectRef, id: string): Promise<DataQualitySuiteRunApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksRunCreate(projectId(), ref.subjectId, id)
-            : warehouseTablesChecksRunCreate(projectId(), ref.subjectId, id),
+    run: (id: string): Promise<DataQualitySuiteRunApi> => dataQualityChecksRunCreate(projectId(), id),
 
     runAll: (ref: DataQualitySubjectRef): Promise<DataQualitySuiteRunApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksRunAllCreate(projectId(), ref.subjectId)
-            : warehouseTablesChecksRunAllCreate(projectId(), ref.subjectId),
+        dataQualityRunsCreate(projectId(), subjectParams(ref)),
 
-    runs: (ref: DataQualitySubjectRef, id: string): Promise<DataQualityCheckRunApi[]> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksRunsList(projectId(), ref.subjectId, id)
-            : warehouseTablesChecksRunsList(projectId(), ref.subjectId, id),
+    runs: (id: string): Promise<DataQualityCheckRunApi[]> => dataQualityChecksRunsList(projectId(), id),
 
     checkTypes: (ref: DataQualitySubjectRef): Promise<DataQualityCheckTypeApi[]> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksCheckTypesList(projectId(), ref.subjectId)
-            : warehouseTablesChecksCheckTypesList(projectId(), ref.subjectId),
+        dataQualityChecksCheckTypesList(projectId(), { subject_type: ref.subjectType }),
 
-    health: (ref: DataQualitySubjectRef): Promise<DataQualitySubjectHealthApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesChecksHealthRetrieve(projectId(), ref.subjectId)
-            : warehouseTablesChecksHealthRetrieve(projectId(), ref.subjectId),
+    health: async (ref: DataQualitySubjectRef): Promise<DataQualitySubjectHealthApi> => {
+        const rollups = await dataQualityChecksHealthList(projectId(), subjectParams(ref))
+        return rollups[0] ?? emptyHealth(ref)
+    },
 
     suiteRuns: (ref: DataQualitySubjectRef, limit: number): Promise<PaginatedDataQualitySuiteRunListApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesCheckSuiteRunsList(projectId(), ref.subjectId, { limit })
-            : warehouseTablesCheckSuiteRunsList(projectId(), ref.subjectId, { limit }),
+        dataQualityRunsList(projectId(), { ...subjectParams(ref), limit }),
 
-    suiteRunRetrieve: (ref: DataQualitySubjectRef, id: string): Promise<DataQualitySuiteRunApi> =>
-        isView(ref)
-            ? warehouseSavedQueriesCheckSuiteRunsRetrieve(projectId(), ref.subjectId, id)
-            : warehouseTablesCheckSuiteRunsRetrieve(projectId(), ref.subjectId, id),
+    suiteRunRetrieve: (id: string): Promise<DataQualitySuiteRunApi> => dataQualityRunsRetrieve(projectId(), id),
 
-    suiteRunCheckRuns: (ref: DataQualitySubjectRef, id: string): Promise<DataQualityCheckRunApi[]> =>
-        isView(ref)
-            ? warehouseSavedQueriesCheckSuiteRunsCheckRunsList(projectId(), ref.subjectId, id)
-            : warehouseTablesCheckSuiteRunsCheckRunsList(projectId(), ref.subjectId, id),
+    suiteRunCheckRuns: (id: string): Promise<DataQualityCheckRunApi[]> => dataQualityRunsCheckRunsList(projectId(), id),
+
+    schedule: (ref: DataQualitySubjectRef): Promise<DataQualityCheckScheduleApi> =>
+        dataQualityChecksScheduleRetrieve(projectId(), subjectParams(ref)),
+
+    schedules: (): Promise<DataQualitySubjectScheduleApi[]> => dataQualityChecksSchedulesList(projectId()),
+
+    updateSchedule: (
+        ref: DataQualitySubjectRef,
+        patch: PatchedDataQualityCheckScheduleUpdateApi
+    ): Promise<DataQualityCheckScheduleApi> =>
+        dataQualityChecksSchedulePartialUpdate(projectId(), { ...patch, ...subjectParams(ref) }),
 }

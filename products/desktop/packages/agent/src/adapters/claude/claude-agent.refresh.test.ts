@@ -4,7 +4,10 @@ import {
 } from "@agentclientprotocol/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS } from "../../acp-extensions";
+import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
+import { DEFAULT_MODEL_PRICES, RunBudgetGuard } from "./session/budget-guard";
+import { FALLBACK_MODEL } from "./session/models";
 
 type InitResult = {
   result: "success";
@@ -111,7 +114,7 @@ function findUpdate(
 function installFakeSession(
   agent: Agent,
   sessionId: string,
-  overrides: Partial<{ modelId: string }> = {},
+  overrides: Partial<{ modelId: string; fallbackModel: string }> = {},
 ) {
   const oldQuery = makeQueryHandle();
   const input = new Pushable();
@@ -135,6 +138,7 @@ function installFakeSession(
       sessionId,
       cwd: "/tmp/repo",
       model: "claude-sonnet-4-6",
+      fallbackModel: overrides.fallbackModel ?? FALLBACK_MODEL,
       mcpServers: {
         posthog: { type: "http", url: "https://old" },
         "posthog-code-tools": {
@@ -564,6 +568,28 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     expect(updated.notificationHistory).toEqual([{ foo: "bar" }]);
   });
 
+  it("keeps one cumulative SDK total across a refresh", async () => {
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-budget");
+    const guard = new RunBudgetGuard(
+      10,
+      DEFAULT_MODEL_PRICES,
+      new Logger({ debug: false }),
+    );
+    guard.calibrate(4.0);
+    (session as unknown as { budgetGuard: RunBudgetGuard }).budgetGuard = guard;
+
+    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    expect(createdQueries).toHaveLength(1);
+
+    // The refresh resumes the same transcript, so the next result carries the
+    // 4.0 again. Counting it a second time would report 8.5.
+    guard.calibrate(4.5);
+    expect(guard.spentUsd).toBeCloseTo(4.5, 6);
+  });
+
   it("aborts the old controller and allocates a fresh one for the new query", async () => {
     const { agent } = makeAgent();
     const { session, abortController: oldController } = installFakeSession(
@@ -630,19 +656,22 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     {
       name: "re-roots the new query on the live session model",
       modelId: "claude-fable-5",
-      expected: "claude-fable-5",
+      expectedModel: "claude-fable-5",
+      expectedFallback: FALLBACK_MODEL,
     },
     {
-      name: "maps the live session model to its SDK alias",
+      name: "drops the fallback model once the live model is the fallback model itself",
       modelId: "claude-opus-4-8",
-      expected: "opus",
+      expectedModel: "claude-opus-4-8",
+      expectedFallback: undefined,
     },
     {
       name: "keeps the creation-time model when the session has no modelId",
       modelId: undefined,
-      expected: "claude-sonnet-4-6",
+      expectedModel: "claude-sonnet-4-6",
+      expectedFallback: FALLBACK_MODEL,
     },
-  ])("$name", async ({ modelId, expected }) => {
+  ])("$name", async ({ modelId, expectedModel, expectedFallback }) => {
     const { agent } = makeAgent();
     installFakeSession(agent, "s-model", { modelId });
 
@@ -650,7 +679,19 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
       mcpServers: freshMcpServers,
     });
 
-    expect(lastQueryCall.options?.model).toBe(expected);
+    expect(lastQueryCall.options?.model).toBe(expectedModel);
+    expect(lastQueryCall.options?.fallbackModel).toBe(expectedFallback);
+  });
+
+  it("preserves a caller-configured fallback model across refresh", async () => {
+    const { agent } = makeAgent();
+    installFakeSession(agent, "s-model", { fallbackModel: "claude-fable-5" });
+
+    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+
+    expect(lastQueryCall.options?.fallbackModel).toBe("claude-fable-5");
   });
 
   it("rebuilds a FRESH in-process local-tools server across refresh", async () => {

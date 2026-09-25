@@ -1,4 +1,10 @@
-import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    ensureRoutablePathname,
+    removeProjectIdIfPresent,
+    stripTrailingSlash,
+    stripTrailingSlashFromUrl,
+} from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -37,6 +43,33 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/feature_flags/staff/cohorts', 123)
         expect(altered).toEqual('/feature_flags/staff/cohorts')
     })
+    it('does not add a project id to billing URLs, which are organization-scoped', () => {
+        expect(addProjectIdIfMissing('/billing', 123)).toEqual('/billing')
+        expect(addProjectIdIfMissing('/billing/authorization_status', 123)).toEqual('/billing/authorization_status')
+    })
+
+    describe('the id-less /project root', () => {
+        // An id-less `/project` used to survive the strip pass, match no route, and then get the
+        // current team prefixed onto it, so the address bar read `/project/<team id>/project`
+        // behind the 404 scene. Both forms must reduce to the root path instead.
+        it.each([
+            ['/project', '/'],
+            ['/project/', '/'],
+            ['/project?next=/home', '/?next=/home'],
+            // The URL the bug itself produced, so bookmarks of it have to land home too
+            ['/project/123/project', '/'],
+            // These have their own redirects, so stripping the prefix would send them to the
+            // unrelated /new and /settings scenes
+            ['/project/new', '/project/new'],
+            ['/project/settings', '/project/settings'],
+        ])('reduces %s to %s', (path, expected) => {
+            expect(removeProjectIdIfPresent(path)).toEqual(expected)
+        })
+
+        it.each(['/project', '/project/'])('sends %s to the current project root', (path) => {
+            expect(addProjectIdIfMissing(path, 123)).toEqual('/project/123')
+        })
+    })
 
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
@@ -73,6 +106,18 @@ describe('router-utils', () => {
         })
         it('leaves the empty string unchanged', () => {
             expect(stripTrailingSlash('')).toEqual('')
+        })
+    })
+
+    describe('stripTrailingSlashFromUrl', () => {
+        it.each([
+            ['/oauth/authorize/', '/oauth/authorize'],
+            ['/oauth/authorize/?client_id=abc', '/oauth/authorize?client_id=abc'],
+            ['/login?next=/oauth/authorize/', '/login?next=/oauth/authorize/'],
+            ['/insights/abc/#panel=/', '/insights/abc#panel=/'],
+            ['/', '/'],
+        ])('turns %s into %s', (input, expected) => {
+            expect(stripTrailingSlashFromUrl(input)).toEqual(expected)
         })
     })
 

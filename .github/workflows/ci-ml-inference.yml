@@ -1,0 +1,71 @@
+# The kev-vllm package is its own uv project, so its tests run here with the package's own lock
+# instead of under the root pytest. Production installs the package with --no-deps into the vLLM
+# image, which means its runtime pins are vLLM's, and its export environment carries a torch that
+# conflicts with the monorepo's, so it cannot join the root workspace.
+name: ML Inference CI
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/ml_inference/packages/kev-vllm/**'
+            - '.github/workflows/ci-ml-inference.yml'
+            - '.github/actions/setup-uv/**'
+    pull_request:
+        paths:
+            - 'products/ml_inference/packages/kev-vllm/**'
+            - '.github/workflows/ci-ml-inference.yml'
+            - '.github/actions/setup-uv/**'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    kev-vllm:
+        name: kev-vllm package tests
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        defaults:
+            run:
+                working-directory: products/ml_inference/packages/kev-vllm
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      products/ml_inference/packages/kev-vllm
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: true
+                  cache-dependency-glob: products/ml_inference/packages/kev-vllm/uv.lock
+
+            - name: Install the package
+              run: uv sync --frozen --group dev
+
+            - name: Lint
+              run: uv run ruff check . && uv run ruff format --check .
+
+            - name: Test
+              run: uv run pytest -q --junitxml=junit.xml
+
+            - name: Upload test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-kev-vllm
+                  path: products/ml_inference/packages/kev-vllm/junit.xml

@@ -1,6 +1,6 @@
 import json
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -29,7 +29,7 @@ def create_warning(team_id: int, type: str, timestamp: str, details: dict, sourc
     )
 
 
-@freeze_time("2026-07-07T12:00:00.000Z")
+@time_machine.travel("2026-07-07T12:00:00.000Z", tick=False)
 class TestIngestionWarningsV2API(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()

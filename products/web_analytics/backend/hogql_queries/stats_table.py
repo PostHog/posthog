@@ -29,7 +29,7 @@ from posthog.hogql.property import (
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
@@ -44,6 +44,7 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     ChannelTypeStrategy,
     FirstPageviewAttributionStrategy,
     FrustrationMetricsStrategy,
+    NoJoinFirstPageviewAttributionStrategy,
     NoJoinPathBounceAvgTimeStrategy,
     NoJoinPathBounceStrategy,
     NoJoinSimpleBreakdownStrategy,
@@ -55,6 +56,7 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
     can_use_lazy_precompute as can_use_frustration_lazy_precompute,
     execute_lazy_precomputed_read as execute_frustration_lazy_precomputed_read,
@@ -180,6 +182,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
+        if isinstance(strategy, NoJoinFirstPageviewAttributionStrategy):
+            return "stats_table_no_join_first_pageview_attribution"
         if isinstance(strategy, FirstPageviewAttributionStrategy):
             return "stats_table_first_pageview_attribution"
         # NoJoinSimpleBreakdownStrategy is also a SimpleBreakdownStrategy subclass.
@@ -201,15 +205,15 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return remapped
         return self.query.breakdownBy
 
-    def get_cache_key(self) -> str:
+    def get_cache_key_variant(self) -> str:
         # The remap changes results for the same query, so remapped and
         # entry-attributed runs must not share cache entries — and rolling the
         # flag back to 0% must instantly serve the old key again.
-        original = super().get_cache_key()
+        variant = super().get_cache_key_variant()
         effective_breakdown = self._effective_breakdown()
         if effective_breakdown != self.query.breakdownBy:
-            return f"{original}_{effective_breakdown.value}"
-        return original
+            return f"{variant}_{effective_breakdown.value}"
+        return variant
 
     def _get_strategy(self) -> StatsTableQueryStrategy:
         breakdown = self._effective_breakdown()
@@ -239,26 +243,55 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         if breakdown == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
             return ChannelTypeStrategy(self)
 
-        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
-            return FirstPageviewAttributionStrategy(self)
+        # Breakdowns whose displayed columns are all event-derived don't need
+        # the events↔sessions join at all — the join only supplies the session
+        # grouping key and start timestamp, both recoverable from the UUIDv7
+        # session id. Conversion-goal columns are event-derived too.
+        # Session-entry breakdowns (Initial*), session-property filters, and
+        # bounce variants keep the join.
+        no_join = not self.query.includeBounceRate and not self._uses_session_fields()
 
-        # Simple breakdowns whose displayed columns are all event-derived don't
-        # need the events↔sessions join at all — the join only supplies the
-        # session grouping key and start timestamp, both recoverable from the
-        # UUIDv7 session id. Session-entry breakdowns (Initial*),
-        # session-property filters, and bounce/conversion variants keep
-        # the join.
-        if self.query.conversionGoal is None and not self.query.includeBounceRate and not self._uses_session_fields():
+        if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
+            return NoJoinFirstPageviewAttributionStrategy(self) if no_join else FirstPageviewAttributionStrategy(self)
+
+        if no_join:
             return NoJoinSimpleBreakdownStrategy(self)
 
         return SimpleBreakdownStrategy(self)
+
+    def _owning_lazy_precompute_family(self) -> Literal["paths", "frustration", "simple"]:
+        """Which precompute family is the only one that could serve this query shape.
+
+        Mirrors the family-level branches of `_get_strategy` above, deliberately not its join
+        variants: those pick how a family runs the query, not which family owns it. The two
+        taxonomies diverge where the live path treats a pathname breakdown as simple: INITIAL_PAGE
+        (with or without bounce) and bounce-less PAGE run as simple breakdowns live, but the paths
+        family is what precomputes every pathname shape — its buckets store bounce state either
+        way, and the response just omits the column when the query didn't ask for it.
+
+        The families are disjoint, so asking only the owner loses no precompute hit: PAGE,
+        INITIAL_PAGE and FRUSTRATION_METRICS are all absent from the simple family's
+        SUPPORTED_BREAKDOWNS.
+        """
+        breakdown = self._effective_breakdown()
+
+        if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
+            return "frustration"
+
+        if breakdown in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE) and not self.query.conversionGoal:
+            return "paths"
+
+        return "simple"
 
     def _order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         column = None
         direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+            # The schema does not bound orderBy's length, so an API caller can send
+            # just the field; a missing direction defaults to DESC everywhere.
+            if len(self.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -370,6 +403,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         visitor = Visitor()
         visitor.visit(self._counts_breakdown_value())
         visitor.visit(self.all_properties())
+        if self.conversion_goal_expr is not None:
+            visitor.visit(self.conversion_goal_expr)
         return found
 
     def _period_comparison_tuple(self, column, alias, function_name):
@@ -523,7 +558,7 @@ WHERE and(
         return True if get_query_tag_value("precompute_stale") else None
 
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
-        if not can_use_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_lazy_precompute(self):
             return None
         return execute_lazy_precomputed_read(self)
 
@@ -567,7 +602,7 @@ WHERE and(
         Returns None when ineligible or on any failure, in which case the caller
         falls through to the v2/raw HogQL path.
         """
-        if not can_use_paths_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_paths_lazy_precompute(self):
             return None
         sort_column, sort_direction = self._resolve_sort_field()
         limit = self.paginator.limit
@@ -662,6 +697,10 @@ WHERE and(
         this just renames fields and applies the `limit + 1` → `hasMore`
         truncation."""
         include_previous = bool(self.query_compare_to_date_range)
+        # The SQL always computes bounce (the stored buckets carry it either way);
+        # the response only carries it when the query asked, so a bounce-less read
+        # (weekly digest, API callers) keeps the same column set as the live path.
+        include_bounce = bool(self.query.includeBounceRate)
         has_more = len(rows) > limit
         page = rows[:limit]
 
@@ -682,22 +721,22 @@ WHERE and(
             # in case a future schema change reintroduces a NaN path.
             bounce_rate = _none_if_nan(bounce_rate)
             prev_bounce_rate = _none_if_nan(prev_bounce_rate)
-            results.append(
-                [
-                    breakdown_value,
-                    (visitors, prev_visitors if include_previous else None),
-                    (views, prev_views if include_previous else None),
-                    (bounce_rate, prev_bounce_rate if include_previous else None),
-                    float(fill_fraction) if fill_fraction is not None else 0.0,
-                    "",  # cross_sell placeholder
-                ]
-            )
+            result_row = [
+                breakdown_value,
+                (visitors, prev_visitors if include_previous else None),
+                (views, prev_views if include_previous else None),
+            ]
+            if include_bounce:
+                result_row.append((bounce_rate, prev_bounce_rate if include_previous else None))
+            result_row.append(float(fill_fraction) if fill_fraction is not None else 0.0)
+            result_row.append("")  # cross_sell placeholder
+            results.append(result_row)
 
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.views",
-            "context.columns.bounce_rate",
+            *(["context.columns.bounce_rate"] if include_bounce else []),
             "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ]
@@ -723,8 +762,9 @@ WHERE and(
         field = "visitors"
         if self.query.orderBy:
             order_field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
-            direction = cast(Literal["ASC", "DESC"], order_dir.value)
+            if len(self.query.orderBy) > 1:
+                order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+                direction = cast(Literal["ASC", "DESC"], order_dir.value)
             if order_field == WebAnalyticsOrderByFields.VISITORS:
                 field = "visitors"
             elif order_field == WebAnalyticsOrderByFields.VIEWS:
@@ -734,20 +774,23 @@ WHERE and(
         return field, direction
 
     def _calculate(self):
-        # Try each lazy precompute path in turn. Each `can_use_*` check short-
-        # circuits on the wrong `breakdownBy`, so the order only matters for
-        # rejection reason attribution in logs/metrics.
-        lazy_response = self._maybe_calculate_via_lazy_precompute()
-        if lazy_response is not None:
-            return lazy_response
+        # Ask only the family that owns this shape. Trying all three in turn made the other two
+        # refuse a query they could never have served, and each refusal recorded its own rejection
+        # reason, so the last gate to run decided what the read reported.
+        family = self._owning_lazy_precompute_family()
 
-        lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
-        if lazy_response is not None:
-            return lazy_response
-
-        lazy_result = self.get_lazy_precomputed_result()
-        if lazy_result is not None:
-            return self._build_response_from_lazy(lazy_result)
+        if family == "paths":
+            lazy_response = self._maybe_calculate_via_lazy_precompute()
+            if lazy_response is not None:
+                return lazy_response
+        elif family == "frustration":
+            lazy_response = self._maybe_calculate_via_frustration_lazy_precompute()
+            if lazy_response is not None:
+                return lazy_response
+        else:
+            lazy_result = self.get_lazy_precomputed_result()
+            if lazy_result is not None:
+                return self._build_response_from_lazy(lazy_result)
 
         # Preflight only when the live query will actually run as the id-set
         # shape — pre-aggregated serving must not pay a discarded events scan.
@@ -808,6 +851,12 @@ WHERE and(
                 columns = [*list(columns), "context.columns.cross_sell"]
                 results_mapped = [[*row, ""] for row in (results_mapped or [])]
 
+        strategy = (
+            WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+            if self.used_preaggregated_tables
+            else WebAnalyticsPreComputeStrategy.LIVE
+        )
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -815,11 +864,8 @@ WHERE and(
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
-            preComputeStrategy=(
-                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                if self.used_preaggregated_tables
-                else WebAnalyticsPreComputeStrategy.LIVE
-            ),
+            preComputeStrategy=strategy,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
             **self.paginator.response_params(),
         )
 
@@ -966,6 +1012,12 @@ WHERE and(
                 return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
+            case WebStatsBreakdown.IN_APP_BROWSER:
+                # Non-in-app traffic has no $webview_app, so it drops out via the default
+                # outer_where_breakdown branch (IS NOT NULL). That is intentional: this tile lists
+                # the host apps, not a dominant "(not set)" row for everyone else, so its total does
+                # not reconcile with the overview. Do not add it to the "(not set)" list below.
+                return ast.Field(chain=["properties", "$webview_app"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:

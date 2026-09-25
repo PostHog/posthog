@@ -3,23 +3,24 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 
+const mocks = vi.hoisted(() => ({
+  task: undefined as { id: string; title: string } | undefined,
+}));
+
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
-  useQuery: () => ({ data: { id: "task-1", title: "Build canvas" } }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
-  useThreadConversation: () => ({ timeline: [{ kind: "message" }] }),
+  useQuery: () => ({ data: mocks.task }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
   TaskCommentsList: ({
-    task,
+    taskId,
     onlySource,
   }: {
-    task: { id: string };
+    taskId: string;
     onlySource: { target: { itemId: string } };
   }) => (
     <div data-testid="task-comments">
-      {task.id}:{onlySource.target.itemId}
+      {taskId}:{onlySource.target.itemId}
     </div>
   ),
 }));
@@ -27,21 +28,19 @@ vi.mock("@posthog/ui/features/sessions/components/EmbeddedSessionView", () => ({
   EmbeddedSessionView: () => <div data-testid="task-chat" />,
 }));
 vi.mock("@posthog/ui/features/canvas/freeform/FreeformGenerateBar", () => ({
-  FreeformGenerateBar: () => null,
-}));
-vi.mock("@posthog/ui/features/canvas/freeform/ContextEditor", () => ({
-  CanvasContextEditor: () => null,
+  FreeformGenerateBar: () => <div data-testid="canvas-composer" />,
 }));
 
 describe("CanvasSidePanel", () => {
   beforeEach(() => {
+    mocks.task = { id: "task-1", title: "Build canvas" };
     useCanvasChatPanelStore.setState({ tab: "chat", collapsed: false });
   });
 
   it("switches from canvas chat to comments for this canvas", () => {
     render(
       <CanvasSidePanel
-        effectiveTaskId="task-1"
+        chatTaskId="task-1"
         commentTaskId="task-1"
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
@@ -49,37 +48,75 @@ describe("CanvasSidePanel", () => {
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,
     );
 
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Comments"));
+    fireEvent.click(screen.getByLabelText("Comments"));
     expect(screen.getByTestId("task-comments")).toHaveTextContent(
       "task-1:canvas-1",
     );
   });
 
-  it("shows the run that built the canvas on the chat tab while viewing", () => {
+  it.each([true, false])("ends a run with interactive=%s", (interactive) => {
     useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
+    const props = {
+      commentTaskId: "task-1",
+      interactive,
+      onMinimize: vi.fn(),
+      dashboardId: "canvas-1",
+      channelId: "channel-1",
+      channelName: "General",
+      name: "Launch canvas",
+      displayedVersionId: "version-2",
+      liveVersionId: "version-2",
+      onAskAgent: vi.fn(),
+      commentVersionLabel: (versionId: string) => versionId,
+      onCommentOpen: vi.fn(),
+    };
+    const { rerender } = render(
+      <CanvasSidePanel {...props} chatTaskId="task-1" />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Chat"));
+    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+
+    rerender(<CanvasSidePanel {...props} chatTaskId={null} />);
+    expect(screen.queryByTestId("task-chat")).not.toBeInTheDocument();
+    if (interactive) {
+      expect(screen.getByTestId("canvas-composer")).toBeInTheDocument();
+    } else {
+      expect(screen.getByText("No run yet")).toBeInTheDocument();
+    }
+  });
+
+  it("opens comments when the generating run is not readable", () => {
+    mocks.task = undefined;
+    useCanvasChatPanelStore.setState({ tab: "comments", collapsed: false });
+
     render(
       <CanvasSidePanel
-        effectiveTaskId={null}
+        chatTaskId={null}
         commentTaskId="task-1"
-        interactive={false}
         onMinimize={vi.fn()}
         dashboardId="canvas-1"
         channelId="channel-1"
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByText("Chat"));
-    expect(screen.getByTestId("task-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("task-comments")).toHaveTextContent(
+      "task-1:canvas-1",
+    );
   });
 });

@@ -1,11 +1,14 @@
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 import structlog
 
+from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
@@ -23,6 +26,13 @@ class DomainScope(models.TextChoices):
 DEFAULT_DOMAIN_SCOPE = DomainScope.SELECTED
 
 
+@frozen
+class IDJagIdentityProviderResolution:
+    organization_domain: Optional["OrganizationDomain"]
+    identity_provider_config: Optional["IdentityProviderConfig"]
+    error: Optional[str]
+
+
 def has_verified_organization_domain_q() -> models.Q:
     return models.Q(linked_identity_provider_configs__organization_domain__verified_at__isnull=False) | models.Q(
         domain_scope=DomainScope.ALL, organization__domains__verified_at__isnull=False
@@ -31,6 +41,7 @@ def has_verified_organization_domain_q() -> models.Q:
 
 class ConfigScope(models.TextChoices):
     SAML = "saml"
+    OIDC = "oidc"
     SCIM = "scim"
     ID_JAG = (
         "xaa",
@@ -49,6 +60,106 @@ def saml_configured_q() -> models.Q:
     )
 
 
+def oidc_configured_q() -> models.Q:
+    # `oidc_credentials` encrypts each value but not the keys, so only a key's presence is
+    # queryable. An empty secret is stored as an empty mapping, never an empty-string value.
+    return ~models.Q(
+        models.Q(oidc_issuer_url="")
+        | models.Q(oidc_issuer_url__isnull=True)
+        | models.Q(oidc_client_id="")
+        | models.Q(oidc_client_id__isnull=True)
+    ) & models.Q(oidc_credentials__has_key="client_secret")
+
+
+class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
+    def for_scope(self, config_scope: str) -> "IdentityProviderConfigQuerySet":
+        return self.filter(models.Q(config_scope=config_scope) | models.Q(config_scope__isnull=True))
+
+    def with_verified_domain_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        if "@" not in email:
+            return self.none()
+
+        domain = email.rsplit("@", 1)[-1]
+        explicitly_linked = models.Q(
+            linked_identity_provider_configs__organization_domain__domain__iexact=domain,
+            linked_identity_provider_configs__organization_domain__verified_at__isnull=False,
+        )
+        organization_wide = models.Q(
+            domain_scope=DomainScope.ALL,
+            organization__domains__domain__iexact=domain,
+            organization__domains__verified_at__isnull=False,
+        )
+        return self.filter(explicitly_linked | organization_wide).distinct()
+
+    def saml_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        return self.for_scope(ConfigScope.SAML).filter(saml_configured_q()).with_verified_domain_for_email(email)
+
+    def oidc_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        return self.filter(config_scope=ConfigScope.OIDC).with_verified_domain_for_email(email)
+
+
+class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
+    def get_queryset(self) -> IdentityProviderConfigQuerySet:
+        return IdentityProviderConfigQuerySet(self.model, using=self._db)
+
+    def saml_for_email(self, email: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().saml_for_email(email)
+
+    def get_id_jag_for_request(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
+        normalized_issuer = (issuer or "").rstrip("/")
+        issuer_configs = (
+            self.get_queryset()
+            .for_scope(ConfigScope.ID_JAG)
+            .annotate(
+                normalized_id_jag_issuer_url=models.Func(
+                    "id_jag_issuer_url",
+                    models.Value("/"),
+                    function="RTRIM",
+                    output_field=models.CharField(),
+                )
+            )
+            .filter(normalized_id_jag_issuer_url=normalized_issuer)
+        )
+
+        matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
+        if "@" in email:
+            domain = email.rsplit("@", 1)[-1]
+            for config in issuer_configs:
+                verified_domains = config.organization_domains.filter(domain__iexact=domain, verified_at__isnull=False)
+                matching.extend((config, organization_domain) for organization_domain in verified_domains)
+
+        if not matching:
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG email domain is not a verified domain associated with this IdP configuration",
+            )
+
+        if len(matching) > 1:
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG configuration is ambiguous: multiple configurations match this request",
+            )
+
+        config, organization_domain = matching[0]
+        return IDJagIdentityProviderResolution(
+            organization_domain=organization_domain,
+            identity_provider_config=config,
+            error=None,
+        )
+
+    def get_is_saml_available_for_email(self, email: str) -> bool:
+        configs = self.get_queryset().saml_for_email(email).select_related("organization")
+        return any(config.organization.is_feature_available(AvailableFeature.SAML) for config in configs)
+
+    def get_is_oidc_available_for_email(self, email: str) -> bool:
+        configs = self.get_queryset().oidc_for_email(email).select_related("organization")
+        return any(
+            config.has_oidc and config.organization.is_feature_available(AvailableFeature.OIDC) for config in configs
+        )
+
+
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.
@@ -61,6 +172,8 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     This model is the sole read/write interface for IdP settings (SAML/SCIM/ID-JAG). The legacy
     IdP columns on `OrganizationDomain` are no longer written to — they're frozen.
     """
+
+    objects = IdentityProviderConfigManager()
 
     organization = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="identity_provider_configs"
@@ -82,6 +195,10 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
+    oidc_issuer_url = models.URLField(max_length=512, blank=True, default="", db_default="")
+    oidc_client_id = models.CharField(max_length=512, blank=True, default="", db_default="")
+    # oidc supports multiple forms of authentication. JSON field for forward compatibility.
+    oidc_credentials = EncryptedJSONField(default=dict, blank=True, null=True)
     # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
     # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
     # config already in use orphans those identities, so it is assigned once and never edited.
@@ -151,6 +268,17 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         if self.applies_to_all_domains:
             return domains
         return domains.filter(linked_identity_provider_configs__identity_provider_config=self)
+
+    @property
+    def has_oidc_client_secret(self) -> bool:
+        return bool((self.oidc_credentials or {}).get("client_secret"))
+
+    @property
+    def has_oidc(self) -> bool:
+        """
+        Returns whether OIDC is configured. Does not validate the organization has the required license.
+        """
+        return bool(self.oidc_issuer_url) and bool(self.oidc_client_id) and self.has_oidc_client_secret
 
     @property
     def has_saml(self) -> bool:

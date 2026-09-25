@@ -21,7 +21,11 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
         <div>
             {bulkSelection ? bulkSelection.renderActions(mockCtx) : null}
             {dataSource.map((row: any) => (
-                <div key={row.id}>{columns.at(-1).render(undefined, row)}</div>
+                <div key={row.id}>
+                    {columns.map((column: any, index: number) =>
+                        column.render ? <span key={index}>{column.render(row[column.dataIndex], row)}</span> : null
+                    )}
+                </div>
             ))}
         </div>
     ),
@@ -46,7 +50,12 @@ describe('DashboardsTable move to folder', () => {
         })
     })
 
-    const renderTable = (rows: number[], selectedKeys: number[] = [], filedRows: number[] = rows): void => {
+    const renderTable = (
+        rows: number[],
+        selectedKeys: number[] = [],
+        filedRows: number[] = rows,
+        tags?: string[]
+    ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
             filters: { search: '' },
@@ -60,6 +69,7 @@ describe('DashboardsTable move to folder', () => {
                     rows.map((id) => ({
                         id,
                         name: `Dashboard ${id}`,
+                        tags,
                         user_access_level: AccessControlLevel.Editor,
                     })) as any
                 }
@@ -98,5 +108,86 @@ describe('DashboardsTable move to folder', () => {
         renderTable([1, 2], [1, 2], [])
         fireEvent.click(screen.getByText('Move to folder'))
         expect(moveDashboardsToFolder).not.toHaveBeenCalled()
+    })
+
+    it('filters dashboards by a clicked tag', () => {
+        const setFilters = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            unpinDashboard: jest.fn(),
+            pinDashboard: jest.fn(),
+            tableSortingChanged: jest.fn(),
+            setFilters,
+            showDuplicateDashboardModal: jest.fn(),
+            showDeleteDashboardModal: jest.fn(),
+            moveDashboardsToFolder,
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            tableSorting: null,
+            filters: { search: '' },
+            currentTeam: { id: 1 },
+            filedDashboardIds: new Set([1]),
+        })
+
+        render(
+            <DashboardsTable
+                dashboards={
+                    [
+                        {
+                            id: 1,
+                            name: 'Dashboard 1',
+                            tags: ['finance'],
+                            user_access_level: AccessControlLevel.Editor,
+                        },
+                    ] as any
+                }
+                dashboardsLoading={false}
+            />
+        )
+
+        fireEvent.click(screen.getByText('finance'))
+
+        expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
+    })
+
+    it('shows all tags and filters by them', () => {
+        const setFilters = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            unpinDashboard: jest.fn(),
+            pinDashboard: jest.fn(),
+            tableSortingChanged: jest.fn(),
+            setFilters,
+            showDuplicateDashboardModal: jest.fn(),
+            showDeleteDashboardModal: jest.fn(),
+            moveDashboardsToFolder,
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            tableSorting: null,
+            filters: { search: '' },
+            currentTeam: { id: 1 },
+            filedDashboardIds: new Set([1]),
+        })
+
+        render(
+            <DashboardsTable
+                dashboards={
+                    [
+                        {
+                            id: 1,
+                            name: 'Dashboard 1',
+                            tags: ['analytics-platform', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
+                            user_access_level: AccessControlLevel.Editor,
+                        },
+                    ] as any
+                }
+                dashboardsLoading={false}
+            />
+        )
+
+        expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
+        expect(screen.getByText('analytics-platform')).toHaveClass('LemonTag--wrap')
+        expect(screen.getByText('beta')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('zeta'))
+
+        expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })
     })
 })

@@ -12,7 +12,6 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, TeamPublicType, TeamType } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
@@ -25,11 +24,12 @@ import { eventDefinitionsList } from 'products/event_definitions/frontend/genera
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
-import { SignalSourceConfig, ToggleSignalSourceParams } from './types'
+import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for tools that back a signal source. */
 export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -59,8 +59,26 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
+/**
+ * The guidance written on the Error tracking card is stored on each of its signal-type rows, so a
+ * row created later starts from what its siblings already carry. Without this, turning a type on
+ * after writing guidance leaves that one trigger emitting unsteered while the card reads as set.
+ */
+function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<string, any> {
+    const steering = configs
+        .map((config) => config.config[SOURCE_STEERING_KEY])
+        .find((value) => typeof value === 'string' && value.trim())
+    return steering ? { [SOURCE_STEERING_KEY]: steering } : {}
+}
+
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
+
+/** Why the Linear teams picker is open: enabling the source (its save turns it on) or editing the filter. */
+export interface LinearTeamsPickerState {
+    enableOnSave: boolean
+    viaSetupWizard: boolean
+}
 
 type WarehouseSourceCompletion =
     | {
@@ -79,7 +97,7 @@ type WarehouseSourceCompletion =
 export const WAREHOUSE_SOURCE_SETUP: Record<
     WarehouseBackedSource,
     {
-        dwSourceType: ExternalDataSourceType
+        dwSourceType: ExternalDataSourceTypeEnumApi
         requiredTables: string[]
         completion: WarehouseSourceCompletion
     }
@@ -212,6 +230,7 @@ export interface signalSourcesLogicValues {
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
     enablingTool: SourceToolEnablement | null
+    errorTrackingConfigs: SignalSourceConfig[]
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
         enabled: boolean
@@ -233,6 +252,7 @@ export interface signalSourcesLogicValues {
     isPgAnalyzeIssuesToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
+    linearTeamsPicker: LinearTeamsPickerState | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
@@ -254,6 +274,9 @@ export interface signalSourcesLogicActions {
         value: true
     } // sourcesDataLogic
     closeDataSourceSetup: () => {
+        value: true
+    }
+    closeLinearTeamsPicker: () => {
         value: true
     }
     closeSourcesModal: () => {
@@ -337,6 +360,7 @@ export interface signalSourcesLogicActions {
     openDataSourceSetup: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
+    openLinearTeamsPicker: (state: LinearTeamsPickerState) => LinearTeamsPickerState
     openSourcesModal: () => {
         value: true
     }
@@ -461,6 +485,7 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        errorTrackingConfigs: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig[]
         errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
             enabled: boolean
             sourceType: SignalSourceType
@@ -502,6 +527,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
         onDataSourceSetupComplete: true,
+        openLinearTeamsPicker: (state: LinearTeamsPickerState) => state,
+        closeLinearTeamsPicker: true,
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
@@ -623,6 +650,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
+                closeSourcesModal: () => null,
+            },
+        ],
+        linearTeamsPicker: [
+            null as LinearTeamsPickerState | null,
+            {
+                openLinearTeamsPicker: (_, state) => state,
+                closeLinearTeamsPicker: () => null,
                 closeSourcesModal: () => null,
             },
         ],
@@ -921,6 +956,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (visionScanners: ReplayScannerApi[] | null): boolean | null =>
                 visionScanners === null ? null : visionScanners.some((scanner) => scanner.emits_signals),
         ],
+        // The rows behind the one Error tracking card. Guidance written on the card is saved to all
+        // of them, since a reader steering "error tracking" means the source, not one trigger.
+        errorTrackingConfigs: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig[] =>
+                ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
+                    sourceConfigs?.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.ErrorTracking && row.source_type === sourceType
+                    )
+                ).filter((row): row is SignalSourceConfig => !!row),
+        ],
         // Each error tracking signal type is its own config row, so each can be armed on its own.
         errorTrackingTypeStates: [
             (s) => [s.sourceConfigs],
@@ -1048,6 +1095,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
                         return
                     }
+                    // Linear asks which teams to read before it turns on; the picker's save does the toggle.
+                    if (source === 'linear' && desiredEnabled) {
+                        actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: false })
+                        return
+                    }
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
                     downstreamToggleStarted = true
                 } catch (error: any) {
@@ -1067,6 +1119,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const { completion } = WAREHOUSE_SOURCE_SETUP[source]
                 if (completion.kind === 'ci_signals_bundle') {
                     actions.toggleCiSignals(true)
+                    return
+                }
+                if (source === 'linear') {
+                    actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: true })
                     return
                 }
                 actions.toggleSignalSource({
@@ -1137,6 +1193,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // stand every type down rather than arm the remaining ones.
                 const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
                 const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && !c.id.startsWith('new_')
@@ -1154,7 +1211,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
                                 enabled: true,
-                                config: {},
+                                config: inheritedConfig,
                             })
                         }
                     }
@@ -1184,6 +1241,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleErrorTrackingType: async ({ sourceType }, breakpoint) => {
                 const configs = values.sourceConfigs ?? []
+                const inheritedConfig = inheritedErrorTrackingConfig(values.errorTrackingConfigs)
                 const existing = configs.find(
                     (c) => c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
                 )
@@ -1196,7 +1254,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             source_product: SignalSourceProduct.ErrorTracking,
                             source_type: sourceType,
                             enabled: true,
-                            config: {},
+                            config: inheritedConfig,
                         })
                     }
                     breakpoint()

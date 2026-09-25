@@ -10,15 +10,17 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { PostHogProductId } from "@posthog/harness/extensions/posthog-mcp-policy";
 import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
-import type { PostHogProductId } from "../../posthog-products";
+import type { SteerDeclineCause } from "../../acp-extensions";
 import type { AgentMode } from "../../types";
 import type { Pushable } from "../../utils/streams";
 import type { BaseSession } from "../base-acp-agent";
 import type { ContextBreakdownBaseline } from "./context-breakdown";
 import type { TaskState } from "./conversion/task-state";
 import type { McpToolApprovals } from "./mcp/tool-metadata";
+import type { RunBudgetGuard } from "./session/budget-guard";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";
 
@@ -46,7 +48,7 @@ export type BackgroundTerminal =
 export type PendingSteer = {
   /** Set when the SDK echoes the message back, i.e. it entered the turn. */
   consumed: boolean;
-  settle: (reachedModel: boolean) => void;
+  settle: (reachedModel: boolean, cause?: SteerDeclineCause) => void;
 };
 
 /** One in-flight `prompt()` call, settled by the session's consumer. */
@@ -61,6 +63,17 @@ export type Turn = {
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
   pendingInput?: SDKUserMessage;
+  /** `performance.now()` at the moment the prompt entered the SDK input
+   *  stream. The SDK emits nothing while it prepares a turn, so this is the
+   *  only anchor for measuring that silent window. */
+  dispatchedAt?: number;
+  /** Set once the first SDK message for this turn has been timed, so the
+   *  measurement is reported once instead of on every message. */
+  firstMessageTimed?: boolean;
+  /** Set once the first assistant message for this turn has been timed. */
+  firstOutputTimed?: boolean;
+  /** A top-level tool call or result was observed during this turn. */
+  madeProgress?: boolean;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -98,8 +111,22 @@ export type Session = BaseSession & {
   fastModeEnabled: boolean;
   /** Last title pushed via `session_info_update`, to dedupe turn-end polls. */
   lastTitle?: string;
+  /** Gateway-form trace id of the SDK turn now executing, reported by the
+   * traceparent hook (see session/traceparent-hook.ts); cleared on settle
+   * and on turn failure. */
+  currentTurnTraceId?: string;
+  /** Discriminator the traceparent hook embeds in its stderr prefix; the
+   * parser only accepts echoes carrying it. */
+  traceparentHookNonce?: string;
+  /** True when this session's CLI was launched with the traceparent hook, so a
+   * model turn that settles without a trace id is a real gap worth logging. */
+  traceparentHookInstalled: boolean;
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
+  budgetGuard?: RunBudgetGuard;
+  backgroundTurnActive?: boolean;
+  backgroundSteers?: Map<string, PendingSteer>;
+  backgroundSteerTimer?: ReturnType<typeof setTimeout>;
   /** PostHog products used during this session, derived from MCP exec calls.
    *  Accumulates for the whole session (deduped); each newly-seen product is
    *  emitted immediately so the client can show a persistent, de-duplicated
@@ -236,7 +263,10 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  budgetSteer?: { mode?: "publish" | "wrap_up" };
   taskOriginProduct?: string;
+  /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
+  endRunWhenDone?: boolean;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud

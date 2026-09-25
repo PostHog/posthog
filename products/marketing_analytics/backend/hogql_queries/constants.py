@@ -6,6 +6,7 @@ from typing import Optional, TypedDict, Union
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AppleSearchAdsDefaultSources,
     BingAdsDefaultSources,
     DefaultChannelTypes,
     GoogleAdsDefaultSources,
@@ -24,6 +25,7 @@ from posthog.schema import (
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -321,6 +323,22 @@ BASE_COLUMN_MAPPING = {
     ),
 }
 
+# Metrics that only the cost side can report. A row with no cost match has no value for them,
+# which the table shows as "-" rather than as a spend of zero.
+COST_SIDE_METRIC_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.COST,
+        MarketingAnalyticsBaseColumns.CLICKS,
+        MarketingAnalyticsBaseColumns.IMPRESSIONS,
+        MarketingAnalyticsBaseColumns.CPC,
+        MarketingAnalyticsBaseColumns.CTR,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+    }
+)
+
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
 # Hierarchy columns are emitted by the campaign_costs CTE only at AD_GROUP / AD levels
@@ -492,6 +510,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
 ]
 
 
@@ -521,6 +540,7 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
@@ -760,3 +780,10 @@ def to_marketing_analytics_data(
         changeFromPreviousPct=change_from_previous_pct,
         hasComparison=has_comparison,
     )
+
+
+# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
+# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
+# their peak never fires, and one above the per-query memory limit could never fire at all.
+# `test_spill_threshold_is_reachable` locks that relationship.
+MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024

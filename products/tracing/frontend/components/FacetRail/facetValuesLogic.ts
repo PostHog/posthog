@@ -32,7 +32,7 @@ export interface facetValuesLogicValues {
     serviceNames: string[] // tracingFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
-        date_to: string | null | undefined
+        date_to: string
     } // tracingFiltersLogic
     collapsed: boolean
     facetSearch: string
@@ -83,7 +83,7 @@ export interface facetValuesLogicMeta {
         scopeSignature: (
             utcDateRange: {
                 date_from: string | null | undefined
-                date_to: string | null | undefined
+                date_to: string
             },
             serviceNames: string[],
             queryFilterGroup: UniversalFiltersGroup,
@@ -193,10 +193,12 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     const target =
                         source.type === 'column'
                             ? { breakdownKey: source.column, breakdownType: SpanPropertyTypeEnumApi.Span }
-                            : {
-                                  breakdownKey: source.key,
-                                  breakdownType: SpanPropertyTypeEnumApi.SpanResourceAttribute,
-                              }
+                            : source.type === 'attribute'
+                              ? { breakdownKey: source.key, breakdownType: SpanPropertyTypeEnumApi.SpanAttribute }
+                              : {
+                                    breakdownKey: source.key,
+                                    breakdownType: SpanPropertyTypeEnumApi.SpanResourceAttribute,
+                                }
                     const response = await tracingSpansAttributeBreakdownCreate(String(values.currentTeamId), {
                         query: {
                             ...target,

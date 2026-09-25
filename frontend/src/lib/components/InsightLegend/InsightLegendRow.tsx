@@ -5,18 +5,19 @@ import { getSeriesBackgroundColor } from 'lib/colors'
 import { captureLegendMenuAction } from 'lib/components/ChartLegendSeriesMenu/captureLegendMenuAction'
 import { ChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/ChartLegendSeriesMenu'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
-import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ChartDisplayType } from '~/types'
+
+import { formatCompareLabel } from 'products/product_analytics/frontend/insights/shared/InsightsTable/columns/SeriesColumn'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 type InsightLegendRowProps = {
     item: IndexedTrendResult
@@ -112,7 +113,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
                 />
             </div>
-            {display === ChartDisplayType.ActionsPie && (
+            {display && PIE_DISPLAY_TYPES.includes(display) && (
                 <div className="text-secondary grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value, baseCurrency)}
                 </div>

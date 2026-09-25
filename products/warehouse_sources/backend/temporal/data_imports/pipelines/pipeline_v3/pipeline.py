@@ -1,5 +1,6 @@
 import time
 import asyncio
+import datetime
 from typing import TYPE_CHECKING, Any, Generic
 
 import pyarrow as pa
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cleanup_memory,
@@ -45,8 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
+    normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
+    reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
@@ -152,12 +156,9 @@ class PipelineV3(Generic[ResumableData]):
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
         attempt = current_activity_attempt()
-        attempt_scoped_run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
-
-        self._s3_batch_writer = S3BatchWriter(
-            self._logger, self._job, str(self._schema.id), attempt_scoped_run_uuid, compression=PARQUET_COMPRESSION
-        )
         self._attempt = attempt
+        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
         if source_response.cdc_write_mode is not None:
@@ -199,36 +200,27 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
         is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
-        self._pg_producer = PostgresProducer(
-            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
-            team_id=self._job.team_id,
-            job_id=str(self._job.id),
-            schema_id=str(self._schema.id),
-            source_id=str(self._schema.source_id),
-            resource_name=self._resource_name,
-            sync_type=sync_type,
-            run_uuid=self._s3_batch_writer.get_run_uuid(),
-            logger=self._logger,
-            primary_keys=self._resource.primary_keys,
-            cdc_write_mode=self._resource.cdc_write_mode,
-            is_resume=is_resume,
-            partition_count=partition_count,
-            partition_size=partition_size,
-            partition_keys=partition_keys,
-            partition_format=partition_format,
-            partition_mode=partition_mode,
-            is_first_ever_sync=is_first_ever_sync,
-            workflow_id=current_workflow_id(),
-            workflow_run_id=current_workflow_run_id(),
+        self._producer_kwargs: dict[str, Any] = {
+            "sync_type": sync_type,
+            "is_resume": is_resume,
+            "partition_count": partition_count,
+            "partition_size": partition_size,
+            "partition_keys": partition_keys,
+            "partition_format": partition_format,
+            "partition_mode": partition_mode,
+            "is_first_ever_sync": is_first_ever_sync,
+        }
+        self._pg_producer = self._build_producer(
+            self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
         )
 
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
         # from becoming the queue's batch granularity, but it delays when a yielded table is
-        # persisted, so it must stay off for sources that treat yield as durable: resumable
-        # sources checkpoint resume state right after yielding, and the webhook path deletes its
-        # staged S3 files right after yielding.
+        # persisted, so it must stay off for sources that treat yield as durable: the webhook path
+        # deletes its staged S3 files right after yielding, and the resume cursor commit after a
+        # write assumes that write drained every table yielded so far.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -248,12 +240,97 @@ class PipelineV3(Generic[ResumableData]):
             is_incremental=self._is_incremental,
         )
         self._accumulated_pa_schema = None
+        self._batch_results = []
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
-        self._batch_results = []
+
+    # The seams below are where a run that writes several tables from one read plugs in (see
+    # `lanes.py`). Each default is exactly what a single-table run has always done.
+
+    def _build_s3_writer(self, run_uuid: str | None) -> S3BatchWriter:
+        return S3BatchWriter(self._logger, self._job, str(self._schema.id), run_uuid, compression=PARQUET_COMPRESSION)
+
+    def _producer_args(
+        self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
+    ) -> dict[str, Any]:
+        return {
+            "database_url": WAREHOUSE_SOURCES_DATABASE_URL,
+            "team_id": self._job.team_id,
+            "job_id": str(self._job.id),
+            "schema_id": str(self._schema.id),
+            "source_id": str(self._schema.source_id),
+            "resource_name": resource_name,
+            "run_uuid": s3_batch_writer.get_run_uuid(),
+            "logger": self._logger,
+            "primary_keys": self._resource.primary_keys,
+            "cdc_write_mode": cdc_write_mode,
+            "workflow_id": current_workflow_id(),
+            "workflow_run_id": current_workflow_run_id(),
+            # Snapshotted on the job when the run started. Empty for every run before
+            # destinations, and every run of a team the flag is off for.
+            "destination_ids": list(self._job.destination_ids or []),
+            **self._producer_kwargs,
+        }
+
+    def _build_producer(
+        self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
+    ) -> PostgresProducer:
+        return PostgresProducer(
+            **self._producer_args(s3_batch_writer, resource_name=resource_name, cdc_write_mode=cdc_write_mode)
+        )
+
+    async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
+        """Write the batch and tell the queue. Returns the rows to count towards usage."""
+        batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
+        self._batch_results.append(batch_result)
+
+        self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        return pa_table.num_rows
+
+    def _total_batches(self) -> int:
+        return len(self._batch_results)
+
+    def _consumer_finalizes_this_run(self) -> bool:
+        """Whether the load consumer will finalize THIS job, so the workflow must not."""
+        return self._total_batches() > 0
+
+    async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
+        schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
+
+        final_batch = self._batch_results[-1]
+
+        self._pg_producer.send_batch_notification(
+            final_batch,
+            is_final_batch=True,
+            total_batches=total_batches,
+            total_rows=row_count,
+            data_folder=self._s3_batch_writer.get_data_folder(),
+            schema_path=schema_path,
+            cumulative_row_count=row_count,
+        )
+        return schema_path
+
+    def _mark_first_ever_sync(self) -> None:
+        self._pg_producer.is_first_ever_sync = True
+
+    def _maintains_companion_table(self) -> bool:
+        """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
+
+        Read off the resource rather than the lanes: a `cdc_only` run that stands down for
+        in-flight batches declares no lanes and runs this base class, and its table is the
+        history table all the same.
+        """
+        return self._resource.cdc_write_mode == SCD2_APPEND_MODE
+
+    def _close_producers(self) -> None:
+        self._pg_producer.close()
+
+    async def _commit_resume_state(self) -> None:
+        if self._resumable_source_manager is not None:
+            await asyncio.to_thread(self._resumable_source_manager.commit)
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -335,34 +412,22 @@ class PipelineV3(Generic[ResumableData]):
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                self._pg_producer.is_first_ever_sync = True
+                self._mark_first_ever_sync()
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
             if not is_fresh_sync:
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
-                    self._schema, partition_count_fallback=self._resource.partition_count
+                    self._schema,
+                    is_cdc_companion=self._maintains_companion_table(),
+                    partition_count_fallback=self._resource.partition_count,
                 )
 
-            async for item in async_iterate(self._resource.items()):
-                py_table = None
-
-                record_source_item_stats(
-                    item,
-                    source_type=source_type,
-                    logger=self._logger,
-                    team_id=self._job.team_id,
-                    schema_name=self._schema.name,
-                )
-
-                self._batcher.batch(item)
-
-                # A single batched table may be split into several when a string/binary/list
-                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
-                while self._batcher.should_yield():
+            async def stage_remaining_rows() -> None:
+                nonlocal chunk_index, row_count
+                while self._batcher.should_yield(include_incomplete_chunk=True):
                     py_table = self._batcher.get_table()
                     row_count += py_table.num_rows
-
                     await self._process_batch(
                         pa_table=py_table,
                         batch_index=chunk_index,
@@ -374,34 +439,75 @@ class PipelineV3(Generic[ResumableData]):
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     chunk_index += 1
+                # Every yielded row is staged now, so whatever the source staged last is safe.
+                await self._commit_resume_state()
 
-                    cleanup_memory(pa_memory_pool, py_table)
+            awaiting_source = True
+            try:
+                async for item in async_iterate(self._resource.items()):
+                    awaiting_source = False
                     py_table = None
 
-                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    record_source_item_stats(
+                        item,
+                        source_type=source_type,
+                        logger=self._logger,
+                        team_id=self._job.team_id,
+                        schema_name=self._schema.name,
+                    )
 
-            while self._batcher.should_yield(include_incomplete_chunk=True):
-                py_table = self._batcher.get_table()
-                row_count += py_table.num_rows
-                await self._process_batch(
-                    pa_table=py_table,
-                    batch_index=chunk_index,
-                    row_count=row_count,
-                )
+                    self._batcher.batch(item)
 
-                if activity.in_activity():
-                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
-                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+                    # A single batched table may be split into several when a string/binary/list
+                    # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                    wrote_chunk = False
+                    while self._batcher.should_yield():
+                        py_table = self._batcher.get_table()
+                        row_count += py_table.num_rows
 
-                chunk_index += 1
+                        await self._process_batch(
+                            pa_table=py_table,
+                            batch_index=chunk_index,
+                            row_count=row_count,
+                        )
+                        wrote_chunk = True
+
+                        if activity.in_activity():
+                            get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                            get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
+                        chunk_index += 1
+
+                        cleanup_memory(pa_memory_pool, py_table)
+                        py_table = None
+
+                    # A staged batch is what makes the cursor safe to persist: after a buffered-only item
+                    # it would skip rows that never landed, and after the shutdown check it would never land.
+                    if wrote_chunk:
+                        await self._commit_resume_state()
+
+                    if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                        self._shutdown_monitor.raise_if_is_worker_shutdown()
+                    awaiting_source = True
+            except Exception:
+                # A resumable source that ends its own attempt (a page or time budget) has staged a
+                # cursor for rows the batcher still holds. Staging them lets that cursor commit, so the
+                # next attempt continues from it instead of restarting the sweep.
+                if awaiting_source and source_is_resumable:
+                    try:
+                        await stage_remaining_rows()
+                    except Exception:
+                        await self._logger.aexception("Failed to stage the rows buffered before the source error")
+                raise
+
+            await stage_remaining_rows()
 
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
-            consumer_will_hear_about_this_run = len(self._batch_results) > 0
+            consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
@@ -426,7 +532,7 @@ class PipelineV3(Generic[ResumableData]):
                     "sync_type": sync_type,
                     "status": status,
                     "duration_seconds": duration,
-                    "total_batches": len(self._batch_results),
+                    "total_batches": self._total_batches(),
                     "total_rows": row_count if "row_count" in locals() else 0,
                 },
             )
@@ -434,7 +540,7 @@ class PipelineV3(Generic[ResumableData]):
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
-            self._pg_producer.close()
+            self._close_producers()
             del self._pg_producer
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
@@ -462,29 +568,23 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
-        # Add missing columns from previous batches for schema consistency
-        if self._accumulated_pa_schema is not None:
-            for field in self._accumulated_pa_schema:
-                if field.name not in pa_table.schema.names:
-                    null_column = pa.array([None] * pa_table.num_rows, type=field.type)
-                    pa_table = pa_table.append_column(field, null_column)
+        # Converge this batch onto the column types earlier batches in this run already used,
+        # and backfill columns they had that this one doesn't. The cursor column is named both
+        # raw and normalized because `normalize_table_column_names` above may have renamed it.
+        cursor_columns = (
+            {self._schema.incremental_field, normalize_column_name(self._schema.incremental_field)}
+            if self._schema.incremental_field
+            else set()
+        )
+        pa_table, self._accumulated_pa_schema = reconcile_batch_to_accumulated_schema(
+            pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
+        )
 
-        batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
-        self._batch_results.append(batch_result)
-
-        self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        tracked_rows = await self._stage_batch(pa_table, batch_index, row_count)
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await self._sinks.stage_chunk(batch_index, pa_table)
-
-        # Update accumulated schema with any new columns from this batch
-        if self._accumulated_pa_schema is None:
-            self._accumulated_pa_schema = pa_table.schema
-        else:
-            for field in pa_table.schema:
-                if field.name not in self._accumulated_pa_schema.names:
-                    self._accumulated_pa_schema = self._accumulated_pa_schema.append(field)
 
         incremental_values = await update_incremental_field_values(
             self._schema,
@@ -500,8 +600,28 @@ class PipelineV3(Generic[ResumableData]):
         self._earliest_incremental_field_value = incremental_values.earliest_value
 
         await update_row_tracking_after_batch(
-            str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
+            str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
         )
+
+    async def _stamp_full_run(self) -> None:
+        """Record that this run took the full extraction path, for the fast-return valve.
+
+        Writes only `last_full_run_at`.
+        `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
+        the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
+        loaded nothing would narrow the next run's signal window.
+
+        Best-effort: a bookkeeping failure must not fail an otherwise successful sync, which is
+        how the observed-columns write above treats the same risk.
+        """
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                updates={"last_full_run_at": datetime.datetime.now(datetime.UTC).isoformat()},
+            )
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to stamp last_full_run_at")
 
     async def _finalize(self, row_count: int) -> None:
         # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
@@ -516,9 +636,14 @@ class PipelineV3(Generic[ResumableData]):
             except Exception:
                 await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
 
-        total_batches = len(self._batch_results)
+        total_batches = self._total_batches()
 
         if total_batches == 0:
+            # A zero-batch run still ran the full extraction, which is what the fast-return
+            # valve counts. Post-load stamps this on every other path but never runs here: with
+            # no batches the load consumer is never notified. Without this a v3 schema whose
+            # source stays quiet could never satisfy `_fast_return_eligible`.
+            await self._stamp_full_run()
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
             return
 
@@ -528,20 +653,8 @@ class PipelineV3(Generic[ResumableData]):
             total_rows=row_count,
         )
 
-        schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
-
-        final_batch = self._batch_results[-1]
-
-        self._pg_producer.send_batch_notification(
-            final_batch,
-            is_final_batch=True,
-            total_batches=total_batches,
-            total_rows=row_count,
-            data_folder=self._s3_batch_writer.get_data_folder(),
-            schema_path=schema_path,
-            cumulative_row_count=row_count,
-        )
-
+        # Stage the watermark before the final-batch notification. The load consumer promotes the
+        # staged slot when that batch completes, and a slot staged after that is never promoted.
         await finalize_desc_sort_incremental_value(
             self._resource,
             self._schema,
@@ -550,6 +663,8 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+
+        schema_path = await self._send_final_batches(total_batches, row_count)
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 

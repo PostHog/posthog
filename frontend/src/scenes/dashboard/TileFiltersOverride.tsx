@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
-import type { DashboardTile, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile, InsightLogicProps, IntervalType } from '~/types'
 
 import { tileLogic } from './tileLogic'
 
@@ -36,7 +36,7 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
     include: 'Internal and test users are included in this insight.',
 }
 
-export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedInsightModel> }): JSX.Element {
+export function TileFiltersOverride({ tile }: { tile: DashboardTile }): JSX.Element {
     const { overrides } = useValues(tileLogic)
     const { setDates, setProperties, setBreakdown, setInterval, setFilterTestAccounts, setIgnoreDashboardFilters } =
         useActions(tileLogic)

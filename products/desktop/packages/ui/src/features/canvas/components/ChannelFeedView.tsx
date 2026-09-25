@@ -9,17 +9,33 @@ import {
 } from "@phosphor-icons/react";
 import { taskFeedRunStatus } from "@posthog/core/canvas/channelFeed";
 import {
+  type ChannelItemFilters,
+  type ChannelItemGrouping,
+  type ChannelItemModel,
+  type ChannelItemOwner,
+  type ChannelItemSort,
+  DEFAULT_CHANNEL_ITEM_SORT,
+  filterChannelItems,
+  hasActiveChannelItemFilters,
+} from "@posthog/core/canvas/channelItems";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
+import {
   RUN_STATUS_LABELS,
   runStatusVariant,
 } from "@posthog/core/canvas/runStatus";
 import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
-import type { PrCheck } from "@posthog/core/git/router-schemas";
-import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
+import {
+  parsePrNumber,
+  summarizePrChecks,
+} from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
+import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
+import { taskStarter } from "@posthog/core/tasks/taskStatusPresentation";
 import {
   AvatarGroup,
   Badge,
+  Button,
   Card,
   CardContent,
   cn,
@@ -28,7 +44,6 @@ import {
   PopoverContent,
   PopoverTrigger,
   Skeleton,
-  Spinner,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -49,10 +64,20 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
 import {
+  ActivityPresenceAvatar,
+  canvasAuthor,
+} from "@posthog/ui/features/canvas/components/ChannelItemPresence";
+import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import {
+  buildFeedSections,
+  entryKey,
   type FeedEntry,
   type FeedKindFilter,
   feedEntryMatchesKind,
+  feedEntryMatchesTypes,
+  keepFilteredEntries,
   mergeFeedEntries,
+  type SpaceActivityType,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
@@ -63,6 +88,8 @@ import {
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
+import { PrFeedRow } from "@posthog/ui/features/canvas/components/work/PrFeedRow";
+import type { SpacePullRequest } from "@posthog/ui/features/canvas/components/work/useSpacePullRequests";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import type { ChannelReportsFilters } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
@@ -89,7 +116,9 @@ import {
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
+import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
@@ -127,7 +156,7 @@ const PR_STATE_LABELS: Record<
 function statusBadge(status: TaskRunStatus) {
   return (
     <Badge variant={runStatusVariant(status)}>
-      {status === "in_progress" && <Spinner className="size-2.5" />}
+      {status === "in_progress" && <Spinner size="xs" />}
       {RUN_STATUS_LABELS[status]}
     </Badge>
   );
@@ -152,16 +181,29 @@ interface TaskStatusDisplay {
 // shipped task never reads "Ready + Merged" or a stale "In progress + PR
 // ready". A failed/cancelled run suppresses the PR badge instead — that is a
 // deliberate end state we should not soften with a PR.
-function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
-  const data = useChannelTaskData(task);
+function useTaskStatusDisplay(
+  task: Task,
+  // Derived by the caller: `useChannelTaskData` mounts queries, mutations and
+  // store subscriptions, so a card that already holds the data must not mount
+  // a second copy of that graph here.
+  data: TaskData | undefined,
+  options?: {
+    resolvePrStatus?: boolean;
+  },
+): TaskStatusDisplay {
   const { prState } = useTaskPrStatus({
-    id: task.id,
+    id: options?.resolvePrStatus === false ? "" : task.id,
     cloudPrUrl: data?.cloudPrUrl ?? null,
     taskRunEnvironment: data?.taskRunEnvironment ?? null,
   });
   const status = data?.taskRunStatus ?? task.latest_run?.status;
   const environment = data?.taskRunEnvironment ?? task.latest_run?.environment;
-  const displayStatus = taskFeedRunStatus({ status, environment });
+  const displayStatus = taskFeedRunStatus({
+    status,
+    environment,
+    runMode: data?.runMode,
+    isGenerating: data?.isGenerating,
+  });
   // `prState` is resolved async from git/`gh` and is routinely null for cloud
   // tasks (the details fetch hasn't landed, or there's no cached row). But the
   // PR URL itself is a hard signal a PR exists — the card's "PR" link keys off
@@ -181,10 +223,14 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
     // waiting on the user right now, which matters more than a PR existing.
     base = <Badge variant="warning">Needs input</Badge>;
   } else if (data?.isGenerating) {
+    const label =
+      status === "not_started" || status === "queued"
+        ? "Starting"
+        : "In progress";
     base = (
       <Badge variant="info">
-        <Spinner className="size-2.5" />
-        In progress
+        <Spinner size="xs" />
+        {label}
       </Badge>
     );
   } else if (showPrState) {
@@ -249,7 +295,7 @@ export function TaskSummaryRow({
   task: Task;
   channelId: string;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   return (
     <Link
       {...taskCardNavigation(channelId, task.id)}
@@ -290,7 +336,7 @@ export function TaskCard({
   inThread?: boolean;
   onOpen?: () => void;
 }) {
-  const statusDisplay = useTaskStatusDisplay(task);
+  const statusDisplay = useTaskStatusDisplay(task, useChannelTaskData(task));
   const prUrl =
     typeof task.latest_run?.output?.pr_url === "string"
       ? task.latest_run.output.pr_url
@@ -353,12 +399,6 @@ export function TaskCard({
   );
 }
 
-function channelTaskStarter(task: Task): UserBasic | null {
-  return task.origin_product === "user_created"
-    ? (task.created_by ?? null)
-    : null;
-}
-
 export function ExpandablePrompt({
   children,
   lines,
@@ -388,7 +428,13 @@ export function ExpandablePrompt({
   useEffect(() => {
     if (!measure || expanded) return;
 
+    let measuredWidth: number | null = null;
+    let frame: number | null = null;
     const compute = () => {
+      frame = null;
+      const width = measure.clientWidth;
+      if (width === 0 || width === measuredWidth) return;
+      measuredWidth = width;
       const lineHeight = parseFloat(getComputedStyle(measure).lineHeight);
       const maxHeight = lineHeight * lines;
       if (measure.scrollHeight <= maxHeight + 0.5) {
@@ -431,9 +477,14 @@ export function ExpandablePrompt({
     };
 
     compute();
-    const observer = new ResizeObserver(compute);
+    const observer = new ResizeObserver(() => {
+      if (frame === null) frame = requestAnimationFrame(compute);
+    });
     observer.observe(measure);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, [children, expanded, lines, measure]);
 
   const truncated = cut !== null;
@@ -508,7 +559,7 @@ const CHIP_CLASS =
 // render. Deliberately no focus handlers: closing returns focus to the
 // trigger, so opening on focus re-opens the popover in an endless blink loop
 // (and hands it to whichever trigger focus lands on next).
-function HoverPopover({
+export function HoverPopover({
   trigger,
   content,
   contentClassName,
@@ -550,30 +601,6 @@ function HoverPopover({
   );
 }
 
-// One line summarizing a PR's CI: failing beats running beats passing.
-function summarizePrChecks(
-  checks: PrCheck[] | null | undefined,
-): { label: string; color: string } | null {
-  if (!checks || checks.length === 0) return null;
-  let failed = 0;
-  let pending = 0;
-  let passed = 0;
-  for (const check of checks) {
-    if (check.bucket === "fail" || check.bucket === "cancel") failed++;
-    else if (check.bucket === "pending") pending++;
-    else if (check.bucket === "pass") passed++;
-  }
-  if (failed) {
-    return {
-      label: `CI failing · ${failed} ${failed === 1 ? "check" : "checks"}`,
-      color: "var(--red-11)",
-    };
-  }
-  if (pending) return { label: "CI running", color: "var(--amber-11)" };
-  if (passed) return { label: "CI passing", color: "var(--green-11)" };
-  return null;
-}
-
 function PrCiLine({ url }: { url: string }) {
   const checks = usePrChecks(url);
   const ci = summarizePrChecks(checks.data);
@@ -581,7 +608,7 @@ function PrCiLine({ url }: { url: string }) {
     if (!checks.isPending) return null;
     return (
       <div className="flex items-center gap-1.5 text-(--gray-9) text-xs">
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
         Checking CI…
       </div>
     );
@@ -600,7 +627,7 @@ function PrCiLine({ url }: { url: string }) {
 // The hover card for one PR chip: number + state, truncated title, CI line.
 // Mounted only while the popover is open, so its title/checks fetches never
 // run for chips just sitting in the feed.
-function PrPopoverContent({ url }: { url: string }) {
+export function PrPopoverContent({ url }: { url: string }) {
   const { prNumber, stateLabel, Icon, iconColor } = usePrArtifact(url);
   const prUrls = useMemo(() => [url], [url]);
   const titles = usePrTitles(prUrls);
@@ -619,7 +646,7 @@ function PrPopoverContent({ url }: { url: string }) {
         // The title resolves via gh after open; hold its line so the card
         // doesn't jump when it lands.
         <div className="flex h-5 items-center">
-          <Spinner className="size-3" />
+          <Spinner size="sm" />
         </div>
       )}
       <PrCiLine url={url} />
@@ -659,7 +686,7 @@ function PrPopoverRow({ url }: { url: string }) {
           style={{ backgroundColor: ci.color }}
         />
       ) : (
-        checks.isPending && <Spinner className="size-3 shrink-0" />
+        checks.isPending && <Spinner size="sm" className="shrink-0" />
       )}
     </button>
   );
@@ -732,8 +759,10 @@ const FeedItem = memo(function FeedItem({
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
   const { mutate: markTasksRead } = useMarkTaskActivityRead();
-  const statusDisplay = useTaskStatusDisplay(task);
   const taskData = useChannelTaskData(task);
+  const statusDisplay = useTaskStatusDisplay(task, taskData, {
+    resolvePrStatus: inView,
+  });
   const { togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
@@ -745,10 +774,13 @@ const FeedItem = memo(function FeedItem({
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const isActive = taskData ? isTaskActivelyRunning(taskData) : false;
   const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
-  const starter = channelTaskStarter(task);
+  const starter = taskStarter(task);
   const prompt = useMemo(
-    () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
-    [task.description],
+    () =>
+      stripContextBlocks(
+        xmlToPlainText(task.description_preview ?? task.description ?? ""),
+      ),
+    [task.description_preview, task.description],
   );
   const prUrls = useMemo(
     () =>
@@ -919,7 +951,7 @@ const FeedItem = memo(function FeedItem({
         size="sm"
         role="button"
         tabIndex={0}
-        className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        className="my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -945,6 +977,9 @@ const FeedItem = memo(function FeedItem({
         <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
           <div className="flex items-center gap-3">
             <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="flex size-3.5 shrink-0 translate-y-0.5 items-center justify-center">
+                <TaskTabIcon task={task} size={14} showPrState={false} />
+              </span>
               {editingTitle ? (
                 <Input
                   autoFocus
@@ -978,7 +1013,10 @@ const FeedItem = memo(function FeedItem({
                 </button>
               )}
               <span className="shrink-0 text-(--gray-9) text-xs">
-                · {formatRelativeTimeShort(task.updated_at)}
+                ·{" "}
+                {formatRelativeTimeShort(
+                  task.last_activity_at ?? task.updated_at,
+                )}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -1186,28 +1224,247 @@ function FeedRow({
   );
 }
 
-// The optimistic kickoff row: the user's prompt as a "Starting…" card, shown
-// at the top of the feed the moment they submit. Deliberately dumb — no
-// per-task data hooks or polls (there's no task id to query yet); it's
-// replaced by a real FeedRow as soon as the task is created.
-function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
+const CanvasFeedRow = memo(function CanvasFeedRow({
+  canvas,
+  channelId,
+  listRow,
+}: {
+  canvas: DashboardRecord;
+  channelId: string;
+  listRow: boolean;
+}) {
+  const open = () => navigateToChannelDashboard(channelId, canvas.id);
+  const author = canvasAuthor(canvas);
+  if (!listRow) {
+    return (
+      <Card
+        size="sm"
+        role="button"
+        tabIndex={0}
+        className="my-1.5 w-full cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            open();
+          }
+        }}
+      >
+        <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              <span className="flex size-3.5 shrink-0 translate-y-0.5 items-center justify-center">
+                {iconForTemplate(canvas.templateId, {
+                  size: 14,
+                  className: "text-violet-9",
+                })}
+              </span>
+              <span className="min-w-0 truncate font-semibold text-sm">
+                {canvas.name}
+              </span>
+              <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+                · {formatRelativeTimeShort(canvas.updatedAt)}
+              </span>
+            </div>
+            <Badge>Canvas</Badge>
+          </div>
+          {canvas.description && (
+            <p className="mt-1 line-clamp-2 text-(--gray-11) text-[13px]">
+              {canvas.description}
+            </p>
+          )}
+          <div className="mt-3 flex items-center justify-end">
+            {author && <UserAvatar user={author} size="xs" />}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   return (
-    <Card
-      size="sm"
-      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl bg-(--gray-2) py-0"
+    <button
+      type="button"
+      onClick={open}
+      title={canvas.name}
+      className="group relative flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors hover:bg-fill-selected"
     >
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        {iconForTemplate(canvas.templateId, {
+          size: 13,
+          className: "text-violet-9",
+        })}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-medium">{canvas.name}</span>
+      <ActivityPresenceAvatar
+        user={author}
+        label="on this canvas"
+        activityAt={canvas.updatedAt}
+      />
+      <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums">
+        {formatRelativeTimeShort(canvas.updatedAt)}
+      </span>
+    </button>
+  );
+});
+
+const FEED_PAGE = 30;
+
+const NO_CANVASES: readonly DashboardRecord[] = [];
+
+const NO_ITEMS: readonly ChannelItemModel[] = [];
+
+const NO_PULL_REQUESTS: readonly SpacePullRequest[] = [];
+
+const NOBODY = { uuid: null };
+
+const FeedLogRow = memo(function FeedLogRow({
+  task,
+  onOpenTask,
+  onOpenThread,
+}: {
+  task: Task;
+  onOpenTask: (task: Task) => void;
+  onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
+}) {
+  const [ref, inView] = useInView<HTMLDivElement>({ rootMargin: "600px 0px" });
+  const { mutate: markTasksRead } = useMarkTaskActivityRead();
+  const taskData = useChannelTaskData(task);
+  const statusDisplay = useTaskStatusDisplay(task, taskData, {
+    resolvePrStatus: inView,
+  });
+  const { togglePin } = usePinnedTasks();
+  const { archiveTask } = useArchiveTask();
+  const commandCenterCells = useCommandCenterStore((state) => state.cells);
+  const starter = taskStarter(task);
+  const markRead = useCallback(() => {
+    markTasksRead([
+      { task_id: task.id, seen_before: new Date().toISOString() },
+    ]);
+  }, [markTasksRead, task.id]);
+  const menu: TaskRowMenuProps = useMemo(
+    () => ({
+      kind: "task",
+      id: task.id,
+      title: task.title,
+      isPinned: taskData?.isPinned ?? false,
+      task,
+      channelId: task.channel ?? undefined,
+      onAddToCommandCenter: commandCenterCells.includes(task.id)
+        ? undefined
+        : () => placeTaskInCommandCenter(task.id, task.title),
+      onTogglePin: () => {
+        void togglePin(task.id).catch(() => {
+          toast.error("Couldn't update pin", { description: "Try again." });
+        });
+      },
+      onArchive: () => {
+        void archiveTask({ taskId: task.id }).catch(() => {
+          toast.error("Couldn't archive task", { description: "Try again." });
+        });
+      },
+    }),
+    [archiveTask, commandCenterCells, task, taskData?.isPinned, togglePin],
+  );
+  return (
+    <TaskRowContextMenu menu={menu}>
+      {/* biome-ignore lint/a11y/useSemanticElements: the row holds its own buttons (title, menu), and buttons cannot nest */}
+      <div
+        ref={ref}
+        role="button"
+        tabIndex={0}
+        className="group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-selected"
+        onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-slot="dropdown-menu-trigger"]')
+          ) {
+            return;
+          }
+          markRead();
+          onOpenThread(task);
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            markRead();
+            onOpenThread(task);
+          }
+        }}
+      >
+        <TaskTabIcon task={task} size={14} showPrState={false} />
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate text-left font-medium"
+          onClick={(event) => {
+            event.stopPropagation();
+            markRead();
+            onOpenTask(task);
+          }}
+        >
+          {task.title || "Untitled task"}
+        </button>
+        <TaskStatusBadge display={statusDisplay} />
+
+        <ActivityPresenceAvatar
+          user={starter}
+          label="on this session"
+          activityAt={task.last_activity_at ?? task.updated_at}
+        />
+
+        <span className="w-8 shrink-0 text-right text-muted-foreground text-xs tabular-nums transition-opacity group-hover:opacity-0">
+          {formatRelativeTimeShort(task.last_activity_at ?? task.updated_at)}
+        </span>
+        <span className="absolute right-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <TaskRowDropdownMenu menu={menu} />
+        </span>
+      </div>
+    </TaskRowContextMenu>
+  );
+});
+
+// The optimistic kickoff row: the user's prompt as a "Starting…" entry at the
+// top of the feed, shown the moment they submit. It takes the shape of the view
+// around it, and it stays deliberately dumb, with no per-task data hooks or
+// polls, because there is no task id to query yet. A real row replaces it as
+// soon as the task is created.
+function PendingFeedRow({
+  prompt,
+  listRow,
+}: {
+  prompt: string;
+  listRow: boolean;
+}) {
+  if (listRow) {
+    return (
+      <div className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px]">
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <Spinner size="sm" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium">{prompt}</span>
+        <Badge variant="info">Starting…</Badge>
+        {/* The avatar and the time of a real row have nothing to show yet, so
+            the row holds their two columns open. This keeps the badge in the
+            badge column, and it keeps the row still when the real row arrives. */}
+        <span className="size-5 shrink-0" />
+        <span className="w-8 shrink-0" />
+      </div>
+    );
+  }
+  return (
+    <Card size="sm" className="my-1.5 w-full rounded-xl bg-(--gray-2) py-0">
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-3">
           <span className="min-w-0 flex-1 font-semibold text-sm leading-snug">
             New task
           </span>
           <Badge variant="info">
-            <Spinner className="size-2.5" />
+            <Spinner size="xs" />
             Starting…
           </Badge>
         </div>
         <div className="mt-1.5 text-(--gray-9) text-xs leading-normal">
-          <ExpandablePrompt lines={2}>{pending.prompt}</ExpandablePrompt>
+          <ExpandablePrompt lines={2}>{prompt}</ExpandablePrompt>
         </div>
       </CardContent>
     </Card>
@@ -1220,7 +1477,7 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
 // as a task row, minus the task card and reply footer.
 function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[660px] items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs">
+    <div className="flex w-full min-w-0 items-center gap-2 px-1 py-1.5 text-(--gray-9) text-xs">
       {message.author ? (
         <UserAvatar user={message.author} size="xs" />
       ) : (
@@ -1248,8 +1505,7 @@ function SystemFeedRow({ message }: { message: ChannelFeedSystemMessage }) {
 const DAY_MS = 86_400_000;
 
 // "Today" / "Yesterday" / "Aug 8" (with the year once it differs) for the
-// feed's day separators.
-function feedDayLabel(iso: string, now: Date): string {
+export function feedDayLabel(iso: string, now: Date): string {
   const date = new Date(iso);
   const startOfDay = (d: Date) =>
     new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
@@ -1270,10 +1526,7 @@ function feedDayLabel(iso: string, now: Date): string {
  */
 function FeedRowSkeleton({ wide }: { wide?: boolean }) {
   return (
-    <Card
-      size="sm"
-      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl py-0"
-    >
+    <Card size="sm" className="my-1.5 w-full rounded-xl py-0">
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
         <div className="flex items-start gap-3">
           <Skeleton className={cn("h-4", wide ? "w-3/5" : "w-2/5")} />
@@ -1292,15 +1545,49 @@ function FeedRowSkeleton({ wide }: { wide?: boolean }) {
   );
 }
 
+function FeedLogRowSkeleton({ width }: { width: string }) {
+  return (
+    <div className="flex h-8 w-full items-center gap-2 px-2">
+      <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+      <Skeleton className={cn("h-3.5", width)} />
+      <Skeleton className="ml-auto h-4 w-14 shrink-0 rounded-full" />
+      <Skeleton className="size-4 shrink-0 rounded-full" />
+      <Skeleton className="h-3 w-6 shrink-0" />
+    </div>
+  );
+}
+
+function FeedLogSkeleton() {
+  const widths = ["w-2/5", "w-3/5", "w-1/3", "w-1/2", "w-2/5", "w-1/4"];
+  return (
+    <div aria-hidden className="flex flex-col">
+      {[0, 1].map((group) => (
+        <div
+          key={group}
+          className={cn("flex flex-col", group === 1 && "opacity-50")}
+        >
+          <div className="w-full px-2 pt-3 pb-0.5">
+            <Skeleton className="h-2.5 w-14" />
+          </div>
+          {widths.slice(group * 3, group * 3 + 3).map((width) => (
+            <FeedLogRowSkeleton key={width} width={width} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * The loading feed: a faded stack of card skeletons under a separator-shaped
  * bar. Each card fainter than the one above, so the stack reads as content
  * arriving rather than a wall of grey.
  */
-function FeedSkeleton() {
+function FeedSkeleton({ compact }: { compact: boolean }) {
+  if (compact) return <FeedLogSkeleton />;
   return (
     <div aria-hidden className="flex flex-col">
-      <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2">
+      <div className="flex w-full items-center gap-3 pt-5 pb-2">
         <span className="h-px flex-1 bg-(--gray-5)" />
         <Skeleton className="h-3 w-12" />
         <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1319,9 +1606,22 @@ function FeedSkeleton() {
   );
 }
 
-function DaySeparator({ label }: { label: string }) {
+function DaySeparator({
+  label,
+  compact = false,
+}: {
+  label: string;
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <div className="sticky top-0 z-10 w-full bg-gray-1 px-2 pt-3 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wider">
+        {label}
+      </div>
+    );
+  }
   return (
-    <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
+    <div className="flex w-full items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
       <span className="h-px flex-1 bg-(--gray-5)" />
       {label}
       <span className="h-px flex-1 bg-(--gray-5)" />
@@ -1359,6 +1659,19 @@ export function ChannelFeedView({
   composer,
   onOpenTask,
   onOpenThread,
+  compact = false,
+  canvases,
+  pullRequests = NO_PULL_REQUESTS,
+  types,
+  spaceItems = NO_ITEMS,
+  me,
+  controls,
+  onClearFilters,
+  rebuilding = false,
+  rowStyle,
+  filters,
+  sort = DEFAULT_CHANNEL_ITEM_SORT,
+  grouping = "date",
 }: {
   channelId: string;
   tasks: Task[];
@@ -1388,6 +1701,19 @@ export function ChannelFeedView({
   composer?: ReactNode;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
+  compact?: boolean;
+  canvases?: readonly DashboardRecord[];
+  pullRequests?: readonly SpacePullRequest[];
+  types?: readonly SpaceActivityType[];
+  spaceItems?: readonly ChannelItemModel[];
+  me?: ChannelItemOwner;
+  controls?: ReactNode;
+  rebuilding?: boolean;
+  onClearFilters?: () => void;
+  rowStyle?: "cards" | "list";
+  filters?: ChannelItemFilters;
+  sort?: ChannelItemSort;
+  grouping?: ChannelItemGrouping;
 }) {
   // Archiving is local-only host state the server task list doesn't know about,
   // so a just-archived card would otherwise reappear on the next poll. Drop
@@ -1407,15 +1733,84 @@ export function ChannelFeedView({
   const activeKindFilter =
     kindFilter.channelId === channelId ? kindFilter.value : "all";
 
-  const entries = useMemo<FeedEntry[]>(
-    () =>
-      mergeFeedEntries(
-        visibleTasks,
-        systemMessages ?? [],
-        reports ?? [],
-      ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter)),
-    [visibleTasks, systemMessages, reports, activeKindFilter],
+  const narrowed = filters ? hasActiveChannelItemFilters(filters) : false;
+  const allowedKeys = useMemo(() => {
+    if (!filters || !narrowed) return null;
+    const kept = filterChannelItems(spaceItems, {
+      query: "",
+      filters,
+      me: me ?? NOBODY,
+    });
+    return new Set(kept.map((item) => item.key));
+  }, [filters, narrowed, spaceItems, me]);
+  const itemByKey = useMemo(
+    () => new Map(spaceItems.map((item) => [item.key, item])),
+    [spaceItems],
   );
+
+  const orderedEntries = useMemo<readonly FeedEntry[]>(() => {
+    const merged = mergeFeedEntries(
+      visibleTasks,
+      systemMessages ?? [],
+      reports ?? [],
+      canvases ?? NO_CANVASES,
+      pullRequests,
+    )
+      .filter((entry) => feedEntryMatchesKind(entry, activeKindFilter))
+      .filter((entry) => !types || feedEntryMatchesTypes(entry, types));
+    const kept = keepFilteredEntries(merged, allowedKeys);
+    if (sort === "created") return kept;
+    const key = (entry: FeedEntry) =>
+      itemByKey.get(entryKey(entry) ?? "")?.ts ?? Date.parse(entry.createdAt);
+    const title = (entry: FeedEntry) =>
+      entry.kind === "task"
+        ? entry.task.title
+        : entry.kind === "canvas"
+          ? entry.canvas.name
+          : entry.kind === "report"
+            ? entry.report.title
+            : entry.kind === "pr"
+              ? (entry.pullRequest.title ?? entry.pullRequest.task.title)
+              : entry.kind === "pending"
+                ? entry.prompt
+                : entry.message.text;
+    return [...kept].sort((a, b) =>
+      sort === "alpha"
+        ? (title(a) ?? "").localeCompare(title(b) ?? "")
+        : key(b) - key(a),
+    );
+  }, [
+    visibleTasks,
+    systemMessages,
+    reports,
+    canvases,
+    pullRequests,
+    types,
+    activeKindFilter,
+    allowedKeys,
+    sort,
+    itemByKey,
+  ]);
+
+  // A kickoff the user just submitted leads the list until its real card
+  // arrives. It is prepended instead of sorted in, because the client clock and
+  // the server clock can disagree, and an optimistic row must stay first under
+  // every sort the user can pick.
+  const entries = useMemo<readonly FeedEntry[]>(() => {
+    if (pending.length === 0) return orderedEntries;
+    const createdAt = new Date().toISOString();
+    const kickoffs = pending
+      .map(
+        (kickoff): FeedEntry => ({
+          kind: "pending",
+          id: kickoff.id,
+          createdAt,
+          prompt: kickoff.prompt,
+        }),
+      )
+      .reverse();
+    return [...kickoffs, ...orderedEntries];
+  }, [pending, orderedEntries]);
 
   // The channel's dominant repo: on a single-repo channel every card would
   // repeat the same chip, so the repo chip only renders on tasks that target a
@@ -1438,6 +1833,20 @@ export function ChannelFeedView({
   }, [visibleTasks]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(FEED_PAGE);
+  const [moreRef, moreInView] = useInView<HTMLDivElement>({
+    rootMargin: "400px 0px",
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visibleCount is a trigger — the sentinel can stay in view after a page lands, so the loader has to run again on the new count
+  useEffect(() => {
+    if (!moreInView) return;
+    setVisibleCount((count) => Math.min(count + FEED_PAGE, entries.length));
+  }, [moreInView, visibleCount, entries.length]);
+  const feedKey = `${channelId}|${sort}|${activeKindFilter}|${JSON.stringify(filters)}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: feedKey is a trigger — a different filter set is a different list, which starts at the first page
+  useEffect(() => {
+    setVisibleCount(FEED_PAGE);
+  }, [feedKey]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId is a trigger — switching channels or finishing the initial load swaps/completes the rows without a remount, so re-land at the latest cards
   useLayoutEffect(() => {
     if (isLoading) return;
@@ -1456,15 +1865,28 @@ export function ChannelFeedView({
     prevPendingRef.current = latestPendingId;
   }, [latestPendingId]);
 
+  const listRows = rowStyle ? rowStyle === "list" : compact;
   const composerBlock = composer && (
-    <div className="mx-auto mb-2 w-full max-w-[660px]">{composer}</div>
+    <div
+      className={cn(
+        "w-full",
+        compact ? "mb-1 border-border border-b pb-4" : "mb-2",
+      )}
+    >
+      {composer}
+    </div>
   );
 
   // One row: the kind tabs, and — on the Reports kind only — the same compact
   // funnel the sidebar uses. Reports deliberately get no extra filter chrome
   // beyond that, so the row reads the same weight whichever kind is active.
   const kindFilterBlock = reports !== undefined && showKindFilter && (
-    <div className="mx-auto flex w-full max-w-[660px] items-center gap-1 pt-1">
+    <div
+      className={cn(
+        "flex w-full items-center gap-1",
+        compact ? "mt-4 border-border border-t pt-2" : "pt-1",
+      )}
+    >
       <Tabs
         value={activeKindFilter}
         onValueChange={(value: string) =>
@@ -1480,7 +1902,7 @@ export function ChannelFeedView({
             <TabsTrigger
               key={value}
               value={value}
-              className="rounded-sm px-1 py-0.5 text-[13px]"
+              className="rounded-sm px-2 py-0.5 text-[13px]"
             >
               {label}
               {value === "reports" &&
@@ -1512,11 +1934,11 @@ export function ChannelFeedView({
   // say so, and point at the next action, instead of dead space.
   const kindEmptyNote =
     activeKindFilter === "sessions" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+      <p className="w-full py-6 text-center text-(--gray-10) text-[13px]">
         No sessions yet. Start one from the composer above.
       </p>
     ) : activeKindFilter === "reports" ? (
-      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+      <p className="w-full py-6 text-center text-(--gray-10) text-[13px]">
         No reports here yet. Open the filter to widen the list.
       </p>
     ) : null;
@@ -1528,25 +1950,60 @@ export function ChannelFeedView({
     return (
       <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
         <output className="sr-only">Loading tasks</output>
-        <div className="mx-auto w-full px-4 pt-4 pb-10">
-          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
-          {composerBlock}
-          <FeedSkeleton />
+        <div className="flex w-full items-stretch">
+          <div
+            className={cn(
+              "min-w-0 flex-1",
+              "mx-auto w-full",
+              compact
+                ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
+                : "max-w-[692px] px-4 pt-4 pb-10",
+            )}
+          >
+            {intro && <div className="w-full">{intro}</div>}
+            {composerBlock}
+            <FeedSkeleton compact={listRows} />
+          </div>
         </div>
       </div>
     );
   }
 
+  const noResults = (
+    <div className="flex w-full flex-col items-start gap-2 pt-6">
+      <p className="text-[13px] text-muted-foreground">
+        Nothing here matches these filters.
+      </p>
+      {onClearFilters && (
+        <Button variant="outline" size="sm" onClick={onClearFilters}>
+          Clear filters
+        </Button>
+      )}
+    </div>
+  );
+
   if (entries.length === 0 && pending.length === 0 && !intro) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full px-4 pt-4 pb-10">
+        <div
+          className={cn(
+            "w-full",
+            "mx-auto w-full",
+            compact
+              ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
+              : "max-w-[692px] px-4 pt-4 pb-10",
+          )}
+        >
           {composerBlock}
-          {/* The filter stays visible while it's what emptied the list, so the
-              user can switch back out of an empty kind. A selected kind shows
-              its own note; the channel welcome is only for a truly empty feed. */}
+
+          {controls}
           {kindFilterBlock}
-          {activeKindFilter === "all" ? emptyState : kindEmptyNote}
+
+          {narrowed
+            ? noResults
+            : activeKindFilter === "all"
+              ? emptyState
+              : kindEmptyNote}
         </div>
       </div>
     );
@@ -1554,52 +2011,149 @@ export function ChannelFeedView({
 
   const now = new Date();
   const rows: ReactNode[] = [];
-  // Pending kickoffs land at the top, newest first, under a "Today" separator.
+  const shownEntries = entries.slice(0, visibleCount);
   let lastDayLabel: string | null = null;
-  if (pending.length > 0) {
-    lastDayLabel = "Today";
-    rows.push(<DaySeparator key="separator-pending" label="Today" />);
-    for (let i = pending.length - 1; i >= 0; i--) {
-      const p = pending[i];
-      rows.push(<PendingFeedRow key={p.id} pending={p} />);
+  const activityIso = (entry: FeedEntry): string => {
+    if (sort === "created") return entry.createdAt;
+    if (entry.kind === "canvas") {
+      return new Date(entry.canvas.updatedAt).toISOString();
     }
-  }
-  for (const entry of entries) {
-    const label = feedDayLabel(entry.createdAt, now);
-    if (label !== lastDayLabel) {
-      lastDayLabel = label;
-      rows.push(<DaySeparator key={`separator-${label}`} label={label} />);
+    const ts = itemByKey.get(entryKey(entry) ?? "")?.ts;
+    return ts ? new Date(ts).toISOString() : entry.createdAt;
+  };
+  const sectionLabel = (entry: FeedEntry): string | null => {
+    if (sort === "alpha") return null;
+    if (grouping === "repository") {
+      if (entry.kind === "task")
+        return entry.task.repository ?? "No repository";
+      if (entry.kind === "pr") {
+        return entry.pullRequest.task.repository ?? "No repository";
+      }
+      return "No repository";
     }
-    rows.push(
-      entry.kind === "task" ? (
-        <FeedRow
-          key={entry.id}
-          task={entry.task}
-          showRepo={
-            !!entry.task.repository && entry.task.repository !== dominantRepo
-          }
-          onOpenTask={onOpenTask}
-          onOpenThread={onOpenThread}
-        />
-      ) : entry.kind === "report" ? (
-        <ReportFeedRow
-          key={entry.id}
-          report={entry.report}
-          onOpenReport={onOpenReport ?? (() => {})}
-        />
-      ) : (
-        <SystemFeedRow key={entry.id} message={entry.message} />
-      ),
-    );
+    return feedDayLabel(activityIso(entry), now);
+  };
+  const sectionKey = (entry: FeedEntry): string =>
+    grouping === "date"
+      ? `day:${activityIso(entry).slice(0, 10)}`
+      : (sectionLabel(entry) ?? "all");
+  const sections = buildFeedSections(shownEntries, {
+    labelOf: sectionLabel,
+    keyOf: sectionKey,
+  });
+  for (const section of sections) {
+    if (section.label !== null && section.label !== lastDayLabel) {
+      lastDayLabel = section.label;
+      rows.push(
+        <DaySeparator
+          key={`separator-${section.key}`}
+          label={section.label}
+          compact={listRows}
+        />,
+      );
+    }
+    let striped = false;
+    const lastEntry = section.entries[section.entries.length - 1];
+    for (const entry of section.entries) {
+      const row =
+        entry.kind === "task" ? (
+          listRows ? (
+            <FeedLogRow
+              key={entry.id}
+              task={entry.task}
+              onOpenTask={onOpenTask}
+              onOpenThread={onOpenThread}
+            />
+          ) : (
+            <FeedRow
+              key={entry.id}
+              task={entry.task}
+              showRepo={
+                !!entry.task.repository &&
+                entry.task.repository !== dominantRepo
+              }
+              onOpenTask={onOpenTask}
+              onOpenThread={onOpenThread}
+            />
+          )
+        ) : entry.kind === "canvas" ? (
+          <CanvasFeedRow
+            key={entry.id}
+            canvas={entry.canvas}
+            channelId={channelId}
+            listRow={listRows}
+          />
+        ) : entry.kind === "pr" ? (
+          <PrFeedRow
+            key={entry.id}
+            pullRequest={entry.pullRequest}
+            listRow={listRows}
+          />
+        ) : entry.kind === "report" ? (
+          <ReportFeedRow
+            key={entry.id}
+            report={entry.report}
+            onOpenReport={onOpenReport ?? (() => {})}
+          />
+        ) : entry.kind === "pending" ? (
+          <PendingFeedRow
+            key={entry.id}
+            prompt={entry.prompt}
+            listRow={listRows}
+          />
+        ) : (
+          <SystemFeedRow key={entry.id} message={entry.message} />
+        );
+      if (!listRows || entry.kind === "system") {
+        rows.push(row);
+        continue;
+      }
+      rows.push(
+        <div
+          key={`stripe-${entry.id}`}
+          className={cn(
+            entry !== lastEntry && "border-border/60 border-b",
+            striped &&
+              "bg-[color-mix(in_oklab,var(--foreground)_2%,transparent)]",
+          )}
+        >
+          {row}
+        </div>,
+      );
+      striped = !striped;
+    }
   }
 
   return (
     <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full px-4 pt-4 pb-10">
-        {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
-        {composerBlock}
-        {kindFilterBlock}
-        {rows.length === 0 ? kindEmptyNote : rows}
+      <div className="flex w-full items-stretch">
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            "mx-auto w-full",
+            compact
+              ? "max-w-[calc(70ch+3rem)] px-6 pt-5 pb-10"
+              : "max-w-[692px] px-4 pt-4 pb-10",
+          )}
+        >
+          {intro && <div className="w-full">{intro}</div>}
+          {composerBlock}
+          {controls}
+          {kindFilterBlock}
+
+          <div
+            className={cn(
+              "transition-opacity duration-150",
+              rebuilding && "pointer-events-none opacity-50",
+            )}
+          >
+            {rows.length === 0 ? (narrowed ? noResults : kindEmptyNote) : rows}
+
+            {visibleCount < entries.length && (
+              <div ref={moreRef} className="h-8" aria-hidden />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

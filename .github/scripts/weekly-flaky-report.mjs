@@ -70,10 +70,13 @@ function endpointUrl(action, params = {}) {
     return url
 }
 
+// The endpoint sorts master failures first, so PR-only rows fill the tail of the page. The
+// PR-only filter runs after the fetch, so request the endpoint maximum to leave headroom for
+// confirmed flakes with no master failure that rank below those rows.
 function flakyTestsUrl(runner) {
     return endpointUrl('flaky_tests', {
         date_from: '-7d',
-        limit: 100,
+        limit: 200,
         repo: GITHUB_REPOSITORY,
         runner,
     })
@@ -115,13 +118,17 @@ function selectReportCandidates(items, runner, toRepoPaths) {
                 .join(', ')}`
         )
     }
-    return onMaster.slice(0, CANDIDATE_POOL)
+    return onMaster
 }
 
 async function fetchCandidatePools(runners, toRepoPaths, fetchTests = fetchFlakyTests) {
     return Promise.all(
         runners.map(async (runner) => {
             const result = await fetchTests(runner)
+            if (result.truncated) {
+                // Rows past the page never reach the PR-only filter, so a full page is worth a trace.
+                console.info(`${runner}: endpoint page is full at ${result.limit} rows; more tests qualified`)
+            }
             return { runner, candidates: selectReportCandidates(result.items || [], runner, toRepoPaths) }
         })
     )
@@ -233,11 +240,10 @@ const TRUNK_QUARANTINED_QUERY = `
     )`
 
 // Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
-// never to a failed run or an empty table.
+// never to a failed run.
 async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
-    const none = () => null
     if (!enabled) {
-        return none
+        return null
     }
     let rows = []
     try {
@@ -247,7 +253,7 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
         rows = result.results || []
     } catch (err) {
         console.warn(`Trunk quarantine lookup failed — reporting without Trunk state: ${err.message}`)
-        return none
+        return null
     }
     const byVariant = new Map()
     for (const [nodeid, quarantinedAt] of rows) {
@@ -261,40 +267,39 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
             .find(Boolean) || null
 }
 
-// One question for both systems: is this failure already suppressed, so the queue should not ask
-// anyone to act on it? Returns null while the test still fails CI.
+// One question for both systems: is this failure suppressed, and since when? Suppressed tests
+// stay in the table with their suppression labeled, so masked failures remain visible.
 //
-// Trunk with masking off is the one case that is marked but not suppressed: Trunk called the test
-// flaky, CI still goes red on it, so it stays in the queue carrying a label.
-function testStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
+// Trunk with masking off is marked but not suppressed: Trunk called the test flaky, CI still goes
+// red on it, so it reads 'flagged' rather than a quarantine date.
+function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
     return (item) => {
+        // A cluster's bare file selector can never match a per-test quarantine, so the members'
+        // statuses are counted at collapse time and the row reports how many are suppressed.
+        if (item.cluster_size) {
+            return item.quarantined_member_count ? `${item.quarantined_member_count}/${item.cluster_size}` : null
+        }
         // Both counts are seven-day aggregates and the endpoint counts a quarantined run
         // separately from a failed one, so a park that ended inside the window leaves the
         // quarantined count set while CI fails on the test again. The unquarantined failures
-        // decide: with any of them the test is still red and still work.
+        // decide: with any of them the test is red again and not suppressed.
         const quarantineFile = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0
         if (quarantineFile && !item.failed_run_count) {
-            return { parked: true }
+            return 'file'
         }
-        const trunk = trunkFor(item)
+        const trunk = trunkFor?.(item)
         if (!trunk) {
             return null
         }
-        return { parked: masksCi }
+        if (!masksCi) {
+            return 'flagged'
+        }
+        return (trunk.quarantinedAt || '').slice(0, 10) || 'yes'
     }
 }
 
-// Parked tests leave the queue: a suppressed failure does not fail CI, so nobody has to act on it.
-//
-// Dropping them has to precede clustering. A cluster's selector is a bare file path, which can
-// never match a test id, so collapsing first buries parked tests in a row that then ranks as if
-// CI still failed on them.
-function buildQueue(candidates, statusFor) {
-    return collapseClusters(candidates.filter((item) => !statusFor(item)?.parked))
-}
-
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
-function collapseClusters(items) {
+function collapseClusters(items, statusFor) {
     const byFile = new Map()
     for (const item of items) {
         const file = item.selector.split('::')[0]
@@ -310,7 +315,13 @@ function collapseClusters(items) {
                 runner: group[0].runner,
                 selector: file,
                 cluster_size: group.length,
+                // 'flagged' members still fail CI, so only real suppressions count toward the fraction.
+                quarantined_member_count: group.filter((item) => {
+                    const status = statusFor(item)
+                    return status && status !== 'flagged'
+                }).length,
                 failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
+                // Members' PR sets can overlap, so the max is the provable floor rather than a sum.
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
                 quarantined_failed_run_count: 0,
             })
@@ -319,6 +330,15 @@ function collapseClusters(items) {
         }
     }
     return collapsed
+}
+
+// A cluster's PR count is the max over members whose PR sets can overlap, so it is a
+// floor on the distinct PRs hit; the trailing + keeps it from reading as exact.
+function prCountCell(item) {
+    if (item.failed_pr_count == null) {
+        return '-'
+    }
+    return item.cluster_size ? `${item.failed_pr_count}+` : String(item.failed_pr_count)
 }
 
 // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
@@ -342,8 +362,12 @@ async function buildRunnerReports(
 ) {
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
-            const statusFor = testStatusFor(await getTrunk(runner))
-            const queue = buildQueue(candidates, statusFor)
+            const trunkFor = await getTrunk(runner)
+            const statusFor = quarantineStatusFor(trunkFor)
+            const candidatesWithTrunkStatus = trunkFor
+                ? candidates.filter((item) => item.classification !== 'suspected_regression' || trunkFor(item))
+                : candidates
+            const queue = collapseClusters(candidatesWithTrunkStatus.slice(0, CANDIDATE_POOL), statusFor)
             const extrasFor = await getEnrichment(runner, queue)
             return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor }
         })
@@ -360,9 +384,6 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
         const testCell = repoPath
             ? linkedCell([{ url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/master/${repoPath}`, text: name }])
             : cell(name)
-        // Anything parked has already left the table, so the only status a row can carry is
-        // Trunk having flagged a test that still fails CI.
-        const flagged = statusFor(item) ? ' (Trunk flagged)' : ''
         const logLinks = evidence.map(({ runId, jobId }, index) => ({
             url: `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`,
             text: String(index + 1),
@@ -370,12 +391,74 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
         return [
             testCell,
             cell(RUNNER_LABELS[item.runner] || item.runner),
-            cell(owner.replace(/^team-/, '') + flagged),
+            cell(owner.replace(/^team-/, '')),
+            cell(statusFor(item) || '-'),
+            cell(prCountCell(item)),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
             logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
         ]
     })
+}
+
+// Shadow mode for per-team routing: the per-team slices carry the same rows as the
+// channel digest, but posted as thread replies under it, labeled with the channel
+// they would go to. Validates attribution and volume per team before any team
+// channel receives a message. Takes [{owner, slack, row}] and groups by owner.
+function buildTeamDigests(entries) {
+    const byOwner = new Map()
+    for (const { owner, slack, row } of entries) {
+        if (owner === 'unowned' || !slack) {
+            continue
+        }
+        if (!byOwner.has(owner)) {
+            byOwner.set(owner, { owner, channel: slack, rows: [] })
+        }
+        byOwner.get(owner).rows.push(row)
+    }
+    return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
+}
+
+function flakyTable(rows) {
+    return {
+        type: 'table',
+        column_settings: [
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'right' },
+            { align: 'right' },
+            { align: 'right' },
+            { align: 'left' },
+        ],
+        rows: [
+            [
+                cell('test'),
+                cell('runner'),
+                cell('owner'),
+                cell('quarantined'),
+                cell('PRs'),
+                cell('rescued'),
+                cell('fails'),
+                cell('logs'),
+            ],
+            ...rows,
+        ],
+    }
+}
+
+function buildShadowBlocks({ owner, channel, rows }) {
+    return [
+        {
+            type: 'section',
+            text: {
+                type: 'mrkdwn',
+                text: `*${owner.replace(/^team-/, '')}* _(shadow: would post to ${channel})_`,
+            },
+        },
+        flakyTable(rows),
+    ]
 }
 
 function buildBlocks(now, rows) {
@@ -388,30 +471,7 @@ function buildBlocks(now, rows) {
                 text: `*Weekly flaky tests - ${dateLabel}* _(CI, last 7 days, up to ${TOP_N} per runner)_`,
             },
         },
-        {
-            type: 'table',
-            column_settings: [
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'left' },
-            ],
-            rows: [
-                [cell('test'), cell('runner'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')],
-                ...rows,
-            ],
-        },
-        {
-            type: 'context',
-            elements: [
-                {
-                    type: 'mrkdwn',
-                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
-                },
-            ],
-        },
+        flakyTable(rows),
     ]
     const editBlock = editWorkflowBlock()
     if (editBlock) {
@@ -435,19 +495,41 @@ async function main() {
         return
     }
     const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
-    const rows = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) =>
-        tableRows(candidates, ownerFor, extrasFor, statusFor)
+    // Rendered once; the channel table and the per-team slices share the same rows.
+    const entries = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) => {
+        const reportRows = tableRows(candidates, ownerFor, extrasFor, statusFor)
+        return candidates.map((item, index) => ({ ...ownerFor(item), row: reportRows[index] }))
+    })
+    const blocks = buildBlocks(
+        now,
+        entries.map(({ row }) => row)
     )
-    const blocks = buildBlocks(now, rows)
+    const teamDigests = buildTeamDigests(entries)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
+        console.info(JSON.stringify(teamDigests.map(buildShadowBlocks), null, 2))
         return
     }
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    await postToSlack(blocks, 'Weekly flaky test report')
+    const digestTs = await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
+    let postedSlices = 0
+    for (const [index, digest] of teamDigests.entries()) {
+        if (index > 0) {
+            // chat.postMessage allows about one message per second per channel.
+            await new Promise((resolve) => setTimeout(resolve, 1100))
+        }
+        // A failed slice must not sink the slices behind it; the digest itself already landed.
+        try {
+            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, { threadTs: digestTs })
+            postedSlices += 1
+        } catch (err) {
+            console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
+        }
+    }
+    console.info(`Posted ${postedSlices}/${teamDigests.length} shadow team digest(s) in thread.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -459,7 +541,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
-    buildQueue,
+    buildShadowBlocks,
+    buildTeamDigests,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -467,8 +550,8 @@ export {
     fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    quarantineStatusFor,
     REPORT_RUNNERS,
     selectReportCandidates,
     tableRows,
-    testStatusFor,
 }

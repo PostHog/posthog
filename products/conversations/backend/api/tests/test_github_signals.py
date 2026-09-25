@@ -30,7 +30,7 @@ class TestGithubReplySignal(BaseTest):
             github_issue_number=42,
         )
 
-    @patch("products.conversations.backend.tasks.post_reply_to_github.delay")
+    @patch("products.conversations.backend.tasks.github.post_reply_to_github.delay")
     def test_team_message_enqueues_github_reply(self, mock_delay, _mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -54,7 +54,7 @@ class TestGithubReplySignal(BaseTest):
             ("from_github_echo", False, {"author_type": "customer", "is_private": False, "from_github": True}),
         ]
     )
-    @patch("products.conversations.backend.tasks.post_reply_to_github.delay")
+    @patch("products.conversations.backend.tasks.github.post_reply_to_github.delay")
     def test_does_not_enqueue(self, _name, created_by_is_user, item_context, mock_delay, _mock_on_commit):
         Comment.objects.create(
             team=self.team,
@@ -67,7 +67,7 @@ class TestGithubReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_github.delay")
+    @patch("products.conversations.backend.tasks.github.post_reply_to_github.delay")
     def test_github_disabled_does_not_enqueue(self, mock_delay, _mock_on_commit):
         self.team.conversations_settings["github_enabled"] = False
         self.team.save()
@@ -83,7 +83,7 @@ class TestGithubReplySignal(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_github.delay")
+    @patch("products.conversations.backend.tasks.github.post_reply_to_github.delay")
     def test_non_github_ticket_does_not_enqueue(self, mock_delay, _mock_on_commit):
         slack_ticket = Ticket.objects.create_with_number(
             team=self.team,

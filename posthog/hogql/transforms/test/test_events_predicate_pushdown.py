@@ -37,9 +37,10 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.test.utils import json_dynamic_read_sql, pretty_print_in_tests
 from posthog.hogql.transforms.events_predicate_pushdown import (
     EventsPredicatePushdownTransform,
     EventsSubexprHoister,
@@ -146,7 +147,9 @@ class TestEventsPredicatePushdownTransform(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
             )
-            context.restricted_properties = {("email", PropertyDefinition.Type.EVENT)}
+            context.restricted_properties = {
+                RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT)
+            }
             query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
             return pretty_print_in_tests(query, self.team.pk)
 
@@ -1023,8 +1026,8 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
             assert "JSONExtractKeysAndValuesRaw" not in subquery, (
                 f"new events schema should not reconstruct JSON paths:\n{subquery}"
             )
-            assert "isNotNull(events.properties.tier)" in subquery, (
-                f"expected a direct JSON subcolumn existence check:\n{subquery}"
+            assert f"isNotNull({json_dynamic_read_sql('events.properties', ['tier'])})" in subquery, (
+                f"expected a JSON subcolumn existence check:\n{subquery}"
             )
         else:
             assert "properties_group" in subquery, f"expected the property-group Map column exposed:\n{subquery}"

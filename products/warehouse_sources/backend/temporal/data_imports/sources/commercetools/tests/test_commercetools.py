@@ -277,3 +277,10 @@ class TestCommercetoolsSourceResponse:
     @pytest.mark.parametrize("config", list(COMMERCETOOLS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         assert config.partition_key == "createdAt"
+
+    @pytest.mark.parametrize("config", list(COMMERCETOOLS_ENDPOINTS.values()))
+    def test_paths_are_kebab_case_resource_paths(self, config):
+        # Schema names are snake_case but commercetools resource paths are kebab-case,
+        # so a path derived from the name (/customer_groups) 404s at sync time.
+        assert config.path.startswith("/")
+        assert "_" not in config.path

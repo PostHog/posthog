@@ -17,9 +17,11 @@ dependency. Living in `services/` lets all of them import normally and
 keeps `api.py` focused on routes.
 """
 
+import re
 from datetime import timedelta
 from typing import Any
 
+from django.core.cache import cache
 from django.db.utils import DatabaseError
 from django.utils import timezone
 
@@ -30,6 +32,7 @@ from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, Sla
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
+    SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
     classify_slack_api_error,
     get_cached_auth_state,
     write_auth_state_broken,
@@ -231,6 +234,50 @@ def clear_workspace_profile_cache(slack_team_id: str) -> int:
     return deleted
 
 
+def _workspace_bot_user_cache_key(slack_team_id: str) -> str:
+    return f"slack_app:workspace_bot_user_id:{slack_team_id}"
+
+
+def get_cached_workspace_bot_user_id(slack_team_id: str) -> str | None:
+    """The workspace's bot user id, if some install resolved it recently. Cheap.
+
+    One Slack install serves every integration row a workspace has, in both regions, so
+    the id is workspace-level data. Written as a side effect of ``get_cached_bot_user_id``,
+    which is what lets a surface that has not loaded an integration yet (the reaction
+    router) reject a reaction on a non-bot message before its first database query. A miss
+    proves nothing: callers fall through to the integration-scoped path, which is also why
+    a cache outage degrades to that path rather than raising into a webhook.
+    """
+    try:
+        value = cache.get(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_read_failed", slack_team_id=slack_team_id)
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def cache_workspace_bot_user_id(slack_team_id: str, bot_user_id: str) -> None:
+    """Best-effort: this cache only saves work, so a write failure must not fail the
+    caller, which sits on the mention pipeline's hot path."""
+    try:
+        cache.set(_workspace_bot_user_cache_key(slack_team_id), bot_user_id, SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_write_failed", slack_team_id=slack_team_id)
+
+
+def invalidate_workspace_bot_user_id(slack_team_id: str) -> None:
+    """Drop the workspace-level bot id so the next resolution re-derives it.
+
+    Called on OAuth reconnect: a reinstall can mint a new bot user, and the reaction
+    router's author gate must not keep rejecting the new bot's replies against the old id
+    for the cache TTL.
+    """
+    try:
+        cache.delete(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_delete_failed", slack_team_id=slack_team_id)
+
+
 def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
     """Return the bot's Slack user id for ``integration``, populating the
     shared auth-state cache as a side effect.
@@ -249,6 +296,8 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     cached = get_cached_auth_state(integration.id)
     if cached is not None:
         if cached.ok and cached.bot_user_id is not None:
+            if integration.integration_id:
+                cache_workspace_bot_user_id(integration.integration_id, cached.bot_user_id)
             return cached.bot_user_id
         if not cached.ok:
             return None
@@ -281,4 +330,55 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     if not isinstance(bot_user_id, str) or not bot_user_id:
         return None
     write_auth_state_ok(integration.id, bot_user_id)
+    if integration.integration_id:
+        cache_workspace_bot_user_id(integration.integration_id, bot_user_id)
     return bot_user_id
+
+
+_USER_MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
+
+
+def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration, text: str) -> str | None:
+    """The user id of a bot other than ours that this message tags, or ``None``.
+
+    Callers ask this to tell a message addressed to another app from one addressed to us.
+    Other apps work in the same channels and threads we do, and a message that tags one is
+    that app's to answer. Nothing in the text says so by the time an agent reads it:
+    ``resolve_user_mentions_text`` strips bot mentions, which leaves a bare instruction to
+    whoever is listening.
+
+    Wire format cannot answer it either. A bot user id and a human's are both
+    ``U…``-prefixed, so the ``is_bot`` flag is the only authoritative signal, and it comes
+    from ``users.info`` through the same cache every other lookup here uses.
+
+    A message that tags our own bot answers ``None``, whoever else it tags. Somebody typed
+    our name, so the message is ours to answer even when it names another app in the same
+    breath.
+
+    Answers ``None`` when a lookup fails as well as when the message tags no bot. An
+    unresolved mention is no evidence the message was meant for someone else. That covers
+    our own id too: without it our bot's mention is indistinguishable from another app's,
+    and a message that tagged us is the worse one to get wrong.
+    """
+    mentioned_ids = dict.fromkeys(_USER_MENTION_RE.findall(text))
+    if not mentioned_ids:
+        return None
+
+    our_bot_user_id = get_cached_bot_user_id(slack, integration)
+    if not our_bot_user_id or our_bot_user_id in mentioned_ids:
+        return None
+
+    for user_id in mentioned_ids:
+        try:
+            user_info = get_slack_user_info(slack, integration, user_id)
+        except Exception:
+            logger.warning(
+                "slack_app_mention_bot_lookup_failed",
+                integration_id=integration.id,
+                mentioned_user_id=user_id,
+                exc_info=True,
+            )
+            continue
+        if user_info.get("user", {}).get("is_bot"):
+            return user_id
+    return None

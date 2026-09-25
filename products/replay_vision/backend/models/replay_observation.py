@@ -1,11 +1,13 @@
 from django.db import models
-from django.db.models import Case, CharField, Expression, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
 class ObservationStatus(models.TextChoices):
@@ -25,6 +27,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 # sticky, so the (scanner, session) slot they hold is spent: a new scan for the same pair can't be
 # started, only retried (which deletes and re-creates the row).
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
+
+
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
 
 
 class ObservationTrigger(models.TextChoices):
@@ -130,7 +138,16 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the recording-delete cleanup, which looks rows up by session rather than scanner.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the alert-engine observation window: succeeded rows per scanner in a
+            # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
+            models.Index(
+                fields=["scanner", "completed_at"],
+                name="rlo_scanner_completed_idx",
+                condition=models.Q(status="succeeded"),
+            ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(
@@ -175,6 +192,36 @@ class ReplayObservation(UUIDModel):
 
 def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+
+
+def hydrate_for_serialization(
+    qs: "models.QuerySet[ReplayObservation]", viewer_id: int | None = None
+) -> "models.QuerySet[ReplayObservation]":
+    """Load everything `ReplayObservationSerializer` reads, so no queryset feeding it goes one query per row.
+
+    `scanner_origin` is annotated rather than joined through `select_related("scanner")`: the serializer
+    reads one enum, and hydrating the scanner would ship its config and hour-bucket JSON blobs per row.
+
+    `viewed` is per caller; without a viewer nothing counts as viewed.
+    """
+    viewed = (
+        Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        if viewer_id is not None
+        else Value(False, output_field=models.BooleanField())
+    )
+    return (
+        qs.select_related("triggered_by_user", "label")
+        # Explicit queryset, because the serializer reads `media` off each row and the reverse manager is
+        # fail-closed: without one it raises unless the caller happens to sit inside a team scope. The rows
+        # are reachable only through an observation the caller already passed team filtering on.
+        .prefetch_related(
+            models.Prefetch(
+                "media",
+                queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
+            )
+        )
+        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    )
 
 
 def annotate_output_number(

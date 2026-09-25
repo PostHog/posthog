@@ -631,11 +631,7 @@ export interface billingLogicMeta {
         minimumUsageSpendReadAccessLevel: (featureFlags: FeatureFlagsSet) => OrganizationMembershipLevel
         canViewUsageAndSpend: (currentOrganization: OrganizationType | null, featureFlags: FeatureFlagsSet) => boolean
         canOnlyViewUsageAndSpend: (canViewUsageAndSpend: boolean, canAccessBilling: boolean) => boolean
-        billingEntryUrl: (
-            canAccessBilling: boolean,
-            canOnlyViewUsageAndSpend: boolean,
-            featureFlags: FeatureFlagsSet
-        ) => string | null
+        billingEntryUrl: (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean) => string | null
         upgradeLink: (preflight: PreflightStatus | null) => string
         isUnlicensedDebug: (preflight: PreflightStatus | null, billing: BillingType | null) => boolean
         supportPlans: (billing: BillingType | null) => BillingPlanType[]
@@ -861,6 +857,7 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(
                         'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
                     )
@@ -870,6 +867,7 @@ export const billingLogic = kea<billingLogicType>([
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
@@ -892,6 +890,7 @@ export const billingLogic = kea<billingLogicType>([
 
                     actions.resetUnsubscribeError()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingDeactivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.createResponse('api/billing/deactivate', { products: key })
                         const jsonRes = await getJSONOrNull(response)
 
@@ -947,6 +946,7 @@ export const billingLogic = kea<billingLogicType>([
                 },
                 switchFlatrateSubscriptionPlan: async (data: SwitchPlanPayload, breakpoint) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingSubscriptionSwitchPlanCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create('api/billing/subscription/switch-plan', data)
 
                         const productDisplayName = capitalizeFirstLetter(data.to_product_key)
@@ -979,6 +979,7 @@ export const billingLogic = kea<billingLogicType>([
                 loadInvoices: async () => {
                     // First check to see if there are open invoices
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
                         const jsonRes = await getJSONOrNull(res)
                         const numOpenInvoices = jsonRes['count']
@@ -1023,6 +1024,7 @@ export const billingLogic = kea<billingLogicType>([
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.get('api/billing/credits/overview')
 
                         if (!values.creditForm.creditInput) {
@@ -1060,6 +1062,7 @@ export const billingLogic = kea<billingLogicType>([
             [] as BillingProductV2Type[],
             {
                 loadProducts: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get('api/billing/available_products')
                     return response
                 },
@@ -1106,16 +1109,10 @@ export const billingLogic = kea<billingLogicType>([
                 canViewUsageAndSpend && !canAccessBilling,
         ],
         billingEntryUrl: [
-            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend, s.featureFlags],
-            (
-                canAccessBilling: boolean,
-                canOnlyViewUsageAndSpend: boolean,
-                featureFlags: FeatureFlagsSet
-            ): string | null => {
+            (s) => [s.canAccessBilling, s.canOnlyViewUsageAndSpend],
+            (canAccessBilling: boolean, canOnlyViewUsageAndSpend: boolean): string | null => {
                 if (canAccessBilling) {
-                    return featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                        ? urls.organizationBillingSection('overview')
-                        : urls.organizationBilling()
+                    return urls.organizationBillingSection('overview')
                 }
                 if (canOnlyViewUsageAndSpend) {
                     return urls.organizationBillingSection('usage')
@@ -1299,6 +1296,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ license }, breakpoint) => {
                 await breakpoint(500)
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingLicensePartialUpdate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.update('api/billing/license', {
                         license,
                     })
@@ -1324,6 +1322,7 @@ export const billingLogic = kea<billingLogicType>([
                 collectionMethod: 'charge_automatically',
             },
             submit: async ({ creditInput, collectionMethod }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsPurchaseCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create('api/billing/credits/purchase', {
                     annual_credit_amount_usd: +creditInput,
                     collection_method: collectionMethod,

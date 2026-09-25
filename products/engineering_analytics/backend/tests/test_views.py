@@ -14,13 +14,24 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_trunk_merge_queue_table,
 )
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    depot_ci,
+    job_costs,
+    pull_requests,
+    trunk_quarantined_tests,
+    workflow_jobs,
+    workflow_runs,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    _quarantined_row,
     _run_row,
     create_github_source,
     create_github_warehouse_table,
@@ -42,9 +53,9 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
-        # resource access and no object grants — without the guard, such a user enumerates every
-        # GitHub source on the team.
+        # A user with "none" resource access and no object grants must not enumerate the
+        # team's sources. The product surface relies on filter_queryset_by_access_level to
+        # fail closed here.
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
@@ -59,9 +70,14 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard.
+        # An explicit object grant survives the fail-closed guard. The filter counts only member
+        # and role rows as grants. A default ("everyone") object row does not count.
         AccessControl.objects.create(
-            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
         )
         visible = list_github_sources(
             team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
@@ -222,6 +238,126 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         # Spoofed shape without the queue actor: attribution stays on the run's own association.
         assert rows[4][6:] == (9002, 0)
 
+    def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
+        runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [])
+
+        prs_table = self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+        )
+
+        def attempt(
+            attempt_id: str,
+            attempt: int,
+            status: str,
+            started: str,
+            finished: str,
+            *,
+            run_id: str = "427q556wmn",
+            run_workflow_count: int = 1,
+            workflow_id: str = "6n4tghls33",
+            workflow_name: str = "Backend CI on Depot",
+            workflow_status: str = "failed",
+            ref: str = "refs/pull/101991/merge",
+            display_name: str = "Product tests (experiments)",
+            repo: str = "PostHog/posthog",
+        ) -> dict[str, str | int]:
+            return {
+                "run_id": run_id,
+                "run_workflow_count": run_workflow_count,
+                "repo": repo,
+                "ref": ref,
+                "head_sha": "abc123",
+                "workflow_id": workflow_id,
+                "workflow_name": workflow_name,
+                "workflow_status": workflow_status,
+                "workflow_created_at": "2026-09-24T14:51:17.948Z",
+                "workflow_started_at": "2026-09-24T14:51:18.000Z",
+                "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                "job_key": "ci-backend.yml:turbo-tests:matrix-38",
+                "job_display_name": display_name,
+                "attempt_id": attempt_id,
+                "attempt": attempt,
+                "attempt_status": status,
+                "attempt_started_at": started,
+                "attempt_finished_at": finished,
+                "sandbox_id": "sandbox",
+            }
+
+        schedule: dict[str, Any] = {"run_id": "bbbbbbbbbb", "run_workflow_count": 2, "ref": "refs/heads/master"}
+        depot_table = self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [
+                attempt("zf6sbbn2wh", 1, "failed", "2026-09-24T14:53:00.000Z", "2026-09-24T14:55:00.000Z"),
+                attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
+                # A job with no display name falls back to its key.
+                attempt(
+                    "b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z", display_name=""
+                ),
+                # A run with two workflows keys each one by its own id, so no join on the id fans out.
+                attempt(
+                    "q28m5dl5rg",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    workflow_id="cccccccccc",
+                    workflow_name="Monitor",
+                    workflow_status="finished",
+                    **schedule,
+                ),
+                attempt(
+                    "h8qn5x801q",
+                    1,
+                    "failed",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    workflow_id="dddddddddd",
+                    workflow_name="Timing",
+                    workflow_status="failed",
+                    **schedule,
+                ),
+                # Synced before the source moved to another repository, so no read of this one keeps it.
+                attempt(
+                    "k3w9v2rq8b",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    run_id="zzzzzzzzzz",
+                    repo="PostHog/other",
+                ),
+            ],
+        )
+        depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
+        runs = depot_ci.with_depot_runs(runs_table, depot, prs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot)
+
+        # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
+        assert self._select(
+            "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
+            f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
+        ) == [
+            (80213453736890, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 2),
+            (223978965517241, "Monitor", "success", 0, None, 600, "PostHog", 1),
+            (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
+        ]
+        assert self._select(
+            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
+        ) == [
+            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
+            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
+        ]
+        assert self._select(
+            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c"
+        ) == [("depot", 2, 1)]
+
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
         # JSONExtractString over a NULL Nullable returns NULL, so the builder must ifNull-guard it to
@@ -234,7 +370,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
             f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
             "'2026-01-10 10:00:00' AS created_at, '2026-01-10 10:00:00' AS updated_at, "
-            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at, nullIf('', '') AS merge_commit_sha)"
         )
         rows = self._select(
             f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"
@@ -407,3 +543,40 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             f"FROM ({workflow_runs.build_query(table_name)}) AS r"
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
+
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
+        # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
+        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+        table_name = self._create_table(
+            "trunkio_quarantinedtests",
+            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            [
+                _quarantined_row(
+                    file="posthog/api/test/test_person.py",
+                    name="test_merge",
+                    classname="posthog.api.test.test_person.TestPerson",
+                    parent="pytest",
+                ),
+                _quarantined_row(
+                    file="",
+                    name="k3s_integration",
+                    classname="personhog-coordination",
+                    parent="personhog-coordination::k3s_integration",
+                ),
+                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+            ],
+        )
+        rows = self._select(
+            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
+            "ORDER BY runner"
+        )
+        assert rows == [
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            (
+                "pytest",
+                "posthog/api/test/test_person.py::TestPerson::test_merge",
+                "posthog/api/test/test_person.py",
+                "",
+            ),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+        ]

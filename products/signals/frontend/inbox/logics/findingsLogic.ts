@@ -2,14 +2,20 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import {
+    signalsScoutRunsEmissionReportsBatch,
+    signalsScoutRunsEmissionsBatch,
+} from 'products/signals/frontend/generated/api'
+
+import type { SignalScoutEmissionApi } from '../../generated/api.schemas'
+import {
     LinkedSignalReport,
+    SignalScoutEmission,
     SignalReport,
     SignalReportPriority,
-    SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
 } from '../types'
@@ -44,7 +50,7 @@ export interface FleetScoutReportRow {
     skillNames: string[]
 }
 
-export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
+export type FindingsSortKey = 'newest' | 'oldest' | 'severity'
 export const FINDINGS_SCOUT_FILTER_ALL = 'all'
 export const FINDINGS_SEVERITY_FILTER_ALL = 'all'
 
@@ -128,10 +134,10 @@ export interface findingsLogicActions {
         errorObject?: any
     }
     loadEmissionsSuccess: (
-        emissions: SignalScoutEmission[],
+        emissions: SignalScoutEmissionApi[],
         payload?: any
     ) => {
-        emissions: SignalScoutEmission[]
+        emissions: SignalScoutEmissionApi[]
         payload?: any
     }
     loadScoutReports: (ids?: string[]) => {
@@ -335,7 +341,9 @@ export const findingsLogic = kea<findingsLogicType>([
                     // One batched request for the whole window: the backend flattens every run's
                     // findings newest-first (each row carries its run_id). A throw surfaces as the
                     // page's error/retry state — far cheaper than the old per-run fan-out.
-                    return await api.signalScout.runs.emissionsBatch(runs.map((run) => run.run_id))
+                    return await signalsScoutRunsEmissionsBatch(String(ApiConfig.getCurrentProjectId()), {
+                        run_ids: runs.map((run) => run.run_id),
+                    })
                 },
             },
         ],
@@ -357,7 +365,9 @@ export const findingsLogic = kea<findingsLogicType>([
                     // but not `task:read` 403s this endpoint on every poll). The `emissions` loader keeps
                     // throwing: that one is the page's actual content and should surface an error/retry state.
                     try {
-                        return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                        return await signalsScoutRunsEmissionReportsBatch(String(ApiConfig.getCurrentProjectId()), {
+                            run_ids: runs.map((run) => run.run_id),
+                        })
                     } catch {
                         return values.emissionReports
                     }
@@ -591,9 +601,8 @@ export const findingsLogic = kea<findingsLogicType>([
             },
         ],
         // Visible report set: same search / scout / severity filters and sort control as the findings
-        // (severity matches the report's priority). The shared sort applies where it has meaning —
-        // newest/oldest by report update time, severity by priority; the finding-only "confidence"
-        // key falls back to newest so one control never leaves the two lists contradicting each other.
+        // (severity matches the report's priority): newest/oldest by report update time, severity by
+        // priority.
         filteredReportRows: [
             (s) => [s.reportRows, s.searchText, s.scoutFilter, s.severityFilter, s.sortKey],
             (
@@ -732,10 +741,6 @@ export const findingsLogic = kea<findingsLogicType>([
                         const diff = severityRank(a.emission.severity) - severityRank(b.emission.severity)
                         return diff !== 0 ? diff : byNewest(a, b)
                     }
-                    if (sortKey === 'confidence') {
-                        const diff = (b.emission.confidence ?? 0) - (a.emission.confidence ?? 0)
-                        return diff !== 0 ? diff : byNewest(a, b)
-                    }
                     return byNewest(a, b)
                 })
             },
@@ -871,9 +876,12 @@ export const findingsLogic = kea<findingsLogicType>([
             // the report-link retry listener a poll to ride. It lives on this logic's own disposables
             // under its own key, so it never disposes the section's `runsPoll` — when both are mounted
             // the overlap just costs one extra capped request, since `loadRunsWindow` is idempotent.
-            scoutFleetLogic.actions.loadRunsWindow()
+            scoutFleetLogic.findMounted()?.actions.loadRunsWindow()
             cache.disposables.add(() => {
-                const interval = setInterval(() => scoutFleetLogic.actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                const interval = setInterval(
+                    () => scoutFleetLogic.findMounted()?.actions.loadRunsWindow(),
+                    RUNS_REFETCH_INTERVAL_MS
+                )
                 return () => clearInterval(interval)
             }, 'findingsRunsPoll')
         },

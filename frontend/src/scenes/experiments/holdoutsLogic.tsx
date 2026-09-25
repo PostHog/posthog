@@ -79,9 +79,6 @@ export interface holdoutsLogicActions {
             id: number | null
         }
     }
-    loadHoldout: (id: number | null) => {
-        id: number | null
-    }
     loadHoldouts: () => any
     loadHoldoutsFailure: (
         error: string,
@@ -138,7 +135,6 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
         createHoldout: true,
         updateHoldout: (id: number | null, holdout: Partial<ExperimentHoldoutType>) => ({ id, holdout }),
         deleteHoldout: (id: number | null) => ({ id }),
-        loadHoldout: (id: number | null) => ({ id }),
     }),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentHoldoutCreated']],
@@ -157,10 +153,12 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
             [] as ExperimentHoldoutType[],
             {
                 loadHoldouts: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentHoldoutsList() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.get(`api/projects/${values.currentProjectId}/experiment_holdouts/`)
                     return response.results as ExperimentHoldoutType[]
                 },
                 createHoldout: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentHoldoutsCreate() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.create(
                         `api/projects/${values.currentProjectId}/experiment_holdouts/`,
                         values.holdout
@@ -169,6 +167,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
                     return [...values.holdouts, response] as ExperimentHoldoutType[]
                 },
                 updateHoldout: async ({ id, holdout }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentHoldoutsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.update(
                         `api/projects/${values.currentProjectId}/experiment_holdouts/${id}/`,
                         holdout
@@ -176,6 +175,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
                     return values.holdouts.map((h) => (h.id === id ? response : h)) as ExperimentHoldoutType[]
                 },
                 deleteHoldout: async ({ id }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentHoldoutsDestroy() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.delete(`api/projects/${values.currentProjectId}/experiment_holdouts/${id}/`)
                     return values.holdouts.filter((h) => h.id !== id)
                 },

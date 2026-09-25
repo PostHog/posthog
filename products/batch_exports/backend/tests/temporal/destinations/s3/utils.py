@@ -1,11 +1,10 @@
-import os
 import json
 import uuid
 import typing as t
 import asyncio
 import datetime as dt
 import operator
-import dataclasses
+import functools
 
 from django.conf import settings
 from django.test import override_settings
@@ -17,21 +16,27 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.hogql import ast
+
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.hogql_source import parse_hogql_select_for_batch_export
 from products.batch_exports.backend.service import (
     AwsS3BatchExportInputs,
     BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
-    S3BatchExportInputs,
     S3CompatibleBatchExportInputs,
     S3FamilyBaseInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
+    FILE_FORMAT_EXTENSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    SUPPORTED_COMPRESSIONS,
     S3BatchExportWorkflow,
     S3InsertInputs,
     insert_into_s3_activity_from_stage,
@@ -42,13 +47,15 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
-from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.record_batch_model import (
+    HogQLQueryRecordBatchModel,
+    SessionsRecordBatchModel,
+)
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
 
-_INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3BatchExportInputs] | type[S3FamilyBaseInputs]] = {
-    "S3": S3BatchExportInputs,
+_INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3FamilyBaseInputs]] = {
     "AwsS3": AwsS3BatchExportInputs,
     "S3Compatible": S3CompatibleBatchExportInputs,
 }
@@ -93,6 +100,31 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     None,
 ]
 
+TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS: list[BatchExportModel | BatchExportSchema | None] = [
+    model
+    for model in TEST_S3_MODELS
+    if not (isinstance(model, BatchExportModel) and model.name in ("persons", "sessions"))
+]
+
+SUPPORTED_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
+    (file_format, compression)
+    for file_format, compressions in SUPPORTED_COMPRESSIONS.items()
+    for compression in compressions
+]
+
+UNCOMPRESSED_FILE_FORMATS: list[tuple[str, str | None]] = [
+    (file_format, None) for file_format in FILE_FORMAT_EXTENSIONS
+]
+
+SPLIT_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
+    *(
+        (file_format, compression)
+        for file_format, compression in SUPPORTED_FILE_FORMAT_COMPRESSIONS
+        if file_format == "Parquet"
+    ),
+    *UNCOMPRESSED_FILE_FORMATS,
+]
+
 
 async def check_valid_credentials() -> bool:
     """Check if there are valid AWS credentials in the environment."""
@@ -110,6 +142,7 @@ async def check_valid_credentials() -> bool:
             return True
 
 
+@functools.cache
 def has_valid_credentials() -> bool:
     """Synchronous wrapper around check_valid_credentials."""
     return asyncio.run(check_valid_credentials())
@@ -172,6 +205,25 @@ async def assert_metrics_in_clickhouse(
         )
 
 
+def _hogql_model_column_names(hogql_query: str | None) -> list[str]:
+    """Return the column names a HogQL model query exports.
+
+    In a set operation (e.g. UNION ALL) the first SELECT names the output columns.
+    """
+    parsed = parse_hogql_select_for_batch_export(hogql_query or "")
+    select_query = parsed
+    while isinstance(select_query, ast.SelectSetQuery):
+        select_query = select_query.initial_select_query
+
+    columns: list[str] = []
+    for expr in select_query.select:
+        if isinstance(expr, ast.Alias):
+            columns.append(expr.alias)
+        elif isinstance(expr, ast.Field):
+            columns.append(str(expr.chain[-1]))
+    return columns
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -188,6 +240,7 @@ async def assert_clickhouse_records_in_s3(
     backfill_details: BackfillDetails | None = None,
     allow_duplicates: bool = False,
     sort_key: str = "uuid",
+    legacy_parquet_extension: bool = True,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
 
@@ -207,6 +260,8 @@ async def assert_clickhouse_records_in_s3(
         backfill_details: Optional backfill details (this affects the query that is run to get the records).
         allow_duplicates: If True, allow duplicates when comparing records.
         sort_key: The key to sort the records by since they are not guaranteed to be in order.
+        legacy_parquet_extension: Whether the export keeps the compression codec in the extension
+            of a Parquet file.
     """
     json_columns = ("properties", "person_properties", "set", "set_once")
     s3_data = await assert_file_in_s3(
@@ -216,6 +271,7 @@ async def assert_clickhouse_records_in_s3(
         file_format=file_format,
         compression=compression,
         json_columns=json_columns,
+        legacy_parquet_extension=legacy_parquet_extension,
     )
 
     if batch_export_model is not None:
@@ -251,6 +307,10 @@ async def assert_clickhouse_records_in_s3(
             "created_at",
             "is_deleted",
         ]
+    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "hogql":
+        # A HogQL model exports whichever columns the query selects, so the query is the schema:
+        # the team_id check and the sort below must key off the query's own columns.
+        schema_column_names = _hogql_model_column_names(batch_export_model.hogql_query)
     else:
         schema_column_names = [field["alias"] for field in s3_default_fields()]
 
@@ -262,6 +322,18 @@ async def assert_clickhouse_records_in_s3(
     queue = RecordBatchQueue()
     if model_name == "sessions":
         producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+    elif (
+        model_name == "hogql"
+        and isinstance(batch_export_model, BatchExportModel)
+        and batch_export_model.hogql_query is not None
+    ):
+        # Re-running the query itself yields the expected rows, with the same interval bounds
+        # substituted as the run exported with.
+        producer = ClickHouseTestProducer(
+            model=HogQLQueryRecordBatchModel(
+                team_id=team_id, hogql_query=batch_export_model.hogql_query, user_id=batch_export_model.user_id
+            )
+        )
     else:
         producer = ClickHouseTestProducer()
     producer_task = await producer.start(
@@ -269,7 +341,6 @@ async def assert_clickhouse_records_in_s3(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=s3_default_fields(),
@@ -292,6 +363,10 @@ async def assert_clickhouse_records_in_s3(
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
                     expected_record[k] = v.isoformat()
+                elif isinstance(v, uuid.UUID):
+                    # The JSONL transformer writes non-JSON types via `default=str`, so
+                    # uuid columns land in the file as strings.
+                    expected_record[k] = str(v)
                 else:
                     expected_record[k] = v
 
@@ -327,18 +402,17 @@ async def run_s3_batch_export_workflow(
     data_interval_end,
     clickhouse_client,
     s3_client,
+    destination_type: str,
     backfill_details: BackfillDetails | None = None,
     expect_no_data: bool = False,
-    destination_type: str = "S3",
+    integration_id: int | None = None,
 ):
     """Run the S3 batch export workflow and assert it completes successfully.
 
     This is a shared helper function used by tests for S3, GCS, and local object storage buckets.
 
-    `destination_type` selects which input dataclass is constructed and passed
-    to the workflow — exercising the per-destination → canonical-inputs adaptation
-    that happens in production. Defaults to the legacy "S3" type for backwards
-    compatibility with any callers that still need it.
+    `destination_type` selects which input dataclass is constructed and passed to the workflow,
+    so the test exercises the same per-destination inputs that production dispatches with.
     """
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -350,6 +424,7 @@ async def run_s3_batch_export_workflow(
     exclude_events = s3_destination_config.get("exclude_events", None)
     file_format = s3_destination_config.get("file_format", "JSONLines")
     compression = s3_destination_config.get("compression", None)
+    legacy_parquet_extension = s3_destination_config.get("legacy_parquet_extension", True)
     s3_key_prefix = s3_destination_config.get("prefix", None)
     bucket_name = s3_destination_config.get("bucket_name", None)
 
@@ -373,9 +448,9 @@ async def run_s3_batch_export_workflow(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         backfill_details=backfill_details,
+        integration_id=integration_id,
         **s3_destination_config,
     )
-    workflow_inputs = S3BatchExportInputs(**dataclasses.asdict(per_destination_inputs))
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -390,9 +465,11 @@ async def run_s3_batch_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
+            # Dispatch by workflow name, the way DESTINATION_WORKFLOWS does, so the worker
+            # widens the per-destination inputs to the superset the workflow declares.
             await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                workflow_inputs,
+                "s3-export",
+                per_destination_inputs,
                 id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -443,6 +520,7 @@ async def run_s3_batch_export_workflow(
         exclude_events=exclude_events,
         compression=compression,
         file_format=file_format,
+        legacy_parquet_extension=legacy_parquet_extension,
         sort_key=sort_key,
         backfill_details=backfill_details,
     )
@@ -475,9 +553,3 @@ async def run_activity(activity_environment: ActivityEnvironment, insert_inputs:
         result = await activity_environment.run(insert_into_s3_activity_from_stage, insert_inputs)
 
     return result
-
-
-def has_valid_gcs_credentials() -> bool:
-    return (
-        "GCS_TEST_BUCKET" in os.environ and "AWS_ACCESS_KEY_ID" in os.environ and "AWS_SECRET_ACCESS_KEY" in os.environ
-    )

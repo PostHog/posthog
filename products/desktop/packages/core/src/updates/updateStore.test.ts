@@ -147,6 +147,17 @@ describe("resolveMenuCheckFromStatus", () => {
   it("keeps pending while still checking", () => {
     expect(resolveMenuCheckFromStatus({ checking: true }, true)).toBeNull();
   });
+
+  it.each([
+    ["available", { checking: false, available: true }],
+    ["downloading", { checking: true, downloading: true }],
+    ["staged", { checking: false, updateReady: true }],
+  ])("opens the update modal on an %s result", (_label, payload) => {
+    expect(resolveMenuCheckFromStatus(payload, true)).toEqual({
+      clearPending: true,
+      openUpdateModal: true,
+    });
+  });
 });
 
 describe("resolveMenuCheckResult", () => {

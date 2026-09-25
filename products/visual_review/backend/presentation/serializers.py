@@ -8,7 +8,11 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
-    FLAKINESS_STRIP_DAYS,
+    FLAKINESS_RATE_DAYS,
+    FLAKINESS_WINDOW_DAYS,
+    PIXEL_DIFF_THRESHOLD_PERCENT,
+    TOLERATION_PILEUP_WINDOW_DAYS,
+    VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
     AddSnapshotsResult,
     ApproveRunRequestInput,
@@ -33,17 +37,21 @@ from ..facade.contracts import (
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
+    RowShift,
     Run,
     RunSummary,
+    ShiftBand,
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
     ToleratedHashEntry,
+    TolerationPileupEntry,
+    TolerationPileups,
     UpdateRepoRequestInput,
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState
+from ..facade.enums import FlakinessState, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -82,6 +90,44 @@ class ClusterSummarySerializer(DataclassSerializer):
         dataclass = ClusterSummary
 
 
+class ShiftBandSerializer(DataclassSerializer):
+    y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
+    rows = serializers.IntegerField(help_text="How many rows the band covers.")
+    kind = serializers.ChoiceField(
+        choices=[(kind.value, kind.value) for kind in ShiftBandKind],
+        help_text=(
+            "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
+            "A deleted band has no rows of its own in the current image, so its y is the seam "
+            "the removed rows left behind."
+        ),
+    )
+
+    class Meta:
+        dataclass = ShiftBand
+
+
+class RowShiftSerializer(DataclassSerializer):
+    bands = ShiftBandSerializer(
+        many=True,
+        help_text="Where the shift happened, in current-image coordinates.",
+    )
+    inserted_rows = serializers.IntegerField(help_text="Rows the current image gained.")
+    deleted_rows = serializers.IntegerField(help_text="Rows the current image lost.")
+    residual_percentage = serializers.FloatField(
+        help_text=(
+            "Percentage of pixels that differ inside the rows present in both images, 0 to 100. "
+            "Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift "
+            "added or removed, and that combined number is what the pixel threshold judges."
+        )
+    )
+    raw_diff_percentage = serializers.FloatField(
+        help_text="Percentage of pixels that differ without alignment, which is what the shift would have cost."
+    )
+
+    class Meta:
+        dataclass = RowShift
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
@@ -89,6 +135,7 @@ class SnapshotSerializer(DataclassSerializer):
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
@@ -154,9 +201,26 @@ class CreateRunInputSerializer(DataclassSerializer):
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
+        extra_kwargs = {
+            "story_index_hash": {
+                "help_text": (
+                    "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this "
+                    "run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+                )
+            },
+        }
 
 
 class AddSnapshotsResultSerializer(DataclassSerializer):
+    story_index_upload = UploadTargetSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the "
+            "request sent no map, or the store already holds a map with that hash."
+        ),
+    )
+
     class Meta:
         dataclass = AddSnapshotsResult
 
@@ -164,6 +228,17 @@ class AddSnapshotsResultSerializer(DataclassSerializer):
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
+        extra_kwargs = {
+            "enable_pr_comments": {
+                "help_text": "Post a pull request comment when a run finds visual changes to review."
+            },
+            "debt_digest_enabled": {
+                "help_text": (
+                    "Post the visual review debt digest to the Slack channels of the teams that own the "
+                    "snapshots. Off by default. The digest goes out every Monday morning."
+                )
+            },
+        }
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
@@ -211,7 +286,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
             "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
             "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
             "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
-            "greened and `metadata.baseline_commit_sha` is absent."
+            "greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted."
         ),
     )
     add_images_to_comment_on_pr = serializers.BooleanField(
@@ -219,9 +294,10 @@ class FinalizeRunInputSerializer(DataclassSerializer):
         default=False,
         help_text=(
             "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment "
-            "itself is always posted (when the run was initiated from a GitHub review prompt and the repo has "
-            "PR comments enabled); this flag only controls the images. Defaults false — the comment stays a "
-            "text summary unless the reviewer opts in to attach the snapshots."
+            "itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates "
+            "the run's review prompt when the run has one, and posts a new comment when it does not. This flag "
+            "only controls the images. Defaults false — the comment stays a text summary unless the reviewer "
+            "opts in to attach the snapshots."
         ),
     )
 
@@ -231,6 +307,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = SnapshotHistoryEntry
@@ -306,6 +383,13 @@ class BaselineEntrySerializer(DataclassSerializer):
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
     )
+    active_variants_current_baseline = serializers.IntegerField(
+        help_text=(
+            "Accepted variants still recorded against this baseline's current hash. Unlike the "
+            "30-day and 90-day counts, this has no time window: an accepted variant keeps matching "
+            "without a new record. A baseline change resets it to zero."
+        )
+    )
 
     class Meta:
         dataclass = BaselineEntry
@@ -313,6 +397,9 @@ class BaselineEntrySerializer(DataclassSerializer):
 
 class BaselineTotalsSerializer(DataclassSerializer):
     by_run_type = serializers.DictField(child=serializers.IntegerField())
+    variant_pileups = serializers.IntegerField(
+        help_text="Baselines carrying three or more accepted variants of their current hash."
+    )
 
     class Meta:
         dataclass = BaselineTotals
@@ -335,21 +422,73 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "baseline hash can never match again."
         )
     )
+    hard_count = serializers.IntegerField(
+        help_text=(
+            f"Default-branch runs in the last {FLAKINESS_RATE_DAYS} days where this snapshot failed "
+            "the gate, so somebody could not merge until it was resolved. Counts every result that "
+            "is not `unchanged`: a diff over a threshold, a baseline that was never committed or "
+            "was dropped, and a baseline whose story no longer renders."
+        )
+    )
+    soft_count = serializers.IntegerField(
+        help_text=(
+            f"Default-branch runs in the last {FLAKINESS_RATE_DAYS} days where this snapshot "
+            "rendered differently from its baseline and a toleration absorbed it, blocking nobody."
+        )
+    )
+    window_runs = serializers.IntegerField(
+        help_text=(
+            f"Completed default-branch runs of this run type in the last {FLAKINESS_RATE_DAYS} "
+            "days. The rate denominator, so a reader can tell 2 failures out of 3 runs from 2 out "
+            "of 300."
+        )
+    )
+    hard_rate = serializers.FloatField(
+        help_text=(
+            "`hard_count` over `window_runs`. The denominator counts every run of this run type, "
+            "so a snapshot that only started rendering partway through the window reads lower "
+            "than it is."
+        )
+    )
+    soft_rate = serializers.FloatField(help_text="`soft_count` over `window_runs`.")
     last_flaked_at = serializers.DateTimeField(
         allow_null=True,
         required=False,
         help_text=(
-            "Last default-branch run that rendered one of those variants. This is not when a variant "
-            "was first recorded: a snapshot can cycle through variants it already recorded without "
-            "adding a new one, and that case still flakes on every run. Null when no run matched one."
+            f"Last default-branch run in the last {FLAKINESS_WINDOW_DAYS} days that rendered this "
+            "snapshot differently from its baseline, whether the gate failed or a toleration "
+            "absorbed it. Reads over the full window rather than the rate span, so a snapshot that "
+            "stopped failing still reports when it last did. Null when nothing happened at all."
         ),
     )
     avg_diff_percentage = serializers.FloatField(
         allow_null=True,
         required=False,
         help_text=(
-            "Mean fraction of pixels that differed across those variants. Separates sub-pixel noise "
-            "from a small but real rendering change."
+            "Mean fraction of pixels that differed across the live variants. Separates sub-pixel "
+            "noise from a small but real rendering change."
+        ),
+    )
+    worst_soft_diff_percentage = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            f"Largest pixel diff any absorbed run in the last {FLAKINESS_WINDOW_DAYS} days "
+            "produced. Reads the full window rather than the rate span, because it asks for the "
+            "worst case a snapshot can produce and more days are better evidence of that. Null "
+            "when nothing was absorbed."
+        ),
+    )
+    headroom = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            f"Fraction of the {PIXEL_DIFF_THRESHOLD_PERCENT}% pixel threshold that "
+            "`worst_soft_diff_percentage` leaves free. A snapshot is absorbed only while it stays "
+            "under the threshold, so this is what says whether it will keep doing so: 1.0 means it "
+            "rendered identically every time it was absorbed, 0.0 means it reached the line and "
+            "only luck kept it on the passing side. Null when nothing was absorbed, which is not "
+            "the same as full headroom."
         ),
     )
     baseline_age_days = serializers.IntegerField(
@@ -357,44 +496,60 @@ class FlakinessEntrySerializer(DataclassSerializer):
         required=False,
         help_text=(
             "Days since the first default-branch run that compared against the current baseline, "
-            "which is when that baseline took effect. Context for `variant_count`: the same count "
-            "against a four-day-old baseline is far worse than against a six-month-old one."
+            "which is when that baseline took effect. Reads too new for a `broken` snapshot, which "
+            "records a change against an unmoved baseline on every run."
         ),
     )
-    daily_variant_counts = serializers.ListField(
+    daily_hard_counts = serializers.ListField(
         child=serializers.IntegerField(),
         help_text=(
-            f"Variants recorded per day over the last {FLAKINESS_STRIP_DAYS} days, oldest first. "
+            f"Gate-failing runs per day over the last {FLAKINESS_WINDOW_DAYS} days, oldest first. "
             "Always that length, so a fixed time axis can be rendered."
         ),
+    )
+    daily_soft_counts = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text=f"Absorbed runs per day over the same {FLAKINESS_WINDOW_DAYS} days, oldest first.",
     )
     baseline_moved_day_index = serializers.IntegerField(
         allow_null=True,
         required=False,
         help_text=(
-            "Index into `daily_variant_counts` where the baseline moved. Null when it moved before "
-            "the window opened, which is the common case."
+            "Index into the daily series where the baseline moved. Null when it moved before the "
+            "window opened, which is the common case."
         ),
     )
     flakiness_state = serializers.ChoiceField(
         choices=[(state.value, state.value) for state in FlakinessState],
         help_text=(
-            "`unstable` when a run rendered a variant inside the recency window, new or already "
-            "known, `settled` when variants exist against this baseline but none recently, "
-            "`clean` when none exist. A `clean` entry is always a quarantined one, because an "
-            "unquarantined snapshot with no variants is not listed at all."
+            "An urgency ladder, where each rung asks for a different fix. `broken` fails nearly "
+            "every run, so its baseline is wrong and quarantining it only hides that. `unstable` "
+            "fails some runs and not others, the classic flake. `at_risk` never fails, but its "
+            "worst absorbed diff is already touching the threshold, so the next unrelated change "
+            "turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` "
+            "matched its baseline on every run in the window."
         ),
     )
     needs_decision = serializers.BooleanField(
         help_text=(
-            "True when an active quarantine has run out, is about to, or covers a snapshot that no "
-            "longer produces variants. All three mean a human has to extend it or lift it."
+            "True when an active quarantine has run out, is about to, or covers a snapshot that "
+            "has stopped failing the gate. All three mean a human has to extend it or lift it."
         )
     )
     quarantine = BaselineQuarantineSummarySerializer(
         allow_null=True,
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+    owner_team = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slug of the team that owns the file this snapshot's story lives in, from the repository's "
+            "ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: "
+            "the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, "
+            "the story is not in it, or the ownership files could not be read."
+        ),
     )
 
     class Meta:
@@ -409,7 +564,20 @@ class FlakinessTotalsSerializer(DataclassSerializer):
             "of the repo renders consistently."
         )
     )
-    by_run_type = serializers.DictField(child=serializers.IntegerField())
+    broken = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `broken`.")
+    unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
+    at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
+    noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
+    clean = serializers.IntegerField(
+        help_text=(
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
+            "variants or older history, and reported here so every listed entry is reachable."
+        )
+    )
+    by_run_type = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Listed identifiers per run type, so one suite's noise can be told from another's.",
+    )
 
     class Meta:
         dataclass = FlakinessTotals
@@ -421,3 +589,87 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class TolerationPileupsQuerySerializer(serializers.Serializer):
+    min_tolerations = serializers.IntegerField(
+        default=VARIANT_PILEUP_MIN,
+        min_value=1,
+        max_value=100,
+        help_text=(
+            "List a snapshot when a person or agent tolerated it at least this many times in the window. "
+            f"The default, {VARIANT_PILEUP_MIN}, is the weekly debt digest's rule. Lower it to see snapshots that "
+            "are starting to pile up, raise it to see only the worst ones."
+        ),
+    )
+    min_automatic_tolerations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=10000,
+        help_text=(
+            "Also list a snapshot when it collected at least this many automatic tolerations in the window. "
+            "An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; "
+            "many of them still mean the story is unstable. Omit to ignore automatic tolerations when "
+            "deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion."
+        ),
+    )
+    window_days = serializers.IntegerField(
+        default=TOLERATION_PILEUP_WINDOW_DAYS,
+        min_value=1,
+        max_value=90,
+        help_text=f"How many days back to count tolerations. Defaults to {TOLERATION_PILEUP_WINDOW_DAYS}.",
+    )
+    include_quarantined = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. "
+            "Set to false to see only piles nobody has acted on yet."
+        ),
+    )
+    run_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only list snapshots of this run type, for example `storybook` or `playwright`.",
+    )
+    limit = serializers.IntegerField(
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of snapshots to return. `total` and `truncated` say whether more matched.",
+    )
+
+
+class TolerationPileupEntrySerializer(DataclassSerializer):
+    identifier = serializers.CharField(help_text="Snapshot identifier, for example a Storybook story id plus theme.")
+    run_type = serializers.CharField(help_text="Run type the snapshot belongs to, for example `storybook`.")
+    intentional_count = serializers.IntegerField(
+        help_text=(
+            "Tolerations a person or agent recorded for this snapshot in the window, across every baseline. "
+            "Each one accepted a different exact rendering, so a high count means the snapshot renders "
+            "differently from run to run."
+        )
+    )
+    automatic_count = serializers.IntegerField(
+        help_text="Automatic tolerations in the window: renderings that came in under both diff thresholds."
+    )
+    is_quarantined = serializers.BooleanField(
+        help_text="Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests."
+    )
+
+    class Meta:
+        dataclass = TolerationPileupEntry
+
+
+class TolerationPileupsSerializer(DataclassSerializer):
+    entries = TolerationPileupEntrySerializer(many=True, help_text="Matching snapshots, most manual tolerations first.")
+    window_days = serializers.IntegerField(help_text="Length of the counting window in days that was applied.")
+    min_tolerations = serializers.IntegerField(help_text="Manual toleration threshold that was applied.")
+    min_automatic_tolerations = serializers.IntegerField(
+        allow_null=True, help_text="Automatic toleration threshold that was applied, or null when none was."
+    )
+    total = serializers.IntegerField(help_text="How many snapshots matched before `limit` was applied.")
+    truncated = serializers.BooleanField(help_text="True when `limit` cut the list short.")
+    generated_at = serializers.DateTimeField(help_text="When the list was computed.")
+
+    class Meta:
+        dataclass = TolerationPileups

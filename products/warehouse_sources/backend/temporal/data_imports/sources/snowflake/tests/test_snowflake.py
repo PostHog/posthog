@@ -1,14 +1,18 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError, HttpError
+from snowflake.connector.errors import DatabaseError, HttpError, OperationalError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -22,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
     _SNOWFLAKE_QUERY_TIMEOUT_SECONDS,
     SnowflakeImplementation,
+    SnowflakeResumeState,
+    _batch_checkpoint,
     _build_query,
     _parse_clustering_key_leading_column,
     _split_display_name,
@@ -181,6 +187,65 @@ class TestBuildQuery:
         sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, None)
         assert 'WHERE "Date Established"' in sql
         assert 'ORDER BY "Date Established" ASC' in sql
+
+
+class TestBuildQueryResume:
+    def test_full_refresh_orders_by_key_without_resume(self):
+        sql, params = _build_query("DB", "PUBLIC", "t", False, None, None, None, order_by_key="ID")
+        assert sql.endswith('ORDER BY "ID" ASC')
+        assert "WHERE" not in sql
+        assert params == ("DB.PUBLIC.t",)
+
+    def test_full_refresh_resume_bounds_scan_before_filters(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            False,
+            None,
+            None,
+            None,
+            row_filters=[ValidatedRowFilter(column="AGE", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+            order_by_key="ID",
+            resume_value=500,
+        )
+        assert 'WHERE "ID" > %s AND "AGE" > %s ORDER BY "ID" ASC' in sql
+        assert params == ("DB.PUBLIC.t", 500, 21)
+
+    def test_incremental_resume_is_inclusive(self):
+        # The checkpoint is a persisted batch's max, and rows sharing it can sit in the next batch —
+        # a strict bound would skip them, so the resume re-reads the boundary and the merge dedups.
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            resume_value="2025-06-01",
+        )
+        assert 'WHERE "created_at" >= %s' in sql
+        assert params == ("DB.PUBLIC.t", "2025-06-01")
+
+
+class TestBatchCheckpoint:
+    def test_takes_max_of_order_column(self):
+        batch = pa.RecordBatch.from_pydict({"ID": [3, 9, 5], "V": ["a", "b", "c"]})
+        assert _batch_checkpoint(batch, "ID") == SnowflakeResumeState(order_column="ID", last_value=9)
+
+    def test_coerces_timestamps_to_iso_for_json_state(self):
+        # The state crosses Redis as JSON; a raw datetime would fail the dump and lose the checkpoint.
+        batch = pa.RecordBatch.from_pydict({"created_at": [datetime(2026, 1, 2, 3, 4, 5)]})
+        state = _batch_checkpoint(batch, "created_at")
+        assert state is not None
+        assert state.last_value == "2026-01-02T03:04:05"
+
+    def test_missing_or_empty_column_yields_no_checkpoint(self):
+        batch = pa.RecordBatch.from_pydict({"ID": [1]})
+        assert _batch_checkpoint(batch, "OTHER") is None
+        empty = pa.RecordBatch.from_pydict({"ID": pa.array([None], type=pa.int64())})
+        assert _batch_checkpoint(empty, "ID") is None
 
 
 class TestBuildQueryRowFilters:
@@ -683,6 +748,122 @@ class TestBuildPipeline:
         assert stream_param == ("DB.analytics.users",)
 
 
+class TestResumableStreaming:
+    def _metadata_cursor(self):
+        metadata_cursor = MagicMock()
+        metadata_cursor.__enter__.return_value = metadata_cursor
+        desc = MagicMock()
+        desc.name = "column_name"
+        metadata_cursor.description = [desc]
+        metadata_cursor.__iter__.return_value = iter([("ID",)])
+        metadata_cursor.fetchone.return_value = (5,)
+        return metadata_cursor
+
+    def _connection(self, metadata_cursor, streaming_cursor):
+        cursors = iter([metadata_cursor, streaming_cursor])
+        mock_connection = MagicMock()
+        mock_connection.__enter__.return_value = mock_connection
+        mock_connection.cursor.side_effect = lambda: next(cursors)
+        return mock_connection
+
+    def _streaming_cursor(self, batches):
+        streaming_cursor = MagicMock()
+        streaming_cursor.__enter__.return_value = streaming_cursor
+        streaming_cursor.fetch_arrow_batches.return_value = iter(batches)
+        return streaming_cursor
+
+    def test_checkpoints_only_batches_the_pipeline_has_persisted(self, impl):
+        batches = [
+            pa.RecordBatch.from_pydict({"ID": [1, 2]}),
+            pa.RecordBatch.from_pydict({"ID": [3, 4]}),
+            pa.RecordBatch.from_pydict({"ID": [5]}),
+        ]
+        streaming_cursor = self._streaming_cursor(batches)
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        connection = self._connection(self._metadata_cursor(), streaming_cursor)
+        with patch("snowflake.connector.connect", return_value=connection):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
+            iterator = iter(response.items())
+            next(iterator)
+            # The first batch was yielded but not yet persisted, so nothing may be checkpointed.
+            manager.save_state.assert_not_called()
+            next(iterator)
+            assert manager.save_state.call_args.args[0] == SnowflakeResumeState(order_column="ID", last_value=2)
+            next(iterator)
+            assert manager.save_state.call_args.args[0] == SnowflakeResumeState(order_column="ID", last_value=4)
+            with pytest.raises(StopIteration):
+                next(iterator)
+        # The final batch's checkpoint is never saved, so a post-extraction retry re-reads only it.
+        assert manager.save_state.call_count == 2
+
+    def test_resume_bounds_the_scan_and_skips_the_count(self, impl):
+        metadata_cursor = self._metadata_cursor()
+        streaming_cursor = self._streaming_cursor([pa.RecordBatch.from_pydict({"ID": [5]})])
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SnowflakeResumeState(order_column="ID", last_value=4)
+        with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
+            list(response.items())
+        # No COUNT(*) re-issued on a resumed attempt: the metadata cursor only ran SHOW PRIMARY KEYS.
+        assert response.rows_to_sync is None
+        assert metadata_cursor.execute.call_count == 1
+        query = streaming_cursor.execute.call_args.args[0]
+        params = streaming_cursor.execute.call_args.args[1]
+        assert '"ID" > %s' in query
+        assert 'ORDER BY "ID" ASC' in query
+        assert params == ("DB.PUBLIC.messages", 4)
+
+    def test_checkpoint_for_a_different_column_is_ignored(self, impl):
+        # The schema's key changed between attempts; resuming past another column's value would
+        # skip arbitrary rows, so the stale checkpoint must not bound the scan.
+        metadata_cursor = self._metadata_cursor()
+        streaming_cursor = self._streaming_cursor([])
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SnowflakeResumeState(order_column="OLD_ID", last_value=4)
+        with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(verified_primary_keys=["ID"]), resumable_source_manager=manager
+            )
+            list(response.items())
+        assert response.rows_to_sync == 5
+        assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+
+    def test_unverified_key_keeps_restart_from_zero(self):
+        # Snowflake declares but does not enforce primary keys. A strict `>` resume on a key with
+        # duplicate boundary values spanning batches would skip rows, so an unverified key must not
+        # order the scan, checkpoint, or bound a resume.
+        impl = SnowflakeImplementation()
+        metadata_cursor = self._metadata_cursor()
+        streaming_cursor = self._streaming_cursor([pa.RecordBatch.from_pydict({"ID": [1, 2]})])
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SnowflakeResumeState(order_column="ID", last_value=4)
+        with patch("snowflake.connector.connect", return_value=self._connection(metadata_cursor, streaming_cursor)):
+            response = impl.build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+            list(cast("Iterable[Any]", response.items()))
+        assert response.rows_to_sync == 5
+        query = streaming_cursor.execute.call_args.args[0]
+        assert "ORDER BY" not in query
+        assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+        manager.save_state.assert_not_called()
+
+
+def test_snowflake_source_is_resumable():
+    # Resumable registration is what routes the import through the resumable retry policy and
+    # hands build_pipeline a state manager — without it every mid-job retry restarts from row zero.
+    source = SnowflakeSource()
+    assert isinstance(source, ResumableSource)
+    manager = source.get_resumable_source_manager(_make_inputs())
+    assert manager._data_class is SnowflakeResumeState
+
+
 class TestSnowflakeSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -727,6 +908,33 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"MFA-enrollment error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "MFA with TOTP is required",
+            # The real shape from production: codes + host vary, but the TOTP substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
+        ],
+    )
+    def test_mfa_totp_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"MFA-TOTP-required error should be non-retryable: {error_msg}"
+
+    def test_mfa_required_maps_to_a_message_instead_of_the_raw_snowflake_text(self, source):
+        # The raw text carries the account host and vendor codes, so the entry must supply its own
+        # message rather than letting the failure surface unchanged.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "MFA authentication is required."
+        )
+        non_retryable = source.get_non_retryable_errors()
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"MFA-required error should be non-retryable: {error_msg}"
+        assert all(message is not None and "multi-factor authentication" in message for message in messages)
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -811,10 +1019,11 @@ class TestSnowflakeSourceNonRetryableErrors:
             "290403: 290403: HTTP 403: Forbidden",
         ],
     )
-    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+    def test_forbidden_403_is_non_retryable_and_names_both_causes(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+        messages = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert messages, f"HTTP 403 should be non-retryable: {error_msg}"
+        assert all(message is not None and "expired" in message and "grants" in message for message in messages)
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -914,6 +1123,9 @@ class TestSnowflakeSourceNonRetryableErrors:
         [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
+            # 502 proxy failure exhausting the connector's internal retry budget — transient, not a
+            # user config error; the retry count varies so only the stable prefix is matched.
+            "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -954,6 +1166,26 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
+
+    def test_backend_connection_failure_after_retries_is_retryable(self, source):
+        # The real shape from production: the connector exhausted its 11-attempt login retry budget
+        # after a proxy returned 502 Bad Gateway. The attempt count is volatile; the stable prefix is matched.
+        error_msg = "250001: 250001: Could not connect to Snowflake backend after 11 attempt(s).Aborting"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Proxy-502 backend-connection failure should be classified retryable: {error_msg}"
+
+    def test_connection_reset_mid_stream_is_retryable(self, source):
+        # The real shape from production: a ChunkedEncodingError wrapping a ConnectionResetError,
+        # raised while streaming a query result's chunked HTTP body. The errno and nested quoting vary
+        # by OS; the stable requests-library wrapper phrase is matched.
+        error_msg = (
+            "('Connection broken: ConnectionResetError(104, \"(104, 'ECONNRESET')\")', "
+            "ConnectionResetError(104, \"(104, 'ECONNRESET')\"))"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Mid-stream connection-reset error should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
@@ -1035,6 +1267,56 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
+        mock_capture.assert_not_called()
+
+    def test_transient_connect_blip_returns_friendly_message_without_capture(self, source):
+        # Opening the connection failed after the connector exhausted its own login retries, raising
+        # OperationalError (a DatabaseError subclass) with the stable connect-backend phrase. The sync
+        # path retries this blip quietly, so validate must surface a "try again" message rather than
+        # capturing it and telling the user their correct connection details are wrong.
+        connect_error = OperationalError(
+            msg="250001: Could not connect to Snowflake backend after 3 attempt(s).Aborting",
+            errno=250001,
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=connect_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "try again" in message
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "raw_message",
+        [
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Duo Security authentication is denied.",
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "MFA authentication is required.",
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
+        ],
+    )
+    def test_mfa_enforced_login_returns_friendly_message_without_capture(self, source, raw_message):
+        # Without a mapping these fall back to the generic "check all connection details" message,
+        # which sends people round re-entering credentials that were correct all along.
+        error = DatabaseError(msg=raw_message, errno=250001, sqlstate="08001")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "multi-factor authentication" in message
+        assert "snowflakecomputing.com" not in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):

@@ -1,5 +1,5 @@
+import type { LoopSchemas } from "@posthog/api-client/loops";
 import { render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -15,18 +15,25 @@ const mocks = vi.hoisted(() => {
     personalSpace,
     channels: [personalSpace],
     channelsLoading: false,
-    useLoops: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
+    useLoops: vi.fn(() => ({
+      data: [] as LoopSchemas.Loop[],
+      isLoading: false,
+      isError: false,
+    })),
   };
 });
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
   }),
 }));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => true,
+vi.mock("@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled", () => ({
+  useLoopsHogFlowsEnabled: () => false,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
   ChannelHeader: () => <div>Personal space header</div>,
@@ -34,20 +41,13 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: () => {},
 }));
-vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToNewLoop: vi.fn(),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: () => ({
-    members: [],
-    isLoading: false,
-    isError: false,
-    isComplete: true,
-  }),
+vi.mock("@posthog/ui/features/loops/loopWizardDialogStore", () => ({
+  openNewLoop: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/loops/hooks/useLoops", () => ({
   useLoops: mocks.useLoops,
   useLoopLimits: () => null,
+  useLoopLimitReason: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopBuilderComposer", () => ({
   LoopBuilderComposer: () => null,
@@ -56,8 +56,14 @@ vi.mock("@posthog/ui/features/loops/components/LoopFallbacks", () => ({
   LoopsEmptyNotice: () => null,
   LoopsSkeleton: () => <div>Loading loops</div>,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopRow", () => ({
-  LoopRow: () => null,
+vi.mock("@posthog/ui/features/loops/components/LoopsTable", () => ({
+  LoopsTable: ({ loops }: { loops: { id: string; name: string }[] }) => (
+    <div>
+      {loops.map((loop) => (
+        <div key={loop.id}>{loop.name}</div>
+      ))}
+    </div>
+  ),
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
   LoopsEmptyState: () => null,
@@ -65,29 +71,53 @@ vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
 vi.mock("@posthog/ui/features/loops/components/LoopTemplatesSection", () => ({
   LoopTemplatesSection: () => null,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopsListView", () => ({
-  LoopsListView: ({ headerContent }: { headerContent?: ReactNode }) => (
-    <div>
-      {headerContent}
-      Project loops registry
-    </div>
-  ),
-}));
 
 import { WebsiteChannelLoops } from "./WebsiteChannelLoops";
+
+function loop(
+  id: string,
+  name: string,
+  folderId: string | null,
+): LoopSchemas.Loop {
+  return {
+    id,
+    name,
+    description: "",
+    visibility: "team",
+    enabled: true,
+    disabled_reason: null,
+    context_target: folderId ? { channel_id: folderId, name: folderId } : null,
+  } as LoopSchemas.Loop;
+}
 
 describe("WebsiteChannelLoops", () => {
   beforeEach(() => {
     mocks.channels = [mocks.personalSpace];
     mocks.channelsLoading = false;
-    mocks.useLoops.mockClear();
+    mocks.useLoops.mockReset();
+    mocks.useLoops.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+    });
   });
 
-  it("shows the project loops registry in the personal space", () => {
+  it("shows only loops attached to the personal space", () => {
+    mocks.useLoops.mockReturnValue({
+      data: [
+        loop("a", "Mine", "personal-space"),
+        loop("b", "Unattached", null),
+        loop("c", "Elsewhere", "other"),
+      ],
+      isLoading: false,
+      isError: false,
+    });
+
     render(<WebsiteChannelLoops channelId="personal-space" />);
 
-    expect(screen.getByText("Project loops registry")).toBeInTheDocument();
-    expect(screen.getByText("Personal space header")).toBeInTheDocument();
+    expect(screen.getByText("Mine")).toBeInTheDocument();
+    expect(screen.queryByText("Unattached")).not.toBeInTheDocument();
+    expect(screen.queryByText("Elsewhere")).not.toBeInTheDocument();
   });
 
   it("waits for the Personal space to resolve before choosing a list", () => {
@@ -97,9 +127,6 @@ describe("WebsiteChannelLoops", () => {
     render(<WebsiteChannelLoops channelId="personal-space" />);
 
     expect(screen.getByText("Loading loops")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Project loops registry"),
-    ).not.toBeInTheDocument();
     expect(mocks.useLoops).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,3 @@
-import { PencilSimple } from "@phosphor-icons/react";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   CATEGORY_LABELS,
@@ -6,8 +5,7 @@ import {
   getShortcutsByCategory,
   type ShortcutCategory,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
-import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -57,7 +55,6 @@ export function KeyboardShortcutsSheet({
   open,
   onOpenChange,
 }: KeyboardShortcutsSheetProps) {
-  const quickAsk = useQuickAskShortcut();
   useHotkeys("escape", () => onOpenChange(false), {
     enabled: open,
     enableOnContentEditable: true,
@@ -84,9 +81,7 @@ export function KeyboardShortcutsSheet({
         </Flex>
 
         <Box className="max-h-[calc(80vh-120px)] overflow-y-auto pr-[8px]">
-          <KeyboardShortcutsList
-            leadingGeneralShortcuts={quickAsk ? [quickAsk] : []}
-          />
+          <KeyboardShortcutsList />
         </Box>
       </Dialog.Content>
     </Dialog.Root>
@@ -115,31 +110,18 @@ function ShortcutsHeader() {
   );
 }
 
-export interface LeadingShortcutRow {
-  id: string;
-  description: string;
-  /** Hotkey format ("alt+space"), same as the static shortcut table. */
-  keys: string;
-  onEdit?: () => void;
-}
-
-export function KeyboardShortcutsList({
-  leadingGeneralShortcuts = [],
-}: {
-  /** Dynamic rows (the quick-ask shortcut) shown first under General. */
-  leadingGeneralShortcuts?: LeadingShortcutRow[];
-} = {}) {
+export function KeyboardShortcutsList() {
   // Several keys change owner with the layout, so the sheet has to know which
   // one is on rather than listing keys nothing handles.
   const channelsLayout = useChannelsLayout();
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const inboxAvailable = useInboxAvailable();
   const shortcutsByCategory = useMemo(
     () =>
       getShortcutsByCategory({
         channelsLayout,
-        inboxEnabled: !channelReportsEnabled,
+        inboxEnabled: inboxAvailable,
       }),
-    [channelsLayout, channelReportsEnabled],
+    [channelsLayout, inboxAvailable],
   );
 
   const categoryOrder: ShortcutCategory[] = [
@@ -174,32 +156,6 @@ export function KeyboardShortcutsList({
               {CATEGORY_LABELS[category]}
             </Text>
             <Box className="overflow-hidden rounded-(--radius-2) border border-(--gray-5)">
-              {category === "general" &&
-                leadingGeneralShortcuts.map((shortcut) => (
-                  <Flex
-                    key={shortcut.id}
-                    align="center"
-                    justify="between"
-                    px="3"
-                    className="group border-b border-b-(--gray-4) pt-[6px] pb-[6px] last:border-b-0 odd:bg-(--gray-2) even:bg-(--gray-1)"
-                  >
-                    <Text className="text-sm">{shortcut.description}</Text>
-                    <Flex gap="2" align="center">
-                      <ShortcutKeys keys={shortcut.keys} />
-                      {shortcut.onEdit && (
-                        <button
-                          type="button"
-                          aria-label={`Change ${shortcut.description}`}
-                          title={`Change ${shortcut.description}`}
-                          onClick={shortcut.onEdit}
-                          className="text-(--gray-9) opacity-0 transition-opacity hover:text-(--gray-12) focus-visible:opacity-100 group-hover:opacity-100"
-                        >
-                          <PencilSimple size={14} />
-                        </button>
-                      )}
-                    </Flex>
-                  </Flex>
-                ))}
               {uniqueShortcuts.map((shortcut) => (
                 <Flex
                   key={shortcut.id}

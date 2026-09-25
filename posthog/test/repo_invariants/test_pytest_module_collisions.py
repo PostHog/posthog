@@ -64,8 +64,6 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "core-poe": (
         (
             "posthog/clickhouse",
-            "posthog/queries",
-            "products/product_analytics/backend/tests/api",
             "posthog/api/test/dashboards",
             "ee/clickhouse",
         ),
@@ -74,7 +72,7 @@ CI_SESSIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "repo-invariants": (("posthog/test/repo_invariants",), ()),
     "tool:hogli": (("tools/hogli/tests",), ()),
     "tool:hogli-commands": (("tools/hogli-commands",), ()),
-    "tool:owners": (("tools/owners/tests",), ()),
+    "package:owners": (("packages/owners-yaml/tests",), ()),
     "tool:query-performance-ai": (("tools/query-performance-ai",), ()),
     "tool:pr-approval-agent": (("tools/pr-approval-agent",), ()),
     "tool:dependency-detection": (("bin/test",), ()),

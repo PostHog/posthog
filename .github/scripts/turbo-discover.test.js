@@ -11,11 +11,12 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -112,6 +113,25 @@ test('the backend test selector routes files with the same partition', () => {
     assert.deepEqual(sorted([...ignored, ...claimedFromCore]), sorted(DJANGO_SEGMENTS.Core.exclude))
 })
 
+// CorePOE re-runs a slice of Core under the legacy joined person mode, and Core
+// runs the same files under the customer-default mode. A CorePOE path outside
+// Core's pool therefore runs in the legacy mode only, so a regression under the
+// mode customers use goes uncaught. Product tests belong in the product's own
+// turbo lane, which is where that path would otherwise be reaching for coverage.
+// An include Core also ignores is no better than one it never listed, so both
+// halves have to hold. A Core ignore NESTED inside a CorePOE path needs no check:
+// CorePOE's ignores are Core's plus its own, so that subtree is out of both legs.
+test("the safeguard allowlist stays inside Core's pool", () => {
+    for (const prefix of DJANGO_SEGMENTS.CorePOE.include) {
+        const included = DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include))
+        const excluded = DJANGO_SEGMENTS.Core.exclude.some((exclude) => prefix.startsWith(exclude))
+        assert.ok(
+            included && !excluded,
+            `${prefix} is in CorePOE but Core does not run it, so it never runs in the default person mode`
+        )
+    }
+})
+
 // Isolation is the claim that a product can be tested without the Django suite.
 // A product that ships the contract-check script but no turbo.json of its own
 // leaves the task on the root definition, whose inputs are its whole backend,
@@ -139,4 +159,23 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
+})
+
+// The events_json rows skip a listed path that a checkout lacks, and pytest passes a path
+// that collects nothing, so a typo, a moved directory, or a directory of runner modules alone
+// would drop out of the leg without failing anything. The index covers the paths that the
+// sparse checkout of this suite leaves out of the working tree.
+test('every events_json path holds a test module', () => {
+    const targets = loadJsonTargets(path.join(REPO_ROOT, '.github/new-events-schema-targets.txt'))
+    assert.ok(targets.length > 0)
+    for (const target of targets) {
+        const tracked = execFileSync('git', ['ls-files', '-z', '--', target], { cwd: REPO_ROOT })
+            .toString()
+            .split('\0')
+            .filter(Boolean)
+        assert.ok(
+            tracked.some((file) => /(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(file)),
+            `${target} is listed but holds no test module`
+        )
+    }
 })

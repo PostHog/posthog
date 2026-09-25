@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
@@ -74,14 +73,15 @@ export function ObservationProgressBar({
     const { startStream } = useActions(observationProgressLogic({ observationId, sessionId }))
     usePeriodicRerender(1000)
 
-    // The bar only renders for in-flight observations, so its mount is the signal to open the stream.
-    useOnMountEffect(() => startStream())
+    // Record when the active phase was first observed so its asymptotic fill animates from then.
+    const startTimesRef = useRef<Record<number, number>>({})
+    useEffect(() => {
+        startTimesRef.current = {}
+        startStream()
+    }, [observationId, startStream])
 
     const currentStep = Math.min(progress?.step ?? 0, PHASE_ORDER.length - 1)
     const activePhase = PHASE_ORDER[currentStep]
-
-    // Record when the active phase was first observed so its asymptotic fill animates from then.
-    const startTimesRef = useRef<Record<number, number>>({})
     if (!(currentStep in startTimesRef.current)) {
         startTimesRef.current[currentStep] = Date.now()
     }
@@ -112,9 +112,13 @@ export function ObservationProgressBar({
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-muted text-sm">
                     <Spinner textColored />
+                    {/* `detail` ticks every second and comes and goes. Left bare it is a text node
+                        React tracks, so a page-translation extension replacing it with a <font>
+                        element freezes it and makes its removal throw removeChild NotFoundError
+                        (react#11538). The phase label is static and stays translatable. */}
                     <span>
                         {PHASE_LABELS[activePhase]}
-                        {detail}…
+                        <span translate="no">{detail}</span>…
                     </span>
                 </div>
                 <LemonProgress percent={overallPercent} />
@@ -137,7 +141,11 @@ export function ObservationProgressBar({
                             <PhaseStatusIcon status={status} />
                             <span className="truncate">
                                 {PHASE_LABELS[phase]}
-                                {detail ? <span className="text-muted-alt">&nbsp;({detail})</span> : null}
+                                {detail ? (
+                                    <span className="text-muted-alt" translate="no">
+                                        &nbsp;({detail})
+                                    </span>
+                                ) : null}
                             </span>
                         </div>
                         <div className="pl-6">

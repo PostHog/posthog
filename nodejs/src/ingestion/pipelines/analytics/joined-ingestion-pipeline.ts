@@ -26,7 +26,7 @@ import {
 import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
-    createSkipCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -34,6 +34,7 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
@@ -61,6 +62,9 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
+    teamsPrefetchEnabled: boolean
+    eventSchemasPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     outputs: IngestionOutputs<
         | EventOutput
         | FlagEvaluationsOutput
@@ -78,12 +82,11 @@ export interface JoinedIngestionPipelineConfig {
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
      * Sourced from `INGESTION_WORKER_CONCURRENT_BATCHES` and MUST match the
-     * Rust consumer's per-worker `Semaphore` capacity — divergence causes
-     * either idle capacity (consumer under-limits) or HTTP 503s
-     * (`ingestion_api_batch_capacity_rejections_total`).
+     * Rust consumer's per-worker stream cap — divergence causes either idle
+     * capacity (consumer under-limits) or stalled stream reads at capacity.
      */
     concurrentBatches: number
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -129,10 +132,13 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        teamsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     const {
@@ -161,13 +167,14 @@ export function createJoinedIngestionPipeline<
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
+        eventSchemasPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         groupTypeManager,
+        hogTransformer,
     }
 
     const perEventConfig: EventSubpipelineConfig = {
@@ -191,9 +198,8 @@ export function createJoinedIngestionPipeline<
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
-            // Semaphore caps in-flight batches at the same value
-            // (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as HTTP 503s
-            // in `ingestion_api_batch_capacity_rejections_total`.
+            // stream caps un-acked batches at the same value
+            // (INGESTION_WORKER_CONCURRENT_BATCHES).
             concurrentBatches,
         })
             .beforeBatch((beforeBatch) =>
@@ -214,11 +220,15 @@ export function createJoinedIngestionPipeline<
                     pipelineWritesPersons: true,
                 })
             )
-            // Rate-limit non-cookieless events to overflow before parsing the body.
-            // Cookieless events (headers.distinct_id === sentinel) pass through and are
-            // handled by the matching only-cookieless step in post-team, which keys on
-            // the hashed distinct_id assigned by the cookieless step.
-            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit events to overflow before parsing the body, keyed on the
+            // Kafka message key — the partition key capture computed. Cookieless
+            // events count under token:client_ip, so one IP's cookieless stream
+            // is budgeted as a single partition key.
+            .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Warm the team cache for the chunk's tokens in one batched load while message
+            // bodies parse, so the per-event lookups in resolveTeam hit cache or coalesce
+            // onto the in-flight load instead of paying a serial load per token.
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())

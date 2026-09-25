@@ -1,5 +1,3 @@
-import { isReadOnly } from 'lib/readOnlyGuard'
-
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 
 export type AddWidgetPayload = {
@@ -18,9 +16,6 @@ export function getAddWidgetDisabledReason(loading: boolean | undefined, selecte
     if (loading) {
         return 'Adding widgets…'
     }
-    if (isReadOnly()) {
-        return 'Read-only mode is on — allow writes temporarily to add widgets'
-    }
     if (selectedCount === 0) {
         return 'Select at least one widget type'
     }
@@ -32,7 +27,7 @@ export function buildAddWidgetPayloads(selectedTypes: Iterable<string>): AddWidg
 
     for (const widgetType of selectedTypes) {
         const catalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
-        if (!catalogEntry) {
+        if (!catalogEntry || ('hideFromPicker' in catalogEntry && catalogEntry.hideFromPicker)) {
             continue
         }
         payloads.push({ widgetType, config: catalogEntry.defaultConfig })

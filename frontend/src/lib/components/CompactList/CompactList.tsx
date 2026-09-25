@@ -15,6 +15,9 @@ export interface CompactListProps {
     viewAllURL?: string
     viewAllDataAttr?: string
     loading: boolean
+    /** Whether the last load attempt failed. Rendered instead of `emptyMessage`, even if `items` is empty. */
+    error?: boolean
+    errorMessage?: EmptyMessageProps
     items: any[]
     emptyMessage?: EmptyMessageProps
     renderRow: (rowData: any, index: number) => JSX.Element
@@ -27,6 +30,8 @@ export function CompactList({
     viewAllURL,
     viewAllDataAttr,
     loading,
+    error,
+    errorMessage,
     items,
     emptyMessage,
     renderRow,
@@ -69,6 +74,8 @@ export function CompactList({
                             <LemonSkeleton key={index} />
                         ))}
                     </div>
+                ) : error && errorMessage ? (
+                    <EmptyMessage {...errorMessage} />
                 ) : items.length === 0 && emptyMessage ? (
                     <EmptyMessage {...emptyMessage} />
                 ) : (

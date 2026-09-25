@@ -80,7 +80,8 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql = self._compile_select("SELECT properties.secret_field FROM events")
         assert "secret_field" in sql
 
-    def test_denied_event_property_is_stripped_silently(self):
+    @parameterized.expand([("events",), ("posthog.ai_events",)])
+    def test_denied_event_property_is_stripped_silently(self, table_name: str) -> None:
         # A restricted property reads as NULL rather than raising. Explicit access (``properties.secret_field``)
         # compiles to a constant NULL — the value is never extracted from the blob, and the key never appears, inline
         # or as a parameter.
@@ -89,7 +90,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             property_definition=self.event_prop,
             access_level=PropertyAccessLevel.NONE.value,
         )
-        sql, values = self._compile_select_with_values("SELECT properties.secret_field FROM events")
+        sql, values = self._compile_select_with_values(f"SELECT properties.secret_field FROM {table_name}")
         assert "NULL AS secret_field" in sql
         assert "JSONExtract" not in sql  # the restricted value is never read from the blob
         assert "JSONDropKeys" not in sql  # no redundant drop-then-extract
@@ -258,23 +259,33 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
     @parameterized.expand(
         [
-            ("events_properties", "SELECT properties FROM events", PropertyDefinition.Type.EVENT, "secret_field"),
-            ("events_star", "SELECT * FROM events", PropertyDefinition.Type.EVENT, "secret_field"),
+            ("events_properties", "SELECT properties FROM events", PropertyDefinition.Type.EVENT, "secret_field", None),
+            ("events_star", "SELECT * FROM events", PropertyDefinition.Type.EVENT, "secret_field", None),
+            (
+                "ai_properties",
+                "SELECT properties FROM posthog.ai_events",
+                PropertyDefinition.Type.EVENT,
+                "secret_field",
+                None,
+            ),
+            ("ai_star", "SELECT * FROM posthog.ai_events", PropertyDefinition.Type.EVENT, "$ai_input", "input"),
             (
                 "events_person_properties",
                 "SELECT person.properties FROM events",
                 PropertyDefinition.Type.PERSON,
                 "secret_person_field",
+                None,
             ),
         ]
     )
     def test_restricted_properties_blob_uses_json_drop_keys(
         self,
-        _case_name: str,
+        _name: str,
         query: str,
         property_type: int,
         restricted_key: str,
-    ):
+        masked_column: str | None,
+    ) -> None:
         property_definition = self.event_prop
         if property_type == PropertyDefinition.Type.PERSON:
             property_definition = PropertyDefinition.objects.create(
@@ -283,6 +294,9 @@ class TestRestrictPropertiesInHogQL(BaseTest):
                 property_type="String",
                 type=PropertyDefinition.Type.PERSON,
             )
+        elif property_definition.name != restricted_key:
+            property_definition.name = restricted_key
+            property_definition.save()
 
         PropertyAccessControl.objects.create(
             team=self.team,
@@ -293,6 +307,50 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONDropKeys" in sql
         assert restricted_key not in sql
         self._assert_value_present(values, restricted_key)
+        if masked_column is not None:
+            assert f"NULL AS {masked_column}" in sql
+
+    @parameterized.expand(
+        [
+            ("input", "$ai_input", "a.input"),
+            ("nested_input", "$ai_input", "a.input[1].content"),
+            ("output_choices", "$ai_output_choices", "a.output_choices"),
+            ("model", "$ai_model", "a.model"),
+            ("tokens", "$ai_input_tokens", "a.input_tokens"),
+            ("cost", "$ai_total_cost_usd", "a.total_cost_usd"),
+            ("error", "$ai_is_error", "a.is_error"),
+        ]
+    )
+    def test_ai_column_and_nested_reads_use_the_canonical_property_rule(
+        self, _name: str, property_name: str, expression: str
+    ) -> None:
+        self.event_prop.name = property_name
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        sql = self._compile_select(
+            f"SELECT {expression} AS restricted_value FROM posthog.ai_events AS a WHERE {expression} IS NULL"
+        )
+
+        assert "NULL AS restricted_value" in sql
+        assert "JSONExtract" not in sql
+        assert expression.split("[")[0] not in sql
+
+    def test_ai_json_content_is_not_an_event_property(self) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        sql = self._compile_select("SELECT input.secret_field FROM posthog.ai_events")
+
+        assert "JSONExtract" in sql
+        assert "NULL AS secret_field" not in sql
 
     def test_properties_blob_no_wrapping_without_restrictions(self):
         sql = self._compile_select("SELECT properties FROM events")
@@ -348,6 +406,79 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         )
         # restricting an event property should not wrap person.properties in JSONDropKeys
         sql = self._compile_select("SELECT person.properties FROM events")
+        assert "JSONDropKeys" not in sql
+
+    def _restrict_group_property(self, name: str = "arr", group_type_index: int = 0) -> None:
+        group_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name=name,
+            property_type="Numeric",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=group_type_index,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=group_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+    @parameterized.expand([("groups",), ("raw_groups",)])
+    def test_groups_tables_properties_blob_strips_restricted_keys(self, table_name: str):
+        # The groups blob (`group_properties`) was read unscrubbed, so `SELECT properties FROM groups` returned a group
+        # property an admin had restricted.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values(f"SELECT properties FROM {table_name}")
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_denied_group_property_read_is_not_extracted(self):
+        # `SELECT properties.arr FROM groups` used to compile to a real JSON read of the restricted key.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT properties.arr FROM groups")
+        # The lazy groups table hoists the read into its argMax subquery, where the restricted value is a constant NULL.
+        assert "JSONExtract" not in sql
+        assert "'arr'" not in sql
+        assert not any("arr" in str(v) for v in values.values())
+
+    def test_system_groups_properties_blob_strips_restricted_keys(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties FROM system.groups")
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_denied_system_group_property_read_is_not_extracted(self):
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values("SELECT group_properties.arr FROM system.groups")
+        assert "JSONExtract" not in sql
+        assert "'arr'" not in sql
+        assert not any("arr" in str(value) for value in values.values())
+
+    def test_group_restriction_only_applies_to_matching_group_type(self):
+        self._restrict_group_property(group_type_index=0)
+        sql = self._compile_select("SELECT goe_1.properties.arr FROM events")
+        assert "JSONExtract" in sql
+        assert "arr" in sql
+
+    @parameterized.expand(
+        [
+            ("groups_lazy_join", "SELECT group_0.properties FROM events"),
+            ("group_on_events", "SELECT goe_0.properties FROM events"),
+        ]
+    )
+    def test_group_properties_blob_on_events_strips_restricted_keys(self, _case_name: str, query: str):
+        # Group properties reachable from events — through the groups lazy join and through the group-on-events blob
+        # columns — must be scrubbed too, or the restriction is one join away from bypassed.
+        self._restrict_group_property()
+        sql, values = self._compile_select_with_values(query)
+        assert "JSONDropKeys" in sql
+        assert "arr" not in sql
+        self._assert_value_present(values, "arr")
+
+    def test_group_restriction_does_not_affect_event_properties_blob(self):
+        self._restrict_group_property()
+        sql = self._compile_select("SELECT properties FROM events")
         assert "JSONDropKeys" not in sql
 
     def test_restrictions_do_not_affect_non_event_or_person_tables(self):

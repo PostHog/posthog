@@ -7,37 +7,49 @@ controls every product viewset mixes in stay in access_control.py.
 """
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from functools import cache
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
-from django.apps import apps
-from django.core.exceptions import (
-    FieldDoesNotExist,
-    ValidationError as DjangoValidationError,
-)
-from django.db.models import Model, Q
+from django.core.cache import cache as django_cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Count, Max, Model, Prefetch, Q
 from django.db.models.functions import Coalesce
-from django.urls import URLResolver, get_resolver
 
-from rest_framework import exceptions
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.documentation import extend_schema
-from posthog.exceptions_capture import capture_exception
+from posthog.api.documentation import OpenApiParameter, extend_schema
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.permissions import get_authenticator_scoped_team_ids
+from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.contracts import (
+    DeletePropertyAccessControlInput,
+    PropertyAccessLevel,
+    UpsertPropertyAccessControlInput,
+)
+from products.access_control.backend.facade.object_names import (
+    display_model,
+    model_has_field,
+    resolve_object_names,
+    resources_with_object_access_controls,
+)
+from products.access_control.backend.facade.resolution_preview import build_resolution_preview
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
+    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
     UserAccessControl,
     default_access_level,
@@ -46,137 +58,48 @@ from products.access_control.backend.facade.user_access_control import (
     ordered_access_levels,
 )
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
-from .access_control import (
-    AccessControlSerializer,
-    AccessControlViewSetMixin,
-    ResolvedAccessSerializer,
-    upsert_access_control,
+from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
+from .serializers import (
+    AccessControlDefaultsResponseSerializer,
+    AccessControlMemberRuleRequestSerializer,
+    AccessControlMembersResponseSerializer,
+    AccessControlObjectRulesResponseSerializer,
+    AccessControlPropertyRulesResponseSerializer,
+    AccessControlResolutionAcceptResponseSerializer,
+    AccessControlRoleRuleRequestSerializer,
+    AccessControlRolesResponseSerializer,
+    AccessControlRuleRequestSerializer,
+    AccessControlStoredRuleSerializer,
 )
+from .views import check_can_write_property_rules, check_can_write_role_rule
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
 
+# These actions sit on the core project viewset, so the product has to be named for the
+# generated types and MCP tools to land in access_control rather than core
+_SCHEMA_EXTENSIONS = {"x-product": "access_control"}
+# The rule writes are for MCP tools and the frontend, not a public REST contract
+_INTERNAL_SCHEMA_EXTENSIONS = {**_SCHEMA_EXTENSIONS, "x-internal": True}
 
-@dataclass(frozen=True, kw_only=True)
-class _ResourceDisplayModel:
-    app_label: str
-    model_name: str
-    name_field: str
-
-
-# Names come from universal search's ENTITY_MAP first; these entries cover resources search doesn't
-# index, so they have no ENTITY_MAP entry to borrow. Add one when a resource's objects render raw
-# ids instead of names, in the rules list or the picker; delete one when search starts indexing the
-# resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
-# and with no derivable name field is left out of the picker and falls back to the raw id.
-_MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
-    "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
-    "warehouse_view": _ResourceDisplayModel(
-        app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
-    ),
-    "warehouse_table": _ResourceDisplayModel(
-        app_label="warehouse_sources", model_name="datawarehousetable", name_field="name"
-    ),
-    "external_data_source": _ResourceDisplayModel(
-        app_label="warehouse_sources", model_name="externaldatasource", name_field="source_type"
-    ),
-    "session_recording": _ResourceDisplayModel(
-        app_label="posthog", model_name="sessionrecording", name_field="session_id"
-    ),
-    "ticket": _ResourceDisplayModel(app_label="conversations", model_name="ticket", name_field="ticket_number"),
-}
-
-
-@dataclass(frozen=True, kw_only=True)
-class _ResolvedObjectName:
-    name: str | None
-    # Insights link by short_id rather than pk, so the frontend needs it alongside the name
-    short_id: str | None = None
-
-
-def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, _ResolvedObjectName]:
-    """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
-
-    Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
-    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
-    """
-    display = _display_model(resource) if resource_ids else None
-    if display is None:
-        return {}
-    try:
-        rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids)
-        if resource == "insight":
-            # Insight.name is nullable and saved insights often carry only derived_name, and insight
-            # URLs address short_ids rather than the pk rules store
-            return {
-                str(pk): _ResolvedObjectName(name=name or derived_name, short_id=short_id)
-                for pk, name, derived_name, short_id in rows.values_list("pk", "name", "derived_name", "short_id")
-            }
-        if resource == "ticket":
-            # A bare number doesn't read as an object; match the ticket page's own title
-            return {
-                str(pk): _ResolvedObjectName(name=f"Ticket: {number}")
-                for pk, number in rows.values_list("pk", "ticket_number")
-            }
-        return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
-    except Exception as e:
-        # A resource_id of the wrong shape for the model's pk, or a model that moved. The rules list
-        # falls back to raw ids, but report it: one failure usually breaks the whole resource type
-        capture_exception(e, {"resource": resource})
-        return {}
-
-
-@cache
-def resources_with_object_access_controls() -> dict[APIScopeObject, frozenset[type[Model]]]:
-    """Resources that support object-level access controls, mapped to the models behind them.
-
-    A viewset opts in by mixing in AccessControlViewSetMixin, so the registered routes are the
-    source of truth and this cannot drift from the code; adding the mixin also puts the resource in
-    the settings picker. A scope served by several viewsets maps to several models. The snapshot
-    test in test_access_control.py records the resources; regenerate it with `pytest
-    --snapshot-update`.
-    """
-    found: dict[APIScopeObject, set[type[Model]]] = {}
-
-    def walk(resolver: URLResolver) -> None:
-        for pattern in resolver.url_patterns:
-            if isinstance(pattern, URLResolver):
-                walk(pattern)
-                continue
-            cls = getattr(pattern.callback, "cls", None)
-            if cls is None or not issubclass(cls, AccessControlViewSetMixin):
-                continue
-            scope = getattr(cls, "scope_object", None)
-            # Project-level access is its own control (the "Project access" dropdown), never an
-            # object rule; every rules endpoint filters resource="project" out as well
-            if scope and scope != "INTERNAL" and scope != "project" and scope not in INTERNAL_API_SCOPE_OBJECTS:
-                queryset = getattr(cls, "queryset", None)
-                found.setdefault(scope, set())
-                if queryset is not None:
-                    found[scope].add(queryset.model)
-
-    walk(get_resolver())
-    return {scope: frozenset(models) for scope, models in found.items()}
-
-
-def _model_has_field(model: type[Model], field: str) -> bool:
-    try:
-        model._meta.get_field(field)
-        return True
-    except FieldDoesNotExist:
-        return False
-
-
-@dataclass(frozen=True, kw_only=True)
-class _DisplayModel:
-    """Where a resource's objects live and which field names them."""
-
-    model: type[Model]
-    name_field: str
+_MEMBER_ID_PARAM = OpenApiParameter(
+    name="member_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="The organization membership id, as `organization_membership_id` in the members endpoint.",
+)
+_ROLE_ID_PARAM = OpenApiParameter(
+    name="role_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="The role id, as `role_id` in the roles endpoint.",
+)
 
 
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
@@ -185,7 +108,7 @@ def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
     return {
         "access_level": subject.stored_level("project", str(team.id)),
         "effective_access_level": subject.get_user_access_level(team),
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level("project"),
         "maximum": highest_access_level("project"),
     }
@@ -197,54 +120,10 @@ def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> 
     return {
         "access_level": subject.stored_level(resource, None),
         "effective_access_level": effective.access_level if effective else None,
-        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
+        "inherited_access": asdict(inherited) if inherited else None,
         "minimum": minimum_access_level(resource),
         "maximum": highest_access_level(resource),
     }
-
-
-def _display_model(resource: str) -> _DisplayModel | None:
-    """Resolve a resource to its model and display field. None means the settings UI cannot work
-    with the resource's objects: search returns 400, rule writes return 400, existing rules show
-    raw ids.
-
-    A resource qualifies when its viewsets carry object-level access controls and we can name its
-    objects, tried in order: search's ENTITY_MAP (its rank-A field is the display name), the
-    supplement for resources search doesn't index, and finally a resource whose routes expose
-    exactly one model carrying a recognizable name field.
-    """
-    # Gate before the cached resolver: resource is raw request input, and caching unknown values
-    # would grow the cache by one permanent entry per distinct garbage string
-    if resource not in resources_with_object_access_controls():
-        return None
-    return _display_model_for_known_resource(resource)
-
-
-@cache
-def _display_model_for_known_resource(resource: str) -> _DisplayModel | None:
-    from posthog.api.search import (
-        ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
-    )
-
-    model: type[Model] | None = None
-    name_field: str | None = None
-    entity = ENTITY_MAP.get(resource)
-    supplement = _MODELS_NOT_IN_ENTITY_MAP.get(resource)
-    if entity is not None:
-        model = entity["klass"]
-        name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
-    elif supplement is not None:
-        model = apps.get_model(supplement.app_label, supplement.model_name)
-        name_field = supplement.name_field
-    else:
-        models = resources_with_object_access_controls().get(cast(APIScopeObject, resource)) or frozenset()
-        if len(models) == 1:
-            model = next(iter(models))
-            name_field = next((field for field in ("name", "title", "key") if _model_has_field(model, field)), None)
-
-    if model is None or name_field is None or not _model_has_field(model, "team"):
-        return None
-    return _DisplayModel(model=model, name_field=name_field)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -276,14 +155,123 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_objects",
             "access_control_role_properties",
             "access_control_object_search",
+            "access_control_resolution_preview",
         ]:
             return ["access_control:read"]
-        if request.method == "PUT" and self.action == "access_control_object_rules":
+        if request.method == "PUT" and self.action in [
+            "access_control_object_rules",
+            "access_control_default_rules",
+            "access_control_member_rules",
+            "access_control_role_rules",
+        ]:
+            return ["access_control:write"]
+        if request.method == "POST" and self.action == "access_control_resolution_accept":
             return ["access_control:write"]
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
 
     @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_resolution_preview")
+    def access_control_resolution_preview(self, request: Request, *args, **kwargs):
+        """Every access rule in this organization that resolves differently under
+        most-specific-wins, across the projects the requester administers.
+
+        Admin only: the records describe other subjects' access. When the organization hides
+        its member list, only organization admins may read them — the records name members a
+        project admin could not otherwise see. Cached per rule set, so the answer updates the
+        moment any rule changes and repeat opens cost nothing."""
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        if not user_access_control.check_can_modify_access_levels_for_object(team):
+            raise exceptions.PermissionDenied("Only administrators can view the resolution preview.")
+        if not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin:
+            raise exceptions.PermissionDenied("Only organization admins can view the resolution preview.")
+
+        # Organization-wide: every project with rules that the requester administers. An org
+        # admin sees them all; a project admin sees only their own projects. A credential
+        # scoped to specific projects never reaches beyond them.
+        ruled_team_ids = set(
+            AccessControl.objects.filter(team__organization_id=team.organization_id).values_list("team_id", flat=True)
+        )
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids is not None:
+            ruled_team_ids &= set(scoped_team_ids)
+        visible_teams: list[tuple[Team, UserAccessControl]] = []
+        for candidate in Team.objects.filter(organization_id=team.organization_id, id__in=ruled_team_ids).order_by(
+            "id"
+        ):
+            candidate_access = (
+                user_access_control
+                if candidate.id == team.id
+                else UserAccessControl(user_access_control.user, candidate)
+            )
+            if candidate_access.check_can_modify_access_levels_for_object(candidate):
+                visible_teams.append((candidate, candidate_access))
+
+        fingerprint = AccessControl.objects.filter(team__organization_id=team.organization_id).aggregate(
+            count=Count("id"), latest=Max("updated_at")
+        )
+        visible_ids = ",".join(str(candidate.id) for candidate, _ in visible_teams)
+        cache_key = (
+            f"access_control_resolution_preview/{team.organization_id}"
+            f"/{visible_ids}/{fingerprint['count']}/{fingerprint['latest']}"
+        )
+        cached = django_cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        changes = [
+            {**asdict(change), "project_id": candidate.id, "project_name": candidate.name}
+            for candidate, candidate_access in visible_teams
+            for change in build_resolution_preview(candidate, candidate_access)
+        ]
+        payload = {
+            "changes": changes,
+            "summary": {
+                "total": len(changes),
+                "gains": sum(1 for change in changes if change["direction"] == "gains"),
+                "loses": sum(1 for change in changes if change["direction"] == "loses"),
+                "resources": len({change["resource"] for change in changes if change["scope"] == "resource"}),
+                "objects": len(
+                    {(change["resource"], change["object_id"]) for change in changes if change["scope"] == "object"}
+                ),
+            },
+        }
+        django_cache.set(cache_key, payload, timeout=300)
+        return Response(payload)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True, url_path="access_control_resolution_accept")
+    def access_control_resolution_accept(self, request: Request, *args, **kwargs) -> Response:
+        """Switch the organization to most-specific access resolution.
+
+        Organization admins only: the switch applies to every project in the organization, so
+        a project admin cannot make it. The change is logged on the organization."""
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        if not user_access_control.is_organization_admin:
+            raise exceptions.PermissionDenied("Only organization admins can accept the new resolution.")
+        # The switch reaches every project, so a credential limited to some projects may not make it
+        if get_authenticator_scoped_team_ids(request.successful_authenticator) is not None:
+            raise exceptions.PermissionDenied(
+                "A credential scoped to specific projects cannot accept the new resolution."
+            )
+
+        organization = team.organization
+        if not organization.uses_most_specific_access_resolution:
+            organization.uses_most_specific_access_resolution = True
+            organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
+        return Response(
+            AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
+        )
+
+    @extend_schema(
+        description="The project's default access. Returns the level that applies to the project and to each "
+        "resource type when a member or a role has no rule of their own. Also lists the resource types that accept "
+        "rules on single objects, with the levels such a rule can set.",
+        responses={200: AccessControlDefaultsResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_defaults")
     def access_control_defaults(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -309,30 +297,42 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             for r in ACCESS_CONTROL_RESOURCES
         }
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "project_access_level": project_access_level,
-                "resource_access_levels": resource_access_levels,
-                # The resources the settings UI can search and rule on; every entry works with
-                # access_control_object_search and access_control_object_rules. Levels ride along
-                # per resource, like the per-resource access_controls endpoint returns them, so the
-                # picker can only offer what a write would accept
-                "object_rule_resources": [
-                    {
-                        "resource": r,
-                        "available_access_levels": list(ordered_access_levels(r)),
-                        "minimum_access_level": minimum_access_level(r),
-                    }
-                    for r in sorted(r for r in resources_with_object_access_controls() if _display_model(r) is not None)
-                ],
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "project_access_level": project_access_level,
+            "resource_access_levels": resource_access_levels,
+            # The resources the settings UI can search and rule on; every entry works with
+            # access_control_object_search and access_control_object_rules. Levels ride along
+            # per resource, like the per-resource access_controls endpoint returns them, so the
+            # picker can only offer what a write would accept
+            "object_rule_resources": [
+                {
+                    "resource": r,
+                    "available_access_levels": list(ordered_access_levels(r)),
+                    "minimum_access_level": minimum_access_level(r),
+                }
+                for r in sorted(r for r in resources_with_object_access_controls() if display_model(r) is not None)
+            ],
+        }
+        return Response(AccessControlDefaultsResponseSerializer(payload).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Every role's resolved access to this project and to each resource type in it: the role's own "
+        "rule, the level that is enforced, and the rule the enforced level comes from. Pass `role_id` for one role.",
+        parameters=[
+            OpenApiParameter(
+                name="role_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Narrow the list to one role.",
+            )
+        ],
+        responses={200: AccessControlRolesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_roles")
     def access_control_roles(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -363,17 +363,31 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "results": results,
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+            "results": results,
+        }
+        return Response(AccessControlRolesResponseSerializer(payload).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Every organization member's access in this project. For the project and for each resource type, "
+        "the response gives the member's own rule and the level that is enforced. It also says where the enforced "
+        "level comes from: the member's rule, a role's rule, the project default, or full access as an organization admin. Pass "
+        "`member_id` for one member.",
+        parameters=[
+            OpenApiParameter(
+                name="member_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Narrow the list to one organization membership id.",
+            )
+        ],
+        responses={200: AccessControlMembersResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_members")
     def access_control_members(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
@@ -382,7 +396,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
-            .prefetch_related("role_memberships")
+            .prefetch_related(Prefetch("role_memberships", queryset=RoleMembership.objects.valid_for_authorization()))
         )
         # An optional member_id narrows the walk to one member, so the detail panel doesn't pay for the whole list
         if request.query_params.get("member_id"):
@@ -421,6 +435,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                         "email": user.email,
                     },
                     "organization_level": member.level,
+                    "role_ids": role_ids,
                     "project": _project_entry(subject, team),
                     "resources": {
                         resource: _resource_entry(subject, resource) for resource in ACCESS_CONTROL_RESOURCES
@@ -428,20 +443,21 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
-        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": can_edit,
-                "results": results,
-            }
-        )
+        payload = {
+            "available_project_levels": list(ordered_access_levels("project")),
+            "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+            "can_edit": can_edit,
+            "results": results,
+        }
+        return Response(AccessControlMembersResponseSerializer(payload).data)
 
     def _get_membership(self, request: Request, team: Team) -> OrganizationMembership:
         member_id = request.query_params.get("member_id")
         if not member_id:
             raise exceptions.ValidationError("member_id is required")
+        return self._visible_membership(team, member_id)
+
+    def _visible_membership(self, team: Team, member_id: str) -> OrganizationMembership:
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         # An org hiding its member list means plain members can't browse other members' details, so 404.
         # Org admins and explicit project admins keep these endpoints, since they can manage access
@@ -490,7 +506,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             )
         )
         if not rows:
-            return Response({"results": []})
+            return Response(AccessControlObjectRulesResponseSerializer({"results": []}).data)
 
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
@@ -499,7 +515,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # rules lists show what is configured, while the picker search and the rule write are the
         # surfaces that hide inaccessible objects
         names_by_resource = {
-            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+            resource: resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
 
         results = []
@@ -515,7 +531,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
         results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
-        return Response({"results": results})
+        return Response(AccessControlObjectRulesResponseSerializer({"results": results}).data)
 
     def _property_rules_response(
         self,
@@ -525,11 +541,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         role: Role | None = None,
     ) -> Response:
         """Property rules belonging to one subject, including read & write grants over a stricter default."""
-        from products.access_control.backend.facade.api import (
-            list_property_access_controls,  # noqa: PLC0415 — the facade imports ee models, a module-level import would be circular
-        )
-
-        rules = list_property_access_controls(
+        rules = access_control_api.list_property_access_controls(
             team_id=team.id,
             organization_member_id=organization_member.id if organization_member else None,
             role_id=role.id if role else None,
@@ -555,23 +567,37 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
         results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
-        return Response({"results": results})
+        return Response(AccessControlPropertyRulesResponseSerializer({"results": results}).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules that apply to everyone in the project without a rule of their own on that object.",
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_default_objects")
     def access_control_default_objects(self, request: Request, *args, **kwargs) -> Response:
-        """Object-level access rules that apply to everyone without a rule of their own."""
+        """Object-level access rules that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._object_rules_response(team)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules that apply to everyone in the project without a rule of their own on that property.",
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_default_properties")
     def access_control_default_properties(self, request: Request, *args, **kwargs) -> Response:
-        """Property restrictions that apply to everyone without a rule of their own."""
+        """Property restrictions that apply to everyone in the project without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._property_rules_response(team)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules configured for a member: the single objects, for example a dashboard or a notebook, "
+        "the member is granted or denied, regardless of the resource-level rules.",
+        parameters=[_MEMBER_ID_PARAM],
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_member_objects")
     def access_control_member_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a member."""
@@ -579,7 +605,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership = self._get_membership(request, team)
         return self._object_rules_response(team, membership=membership)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules configured for a member: the person and event properties the member can "
+        "read, read and write, or not see.",
+        parameters=[_MEMBER_ID_PARAM],
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_member_properties")
     def access_control_member_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a member."""
@@ -587,7 +619,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         membership = self._get_membership(request, team)
         return self._property_rules_response(team, organization_member=membership)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Object rules configured for a role: the single objects the role's members are granted or "
+        "denied, regardless of the resource-level rules.",
+        parameters=[_ROLE_ID_PARAM],
+        responses={200: AccessControlObjectRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_role_objects")
     def access_control_role_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a role."""
@@ -595,7 +633,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         role = self._get_role(request, team)
         return self._object_rules_response(team, role=role)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Property rules configured for a role: the person and event properties the role's members "
+        "can read, read and write, or not see.",
+        parameters=[_ROLE_ID_PARAM],
+        responses={200: AccessControlPropertyRulesResponseSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
     @action(methods=["GET"], detail=True, url_path="access_control_role_properties")
     def access_control_role_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a role."""
@@ -610,13 +654,13 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         Works for every resource the defaults endpoint lists in object_rule_resources, with the same
         display names the rules list shows. Returns pks, the identifier stored on rules and taken by
-        access_control_object_rules; `?id=` also accepts an insight short_id, since insight URLs
-        carry those.
+        access_control_object_rules; `?id=` also accepts a short_id for models that have one
+        (insights, notebooks), since their URLs carry those.
         """
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         resource = request.query_params.get("resource") or ""
-        display = _display_model(resource)
+        display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
 
@@ -631,7 +675,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # Objects mid-deletion or never saved are not sensible rule targets. Excluding rather than
         # filtering keeps rows whose `deleted` is NULL, which is every row on models where the field
         # was added without a default (session recordings), and legacy rows elsewhere
-        if _model_has_field(display.model, "deleted"):
+        if model_has_field(display.model, "deleted"):
             qs = qs.exclude(deleted=True)
         # Insight-specific rather than probing for a `saved` field: only Insight has one among the
         # picker resources, and a future model's field of that name could mean something else
@@ -653,7 +697,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 ]
             else:
                 if lookup:
-                    qs = qs.filter(pk=lookup)
+                    # Models with a short_id (notebooks) link by it, so a pasted URL carries one
+                    by_short_id = not lookup.isdigit() and model_has_field(display.model, "short_id")
+                    qs = qs.filter(short_id=lookup) if by_short_id else qs.filter(pk=lookup)
                 elif search:
                     # name_field comes from _display_model's code-defined maps, never from the
                     # request, and search is only a value
@@ -664,7 +710,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             # A lookup id of the wrong shape for the model's pk matches nothing
             pks = []
         # One place builds display names, so the picker shows exactly what the rules list will
-        names = _resolve_object_names(resource, pks, team.id)
+        names = resolve_object_names(resource, pks, team.id)
         results = [{"id": pk, "name": (resolved.name if (resolved := names.get(pk)) else None) or pk} for pk in pks]
         return Response({"results": results})
 
@@ -683,27 +729,249 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         resource = str(request.data.get("resource") or "")
         resource_id = str(request.data.get("resource_id") or "")
-        display = _display_model(resource)
-        if display is None:
-            raise exceptions.ValidationError("resource does not support object access rules")
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
+        target = self._visible_object(
+            team, user_access_control, resource, resource_id, access_level=request.data.get("access_level")
+        )
+
+        data = {**request.data, "resource": resource, "resource_id": resource_id}
+        return upsert_access_control(
+            team=team,
+            user_access_control=user_access_control,
+            build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
+        )
+
+    def _visible_object(
+        self,
+        team: Team,
+        user_access_control: UserAccessControl,
+        resource: str,
+        resource_id: str,
+        *,
+        access_level: object,
+    ) -> Model:
+        display = display_model(resource)
+        if display is None:
+            raise exceptions.ValidationError("resource does not support object access rules")
+        # _base_manager, not the default one: a rule left on a soft-deleted object still shows in
+        # the rules list, and this is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._default_manager.filter(team_id=team.id),
+            display.model._base_manager.filter(team_id=team.id),
             include_all_if_admin=True,
             resource=cast(APIScopeObject, resource),
         )
         # An object the requester cannot see is not theirs to configure; 404 rather than 403 so the
         # endpoint doesn't confirm it exists
         target = get_object_or_404(visible, pk=resource_id)
+        if access_level is not None and getattr(target, "deleted", None) is True:
+            raise exceptions.ValidationError("cannot set an access rule on a deleted object")
+        return target
 
-        data = {**request.data, "resource": resource, "resource_id": resource_id}
+    def _rule_serializer_builder(
+        self, team: Team, user_access_control: UserAccessControl, target: Model, data: dict[str, Any]
+    ) -> Callable[[AccessControl | None], AccessControlSerializer]:
         context = {
             **self.get_serializer_context(),
             "view": _ObjectRuleValidationContext(team=team, user_access_control=user_access_control, target=target),
         }
-        return upsert_access_control(
+        return lambda instance: AccessControlSerializer(instance, data=data, context=context)
+
+    def _rule_target(
+        self,
+        team: Team,
+        user_access_control: UserAccessControl,
+        resource: str,
+        resource_id: str | None,
+        *,
+        access_level: str | None,
+    ) -> tuple[Model, str | None]:
+        """The object a rule is validated against, and the resource_id to store.
+
+        A project rule is stored as an object rule on the team itself, so the team is both the
+        target and the id. A resource-type rule has no object; the team stands in for the permission
+        check, which AccessControlSerializer runs against the project for such rules.
+        """
+        if resource == "project":
+            if resource_id != str(team.id):
+                raise exceptions.ValidationError("A project rule takes the project's own id as resource_id.")
+            return team, resource_id
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            raise exceptions.ValidationError(f"{resource} does not accept access rules.")
+        if resource_id:
+            target = self._visible_object(team, user_access_control, resource, resource_id, access_level=access_level)
+            return target, resource_id
+        if resource not in ACCESS_CONTROL_RESOURCES:
+            raise exceptions.ValidationError(
+                f"{resource} has no resource-level rules. Pass a resource_id for a rule on one object."
+            )
+        return team, None
+
+    def _write_rule(self, request: Request, request_serializer: type[serializers.Serializer]) -> Response:
+        """Set or clear one rule for the subject the request serializer names.
+
+        The subject is resolved to a row first, so a member hidden from the caller or a role of
+        another organization is a 404 before any validation runs. Property rules live in their own
+        model and go through the property facade; everything else is an AccessControl row.
+        """
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        serializer = request_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        membership: OrganizationMembership | None = None
+        role: Role | None = None
+        if "member_id" in data:
+            membership = self._visible_membership(team, str(data["member_id"]))
+        if "role_id" in data:
+            role = get_object_or_404(Role, id=data["role_id"], organization=team.organization)
+
+        resource = data["resource"]
+        resource_id = data.get("resource_id") or None
+        access_level = data["access_level"]
+        if resource == "property_definition":
+            return self._write_property_rule(
+                team, user_access_control, resource_id, access_level, membership=membership, role=role
+            )
+
+        target, stored_resource_id = self._rule_target(
+            team, user_access_control, resource, resource_id, access_level=access_level
+        )
+        body: dict[str, Any] = {"resource": resource, "resource_id": stored_resource_id, "access_level": access_level}
+        if membership is not None:
+            body["organization_member"] = str(membership.id)
+        if role is not None:
+            body["role"] = str(role.id)
+        rule = apply_access_control_rule(
             team=team,
             user_access_control=user_access_control,
-            build_serializer=lambda instance: AccessControlSerializer(instance, data=data, context=context),
+            build_serializer=self._rule_serializer_builder(team, user_access_control, target, body),
         )
+        if rule is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._stored_rule_response(
+            resource=rule.resource,
+            resource_id=rule.resource_id,
+            access_level=rule.access_level,
+            member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+
+    def _write_property_rule(
+        self,
+        team: Team,
+        user_access_control: UserAccessControl,
+        property_definition_id: str | None,
+        access_level: str | None,
+        *,
+        membership: OrganizationMembership | None,
+        role: Role | None,
+    ) -> Response:
+        """Property rules live in their own model and go through the property facade, behind the
+        same gate as PropertyAccessControlViewSet."""
+        if not property_definition_id:
+            raise exceptions.ValidationError("resource_id is required for a property rule.")
+        check_can_write_property_rules(team, user_access_control)
+        check_can_write_role_rule(team, role_id=role.id if role else None)
+        levels = [level.value for level in PropertyAccessLevel]
+        if access_level is not None and access_level not in levels:
+            raise exceptions.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
+
+        membership_id = membership.id if membership else None
+        role_id = role.id if role else None
+        try:
+            if access_level is None:
+                access_control_api.delete_property_access_control(
+                    team_id=team.id,
+                    input=DeletePropertyAccessControlInput(
+                        property_definition_id=property_definition_id,
+                        organization_member_id=membership_id,
+                        role_id=role_id,
+                    ),
+                )
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            rule = access_control_api.upsert_property_access_control(
+                team_id=team.id,
+                created_by_id=self.request.user.pk if self.request.user.is_authenticated else None,
+                input=UpsertPropertyAccessControlInput(
+                    property_definition_id=property_definition_id,
+                    access_level=PropertyAccessLevel(access_level),
+                    organization_member_id=membership_id,
+                    role_id=role_id,
+                ),
+            )
+        except access_control_api.PropertyAccessControlRuleNotFoundError:
+            # Nothing to clear, including a rule a concurrent clear removed first
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except access_control_api.PropertyDefinitionNotFoundError:
+            raise exceptions.NotFound("Property definition not found.")
+        except access_control_api.InvalidPropertyAccessControlTargetError as exc:
+            raise exceptions.ValidationError(str(exc))
+        return self._stored_rule_response(
+            resource="property_definition",
+            resource_id=str(rule.property_definition_id),
+            access_level=rule.access_level.value,
+            member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+
+    @staticmethod
+    def _stored_rule_response(
+        *,
+        resource: str,
+        resource_id: str | None,
+        access_level: str,
+        member_id: UUID | None,
+        role_id: UUID | None,
+    ) -> Response:
+        """The stored rule in one shape for access rules and property rules."""
+        stored = {
+            "resource": resource,
+            "resource_id": resource_id,
+            "access_level": access_level,
+            "member_id": member_id,
+            "role_id": role_id,
+        }
+        return Response(AccessControlStoredRuleSerializer(stored).data)
+
+    @extend_schema(
+        description="Set or clear the rule everyone in the project gets for a scope, unless a member or role rule "
+        "of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), "
+        "a whole resource type, one object, or one property definition. A null `access_level` removes the rule. "
+        "Returns the stored rule, or 204 with no body when the rule is cleared.",
+        request=AccessControlRuleRequestSerializer,
+        responses={200: AccessControlStoredRuleSerializer, 204: None},
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["PUT"], detail=True, url_path="access_control_default_rules")
+    def access_control_default_rules(self, request: Request, *args, **kwargs) -> Response:
+        return self._write_rule(request, AccessControlRuleRequestSerializer)
+
+    @extend_schema(
+        description="Set or clear one member's rule for a scope. A member rule applies to that person only and "
+        "takes precedence over their role rules and the default. The scope is the project (`resource: project` with "
+        "the project id as `resource_id`), a whole resource type, one object, or one property definition. A null "
+        "`access_level` removes the rule. "
+        "Returns the stored rule, or 204 with no body when the rule is cleared.",
+        request=AccessControlMemberRuleRequestSerializer,
+        responses={200: AccessControlStoredRuleSerializer, 204: None},
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["PUT"], detail=True, url_path="access_control_member_rules")
+    def access_control_member_rules(self, request: Request, *args, **kwargs) -> Response:
+        return self._write_rule(request, AccessControlMemberRuleRequestSerializer)
+
+    @extend_schema(
+        description="Set or clear one role's rule for a scope. A role rule applies to every member of the role and "
+        "takes precedence over the default. Requires the role-based access feature. The scope is the project "
+        "(`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one "
+        "property definition. A null `access_level` removes the rule. "
+        "Returns the stored rule, or 204 with no body when the rule is cleared.",
+        request=AccessControlRoleRuleRequestSerializer,
+        responses={200: AccessControlStoredRuleSerializer, 204: None},
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["PUT"], detail=True, url_path="access_control_role_rules")
+    def access_control_role_rules(self, request: Request, *args, **kwargs) -> Response:
+        return self._write_rule(request, AccessControlRoleRuleRequestSerializer)

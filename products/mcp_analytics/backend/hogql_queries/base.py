@@ -5,28 +5,27 @@ analytics runner; keeping them here means a runner is just its query shape plus
 its harness-label SQL.
 """
 
+import json
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import posthoganalytics
+from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 if TYPE_CHECKING:
-    from posthog.schema import DateRange, IntervalType
+    from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
-
-# Gates these runners behind the same flag and RBAC resource the product's DRF endpoints
-# require, so the generic /query/ endpoint can't bypass either (see PostHogFeatureFlagPermission
-# and the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
-MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 
 # The effective tool name for new-SDK events: the inner tool when the call went through the
 # single-exec wrapper, else the directly-registered tool name. Shared by every runner that
@@ -60,18 +59,42 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
     ]
 
 
+def shared_filter_exprs(
+    team: "Team",
+    properties: "Sequence[AnyPropertyFilterDiscriminated] | None",
+    filter_test_accounts: bool | None,
+) -> list[ast.Expr]:
+    """Property filters plus, when enabled, the team's default test-account exclusions.
+
+    Every MCP analytics runner that accepts the dashboard's shared property filters and
+    "Filter out internal and test users" switch applies them through this one expression,
+    so the two behave identically everywhere they're wired in.
+    """
+    all_properties = [
+        property_filter for property_filter in properties or [] if not isinstance(property_filter, EmptyPropertyFilter)
+    ]
+    if any(
+        not isinstance(property_filter, EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)
+        for property_filter in all_properties
+    ):
+        raise QueryError("Only event, person, and session property filters are supported.")
+    if filter_test_accounts:
+        all_properties += team.test_account_filters or []
+    return [property_to_expr(all_properties, team)] if all_properties else []
+
+
+def display_person_properties(*, email: str, name: str) -> str:
+    """JSON of only the person fields a row's person cell renders, omitting blanks.
+
+    Shared by every runner that returns a person alongside a row, so none of them
+    ships the whole ``person.properties`` blob to the client.
+    """
+    return json.dumps({k: v for k, v in (("email", email), ("name", name)) if v})
+
+
+# Gates these runners behind the same RBAC resource the product's DRF endpoints require, so the
+# generic /query/ endpoint can't bypass it (see the "mcp_analytics" entry in ACCESS_CONTROL_RESOURCES).
 def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
-    org_id = str(team.organization_id)
-    enabled = posthoganalytics.feature_enabled(
-        MCP_ANALYTICS_FEATURE_FLAG,
-        str(user.distinct_id),
-        groups={"organization": org_id, "project": str(team.id)},
-        group_properties={"organization": {"id": org_id}, "project": {"id": str(team.id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-    if not enabled:
-        raise UserAccessControlError("mcp_analytics", "viewer")
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 

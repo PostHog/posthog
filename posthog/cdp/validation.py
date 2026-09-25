@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from django.db import models
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -14,8 +16,16 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.integration import Integration
+from posthog.cdp.filters import (
+    DATA_WAREHOUSE_SOURCES,
+    FILTER_FUNCTIONS,
+    RUNTIME_CONTRACT,
+    TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -67,6 +77,18 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
+    # A PostHog connection acts as the user who created it, so only that user may use it. A function
+    # runs for the whole team and the runtime never resolves one, so reject it where the author sees why.
+    get_team = context.get("get_team")
+    if get_team is None or not integration_ids:
+        return
+    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+        raise serializers.ValidationError(
+            {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
@@ -196,9 +218,33 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
+
+
+# Async functions that put the invocation on a queue the running consumer cannot serve.
+#
+# The worker's async function registry is global and is not scoped by function type, so any hog
+# program that names one of these reaches the real handler. These two handlers set
+# `queueParameters` to a bespoke type ('email', 'sendPushNotification') instead of the ordinary
+# 'fetch'. Only the messaging consumers process those queues. When a plain destination stages one,
+# the cyclotron worker produces to a Kafka topic its cluster does not have. The produce error
+# terminates the worker process, and the partition it owned stops draining.
+#
+# Membership is decided by that failure mode, NOT by "the worker registers it". Most registered
+# async functions stage an ordinary 'fetch' (postHogCreateAccount, postHogCreateTask and the
+# postHogGet*/postHogUpdate* family), which is the same mechanism CORE_SUPPORTED_FUNCTIONS already
+# gives user code, so they are safe here and are deliberately absent. produceToWarehouseWebhooks is
+# also absent: it only appends to an in-memory list, and its callers are all
+# `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
+#
+# Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
+RESERVED_ASYNC_FUNCTIONS = {
+    "sendEmail",
+    "sendPushNotification",
+}
 
 
 # Globals that the realtime transformer actually populates at runtime.
@@ -219,6 +265,7 @@ TRANSFORMATION_RUNTIME_FUNCTIONS = {
     "cleanNullValues",
     "isKnownBotUserAgent",
     "isKnownBotIp",
+    "parseUserAgent",
 }
 
 
@@ -236,22 +283,33 @@ class InputCollector(TraversingVisitor):
                 self.inputs.add(str(node.chain[1]))
 
 
-class TransformationGlobalsValidator(TraversingVisitor):
-    """Reject input templates that reference globals unavailable to the realtime
-    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
-    compiles fine and the failure surfaces only at ingestion time as
+class TemplateGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals the runtime will not have.
+
+    Each function type passes the globals its runtime provides (transformations see `project`,
+    `event` and `inputs`; everything else the invocation globals). Without this check the bytecode
+    compiles fine and the failure surfaces only at run time as
     "Could not execute bytecode for input field" / "Global variable not found".
     """
 
     invalid_globals: set[str]
+    # Calls the Node runtime would refuse for their argument count, as messages. Only checked for
+    # names the runtime table knows, so a name it does not know is left to the globals check.
+    invalid_calls: list[str]
 
     def __init__(
         self,
         available_globals: Optional[set[str]] = None,
         runtime_functions: Optional[set[str]] = None,
+        # The Python tables describe the Python VM. A template that runs in the Node VM passes its
+        # own callables as runtime_functions and turns these off.
+        python_stl: bool = True,
     ):
         super().__init__()
         self.invalid_globals = set()
+        self.invalid_calls = []
+        self._python_stl = python_stl
+        self._declared: set[str] = set()
         self._available_globals = (
             available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
         )
@@ -259,21 +317,42 @@ class TransformationGlobalsValidator(TraversingVisitor):
             runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
         )
 
+    def check(self, node: ast.Expr) -> None:
+        # Lambda parameters and anything a lambda body declares are locals, not globals.
+        declared = DeclaredNamesCollector()
+        declared.visit(node)
+        self._declared = declared.names
+        self.visit(node)
+
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         if not node.chain:
             return
         root = str(node.chain[0])
         if (
-            root in self._available_globals
+            root in self._declared
+            or root in self._available_globals
             or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
-            or root in STL
-            or root in BYTECODE_STL
+            or (self._python_stl and (root in STL or root in BYTECODE_STL))
         ):
             return
         self.invalid_globals.add(root)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if self._python_stl or node.name in self._declared:
+            return
+        arity = FILTER_FUNCTIONS.get(node.name)
+        if arity is None:
+            return
+        minimum, maximum = arity
+        count = len(node.args)
+        if count < minimum:
+            self.invalid_calls.append(f"{node.name} needs at least {minimum} argument(s), got {count}")
+        elif maximum is not None and count > maximum:
+            self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
 
 
 class DeclaredNamesCollector(TraversingVisitor):
@@ -343,6 +422,42 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class ReservedFunctionDetector(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.names = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if node.name in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(node.name)
+
+    def visit_field(self, node: ast.Field) -> None:
+        # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
+        # `f()` compiles to the same global dispatch, so the name alone is refused.
+        super().visit_field(node)
+        if len(node.chain) == 1 and str(node.chain[0]) in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(str(node.chain[0]))
+
+
+def reserved_functions_used(hog: str) -> set[str]:
+    """The reserved async functions that the given hog source names.
+
+    Source that does not parse gives an empty set. compile_hog reports the parse error with a
+    better message, so this must not raise before it runs.
+    """
+    try:
+        program = parse_program(hog)
+    except Exception:
+        return set()
+
+    detector = ReservedFunctionDetector()
+    detector.visit(program)
+    return detector.names
+
+
 class RecordAliasRewriter(TraversingVisitor):
     """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
     sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
@@ -366,6 +481,7 @@ def generate_template_bytecode(
     input_collector: set[str],
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
+    validate_globals: bool = True,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -373,11 +489,14 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
+        return [
+            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            for item in obj
+        ]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         if is_dwh_source:
@@ -388,8 +507,8 @@ def generate_template_bytecode(
         if detector.errors:
             raise Exception(detector.errors[0])
         if function_type == "transformation":
-            transformation_validator = TransformationGlobalsValidator()
-            transformation_validator.visit(node)
+            transformation_validator = TemplateGlobalsValidator()
+            transformation_validator.check(node)
             if transformation_validator.invalid_globals:
                 names = ", ".join(sorted(transformation_validator.invalid_globals))
                 raise Exception(
@@ -397,16 +516,34 @@ def generate_template_bytecode(
                     f"Transformations only have access to project, event, and inputs."
                 )
         elif function_type == "transformation_log":
-            log_validator = TransformationGlobalsValidator(
+            log_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
                 runtime_functions=set(),
             )
-            log_validator.visit(node)
+            log_validator.check(node)
             if log_validator.invalid_globals:
                 names = ", ".join(sorted(log_validator.invalid_globals))
                 raise Exception(
                     f"Variable not available in log transformations: {names}. "
                     f"Log transformations only have access to project, record, and inputs."
+                )
+        elif function_type is not None and validate_globals:
+            # Every other type resolves its inputs against the invocation globals at run time. A save
+            # that disables or deletes the function skips this, so a broken function can be turned off.
+            template_validator = TemplateGlobalsValidator(
+                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+            )
+            template_validator.check(node)
+            if template_validator.invalid_globals:
+                names = ", ".join(sorted(template_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in inputs: {names}. "
+                    f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
+                    f"also variables."
+                )
+            if template_validator.invalid_calls:
+                raise Exception(
+                    "This template would fail on every event: " + "; ".join(template_validator.invalid_calls)
                 )
         return create_bytecode(node).bytecode
     else:
@@ -481,6 +618,8 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_model",
             "task_repository",
             "task_mcp_installations",
+            "signals_scout",
+            "task_skills",
         ]
     )
     key = serializers.CharField()
@@ -513,10 +652,16 @@ class AnyInputField(serializers.Field):
         return value
 
 
+class HogFunctionTemplating(models.TextChoices):
+    HOG = "hog", "hog"
+    LIQUID = "liquid", "liquid"
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
-    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
+    templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
+    bytecode_contract = serializers.CharField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
 
@@ -568,9 +713,11 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+            _validate_not_posthog_connection([value], self.context)
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+            _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
@@ -595,6 +742,12 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "task_mcp_installations":
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
+        elif item_type == "signals_scout":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "task_skills":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of skill names."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -692,12 +845,18 @@ class InputsItemSerializer(serializers.Serializer):
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
+                            attrs.pop("bytecode_contract", None)
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
+                                value,
+                                input_collector,
+                                function_type=function_type,
+                                is_dwh_source=is_dwh_source,
+                                validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
+                            attrs["bytecode_contract"] = RUNTIME_CONTRACT
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
@@ -827,11 +986,6 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
-# Filter sources whose rows come from the warehouse rather than from events: one invocation per
-# row, with the row under `event.properties` and no person attached.
-DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
-
-
 def _contains_behavioral_property(filters: dict) -> bool:
     """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
@@ -849,7 +1003,9 @@ def _contains_behavioral_property(filters: dict) -> bool:
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
+        choices=["events", "internal-events", "person-updates", *DATA_WAREHOUSE_SOURCES],
+        required=False,
+        default="events",
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -859,6 +1015,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    bytecode_contract = serializers.CharField(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -872,11 +1029,17 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        # The compiler writes the stamp below, so a value a client echoes back is never kept.
+        data.pop("bytecode_contract", None)
+
         if _contains_behavioral_property(data):
             raise serializers.ValidationError(
                 "Behavioral (performed event) filters can't be evaluated in realtime functions. "
                 "Use a cohort to filter on past behavior."
             )
+
+        if function_type == "internal_destination":
+            data["source"] = "internal-events"
 
         if function_type == "transformation_log":
             # Filter bytecode is compiled against event-shaped globals, which log records
@@ -897,6 +1060,27 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             # Don't allow events or actions for person-updates
             data.pop("data_warehouse", None)
 
+        if data.get("source") == "internal-events":
+            disallowed = [key for key in ("actions", "data_warehouse") if data.get(key)]
+            if disallowed:
+                raise serializers.ValidationError(
+                    dict.fromkeys(disallowed, "This filter is not supported for internal events.")
+                )
+            data.pop("actions", None)
+            data.pop("data_warehouse", None)
+            events = data.get("events")
+            if (
+                not isinstance(events, list)
+                or not events
+                or any(
+                    not isinstance(event, dict) or not isinstance(event.get("id"), str) or not event["id"].strip()
+                    for event in events
+                )
+            ):
+                raise serializers.ValidationError(
+                    {"events": "Internal event filters require at least one event with a non-empty id."}
+                )
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
@@ -909,6 +1093,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]
@@ -1013,7 +1204,7 @@ def compile_hog(
             # at ingestion time. Declared locals are excluded from the check.
             declared = DeclaredNamesCollector()
             declared.visit(program)
-            body_validator = TransformationGlobalsValidator(
+            body_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
                 runtime_functions=set(),
             )

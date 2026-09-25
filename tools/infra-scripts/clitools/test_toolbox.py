@@ -1025,7 +1025,7 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(
             toolbox_script.POOLS["flags-cache-jumphost"],
             {
-                "default_namespace": "posthog",
+                "default_namespace": "flags-cache-jumphost",
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
             },
@@ -1338,6 +1338,54 @@ class TestToolbox(unittest.TestCase):
             patches["delete_pod"],
             patches["select_context"],
             patches["validate_context"],
+            patch.object(toolbox_script, "ensure_context_access", return_value=True),
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--pool", "flags-cache-jumphost"]),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            self._clean_env()
+            # Managed contexts are `<environment>-<access suffix>`.
+            os.environ["KUBE_CONTEXT"] = "dev-eks"
+            with self.assertRaises(SystemExit) as ctx:
+                toolbox_script.main()
+        self.assertEqual(ctx.exception.code, 0)
+
+        m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="dev-eks")
+        m_get_pod.assert_called_once_with(
+            "user_at_posthog.com",
+            check_claimed=True,
+            app_label="flags-cache-jumphost",
+            claimed_label_key="flags-jumphost-claimed",
+            namespace="flags-cache-jumphost",
+            context="dev-eks",
+            extra_selector=None,
+        )
+        # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
+        self.assertEqual(
+            m_claim.call_args.kwargs,
+            {"namespace": "flags-cache-jumphost", "context": "dev-eks", "resource_version": "12345"},
+        )
+
+    def test_main_jumphost_pool_without_context_uses_the_pool_namespace(self):
+        """With no KUBE_CONTEXT the jumphost namespace is known before the context is chosen.
+
+        The pool has one fixed namespace, so select_context and the pod lookup both receive it.
+        """
+        patches = self._patch_main_collaborators()
+        patches["get_current_user"] = patch.object(
+            toolbox_script,
+            "get_current_user",
+            return_value={"flags-jumphost-claimed": "user_at_posthog.com"},
+        )
+        patches["select_context"] = patch.object(toolbox_script, "select_context", return_value="prod-eu-eks")
+
+        with (
+            patches["get_current_user"],
+            patches["get_toolbox_pod"] as m_get_pod,
+            patches["claim_pod"],
+            patches["connect_to_pod"],
+            patches["delete_pod"],
+            patches["select_context"] as m_select,
+            patches["validate_context"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--pool", "flags-cache-jumphost"]),
             patch.dict(os.environ, {}, clear=False),
         ):
@@ -1346,20 +1394,15 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
         self.assertEqual(ctx.exception.code, 0)
 
-        m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="posthog-dev")
+        m_select.assert_called_once_with("flags-cache-jumphost")
         m_get_pod.assert_called_once_with(
             "user_at_posthog.com",
             check_claimed=True,
             app_label="flags-cache-jumphost",
             claimed_label_key="flags-jumphost-claimed",
-            namespace="posthog",
-            context="posthog-dev",
+            namespace="flags-cache-jumphost",
+            context="prod-eu-eks",
             extra_selector=None,
-        )
-        # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
-        self.assertEqual(
-            m_claim.call_args.kwargs,
-            {"namespace": "posthog", "context": "posthog-dev", "resource_version": "12345"},
         )
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):

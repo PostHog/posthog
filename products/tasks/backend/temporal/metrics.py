@@ -8,6 +8,8 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
+from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
+
 Attributes = dict[str, str | int | float | bool]
 
 TASKS_LATENCY_HISTOGRAM_METRICS = (
@@ -36,6 +38,60 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_SDK_LATENCY_HISTOGRAM_METRICS = (
+    "temporal_activity_execution_latency",
+    "temporal_activity_schedule_to_start_latency",
+    "temporal_workflow_task_execution_latency",
+)
+TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS = [
+    1.0,
+    10.0,
+    20.0,
+    50.0,
+    100.0,
+    200.0,
+    250.0,
+    500.0,
+    1_000.0,
+    2_500.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+    180_000.0,
+    300_000.0,
+    600_000.0,
+    1_000_000.0,
+]
+
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    1_500.0,
+    2_000.0,
+    2_500.0,
+    3_000.0,
+    4_000.0,
+    5_000.0,
+    6_000.0,
+    8_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+]
+
 TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
 TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     10_000.0,
@@ -50,6 +106,19 @@ TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     25_000_000.0,
     50_000_000.0,
     100_000_000.0,
+]
+
+TASKS_RUN_TURNS_HISTOGRAM_METRICS = ("tasks_run_turns",)
+TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
+    1.0,
+    2.0,
+    4.0,
+    8.0,
+    16.0,
+    32.0,
+    64.0,
+    128.0,
+    256.0,
 ]
 
 _RUN_TOKEN_KINDS = {
@@ -110,10 +179,21 @@ def _runtime_adapter_label(value: str | None) -> str:
     return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
 
 
-def resume_mode_label(*, handoff_resumed: bool, using_modal_snapshot: bool) -> str:
-    if handoff_resumed:
-        return "handoff_and_snapshot" if using_modal_snapshot else "handoff"
-    return "snapshot_only" if using_modal_snapshot else "neither"
+def _model_label(value: str | None) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "unknown"
+    normalized = value.strip().lower()
+    return normalized if runtime_adapter_for(normalized) else "other"
+
+
+def resume_mode_label(*, same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool = False) -> str:
+    if same_run_resume:
+        return "same_run_and_snapshot" if using_modal_snapshot else "same_run"
+    if using_modal_snapshot:
+        return "snapshot_only"
+    # An import run never had a sandbox, so there is no working tree to lose: the successor
+    # starts from the transcript alone by design, not because a snapshot went missing.
+    return "imported_transcript" if from_import_run else "neither"
 
 
 def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
@@ -121,9 +201,9 @@ def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
         _metric_meter({"mode": mode, "origin_product": origin_product or "unknown"}).create_counter(
             "tasks_process_resume_mode",
             "Resuming process-task runs by the resume state available at provision time. "
-            "handoff labels record that a handoff was requested, not that its git checkpoint "
-            "was captured. neither means no snapshot and no handoff state accompanied the "
-            "resume, so the agent's prior working tree could not be restored.",
+            "same_run labels identify a restart of the current run. neither means no snapshot "
+            "or same-run state accompanied the resume, so the prior working tree could not be restored. "
+            "imported_transcript means the resumed run only held an imported transcript and had no tree.",
         ).add(1)
     except Exception:
         pass
@@ -197,6 +277,8 @@ def record_run_token_usage(
     origin_product: str | None,
     run_environment: str | None,
     rtk_enabled: bool | None,
+    benjamin_enabled: bool | None,
+    model: str | None,
     runtime_adapter: str | None,
     status: str | None,
 ) -> None:
@@ -209,6 +291,8 @@ def record_run_token_usage(
             "origin_product": origin_product or "unknown",
             "run_environment": run_environment or "unknown",
             "rtk_enabled": _bool_label(rtk_enabled),
+            "benjamin_enabled": _bool_label(benjamin_enabled),
+            "model": _model_label(model),
             "runtime_adapter": _runtime_adapter_label(runtime_adapter),
             "status": status or "unknown",
         }
@@ -219,12 +303,14 @@ def record_run_token_usage(
                     "tasks_run_tokens_total",
                     "Token expenditure of terminal task runs, by token kind",
                 ).add(int(value))
-        total = usage.get("total_tokens")
-        if isinstance(total, int | float) and not isinstance(total, bool) and total > 0:
-            _metric_meter(base_attributes).create_histogram(
-                "tasks_run_total_tokens",
-                "Total tokens spent per terminal task run",
-            ).record(int(total))
+        meter = _metric_meter(base_attributes)
+        for name, description, key in (
+            ("tasks_run_total_tokens", "Total tokens spent per terminal task run", "total_tokens"),
+            ("tasks_run_turns", "Agent turns per terminal task run", "turns"),
+        ):
+            value = usage.get(key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                meter.create_histogram(name, description).record(int(value))
     except Exception:
         pass
 
@@ -243,6 +329,27 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         meter.create_counter(
             "tasks_sandbox_credential_refresh",
             "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
+    try:
+        meter = _metric_meter({"verdict": verdict, "write_stage": write_stage})
+        meter.create_counter(
+            "tasks_sandbox_wedge_probe",
+            "Sandbox pressure probe results after credential file write failures",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_tool_call_only_heartbeat() -> None:
+    try:
+        _metric_meter().create_counter(
+            "tasks_tool_call_only_heartbeat",
+            "Run keep-alives carried only by an unfinished tool call through a long event silence",
         ).add(1)
     except Exception:
         pass
@@ -326,6 +433,55 @@ def record_agent_server_session_init_ms(
         ).record(dt.timedelta(milliseconds=session_init_ms))
     except Exception:
         pass
+
+
+def record_agent_server_step_ms(
+    step: str,
+    duration_ms: int,
+    boot_path: str,
+    *,
+    status: str = "COMPLETED",
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    try:
+        attributes: Attributes = {
+            "step": step,
+            "used_snapshot": _bool_label(used_snapshot),
+            "status": status,
+            "boot_path": boot_path,
+        }
+        if origin_product is not None:
+            attributes["origin_product"] = origin_product
+        if runtime is not None:
+            attributes["runtime"] = runtime
+        _metric_meter(attributes).create_histogram_timedelta(
+            "tasks_process_sandbox_step_latency",
+            "Latency for get_sandbox_for_repository sub-steps",
+            unit="ms",
+        ).record(dt.timedelta(milliseconds=duration_ms))
+    except Exception:
+        pass
+
+
+def record_agent_server_boot_phases_ms(
+    boot_phases_ms: Mapping[str, int],
+    boot_path: str,
+    *,
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in boot_phases_ms.items():
+        record_agent_server_step_ms(
+            f"agent_server_phase_{phase}",
+            duration_ms,
+            boot_path,
+            used_snapshot=used_snapshot,
+            origin_product=origin_product,
+            runtime=runtime,
+        )
 
 
 def increment_agent_server_readiness_retry(

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
+import { IconRefresh, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDivider,
     LemonInput,
     LemonSwitch,
     LemonTable,
@@ -16,9 +17,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -33,21 +37,91 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { ObservationSearchTab } from '../search/ObservationSearchTab'
+import { ObservationSearch } from '../search/ObservationSearch'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
+import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
-import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
+import {
+    ENABLED_OPTIONS,
+    EnabledFilter,
+    SCANNER_TYPE_OPTIONS,
+    ScannerType,
+    ReplayScanner,
+    homeRedesignVariant,
+} from './types'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
     label,
 }))
+
+function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
+    const { deletingIds } = useValues(replayScannersLogic)
+    const { deleteScanner, duplicateScanner } = useActions(replayScannersLogic)
+
+    return (
+        <More
+            data-attr="vision-scanner-row-more"
+            overlay={
+                <>
+                    <LemonButton
+                        fullWidth
+                        to={urls.replayVision(scanner.id)}
+                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
+                        data-attr="vision-scanner-edit-row"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Edit
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => duplicateScanner(scanner.id)}
+                        // Duplicating creates a new scanner, so gate on resource-level edit access
+                        // rather than this row's per-object level.
+                        disabledReason={getReplayVisionEditDisabledReason()}
+                        data-attr="vision-scanner-duplicate"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Duplicate
+                    </LemonButton>
+                    <LemonDivider />
+                    <LemonButton
+                        fullWidth
+                        status="danger"
+                        loading={deletingIds.includes(scanner.id)}
+                        disabledReason={
+                            deletingIds.includes(scanner.id)
+                                ? 'Deleting…'
+                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
+                        }
+                        onClick={() =>
+                            LemonDialog.open({
+                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                description: 'This cannot be undone.',
+                                primaryButton: {
+                                    children: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => deleteScanner(scanner.id),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }
+                        data-attr="vision-scanner-delete"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Delete
+                    </LemonButton>
+                </>
+            }
+        />
+    )
+}
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -64,7 +138,6 @@ export function ReplayScannersScene(): JSX.Element {
         scannersTotal,
         scannersSort,
         togglingIds,
-        deletingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -76,11 +149,22 @@ export function ReplayScannersScene(): JSX.Element {
         scannerStats,
         scannerStatsLoading,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
-        useActions(replayScannersLogic)
+    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // On the test arm the tab row itself diverges, so the flag read (which reports exposure)
+    // is correct on every tab of this scene.
+    const isRedesign =
+        homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) === 'test'
+    // The feed tab exists only on the test arm and is its default; control users following a
+    // shared ?tab=watch link fall through to the scanners tab.
+    const knownTabs: string[] = isRedesign
+        ? ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
+        : ['scanners', ReplayScannerTab.Search, 'usage']
+    const defaultTab = isRedesign ? 'watch' : 'scanners'
+    const activeTab = knownTabs.includes(searchParams.tab) ? searchParams.tab : defaultTab
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -180,49 +264,9 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
-            title: 'Actions',
             key: 'actions',
-            render: (_, scanner) => (
-                <div className="flex gap-1">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconPencil />}
-                        to={urls.replayVision(scanner.id)}
-                        disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
-                        tooltip="Edit"
-                        data-attr="vision-scanner-edit-row"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    />
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        loading={deletingIds.includes(scanner.id)}
-                        disabledReason={
-                            deletingIds.includes(scanner.id)
-                                ? 'Deleting…'
-                                : getReplayVisionDeleteDisabledReason(scanner.user_access_level)
-                        }
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                description: 'This cannot be undone.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteScanner(scanner.id),
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }
-                        tooltip="Delete"
-                        data-attr="vision-scanner-delete"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    />
-                </div>
-            ),
+            width: 0,
+            render: (_, scanner) => <ScannerRowActions scanner={scanner} />,
         },
     ]
 
@@ -254,20 +298,21 @@ export function ReplayScannersScene(): JSX.Element {
             )}
 
             <LemonTabs
-                activeKey={
-                    [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
-                }
-                onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
+                activeKey={activeTab}
+                onChange={(tab) => push(urls.replayVision(), tab === defaultTab ? {} : { tab })}
                 tabs={[
+                    ...(isRedesign ? [{ key: 'watch', label: 'What to watch', content: <></> }] : []),
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
                 ]}
             />
 
-            {searchParams.tab === ReplayScannerTab.Search ? (
-                <ObservationSearchTab scannerId={null} />
-            ) : searchParams.tab === 'usage' ? (
+            {activeTab === 'watch' ? (
+                <WatchFeedTab />
+            ) : activeTab === ReplayScannerTab.Search ? (
+                <ObservationSearch className="mt-2 w-4/5 mx-auto" />
+            ) : activeTab === 'usage' ? (
                 <VisionUsageTab />
             ) : (
                 <>

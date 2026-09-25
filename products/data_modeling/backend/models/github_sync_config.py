@@ -1,12 +1,7 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields
-
-logger = logging.getLogger(__name__)
 
 
 class GitHubSyncStatus(models.TextChoices):
@@ -16,10 +11,12 @@ class GitHubSyncStatus(models.TextChoices):
 
 
 class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
     team_id: int
 
-    integration = models.ForeignKey("posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True)
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     integration_id: int | None
 
     repository = models.CharField(
@@ -49,6 +46,3 @@ class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     class Meta:
         app_label = "data_modeling"
         db_table = "posthog_datamodelinggithubsyncconfig"
-
-
-register_team_extension_signal(GitHubSyncConfig, logger=logger)

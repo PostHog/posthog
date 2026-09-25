@@ -1,8 +1,10 @@
 """Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
 
+import re
 import json
+import time
 import datetime as dt
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
 from unittest.mock import (
@@ -31,12 +33,15 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportContent,
     ReportSection,
 )
+from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
+    _dead_backticked_ids,
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
+    _label_generation_evals,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -51,6 +56,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     sample_session_details,
     sample_trace_details,
     set_title,
+    strip_dead_backticked_ids,
 )
 
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
@@ -82,6 +88,7 @@ class _ReportToolState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
     session_id_allowlist: list[str]
+    report_run_handles: NotRequired[dict[str, str]]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -242,6 +249,54 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertIn("properties.$ai_evaluation_result_type = 'sentiment'", current_query)
         self.assertNotIn("properties.$ai_evaluation_result = true", current_query)
 
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_detector_polarity_counts_a_false_result_as_the_pass(self, mock_execute_hogql):
+        # 18 clean and 80 flagged results: a detector reports the 80 flagged ones as fails.
+        mock_execute_hogql.side_effect = [
+            [[18, 80, 2, 100]],
+            [[2, 7, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "true_is_failure": True,
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["result_counts"], {"pass": 18, "fail": 80, "na": 2})
+        self.assertEqual(result["current_period"]["pass_rate"], 18.37)
+        pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
+        assert pass_column is not None
+        self.assertIn("properties.$ai_evaluation_result = false", pass_column.group(1))
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_state_without_polarity_counts_a_true_result_as_the_pass(self, mock_execute_hogql):
+        # A report started before the field existed replays with no polarity key at all.
+        mock_execute_hogql.side_effect = [
+            [[80, 18, 2, 100]],
+            [[7, 2, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["result_counts"], {"pass": 80, "fail": 18, "na": 2})
+        pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
+        assert pass_column is not None
+        self.assertIn("properties.$ai_evaluation_result = true", pass_column.group(1))
+
 
 class TestTargetAwareEvalResults(SimpleTestCase):
     def _state(self, evaluation_target: str, output_type: str = "boolean") -> dict:
@@ -302,13 +357,23 @@ class TestTargetAwareEvalResults(SimpleTestCase):
     def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
             [[1]],
-            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+            [[_VALID_GEN_ID, "negative", None, 0.9123456789, "identical classifier reasoning"]],
         ]
 
         result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))
 
         self.assertIn(f"negative (0.91) | {_VALID_GEN_ID}", result)
         self.assertNotIn("classifier reasoning", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_numeric_list_preserves_small_scores(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [[[1]], [[_VALID_GEN_ID, 0.00014, True, 0.00014, "cost"]]]
+        state = self._state("generation", "numeric")
+        state["output_config"] = {"passing_rule": {"operator": "lte", "threshold": 0.001}}
+
+        result = _list_all_eval_results_fn(state=state)
+
+        self.assertIn(f"pass (0.00014) | {_VALID_GEN_ID}", result)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
@@ -570,6 +635,21 @@ class TestSetTitle(SimpleTestCase):
         self.assertLessEqual(len(state["report"].title), 200)
         self.assertTrue(state["report"].title.endswith("..."))
 
+    # The title is an email subject, a Slack header, and a heading — never markdown — so
+    # citing the ID does not save it. Rejecting in the loop lets the agent retitle; the
+    # final validation can only discard the whole report.
+    @parameterized.expand([("uncited", False), ("cited", True)])
+    def test_rejects_backticked_id_in_title(self, _name: str, cite: bool) -> None:
+        state = _state_with_empty_report()
+        if cite:
+            state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _set_title_fn(state=state, title=f"Regression in `{_VALID_GEN_ID}`")
+
+        self.assertIn("Error", result)
+        self.assertIn(_VALID_GEN_ID, result)
+        self.assertEqual(state["report"].title, "")
+
 
 class TestAddSection(SimpleTestCase):
     def test_appends_section(self):
@@ -618,38 +698,169 @@ class TestAddSection(SimpleTestCase):
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
-    def test_rejects_section_backticking_an_uncited_uuid(self):
-        # A run_id from list_recent_report_runs is a canonical UUID but not citable,
-        # so backticking it would ship a dead identifier. The guard blocks it in-loop.
+    @parameterized.expand(
+        [
+            # A run_id from list_recent_report_runs is a canonical UUID but not citable.
+            (
+                "uncited_uuid_in_content",
+                "Summary",
+                "Steady since run `{id}`.",
+                [],
+                "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f",
+            ),
+            # An opaque handled ID is invisible to a UUID-shaped regex, so the in-loop
+            # guard only catches it while it reads the run's allowlists.
+            ("uncited_handled_id_in_content", "Summary", "See `{id}`.", ["chat_thread_9f2b1a"], "chat_thread_9f2b1a"),
+            (
+                "uncited_handled_id_in_title",
+                "Regression in `{id}`",
+                "A finding.",
+                ["chat_thread_9f2b1a"],
+                "chat_thread_9f2b1a",
+            ),
+        ]
+    )
+    def test_rejects_section_with_a_dead_backticked_id(
+        self, _name: str, title: str, content: str, session_allowlist: list[str], dead_id: str
+    ) -> None:
         state = _state_with_empty_report()
-        run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
-        result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
+        state["session_id_allowlist"] = session_allowlist
+        result = _add_section_fn(state=state, title=title.format(id=dead_id), content=content.format(id=dead_id))
         self.assertIn("Error", result)
-        self.assertIn(run_id, result)
+        self.assertIn(dead_id, result)
         self.assertEqual(state["report"].sections, [])
 
-    def test_allows_section_when_backticked_uuid_is_cited(self):
+    def test_allows_section_when_backticked_id_is_cited(self):
         state = _state_with_empty_report()
         state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
         result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
-    @parameterized.expand(
-        [
-            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
-            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
-            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
-        ]
-    )
-    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
+    def test_rejects_section_with_a_backticked_run_handle(self):
+        # A handle is not UUID-shaped, so only the handle map makes the guard read it as an ID.
         state = _state_with_empty_report()
-        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+        state["report_run_handles"] = {"run_1": _VALID_GEN_ID}
 
-        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
+        result = _add_section_fn(state=state, title="Summary", content="Steady since `run_1`.")
 
         self.assertIn("Error", result)
         self.assertEqual(state["report"].sections, [])
+
+    def test_rejects_cited_backticked_id_in_a_section_title(self):
+        # Section titles reach the reader as a heading, so citation linking never runs over them.
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title=f"Regression in `{_VALID_GEN_ID}`", content="A finding.")
+
+        self.assertIn("Error", result)
+        self.assertIn(_VALID_GEN_ID, result)
+        self.assertEqual(state["report"].sections, [])
+
+
+class TestDeadBacktickedIds(SimpleTestCase):
+    _OPAQUE_SESSION_ID = "chat_thread_9f2b1a"
+    _RUN_ID = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+
+    @parameterized.expand(
+        [
+            # An opaque session ID the session handled is invisible to a UUID-shaped
+            # regex, which is exactly the dead identifier readers still chase.
+            (
+                "opaque_handled_id_uncited_is_dead",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                [],
+                {_OPAQUE_SESSION_ID},
+                [_OPAQUE_SESSION_ID],
+            ),
+            (
+                "opaque_handled_id_cited_links",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                [Citation(session_id=_OPAQUE_SESSION_ID)],
+                {_OPAQUE_SESSION_ID},
+                [],
+            ),
+            ("uncited_uuid_is_dead", f"Steady since run `{_RUN_ID}`.", [], set(), [_RUN_ID]),
+            (
+                "cited_uuid_in_one_pair_links",
+                f"See `{_VALID_GEN_ID}`.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [],
+            ),
+            (
+                "cited_uuid_upper_case_wrapper_is_dead",
+                f"See `{_VALID_GEN_ID.upper()}`.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [_VALID_GEN_ID.upper()],
+            ),
+            (
+                # The renderer links this wrapper, so the guard must not call it dead.
+                "cited_uuid_in_double_backtick_span_links",
+                f"See `` `{_VALID_GEN_ID}` `` for the regression.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [],
+            ),
+            (
+                "uncited_uuid_in_double_backtick_span_is_dead",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                [],
+                set(),
+                [_RUN_ID],
+            ),
+            (
+                "cited_uuid_double_backticks_is_dead",
+                f"See ``{_VALID_GEN_ID}``.",
+                [Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID)],
+                set(),
+                [_VALID_GEN_ID],
+            ),
+            ("backticked_prose_is_ignored", "The `total_runs` field.", [], {_OPAQUE_SESSION_ID}, []),
+        ]
+    )
+    def test_dead_backticked_ids(
+        self, _name: str, text: str, citations: list[Citation], handled_ids: set[str], expected: list[str]
+    ) -> None:
+        self.assertEqual(_dead_backticked_ids(text, citations, handled_ids), expected)
+
+    @parameterized.expand(
+        [
+            ("uncited_uuid_loses_its_backticks", f"Steady since run `{_RUN_ID}`.", f"Steady since run {_RUN_ID}."),
+            (
+                "uncited_uuid_loses_its_double_backtick_span",
+                f"Steady since run `` `{_RUN_ID}` ``.",
+                f"Steady since run {_RUN_ID}.",
+            ),
+            (
+                "cited_id_keeps_its_backticks",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+                f"See `{_OPAQUE_SESSION_ID}`.",
+            ),
+            (
+                "cited_id_keeps_its_double_backtick_span",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+                f"See `` `{_OPAQUE_SESSION_ID}` ``.",
+            ),
+            ("prose_keeps_its_backticks", "The `total_runs` field.", "The `total_runs` field."),
+        ]
+    )
+    def test_strip_dead_backticked_ids(self, _name: str, text: str, expected: str) -> None:
+        citations = [Citation(session_id=self._OPAQUE_SESSION_ID)]
+        self.assertEqual(strip_dead_backticked_ids(text, citations, {self._OPAQUE_SESSION_ID}), expected)
+
+    def test_scan_stays_linear_on_a_whitespace_run(self):
+        # A model that degenerates into whitespace after a stray backtick writes exactly the
+        # input that makes an ambiguous backtick pattern backtrack. The check runs inside the
+        # report activity, so a slow scan hangs the activity instead of returning an error.
+        # Two thousand characters took about seven seconds before the pattern was tightened.
+        text = "The pass rate held. `" + " " * 2000
+
+        started = time.monotonic()
+        self.assertEqual(_dead_backticked_ids(text, [], set()), [])
+        self.assertLess(time.monotonic() - started, 1.0)
 
 
 class TestAddCitation(SimpleTestCase):
@@ -889,9 +1100,10 @@ class TestListAndGetReportRun(BaseTest):
             period_start=now - dt.timedelta(days=2),
             period_end=now - dt.timedelta(days=1),
         )
-        self.state = {
+        self.state: dict[str, Any] = {
             "evaluation_id": str(self.evaluation.id),
             "period_start": now.isoformat(),
+            REPORT_RUN_HANDLE_KEY: {},
         }
 
     def test_list_returns_compact_index_newest_first(self):
@@ -901,9 +1113,46 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(result[0]["pass_rate"], 94.2)
         self.assertEqual(result[0]["total_runs"], 53)
         self.assertNotIn("result_rates", result[0])
-        self.assertIn("run_id", result[0])
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
+
+    @parameterized.expand([(80, False), (40, True), (None, None)])
+    def test_numeric_history_identifies_comparison_rule(self, previous_threshold, matches):
+        config = (
+            {"passing_rule": {"operator": "lte", "threshold": previous_threshold}}
+            if previous_threshold is not None
+            else {}
+        )
+        self.recent_run.metadata = {
+            "output_type": "numeric",
+            "output_config": config,
+            "total_runs": 10,
+            "result_counts": {"pass": 8, "fail": 2, "na": 0},
+        }
+        self.recent_run.save()
+        self.state.update(output_type="numeric", output_config={"passing_rule": {"operator": "lte", "threshold": 40}})
+
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))[0]
+
+        self.assertEqual(result["output_config"], config)
+        self.assertEqual(result["passing_rule_matches_current"], matches)
+        self.assertEqual(result["pass_rate"], 80)
+
+    def test_list_hands_out_handles_and_get_resolves_them(self):
+        # A run UUID is UUID-shaped but can never be cited, so an agent that repeats one in
+        # backticked prose writes a dead identifier. It never sees the UUID to repeat.
+        listed = json.loads(_list_recent_report_runs_fn(state=self.state))
+        handles = [run["run_id"] for run in listed]
+
+        self.assertNotIn(str(self.recent_run.id), handles)
+        self.assertEqual(len(set(handles)), len(handles))
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=handles[0]))
+        self.assertEqual(fetched["content"]["title"], "Recent report")
+        self.assertEqual(fetched["run_id"], handles[0])
+
+    def test_get_rejects_an_unknown_handle(self):
+        result = json.loads(_get_report_run_fn(state=self.state, run_id="run_9"))
+        self.assertIn("error", result)
 
     def test_list_filters_by_since_days(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state, since_days=3))
@@ -937,8 +1186,8 @@ class TestListAndGetReportRun(BaseTest):
         trace_state = {**self.state, "evaluation_target": "trace"}
         trace_runs = json.loads(_list_recent_report_runs_fn(state=trace_state))
 
-        self.assertNotIn(str(trace_run.id), {run["run_id"] for run in generation_runs})
-        self.assertEqual([run["run_id"] for run in trace_runs], [str(trace_run.id)])
+        self.assertNotIn("Trace report", {run["title"] for run in generation_runs})
+        self.assertEqual([run["title"] for run in trace_runs], ["Trace report"])
         self.assertIn("error", json.loads(_get_report_run_fn(state=self.state, run_id=str(trace_run.id))))
         self.assertEqual(
             json.loads(_get_report_run_fn(state=trace_state, run_id=str(trace_run.id)))["content"]["title"],
@@ -950,7 +1199,7 @@ class TestListAndGetReportRun(BaseTest):
         # excluded by a strict `lt` filter, dropping the immediately previous report —
         # the most useful one for delta/continuity analysis.
         boundary_start = dt.datetime.fromisoformat(self.state["period_start"])
-        boundary_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={"title": "Back-to-back report", "sections": []},
             metadata={"pass_rate": 77.7, "total_runs": 11},
@@ -960,7 +1209,7 @@ class TestListAndGetReportRun(BaseTest):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         titles = [r["title"] for r in result]
         self.assertIn("Back-to-back report", titles)
-        boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
+        boundary_entry = next(r for r in result if r["title"] == "Back-to-back report")
         self.assertEqual(boundary_entry["pass_rate"], 77.7)
         self.assertEqual(boundary_entry["total_runs"], 11)
 
@@ -969,7 +1218,7 @@ class TestListAndGetReportRun(BaseTest):
         # downstream store activity mirrors them into metadata. The tool must read
         # either source so it stays correct if the mirror is removed.
         now = timezone.now()
-        content_only_run = self.EvaluationReportRun.objects.create(
+        self.EvaluationReportRun.objects.create(
             report=self.report,
             content={
                 "title": "Content-only metrics",
@@ -984,7 +1233,7 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
+        entry = next(r for r in result if r["title"] == "Content-only metrics")
         self.assertEqual(entry["pass_rate"], 75.0)
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
@@ -1004,10 +1253,10 @@ class TestListAndGetReportRun(BaseTest):
             period_end=now - dt.timedelta(hours=1),
         )
 
-        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        listed_titles = {run["title"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
         fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
 
-        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertNotIn("Metrics temporarily unavailable", listed_titles)
         self.assertIn("error", fetched)
 
     def test_get_rejects_non_uuid(self):
@@ -1149,3 +1398,39 @@ class TestToolsCoordinate(SimpleTestCase):
         self.assertEqual(len(report.sections), 2)
         self.assertIsInstance(report.sections[0], ReportSection)
         self.assertEqual(len(report.citations), 1)
+
+
+class TestLabelGenerationEvals(SimpleTestCase):
+    def test_numeric_evaluations_use_their_own_rule_and_keep_unrated_scores(self):
+        rows = [[name, "numeric", None, None, None, "reason", True, 7.5] for name in ["high", "low", "unrated"]]
+        configs = {
+            "high": {"passing_rule": {"operator": "gte", "threshold": 7}},
+            "low": {"passing_rule": {"operator": "lte", "threshold": 7}},
+        }
+        labeled = _label_generation_evals(rows, set(), configs)
+        self.assertEqual([row["outcome"] for row in labeled], ["pass", "fail", None])
+        self.assertEqual([row["score"] for row in labeled], [7.5, 7.5, 7.5])
+
+    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
+    ROWS: list[list[object]] = [
+        ["detector-eval", "boolean", True, None, None, "struggled", None],
+        ["quality-eval", "boolean", True, None, None, "accurate", None],
+        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None],
+    ]
+
+    def test_each_evaluation_is_labeled_by_its_own_polarity(self):
+        labeled = _label_generation_evals(self.ROWS, {"detector-eval"})
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "fail", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_no_detectors_keeps_every_true_result_a_pass(self):
+        labeled = _label_generation_evals(self.ROWS, set())
+
+        outcomes = {row["evaluation_id"]: row["outcome"] for row in labeled}
+        self.assertEqual(outcomes, {"detector-eval": "pass", "quality-eval": "pass", "sentiment-eval": "negative"})
+
+    def test_unsupported_output_type_is_dropped(self):
+        labeled = _label_generation_evals([["unknown-eval", "unknown", 1, None, None, "", None]], set())
+
+        self.assertEqual(labeled, [])

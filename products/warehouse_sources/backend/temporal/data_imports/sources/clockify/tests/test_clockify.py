@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.c
     CLOCKIFY_BASE_URL,
     ClockifyPageNumberPaginator,
     ClockifyResumeConfig,
+    _chained_resource,
     _clamp_future_value_to_now,
+    _flatten_approval_request,
     _flatten_time_entry,
     _format_datetime_z,
     clockify_source,
@@ -61,6 +63,20 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str,
     return snapshots
 
 
+def _wire_bodies(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, str, dict[str, Any]]]:
+    """Like ``_wire``, but snapshots the method and JSON body instead of the query params."""
+    session.headers = {}
+    snapshots: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, request.method, dict(request.json or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -97,7 +113,7 @@ class TestClampFutureValueToNow:
             ("past_iso_string", "2026-03-04T02:58:14Z", "2026-03-04T02:58:14Z"),
         ]
     )
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_clamp(self, _name: str, value: Any, expected: Any) -> None:
         assert _clamp_future_value_to_now(value) == expected
 
@@ -117,6 +133,34 @@ class TestFlattenTimeEntry:
     def test_missing_time_interval_is_noop(self) -> None:
         row = _flatten_time_entry({"id": "T1"})
         assert "time_interval_start" not in row
+
+
+class TestFlattenApprovalRequest:
+    def test_flattens_the_nested_request(self) -> None:
+        row = _flatten_approval_request(
+            {
+                "approvalRequest": {
+                    "id": "AR1",
+                    "status": {"state": "APPROVED", "note": ""},
+                    "owner": {"userId": "U1", "userName": "Ada"},
+                    "dateRange": {"start": "2026-03-02T00:00:00Z", "end": "2026-03-08T23:59:59Z"},
+                },
+                "trackedTime": "PT40H",
+            }
+        )
+        assert row["approval_request_id"] == "AR1"
+        assert row["approval_request_state"] == "APPROVED"
+        assert row["approval_request_owner_user_id"] == "U1"
+        assert row["approval_request_start"] == "2026-03-02T00:00:00Z"
+        assert row["approval_request_end"] == "2026-03-08T23:59:59Z"
+
+    def test_partial_request_only_flattens_what_is_present(self) -> None:
+        row = _flatten_approval_request({"approvalRequest": {"id": "AR1"}})
+        assert row["approval_request_id"] == "AR1"
+        assert "approval_request_state" not in row
+
+    def test_missing_request_is_noop(self) -> None:
+        assert _flatten_approval_request({"trackedTime": "PT1H"}) == {"trackedTime": "PT1H"}
 
 
 class TestPaginator:
@@ -312,6 +356,184 @@ class TestTwoLevelFanOutTimeEntries:
         _rows(_source("time_entries", _make_manager(), should_use_incremental_field=False))
 
         assert "start" not in snapshots[-1][1]
+
+
+class TestEnvelopedEndpoints:
+    """Endpoints whose rows sit inside a response envelope rather than a bare array."""
+
+    @parameterized.expand(
+        [
+            (
+                "expenses",
+                {"dailyTotals": None, "weeklyTotals": None, "expenses": {"count": 1, "expenses": [{"id": "E1"}]}},
+            ),
+            ("expense_categories", {"count": 1, "categories": [{"id": "E1"}]}),
+            ("invoices", {"total": 1, "invoices": [{"id": "E1"}]}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_are_read_from_the_envelope(self, endpoint: str, body: Any, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "W1"}]), _response(body)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert rows == [{"id": "E1", "workspace_id": "W1"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_null_expense_envelope_yields_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Clockify documents all three keys as nullable; a workspace without expense tracking must
+        # sync zero rows rather than fail the schema.
+        _wire(
+            session,
+            [_response([{"id": "W1"}]), _response({"dailyTotals": None, "expenses": None, "weeklyTotals": None})],
+        )
+
+        assert _rows(_source("expenses", _make_manager())) == []
+
+
+class TestCustomFieldsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sends_no_paging_params_and_stops_after_one_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The endpoint accepts no page/page-size params, so sending them would be noise and a
+        # second request would re-read the same collection forever.
+        snapshots = _wire(session, [_response([{"id": "W1"}]), _response([{"id": "CF1"}])])
+
+        rows = _rows(_source("custom_fields", _make_manager()))
+
+        assert rows == [{"id": "CF1", "workspace_id": "W1"}]
+        assert snapshots[-1] == (f"{CLOCKIFY_BASE_URL}/workspaces/W1/custom-fields", {})
+
+
+class TestTwoLevelFanOutInvoicePayments:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_workspace_then_invoice_and_injects_both_ids(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response({"total": 2, "invoices": [{"id": "I1"}, {"id": "I2"}]}),
+                _response([{"id": "PM1", "amount": 10}]),
+                _response([{"id": "PM2", "amount": 20}]),
+            ],
+        )
+
+        rows = _rows(_source("invoice_payments", _make_manager()))
+
+        assert rows == [
+            {"id": "PM1", "amount": 10, "workspace_id": "W1", "invoice_id": "I1"},
+            {"id": "PM2", "amount": 20, "workspace_id": "W1", "invoice_id": "I2"},
+        ]
+        assert [url for url, _ in snapshots] == [
+            f"{CLOCKIFY_BASE_URL}/workspaces",
+            f"{CLOCKIFY_BASE_URL}/workspaces/W1/invoices",
+            f"{CLOCKIFY_BASE_URL}/workspaces/W1/invoices/I1/payments",
+            f"{CLOCKIFY_BASE_URL}/workspaces/W1/invoices/I2/payments",
+        ]
+
+
+class TestTimeOffRequestsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_posts_the_filter_body_and_reads_the_requests_envelope(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire_bodies(
+            session,
+            [_response([{"id": "W1"}]), _response({"count": 1, "requests": [{"id": "TO1"}]})],
+        )
+
+        rows = _rows(_source("time_off_requests", _make_manager()))
+
+        assert rows == [{"id": "TO1", "workspace_id": "W1"}]
+        url, method, body = snapshots[-1]
+        assert url == f"{CLOCKIFY_BASE_URL}/workspaces/W1/time-off/requests"
+        assert method == "POST"
+        # Without an explicit status filter Clockify returns pending requests only.
+        assert body == {"page": 1, "pageSize": 200, "statuses": ["ALL"]}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paging_advances_in_the_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = {"count": 200, "requests": [{"id": str(i)} for i in range(200)]}
+        snapshots = _wire_bodies(
+            session,
+            [_response([{"id": "W1"}]), _response(full_page), _response({"count": 0, "requests": []})],
+        )
+
+        _rows(_source("time_off_requests", _make_manager()))
+
+        assert [body.get("page") for _url, _method, body in snapshots[1:]] == [1, 2]
+
+
+class TestApprovalRequestsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_rows_and_pages_on_a_stable_sort(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"approvalRequest": {"id": "AR1", "owner": {"userId": "U1"}}, "trackedTime": "PT40H"}]),
+            ],
+        )
+
+        rows = _rows(_source("approval_requests", _make_manager()))
+
+        assert rows[0]["workspace_id"] == "W1"
+        assert rows[0]["approval_request_id"] == "AR1"
+        assert rows[0]["approval_request_owner_user_id"] == "U1"
+        url, params = snapshots[-1]
+        assert url == f"{CLOCKIFY_BASE_URL}/workspaces/W1/approval-requests"
+        # Approvals are submitted while a sync runs, so an unsorted walk would skip or repeat rows
+        # across page boundaries.
+        assert params == {"page": 1, "page-size": 1000, "sort-column": "ID", "sort-order": "ASCENDING"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_row_without_an_approval_request_is_dropped(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Clockify documents the nested request as nullable; such a row has no id, and writing it
+        # would seed a null primary key.
+        _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"approvalRequest": None}, {"approvalRequest": {"id": "AR1"}}]),
+            ],
+        )
+
+        rows = _rows(_source("approval_requests", _make_manager()))
+
+        assert [row["approval_request_id"] for row in rows] == ["AR1"]
+
+
+class TestUserGroupsEndpoint:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_keeps_members_and_asks_for_team_managers(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "W1"}]),
+                _response([{"id": "G1", "name": "Design", "userIds": ["U1", "U2"], "teamManagers": [{"id": "U1"}]}]),
+            ],
+        )
+
+        rows = _rows(_source("user_groups", _make_manager()))
+
+        assert rows[0]["workspace_id"] == "W1"
+        assert rows[0]["userIds"] == ["U1", "U2"]
+        url, params = snapshots[-1]
+        assert url == f"{CLOCKIFY_BASE_URL}/workspaces/W1/user-groups"
+        # Team managers are left out of the response unless asked for.
+        assert params["includeTeamManagers"] == "true"
+
+
+class TestChainedResource:
+    def test_endpoint_without_a_fan_out_parent_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no fan-out parent"):
+            _chained_resource("clients", lambda row: row)
 
 
 class TestFailLoud:

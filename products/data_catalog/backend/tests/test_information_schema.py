@@ -2,7 +2,6 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -24,7 +23,6 @@ from posthog.hogql.database.schema.information_schema import (
     _catalog_relationship_proposals,
     _catalog_table_visible,
 )
-from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
@@ -67,12 +65,6 @@ _CATALOG_READERS: list[tuple[str, Callable[..., Any], type[Model], Any]] = [
 
 
 class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
-
     def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
         if denied_tables:
@@ -117,21 +109,6 @@ class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
         assert "rankings" in description
         assert "data-catalog-metric-run" in description
         assert "instead of copying" in description
-
-    def test_metrics_table_absent_when_flag_off(self) -> None:
-        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
-        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
-            listing = execute_hogql_query(
-                "SELECT table_name FROM system.information_schema.tables WHERE table_name = 'system.information_schema.metrics'",
-                team=self.team,
-                context=self._context(),
-            )
-            assert listing.results == []
-
-            with pytest.raises(QueryError, match="Unknown table"):
-                execute_hogql_query(
-                    "SELECT name FROM system.information_schema.metrics", team=self.team, context=self._context()
-                )
 
     def test_is_drifted_reflects_source_insight(self) -> None:
         insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL)
@@ -188,12 +165,6 @@ class TestInformationSchemaMetrics(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
-
     def _context(self, denied_tables: set[str] | None = None) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
         if denied_tables:
@@ -216,66 +187,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
     def _accept_relationship(self, proposal: RelationshipProposal) -> RelationshipProposal:
         with patch.object(relationships, "execute_hogql_query"):
             return accept_proposal(proposal, self.user)
-
-    def test_catalog_trust_metadata_is_absent_when_flag_off(self) -> None:
-        table = self._create_warehouse_table("revenue")
-        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
-        source = self._create_warehouse_table("catalog_orders")
-        target = self._create_warehouse_table("catalog_customers")
-        proposal = propose_relationship(
-            team=self.team,
-            user=self.user,
-            source_table_name=source.name,
-            source_table_key="id",
-            joining_table_name=target.name,
-            joining_table_key="id",
-            field_name="customer",
-            confidence=0.9,
-            reasoning="Reviewed join",
-        )
-        self._accept_relationship(proposal)
-
-        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
-            context = self._context()
-
-        columns = execute_hogql_query(
-            "SELECT table_name, column_name FROM system.information_schema.columns "
-            "WHERE table_name IN ('system.information_schema.tables', 'system.information_schema.relationships')",
-            team=self.team,
-            context=context,
-        )
-        assert ("system.information_schema.tables", "certification") not in columns.results
-        assert ("system.information_schema.relationships", "confidence") not in columns.results
-        assert ("system.information_schema.relationships", "reasoning") not in columns.results
-
-        catalog_tables_listing = execute_hogql_query(
-            "SELECT table_name FROM system.information_schema.tables WHERE table_name IN "
-            "('system.information_schema.certifications', 'system.information_schema.relationship_proposals')",
-            team=self.team,
-            context=context,
-        )
-        assert catalog_tables_listing.results == []
-
-        relationships_response = execute_hogql_query(
-            "SELECT source_column, target_table, target_column, relationship_kind "
-            "FROM system.information_schema.relationships WHERE source_table = 'catalog_orders'",
-            team=self.team,
-            context=context,
-        )
-        assert relationships_response.results == [("id", "catalog_customers", "id", "lazy_join")]
-
-        with pytest.raises(QueryError, match="certification"):
-            execute_hogql_query(
-                "SELECT certification FROM system.information_schema.tables", team=self.team, context=context
-            )
-        with pytest.raises(QueryError, match="confidence"):
-            execute_hogql_query(
-                "SELECT confidence FROM system.information_schema.relationships", team=self.team, context=context
-            )
-        with pytest.raises(QueryError, match="Unknown table"):
-            execute_hogql_query(
-                "SELECT id FROM system.information_schema.relationship_proposals", team=self.team, context=context
-            )
 
     def test_certification_column_on_tables(self) -> None:
         table = self._create_warehouse_table("revenue")
@@ -903,6 +814,38 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert response.results == [("cert_push_view",)]
 
+    @parameterized.expand(
+        [
+            ("raw", "cert_push_table", "cert_push_table"),
+            ("dotted", "stripe_cert_push_table", "stripe.cert_push_table"),
+        ]
+    )
+    def test_certifications_table_target_name_pushdown_keeps_table_rows(
+        self, _name: str, raw_name: str, target_name: str
+    ) -> None:
+        external_data_source = None
+        if target_name != raw_name:
+            external_data_source = ExternalDataSource.objects.create(
+                team=self.team, source_type=ExternalDataSourceType.STRIPE
+            )
+        table = DataWarehouseTable.objects.create(
+            name=raw_name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=external_data_source,
+            url_pattern=f"s3://bucket/{raw_name}",
+            columns=_COLUMNS,
+        )
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+
+        response = execute_hogql_query(
+            f"SELECT target_name FROM system.information_schema.certifications WHERE target_name = '{target_name}'",
+            team=self.team,
+            context=self._context(),
+        )
+
+        assert response.results == [(target_name,)]
+
     def test_certifications_table_team_isolation(self) -> None:
         other = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Other")
         table = DataWarehouseTable.objects.create(
@@ -954,12 +897,6 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
 
 
 class TestCatalogReadCounters(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
-
     def _context(self) -> HogQLContext:
         database = Database.create_for(team=self.team, user=self.user)
         return HogQLContext(team=self.team, team_id=self.team.pk, database=database)

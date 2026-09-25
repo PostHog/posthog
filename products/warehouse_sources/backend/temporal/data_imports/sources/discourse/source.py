@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -54,14 +52,16 @@ class DiscourseSource(ResumableSource[DiscourseSourceConfig, DiscourseResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DISCOURSE,
+            name=ExternalDataSourceType.DISCOURSE,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Discourse",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["forum", "community"],
-            caption="""Connect your Discourse community forum to sync categories, topics, posts, tags, groups, and user stats into the PostHog Data warehouse.
+            caption="""Connect your Discourse community forum to sync categories, topics, posts, tags, groups, group members, badges, and user activity into the PostHog Data warehouse.
 
-Generate an Admin API key under **Admin > API > Keys** on your Discourse instance (a key scoped to "Global" access, or scoped to read the tables below, both work). The instance URL is your forum's address, e.g. `https://yourforum.discourse.group`.""",
+Generate an Admin API key under **Admin > API > Keys** on your Discourse instance (a key scoped to "Global" access, or scoped to read the tables below, both work). The API username must be an admin account, because the admin users and badges tables read admin-only endpoints. The instance URL is your forum's address, e.g. `https://yourforum.discourse.group`.
+
+The user activity table is fetched once per member, so it takes longer to sync than the others.""",
             iconPath="/static/services/discourse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/discourse",
             fields=cast(
@@ -152,4 +152,5 @@ Generate an Admin API key under **Admin > API > Keys** on your Discourse instanc
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )

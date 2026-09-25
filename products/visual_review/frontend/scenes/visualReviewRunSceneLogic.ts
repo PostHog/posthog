@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,6 +29,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 
@@ -52,6 +54,7 @@ export interface visualReviewRunSceneLogicValues {
     quarantinedIdentifierSet: Set<string>
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
+    recentTolerations: RecentTolerations | null
     repo: RepoApi | null
     repoFullName: string | null
     repoLoading: boolean
@@ -213,6 +216,10 @@ export interface visualReviewRunSceneLogicMeta {
             selectedSnapshotId: string | null,
             quarantinedIdentifierSet: Set<string>
         ) => SnapshotApi | null
+        recentTolerations: (
+            toleratedHashes: ToleratedHashEntryApi[],
+            toleratedHashesLoading: boolean
+        ) => RecentTolerations | null
         changedSnapshots: (snapshots: SnapshotApi[]) => SnapshotApi[]
         sortedChangedSnapshots: (changedSnapshots: SnapshotApi[]) => SnapshotApi[]
         hasChanges: (changedSnapshots: SnapshotApi[]) => boolean
@@ -273,6 +280,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toggleQuarantinedThumbnails: true,
     }),
     reducers({
+        // kea-loaders keeps the last success when a load fails, which would let the
+        // previous snapshot's tolerations drive the quarantine nudge. Clearing at the
+        // start, not on failure, also keeps an overtaken failure from wiping newer data.
+        toleratedHashes: [
+            [] as ToleratedHashEntryApi[],
+            {
+                loadToleratedHashes: () => [],
+            },
+        ],
         selectedSnapshotId: [
             null as string | null,
             {
@@ -356,12 +372,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         toleratedHashes: [
             [] as ToleratedHashEntryApi[],
             {
-                loadToleratedHashes: async (identifier: string) => {
+                loadToleratedHashes: async (identifier: string, breakpoint) => {
                     const response = await visualReviewRunsToleratedHashesList(
                         String(values.currentProjectId),
                         props.runId,
                         { identifier }
                     )
+                    // Drop a response that a newer selection overtook, so it can't land last.
+                    breakpoint()
                     return response.results
                 },
             },
@@ -399,6 +417,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
                 return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
+        ],
+        // Null while loading, so the list of a previous snapshot never drives the quarantine nudge.
+        recentTolerations: [
+            (s) => [s.toleratedHashes, s.toleratedHashesLoading],
+            (toleratedHashes: ToleratedHashEntryApi[], toleratedHashesLoading: boolean): RecentTolerations | null =>
+                toleratedHashesLoading ? null : countRecentTolerations(toleratedHashes, dayjs()),
         ],
         changedSnapshots: [
             (s) => [s.snapshots],
@@ -683,7 +707,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     String(values.currentProjectId),
                     run.repo_id,
                     run.run_type,
-                    { identifier: snapshot.identifier, reason: '' }
+                    { identifier: snapshot.identifier }
                 )
                 lemonToast.success('Identifier unquarantined — future runs will gate on it again')
                 actions.loadQuarantinedIdentifiers()

@@ -7,7 +7,7 @@ morning's digest follows it.
 The order is proximity, not alphabet. For an audience's merges that came from repository R:
 
 1. A ``repo:`` audience takes the channel R declared under ``digest:`` in ``.stamphog/policy.yml``.
-2. A team slug takes R's own root ``owners.yaml`` registry, read through ``posthog_owners``. A
+2. A team slug takes R's own root ``owners.yaml`` registry, read through ``owners_yaml``. A
    repository that carries a registry answers for its own pull requests completely, including by
    omission: a registry lists the teams whose derived name is wrong, so a slug missing from it
    means "the derived name is right" rather than "no opinion".
@@ -32,11 +32,14 @@ from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
-from posthog_owners.schema import TeamEntry
+from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.egress.limiter.policies import Priority
+from posthog.models.integration import Integration
+from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
+from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
@@ -46,20 +49,14 @@ from .github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
 
-# The distributed-ownership registry lives only in the repo-root file (posthog_owners.schema).
+# The distributed-ownership registry lives only in the repo-root file (owners_yaml.schema).
 _OWNERS_FILE_PATH = "owners.yaml"
 
 # The digest is automation, so it asks the registry where automation posts rather than where the
 # team's people are. That falls back to the people channel when a team never separates the two.
 _CHANNEL_PURPOSE: Purpose = "notifications"
-
-# Slack channel flags that mark a channel as shared beyond this workspace. Routing maps a GitHub
-# team slug onto a Slack channel by name, or by a registry entry. A shared channel with that name
-# therefore sends internal PR digests outside the workspace, which is a leak. is_ext_shared and
-# is_pending_ext_shared cover live and pending external connections. is_shared also catches
-# org-shared channels. A repo's own declared digest channel is exempt, because the maintainer chose
-# that channel for their own repository.
-_SHARED_CHANNEL_FLAGS = ("is_ext_shared", "is_pending_ext_shared", "is_shared")
+# Named so a team can keep the daily digest out of its channel while other bots keep posting there.
+_PRODUCER: Producer = "stamphog"
 
 
 class RoutingUnavailable(Exception):
@@ -70,12 +67,6 @@ class RoutingUnavailable(Exception):
     can be the one that declares every team's channel. A run that continues without it sends the
     morning's digests to derived channel names. One lost day costs less.
     """
-
-
-@frozen
-class SlackChannel:
-    channel_id: str
-    shared: bool
 
 
 @frozen
@@ -114,10 +105,6 @@ class RoutingContext:
     channels_by_name: dict[str, SlackChannel]
 
 
-def _is_shared_channel(channel: dict) -> bool:
-    return any(channel.get(flag) for flag in _SHARED_CHANNEL_FLAGS)
-
-
 def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     """Every repo the team still uses, in a fixed order.
 
@@ -137,23 +124,13 @@ def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     return list(
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
+        # A blank installation cannot fetch a routing file or resolve a webhook, so the row carries
+        # no registry to read and no merges to report. Left in, its unreadable fetch would raise
+        # RoutingUnavailable and stop the whole team's run.
+        .exclude(installation_id="")
         .filter(Q(enabled=True) | Q(digest_enabled=True))
         .order_by("repository")
     )
-
-
-def _fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
-    """Public channel name -> channel, for one Slack integration.
-
-    Private channels are skipped: listing them needs a real authed Slack user, and this runs from a
-    background task with no request user to act as. Public-only is fine for name matching. The
-    shared flag rides along rather than filtering here, because the repo-declared path is allowed
-    to name a shared channel and the other paths are not.
-    """
-    return {
-        channel["name"]: SlackChannel(channel_id=channel["id"], shared=_is_shared_channel(channel))
-        for channel in SlackIntegration(integration).list_public_channels()
-    }
 
 
 @frozen
@@ -164,7 +141,26 @@ class _RepoRouting:
     declared_channel: str | None
 
 
-def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
+def _fetcher_for_installation(installation_id: str) -> GitHubFilesFetcher:
+    """One fetcher per installation, not per repository.
+
+    It holds a token and a connection pool, and a team's repositories usually sit under one
+    installation, so building one per repository mints a token and a pool to read a single file.
+    """
+    try:
+        client = StamphogGitHubClient(installation_id)
+        return GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=installation_id,
+            refresh=client.refresh_installation_token,
+            # The daily run is background work, so it sheds before anything a person waits on.
+            priority=Priority.BATCH,
+        )
+    except Exception as e:
+        raise RoutingUnavailable(f"could not authenticate installation {installation_id}: {e}") from e
+
+
+def _read_repo_routing(repo_config: StamphogRepoConfig, fetcher: GitHubFilesFetcher) -> _RepoRouting:
     """One repo's routing config: its root registry, and the digest channel it declared.
 
     Both reads answer to one failure contract. A transient fetch failure for either file raises
@@ -173,9 +169,10 @@ def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
     owners.yaml inherits one, and a repo declaring no channel has no repo audience to route.
     """
     try:
-        raw = StamphogGitHubClient(repo_config.installation_id).get_default_branch_file(
-            repo_config.repository, _OWNERS_FILE_PATH
-        )
+        # Routing is derived every run and never stored, so a head SHA another read cached up to
+        # two minutes ago could route a merged owners.yaml change to yesterday's channel.
+        files = AuthenticatedRepoFiles(repo_config.repository, fetcher, fresh_head=True)
+        raw = files.read(_OWNERS_FILE_PATH)
         digest_config = load_repo_digest_config(repo_config) if repo_config.digest_enabled else None
     except Exception as e:
         raise RoutingUnavailable(f"could not read routing config for {repo_config.repository}: {e}") from e
@@ -198,14 +195,19 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 
     registry_by_repo: dict[str, dict[str, TeamEntry]] = {}
     declared_repo_channel: dict[str, str] = {}
+    fetcher_by_installation: dict[str, GitHubFilesFetcher] = {}
     for repo_config in _candidate_repo_configs(team_id):
-        routing = _read_repo_routing(repo_config)
+        fetcher = fetcher_by_installation.get(repo_config.installation_id)
+        if fetcher is None:
+            fetcher = _fetcher_for_installation(repo_config.installation_id)
+            fetcher_by_installation[repo_config.installation_id] = fetcher
+        routing = _read_repo_routing(repo_config, fetcher)
         registry_by_repo[repo_config.repository] = routing.registry
         if routing.declared_channel is not None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
-        channels_by_name = _fetch_channel_map(integration)
+        channels_by_name = fetch_channel_map(integration, source="stamphog")
     except Exception as e:
         raise RoutingUnavailable(f"could not list Slack channels for team {team_id}: {e}") from e
 
@@ -231,7 +233,11 @@ def _registry_answer(context: RoutingContext, slug: str, repository: str) -> Tea
     block, which no repository has a reason to write.
     """
     registry = context.registry_by_repo.get(repository) or context.inherited_registry
-    return team_channel(slug, registry, _CHANNEL_PURPOSE)
+    return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
+
+
+def _silenced(answer: TeamChannel) -> bool:
+    return answer.declared and answer.channel is None
 
 
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
@@ -250,10 +256,10 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
         return _match(context, channel_name, ChannelResolutionSource.STAMPHOG_CONFIG, allow_shared=True)
 
     answer = _registry_answer(context, audience_key, repository)
-    if answer.declared:
-        if answer.channel is None:
-            logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
-            return None
+    if _silenced(answer):
+        logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
+        return None
+    if answer.declared and answer.channel is not None:
         # A registry entry can name a channel for a team the declaring repo does not own, so the
         # shared-channel guard stays on: an externally shared match here leaves the workspace.
         return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
@@ -262,23 +268,35 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
     return _match(context, audience_key, ChannelResolutionSource.SLACK_NAME_MATCH, allow_shared=False)
 
 
+def opted_out(context: RoutingContext, audience_key: str) -> bool:
+    """True when the registry of every repository in ``context`` silences this audience.
+
+    ``resolve_destination`` returns None for an opt-out and for a routing gap alike. Only a gap needs
+    somebody to act, so the caller reports the two differently.
+    """
+    if audience_key.startswith(REPO_AUDIENCE_PREFIX) or not context.registry_by_repo:
+        return False
+    return all(
+        _silenced(_registry_answer(context, audience_key, repository)) for repository in context.registry_by_repo
+    )
+
+
 def _match(
     context: RoutingContext, channel_name: str, source: ChannelResolutionSource, *, allow_shared: bool
 ) -> Destination | None:
     name = channel_name.removeprefix("#")
-    channel = context.channels_by_name.get(name)
-    if channel is None:
+    match = find_channel(context.channels_by_name, name, allow_shared=allow_shared)
+    if match.channel is None:
+        if match.reason == "shared":
+            logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
         # A declared channel that is not there is a dead end, never a reason to retry the slug: the
         # slug is exactly the wrong name the declaration was written to correct.
-        if source != ChannelResolutionSource.SLACK_NAME_MATCH:
+        elif source != ChannelResolutionSource.SLACK_NAME_MATCH:
             logger.info("stamphog_routing_declared_channel_not_found", channel_name=name, source=source)
-        return None
-    if channel.shared and not allow_shared:
-        logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
         return None
     return Destination(
         slack_integration_id=context.slack_integration_id,
-        channel_id=channel.channel_id,
+        channel_id=match.channel.channel_id,
         channel_name=name,
         source=source,
     )

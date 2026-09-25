@@ -3,7 +3,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition
+from posthog.models import OrganizationMembership, PropertyDefinition, User
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -47,6 +47,10 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_list_with_property_name_instead_of_id_returns_404(self):
+        response = self.client.get(f"{self.url}?property_definition_id={self.prop_def.name}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_create_default_rule(self):
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
         assert response.status_code == status.HTTP_200_OK
@@ -69,9 +73,17 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         # PrimaryKeyRelatedField serializes the FK as the PK value
         assert str(response.json()["organization_member"]) == str(self.organization_membership.id)
 
+    def _grant_role_based_access(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+            {"name": AvailableFeature.ROLE_BASED_ACCESS, "key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
     def test_create_role_override(self):
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         response = self._post(
             {
@@ -160,6 +172,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
     def test_list_with_multiple_rules(self):
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         role = Role.objects.create(name="Analyst", organization=self.organization)
 
         # default rule
@@ -187,6 +200,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
 
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)
 
@@ -222,24 +236,49 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
 
         from products.access_control.backend.models.role import Role
 
+        self._grant_role_based_access()
         other_org = Organization.objects.create(name="Other org")
         other_role = Role.objects.create(name="Other org role", organization=other_org)
 
         response = self.client.delete(f"{self.url}?property_definition_id={self.prop_def.id}&role={other_role.id}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_non_admin_can_read_but_not_write(self):
-        # Downgrade to regular member
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+    def test_member_with_implicit_project_admin_can_read_but_not_write(self):
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+                "key": AvailableFeature.PROPERTY_ACCESS_CONTROL,
+            },
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(
+            organization=self.organization,
+            email="member@posthog.com",
+            password="password",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        member_membership = OrganizationMembership.objects.get(organization=self.organization, user=member)
+        rule = PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=member_membership,
+            created_by=self.user,
+        )
+        self.client.force_login(member)
 
-        # GET should work (read access)
         response = self.client.get(self.list_url)
         assert response.status_code == status.HTTP_200_OK
 
-        # POST should be forbidden (write access requires admin)
-        response = self._post({"access_level": PropertyAccessLevel.NONE.value})
+        response = self._post({"access_level": PropertyAccessLevel.READ_WRITE.value})
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        response = self.client.delete(
+            f"{self.url}?property_definition_id={self.prop_def.id}&organization_member={member_membership.id}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert PropertyAccessControl.objects.filter(id=rule.id).exists()
 
     def test_create_forbidden_without_property_access_control_feature(self):
         # Org lost (or never had) the PROPERTY_ACCESS_CONTROL entitlement — writes must be blocked
@@ -248,6 +287,16 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         self.organization.save()
 
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
+        # The gate runs before the body is validated, so an invalid body is still a 403 and not a 400
+        assert self._post({}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_role_rule_forbidden_without_role_based_access_feature(self):
+        from products.access_control.backend.models.role import Role
+
+        role = Role.objects.create(name="Analyst", organization=self.organization)
+        response = self._post({"access_level": PropertyAccessLevel.READ.value, "role": str(role.id)})
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
 

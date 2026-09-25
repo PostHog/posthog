@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -205,7 +205,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_caching(self):
         now = timezone.now()
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 properties={"email": "person1@example.com"},
@@ -239,14 +239,14 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.cache_key, key)
             self.assertEqual(len(response.results), 0)
 
-        with freeze_time(now + timedelta(minutes=59)):
+        with time_machine.travel(now + timedelta(minutes=59), tick=False):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
             assert isinstance(response, CachedEventTaxonomyQueryResponse)
             self.assertEqual(len(response.results), 0)
 
-        with freeze_time(now + timedelta(minutes=61)):
+        with time_machine.travel(now + timedelta(minutes=61), tick=False):
             runner = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1"))
             response = runner.run()
 
@@ -493,7 +493,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event1",
             distinct_id="person2",
-            properties={"prop": "3", "$feature/dashboard": "0"},
+            properties={"prop": "3", "$feature/dashboard": "0", "$feature_flags": {"another_flag": "true"}},
             team=self.team,
         )
 
@@ -555,7 +555,7 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             event="event",
             distinct_id="person1",
-            properties={"prop": "3", "$feature/dashboard": "0"},
+            properties={"prop": "3", "$feature/dashboard": "0", "$feature_flags": {"another_flag": "true"}},
             team=self.team,
         )
 

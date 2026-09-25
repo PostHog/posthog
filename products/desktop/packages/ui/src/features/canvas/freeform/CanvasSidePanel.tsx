@@ -1,32 +1,94 @@
-import { SidebarSimpleIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import {
+  ChatCircleIcon,
+  ChatTeardropTextIcon,
+  type Icon,
+  PulseIcon,
+  SidebarSimpleIcon,
+  SquaresFourIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Text,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
+import { CanvasBlocksPanel } from "@posthog/ui/features/canvas/blocks/CanvasBlocksPanel";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
-import { CanvasContextEditor } from "@posthog/ui/features/canvas/freeform/ContextEditor";
+import { CanvasTimeline } from "@posthog/ui/features/canvas/freeform/CanvasTimeline";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import {
+  type CanvasPanelTab,
+  useCanvasChatPanelStore,
+} from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
-// The canvas's right-hand dock. While a generation/edit run is in flight it
-// shows that run's live chat (steering/queue included); otherwise it shows the
-// edit composer for the next change. Header carries a minimize control that
-// collapses the panel to a thin rail (handled by the parent).
+const PANEL_TABS: Record<CanvasPanelTab, { label: string; Icon: Icon }> = {
+  chat: { label: "Chat", Icon: ChatTeardropTextIcon },
+  blocks: { label: "Blocks", Icon: SquaresFourIcon },
+  comments: { label: "Comments", Icon: ChatCircleIcon },
+  timeline: { label: "Timeline", Icon: PulseIcon },
+};
+
+const TAB_ORDER: readonly CanvasPanelTab[] = [
+  "chat",
+  "blocks",
+  "comments",
+  "timeline",
+];
+
+function PanelTabButton({
+  tab,
+  active,
+  disabled,
+  onSelect,
+}: {
+  tab: CanvasPanelTab;
+  active: boolean;
+  disabled: boolean;
+  onSelect: (tab: CanvasPanelTab) => void;
+}) {
+  const { label, Icon } = PANEL_TABS[tab];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={label}
+            aria-pressed={active}
+            data-selected={active || undefined}
+            disabled={disabled}
+            onClick={() => onSelect(tab)}
+            className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+          >
+            <Icon size={16} />
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// The canvas's right-hand dock. It shows the chat of this person's run on the
+// canvas (steering/queue included) when they have one; otherwise it shows the
+// edit composer, which starts their first run. Header carries a minimize
+// control that collapses the panel to a thin rail (handled by the parent).
 export function CanvasSidePanel({
-  effectiveTaskId,
+  chatTaskId,
   commentTaskId,
   interactive,
   onMinimize,
@@ -35,17 +97,22 @@ export function CanvasSidePanel({
   channelName,
   name,
   displayedVersionId,
+  liveVersionId,
   commentVersionLabel,
   onCommentOpen,
   templateId,
   isEdit,
   editorRef,
   onStarted,
+  onAskAgent,
 }: {
-  effectiveTaskId: string | null;
+  /** The run whose chat the panel shows: the current person's own run on this
+   * canvas, or null when they have none. Another person's run never shows
+   * here, even while it is in flight. */
+  chatTaskId: string | null;
   commentTaskId: string | null;
   /** Whether the canvas is being edited. The composer is an edit affordance, so
-   * view mode falls back to the conversation that last built the canvas. */
+   * view mode shows an empty chat when this person has no run. */
   interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
@@ -53,6 +120,7 @@ export function CanvasSidePanel({
   channelName: string;
   name: string;
   displayedVersionId: string | null;
+  liveVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
   templateId?: string;
@@ -62,61 +130,83 @@ export function CanvasSidePanel({
   // Exposes the edit composer's editor so self-repair can prefill it.
   editorRef?: Ref<EditorHandle>;
   onStarted?: (taskId: string) => void;
+  onAskAgent: (message: string) => void;
 }) {
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
-  const previousTaskId = useRef(effectiveTaskId);
-  // With no run in flight, edit mode gets the composer for the next change,
-  // while view mode gets the chat of the run that produced this canvas.
-  const chatTaskId = effectiveTaskId ?? (interactive ? null : commentTaskId);
+  const previousTaskId = useRef(chatTaskId);
 
   useEffect(() => {
-    if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
+    if (chatTaskId && chatTaskId !== previousTaskId.current) {
       setTab("chat");
     }
-    previousTaskId.current = effectiveTaskId;
-  }, [effectiveTaskId, setTab]);
+    previousTaskId.current = chatTaskId;
+  }, [chatTaskId, setTab]);
+
+  const firstBuildRunning = !!chatTaskId && !isEdit;
+  const visibleTab: CanvasPanelTab =
+    tab === "blocks" && (!interactive || firstBuildRunning) ? "chat" : tab;
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b bg-chrome pr-2 pl-3">
-        <Tabs
-          value={tab}
-          onValueChange={(value) => setTab(value as "chat" | "comments")}
-        >
-          <TabsList variant="line" className="h-10 gap-1 p-0">
-            <TabsTrigger value="chat" className="px-2.5">
-              Chat
-            </TabsTrigger>
-            <TabsTrigger
-              value="comments"
-              disabled={!commentTaskId}
-              className="px-2.5"
-            >
-              Comments
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                aria-label="Minimize panel"
-                onClick={onMinimize}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
-            }
-          />
-          <TooltipContent>Minimize panel</TooltipContent>
-        </Tooltip>
-      </div>
+      <ChromeBar
+        className="bg-chrome"
+        actions={
+          <TooltipProvider delay={400}>
+            <div className="flex items-center gap-0.5">
+              {TAB_ORDER.filter(
+                (option) => option !== "blocks" || interactive,
+              ).map((option) => (
+                <PanelTabButton
+                  key={option}
+                  tab={option}
+                  active={visibleTab === option}
+                  disabled={
+                    (option === "comments" && !commentTaskId) ||
+                    (option === "blocks" && firstBuildRunning)
+                  }
+                  onSelect={setTab}
+                />
+              ))}
+              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant="default"
+                      aria-label="Minimize panel"
+                      onClick={onMinimize}
+                      className="text-muted-foreground"
+                    >
+                      <SidebarSimpleIcon size={16} />
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom">Minimize panel</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        }
+      >
+        <span className="min-w-0 flex-1 truncate font-medium text-[13px]">
+          {PANEL_TABS[visibleTab].label}
+        </span>
+      </ChromeBar>
 
       <div className="min-h-0 flex-1">
-        {tab === "comments" && commentTaskId ? (
-          <CanvasCommentsLoader
+        {visibleTab === "blocks" ? (
+          <CanvasBlocksPanel canvasId={dashboardId} onAskAgent={onAskAgent} />
+        ) : visibleTab === "timeline" ? (
+          <CanvasTimeline
+            dashboardId={dashboardId}
+            liveVersionId={liveVersionId}
+            viewingVersionId={displayedVersionId}
+            versionLabel={commentVersionLabel}
+            onOpen={onCommentOpen}
+          />
+        ) : visibleTab === "comments" && commentTaskId ? (
+          <CanvasComments
             taskId={commentTaskId}
             dashboardId={dashboardId}
             name={name}
@@ -126,8 +216,21 @@ export function CanvasSidePanel({
           />
         ) : chatTaskId ? (
           <CanvasChatLoader taskId={chatTaskId} />
+        ) : !interactive ? (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChatCircleIcon size={24} />
+              </EmptyMedia>
+              <EmptyTitle>No run yet</EmptyTitle>
+              <EmptyDescription>
+                Select Edit to start an agent run on this canvas. Its chat shows
+                here.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+          <div className="p-3">
             <FreeformGenerateBar
               ref={editorRef}
               sessionId={`canvas:${dashboardId}`}
@@ -139,17 +242,6 @@ export function CanvasSidePanel({
               isEdit={isEdit}
               onStarted={onStarted}
             />
-            {/* The author context (markdown): background the agent reads on
-                every generation. Edits against the saved record, autosaving
-                on blur. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-1">
-              <Text size="xs" variant="muted" className="shrink-0">
-                Context: notes the agent reads on every generation
-              </Text>
-              <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-                <CanvasContextEditor dashboardId={dashboardId} />
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -163,17 +255,13 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return <EmbeddedSessionView task={task} />;
 }
 
-function CanvasCommentsLoader({
+function CanvasComments({
   taskId,
   dashboardId,
   name,
@@ -188,50 +276,9 @@ function CanvasCommentsLoader({
   commentVersionLabel: (versionId: string) => string | null;
   onCommentOpen: (versionId: string | null) => void;
 }) {
-  const { data: task } = useQuery(taskDetailQuery(taskId));
-
-  if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <SpinnerGapIcon size={18} className="animate-spin text-gray-9" />
-      </div>
-    );
-  }
-
-  return (
-    <CanvasTaskComments
-      task={task}
-      dashboardId={dashboardId}
-      name={name}
-      displayedVersionId={displayedVersionId}
-      commentVersionLabel={commentVersionLabel}
-      onCommentOpen={onCommentOpen}
-    />
-  );
-}
-
-function CanvasTaskComments({
-  task,
-  dashboardId,
-  name,
-  displayedVersionId,
-  commentVersionLabel,
-  onCommentOpen,
-}: {
-  task: Task;
-  dashboardId: string;
-  name: string;
-  displayedVersionId: string | null;
-  commentVersionLabel: (versionId: string) => string | null;
-  onCommentOpen: (versionId: string | null) => void;
-}) {
-  const { timeline } = useThreadConversation(task, {
-    surface: "activity_panel",
-  });
   return (
     <TaskCommentsList
-      task={task}
-      timeline={timeline}
+      taskId={taskId}
       onlySource={{
         kind: "canvas",
         name,

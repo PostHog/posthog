@@ -26,11 +26,27 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
-use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
+use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaTopicsConfig};
 use capture::server::serve;
 use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+
+pub const TEST_KAFKA_HOSTS: &str = "kafka:9092";
+
+/// Settings for the `INGESTION` producer every test server publishes through.
+pub fn test_producer_env() -> HashMap<String, String> {
+    [
+        ("METADATA_BROKER_LIST", TEST_KAFKA_HOSTS),
+        ("LINGER_MS", "0"), // Send messages as soon as possible
+        ("QUEUE_BUFFERING_MAX_KBYTES", "10240"),
+        ("MESSAGE_TIMEOUT_MS", "10000"), // 10s, ACKs can be slow on low volumes, should be tuned
+        ("TOPIC_METADATA_REFRESH_INTERVAL_MS", "10000"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (format!("KAFKA_INGESTION_PRODUCER_{k}"), v.to_string()))
+    .collect()
+}
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
@@ -83,71 +99,20 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,
-    kafka: KafkaConfig {
-        kafka_producer_linger_ms: 0, // Send messages as soon as possible
-        kafka_producer_queue_mib: 10,
-        kafka_message_timeout_ms: 10000, // 10s, ACKs can be slow on low volumes, should be tuned
-        kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
-        kafka_topic_metadata_refresh_interval_ms: 10000,
-        kafka_compression_codec: "none".to_string(),
-        kafka_hosts: "kafka:9092".to_string(),
-        kafka_topic: "events_plugin_ingestion".to_string(),
-        kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
-        kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
-        kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-        kafka_error_tracking_topic: "error_tracking_events".to_string(),
-        kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
-        kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
-        kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-        outputs_completeness_check_enabled: true,
-        capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
-        capture_analytics_ai_events_overflow_topic: None,
-        kafka_traces_topic: "ingestion_traces".to_string(),
-        kafka_metrics_topic: "ingestion_metrics".to_string(),
-        kafka_tls: false,
-        kafka_client_id: "".to_string(),
-        kafka_metadata_max_age_ms: 60000,
-        kafka_producer_max_retries: 2,
-        kafka_producer_acks: "all".to_string(),
-        kafka_socket_timeout_ms: 60000,
-        kafka_producer_batch_num_messages: 10000,
-        kafka_producer_batch_size: 1000000,
-        kafka_producer_max_in_flight_requests: 1000000,
-        kafka_producer_sticky_partitioning_linger_ms: 10,
-        kafka_producer_enable_idempotence: false,
-        kafka_producer_partitioner: "murmur2_random".to_string(),
-        kafka_broker_address_family: String::new(),
-        kafka_log_connection_close: true,
-        kafka_producer_queue_buffering_max_messages: 100000,
-        kafka_retry_backoff_max_ms: 1000,
-        kafka_socket_send_buffer_bytes: 0,
-        kafka_socket_receive_buffer_bytes: 0,
-        kafka_traces_hosts: None,
-        kafka_traces_tls: None,
-        kafka_traces_client_id: None,
-        kafka_traces_compression_codec: None,
-        kafka_traces_producer_acks: None,
-        kafka_traces_producer_linger_ms: None,
-        kafka_traces_producer_queue_mib: None,
-        kafka_traces_message_timeout_ms: None,
-        kafka_traces_producer_message_max_bytes: None,
-        kafka_traces_producer_max_retries: None,
-        kafka_traces_topic_metadata_refresh_interval_ms: None,
-        kafka_traces_metadata_max_age_ms: None,
-        kafka_metrics_hosts: None,
-        kafka_metrics_tls: None,
-        kafka_metrics_client_id: None,
-        kafka_metrics_compression_codec: None,
-        kafka_metrics_producer_acks: None,
-        kafka_metrics_producer_linger_ms: None,
-        kafka_metrics_producer_queue_mib: None,
-        kafka_metrics_message_timeout_ms: None,
-        kafka_metrics_producer_message_max_bytes: None,
-        kafka_metrics_producer_max_retries: None,
-        kafka_metrics_topic_metadata_refresh_interval_ms: None,
-        kafka_metrics_metadata_max_age_ms: None,
-        kafka_replay_envelope_compression: EnvelopeCompression::None,
+    kafka_topics: KafkaTopicsConfig {
+        main: "events_plugin_ingestion".to_string(),
+        overflow: "events_plugin_ingestion_overflow".to_string(),
+        historical: "events_plugin_ingestion_historical".to_string(),
+        client_ingestion_warning: "events_plugin_ingestion".to_string(),
+        error_tracking: "error_tracking_events".to_string(),
+        heatmaps: "events_plugin_ingestion".to_string(),
+        replay_overflow: "session_recording_snapshot_item_overflow".to_string(),
+        dlq: "events_plugin_ingestion_dlq".to_string(),
+        ai_events: "events_plugin_ingestion_ai".to_string(),
+        ai_events_overflow: None,
     },
+    replay_envelope_compression: EnvelopeCompression::None,
+    outputs_completeness_check_enabled: true,
     otel_url: None,
     otel_sampling_rate: 0.0,
     otel_service_name: "capture-testing".to_string(),
@@ -161,6 +126,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     ai_max_event_bytes: 8_388_608,         // 8MiB default
+    ai_lane_predicate: capture::v0_request::AiLanePredicate::Allowlist,
     ai_gateway_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
@@ -179,6 +145,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_byte_limit_per_second: 0,
     ai_byte_limit_overrides_csv: None,
     ai_byte_limit_dry_run: false,
+    ai_byte_limit_window_interval_secs: None,
     ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
@@ -188,7 +155,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
 pub fn v1_sink_env_for_topic(sink: &str, topic: &str) -> HashMap<String, String> {
     let prefix = format!("CAPTURE_V1_SINK_{}_", sink.to_uppercase());
     [
-        ("KAFKA_HOSTS", DEFAULT_CONFIG.kafka.kafka_hosts.as_str()),
+        ("KAFKA_HOSTS", TEST_KAFKA_HOSTS),
         ("KAFKA_TOPIC_MAIN", topic),
         ("KAFKA_TOPIC_HISTORICAL", topic),
         ("KAFKA_TOPIC_OVERFLOW", topic),
@@ -223,8 +190,8 @@ pub struct ServerHandle {
 impl ServerHandle {
     pub async fn for_topics(main: &EphemeralTopic, historical: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka.kafka_topic = main.topic_name().to_string();
-        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.kafka_topics.main = main.topic_name().to_string();
+        config.kafka_topics.historical = historical.topic_name().to_string();
         Self::for_config(config).await
     }
     /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
@@ -237,18 +204,17 @@ impl ServerHandle {
         warnings_topic: &EphemeralTopic,
     ) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka.kafka_topic = main.topic_name().to_string();
-        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.kafka_topics.main = main.topic_name().to_string();
+        config.kafka_topics.historical = historical.topic_name().to_string();
         config.capture_ingestion_warnings_enabled = true;
-        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
-        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
         config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         Self::for_config(config).await
     }
 
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka_topics.main = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
         Self::for_config(config).await
     }
@@ -262,11 +228,10 @@ impl ServerHandle {
         warnings_topic: &EphemeralTopic,
     ) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka_topics.main = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
         config.capture_ingestion_warnings_enabled = true;
-        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
-        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
         config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         Self::for_config(config).await
     }
@@ -296,8 +261,7 @@ impl ServerHandle {
         config.capture_ingestion_warnings_enabled = true;
         // The emitter reads only its own dedicated config now (no v0 KAFKA_*
         // fallback), so point it at the same ephemeral broker as the main sink.
-        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
-        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
         config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
@@ -311,7 +275,7 @@ impl ServerHandle {
         config.ai_gateway_signing_secret = Some(secret.to_string());
         // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
-        config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
+        config.kafka_topics.ai_events = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }
@@ -322,8 +286,11 @@ impl ServerHandle {
 
     pub async fn for_config_with_sink_env(
         config: Config,
-        sink_env: HashMap<String, String>,
+        mut sink_env: HashMap<String, String>,
     ) -> Self {
+        for (key, value) in test_producer_env() {
+            sink_env.entry(key).or_insert(value);
+        }
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -474,10 +441,7 @@ impl EphemeralTopic {
         let mut config = ClientConfig::new();
         let group_id = random_string("capture_it", 12);
         config.set("group.id", &group_id);
-        config.set(
-            "bootstrap.servers",
-            DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
-        );
+        config.set("bootstrap.servers", TEST_KAFKA_HOSTS);
         config.set("debug", "consumer,cgrp,topic,fetch");
         config.set("socket.timeout.ms", "30000");
         // RedPanda compatibility settings
@@ -718,10 +682,7 @@ impl Drop for EphemeralTopic {
 
 async fn delete_topic(topic: String) {
     let mut config = ClientConfig::new();
-    config.set(
-        "bootstrap.servers",
-        DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
-    );
+    config.set("bootstrap.servers", TEST_KAFKA_HOSTS);
     let admin = AdminClient::from_config(&config).expect("failed to create admin client");
     admin
         .delete_topics(&[&topic], &AdminOptions::default())

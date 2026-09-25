@@ -1,22 +1,78 @@
-import logging
+import re
+from datetime import time
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 
-logger = logging.getLogger(__name__)
+MAX_RECALCULATION_TIMES = 2
+MIN_RECALCULATION_GAP_HOURS = 6
+
+RECALCULATION_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):00:00$")
+
+
+def validate_recalculation_times(value: object) -> None:
+    """Shared by the model field (admin forms) and the experiments_config serializer,
+    so every write path enforces the same schedule contract."""
+    if value is None:
+        return
+    if not isinstance(value, list) or not value:
+        raise ValidationError("Recalculation times must be a non-empty list of 'HH:00:00' strings.")
+    if len(value) > MAX_RECALCULATION_TIMES:
+        raise ValidationError(f"At most {MAX_RECALCULATION_TIMES} recalculation times are allowed.")
+    hours = []
+    for entry in value:
+        if not isinstance(entry, str) or not RECALCULATION_TIME_PATTERN.match(entry):
+            raise ValidationError("Recalculation times must be on the hour, in HH:00:00 format (UTC).")
+        hours.append(int(entry[:2]))
+    if len(set(hours)) != len(hours):
+        raise ValidationError("Recalculation times must be different.")
+    for i, first in enumerate(hours):
+        for second in hours[i + 1 :]:
+            # Circular distance, so 23:00 and 01:00 count as 2 hours apart.
+            gap = abs(first - second)
+            if min(gap, 24 - gap) < MIN_RECALCULATION_GAP_HOURS:
+                raise ValidationError(
+                    f"Recalculation times must be at least {MIN_RECALCULATION_GAP_HOURS} hours apart."
+                )
+
+
+def recalculation_times_from_legacy(legacy: time | None) -> list[str] | None:
+    return [f"{legacy.hour:02d}:00:00"] if legacy is not None else None
+
+
+def legacy_from_recalculation_times(times: list[str] | None) -> time | None:
+    return time(hour=int(times[0][:2])) if times else None
 
 
 class TeamExperimentsConfig(models.Model):
+    class PrecomputationEnabledSetBy(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        AUTO = "auto", "Auto"
+
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     experiment_recalculation_time = models.TimeField(
         null=True,
         blank=True,
-        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+        help_text=(
+            "Deprecated in favor of experiment_recalculation_times, which takes precedence when set. "
+            "Kept in sync with its first entry for older clients."
+        ),
+    )
+
+    experiment_recalculation_times = models.JSONField(
+        null=True,
+        blank=True,
+        validators=[validate_recalculation_times],
+        help_text=(
+            "Times of day (UTC) when experiment metrics are recalculated, as a list of 'HH:00:00' "
+            "strings on the hour, at most 2 entries at least 6 hours apart. Null means the default "
+            "time (02:00 UTC)."
+        ),
     )
 
     default_experiment_confidence_level = models.DecimalField(
@@ -39,6 +95,18 @@ class TeamExperimentsConfig(models.Model):
     experiment_precomputation_enabled = models.BooleanField(
         default=False,
         help_text="Whether to precompute experiment exposure data for faster query execution.",
+    )
+
+    precomputation_enabled_set_by = models.CharField(
+        max_length=10,
+        choices=PrecomputationEnabledSetBy.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "Who last set experiment_precomputation_enabled: a human (manual) or the auto-enrollment "
+            "job (auto). Null means never set. The job only writes when this is null or auto, so a "
+            "manual change in either direction sticks."
+        ),
     )
 
     default_only_count_matured_users = models.BooleanField(
@@ -106,6 +174,3 @@ class TeamExperimentsConfig(models.Model):
             "to the team's GitHub installation at cleanup time or it is ignored."
         ),
     )
-
-
-register_team_extension_signal(TeamExperimentsConfig, logger=logger)

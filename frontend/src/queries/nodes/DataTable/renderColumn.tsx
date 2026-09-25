@@ -17,9 +17,6 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { formatCurrency } from 'lib/utils/currency'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { isURL } from 'lib/utils/url'
-import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
-import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
-import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
@@ -45,7 +42,10 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
+import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
+import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
+import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
@@ -63,9 +63,11 @@ function JSONCell(props: ReactJsonViewProps): JSX.Element {
 }
 
 // Registry for product-specific column renderers
-// Products can add their custom column renderers here to have them automatically applied across all DataTable instances
+// Products can add their custom column renderers here to have them automatically applied across all DataTable instances.
+// An entry wins over the core renderer for that column name in every DataTable, so a product registers only namespaced
+// keys here and passes the rest through its own scene's QueryContext.
 const productColumnRenderers: Record<string, QueryContextColumn> = {
-    ...aiObservabilityColumnRenderers,
+    ...aiObservabilityGlobalColumnRenderers,
     ...sessionColumnRenderers,
 }
 
@@ -274,11 +276,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={record.properties[propertyKey]} />
+                    <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={record.properties[propertyKey]} />
+        return <Property value={record.properties[propertyKey]} propertyKey={propertyKey} />
     } else if (!Array.isArray(record) && key.startsWith('person.properties.')) {
         // TODO: remove after removing the old events table
         const eventRecord = record as EventType
@@ -320,11 +322,11 @@ export function renderColumn(
                         })
                     }}
                 >
-                    <Property value={eventRecord.person?.properties?.[propertyKey]} />
+                    <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
                 </Link>
             )
         }
-        return <Property value={eventRecord.person?.properties?.[propertyKey]} />
+        return <Property value={eventRecord.person?.properties?.[propertyKey]} propertyKey={propertyKey} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
         const displayProps: PersonDisplayProps = {
@@ -335,6 +337,22 @@ export function renderColumn(
 
         if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
+            // The query runner resolves this column against Postgres by distinct ID, so a row without
+            // `properties` has no profile behind it. The popover would repeat that same lookup to show
+            // an empty card, so the cell says it in place instead.
+            if (!value?.properties) {
+                return (
+                    <Tooltip
+                        title="This distinct ID has no person profile."
+                        docLink="https://posthog.com/docs/data/persons#capturing-person-profiles"
+                        openOnClick
+                    >
+                        <span>
+                            <PersonDisplay {...displayProps} />
+                        </span>
+                    </Tooltip>
+                )
+            }
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }
 
@@ -357,15 +375,20 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
-        // Hide the popover on people list only
-        const noPopover = isActorsQuery(query.source)
+        // The column coalesces the display-name properties down to the distinct ID, so a name of its own
+        // is the only evidence the row reached a person profile. An event captured without person
+        // processing carries a placeholder person ID that links to "Person not found", and a `properties`
+        // key is what makes PersonDisplay render that link. The popover stays on either way, because it
+        // looks the person up by distinct ID and so still finds a profile created after the event.
+        const nameCameFromProfile = value.display_name !== value.distinct_id
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
-            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
-            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
+            person: nameCameFromProfile
+                ? { id: value.id, distinct_id: value.distinct_id, properties: {} }
+                : { id: value.id, distinct_id: value.distinct_id },
             displayName: value.display_name,
-            noPopover,
+            // Hide the popover on people list only
+            noPopover: isActorsQuery(query.source),
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {

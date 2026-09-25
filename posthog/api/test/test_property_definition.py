@@ -4,7 +4,6 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.db import OperationalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -15,7 +14,6 @@ from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
     QueryContext,
-    is_query_canceled,
 )
 
 
@@ -112,6 +110,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert len(db_results) == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
         assert "first_visit" not in [r["name"] for r in db_results]
 
+    @parameterized.expand(
+        [
+            ["malformed excluded_properties", "excluded_properties=abc"],
+            ["malformed event_names", "event_names=%27"],
+        ]
+    )
+    def test_list_property_definitions_rejects_malformed_json_query_params(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_list_property_definitions_with_exclude_restricted(self):
         from posthog.constants import AvailableFeature
 
@@ -201,6 +210,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         db_results = self._exclude_virtual(response.json()["results"])
         assert len(db_results) == 6
+
+    def test_list_property_definitions_omits_person_property_setters(self):
+        for name in ("$set", "$set_once"):
+            PropertyDefinition.objects.get_or_create(team=self.team, name=name, property_type="String")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=set")
+
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        assert "$set" not in names
+        assert "$set_once" not in names
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
@@ -1052,10 +1072,7 @@ class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
 
         with (
             patch.object(QueryContext, "as_count_sql", return_value=slow_count_sql),
-            patch(
-                "posthog.taxonomy.property_definition_api.PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS",
-                250,
-            ),
+            patch("posthog.taxonomy.property_definition_api.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
 
@@ -1063,41 +1080,12 @@ class TestPropertyDefinitionListStatementTimeout(APIBaseTest):
         assert response.json()["code"] == "property_definitions_timeout"
 
 
-class TestIsQueryCanceled(SimpleTestCase):
-    @staticmethod
-    def _wrapped_error(**attrs: str) -> OperationalError:
-        # Django surfaces the driver's error as its own OperationalError with the original attached
-        # as __cause__, which is where the SQLSTATE lives.
-        cause = Exception("canceling statement due to statement timeout")
-        for name, value in attrs.items():
-            setattr(cause, name, value)
-        error = OperationalError("canceling statement due to statement timeout")
-        error.__cause__ = cause
-        return error
-
-    @parameterized.expand(
-        [
-            ["psycopg3 exposes sqlstate", {"sqlstate": "57014"}, True],
-            ["psycopg2 exposes pgcode", {"pgcode": "57014"}, True],
-            ["a dropped connection is not a cancellation", {"sqlstate": "08006"}, False],
-            ["a driver error carrying no sqlstate", {}, False],
-        ]
-    )
-    def test_recognises_only_a_cancelled_statement(self, _name: str, attrs: dict[str, str], expected: bool) -> None:
-        assert is_query_canceled(self._wrapped_error(**attrs)) is expected
-
-    def test_recognises_the_code_on_the_error_itself(self) -> None:
-        error = OperationalError("canceling statement due to statement timeout")
-        error.sqlstate = "57014"  # type: ignore[attr-defined]
-
-        assert is_query_canceled(error) is True
-
-
 class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ["defaults", {}],
             ["event with event_names", {"type": "event", "event_names": '["foo","bar"]'}],
+            ["empty excluded_properties list", {"excluded_properties": "[]"}],
             ["person", {"type": "person"}],
             ["group with valid index", {"type": "group", "group_type_index": 3}],
         ]
@@ -1108,6 +1096,11 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["event_names not JSON", {"type": "event", "event_names": "abc"}],
+            ["event_names not a list", {"type": "event", "event_names": '{"foo": 1}'}],
+            ["excluded_properties not JSON", {"excluded_properties": "abc"}],
+            ["excluded_properties not a list", {"excluded_properties": "1"}],
+            ["excluded_properties with nested list", {"excluded_properties": '[["foo"]]'}],
             ["group type without index", {"type": "group"}],
             ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
             ["negative group_type_index", {"type": "group", "group_type_index": -1}],

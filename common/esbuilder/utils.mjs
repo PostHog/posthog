@@ -16,6 +16,9 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+import { cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
+
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
 // depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
@@ -35,11 +38,12 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-export function copySnappyWASMFile(absWorkingDir) {
+export function copySnappyWASMFile(absWorkingDir, destDir = path.resolve(absWorkingDir, 'dist')) {
     try {
+        fse.ensureDirSync(destDir)
         fse.copyFileSync(
             path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
-            path.resolve(absWorkingDir, 'dist/snappy_bg.wasm')
+            path.resolve(destDir, 'snappy_bg.wasm')
         )
     } catch (error) {
         console.warn('Could not copy snappy wasm file:', error.message)
@@ -70,7 +74,8 @@ export function copyIndexHtml(
     to = 'dist/index.html',
     entry = 'index',
     chunks = {},
-    entrypoints = []
+    entrypoints = [],
+    stable = null
 ) {
     // Takes a html file, `from`, and some artifacts from esbuild, and injects
     // some javascript that will load these artifacts dynamically, based on an
@@ -82,90 +87,97 @@ export function copyIndexHtml(
     // Docker image, but serve the js and it's dependencies from e.g. CloudFront
     const buildId = new Date().valueOf()
 
-    const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
-    const jsFile = relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
-    const cssFile =
-        relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
+    const bootScript = (chunks, entrypoints, { isStable = false, eagerCss = [] } = {}) => {
+        const relativeFiles = entrypoints.map((e) => path.relative(path.resolve(absWorkingDir, 'dist'), e))
+        const jsFile =
+            relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.js')) : `${entry}.js?t=${buildId}`
+        const cssFile =
+            relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
-    const jsFileFallback = `${entry}.js?t=${buildId}`
-    const scriptCode = `
-        window.ESBUILD_LOAD_SCRIPT = async function (file) {
-            try {
-                await import((window.JS_URL || '') + '/static/' + file)
-            } catch (error) {
-                console.error('Error loading chunk: "' + file + '"')
-                console.error(error)
-                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
-                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+        const jsFileFallback = `${entry}.js?t=${buildId}`
+        // The stable entry may already have run some stable chunks when it fails, and the default
+        // entry would then run a second copy of those modules. So the stable variant reloads the page
+        // on the default build instead. The server always serves the default build for
+        // ?stable_chunks=fallback, so the reload cannot loop, and it stores no choice, so the next
+        // navigation tries the stable build again.
+        const entryFallback = isStable
+            ? `
+                        var url = new URL(window.location.href)
+                        url.searchParams.set('stable_chunks', 'fallback')
+                        window.location.replace(url.toString())`
+            : `
+                        await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})`
+        const scriptCode = `
+            // The server has already applied ?stable_chunks (1 and 0 also set the choice cookie),
+            // so drop it from the address bar. A bookmarked or shared URL must not keep forcing a build.
+            if (window.location.search.indexOf('stable_chunks=') !== -1) {
+                var cleanUrl = new URL(window.location.href)
+                cleanUrl.searchParams.delete('stable_chunks')
+                window.history.replaceState(window.history.state, '', cleanUrl.toString())
+            }
+            window.ESBUILD_LOAD_SCRIPT = async function (file) {
+                try {
+                    await import((window.JS_URL || '') + '/static/' + file)
+                } catch (error) {
+                    console.error('Error loading chunk: "' + file + '"')
+                    console.error(error)
+                    if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {${entryFallback}
+                    }
                 }
             }
-        }
-        window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
-    `
+            window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
+        `
 
-    // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
-    // they tell us which other files to load. This cascading loading is slow. That's why we cache
-    // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+        // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
+        // they tell us which other files to load. This cascading loading is slow. That's why we cache
+        // the list of chunks per scene, and load them all in parallel when a scene is loaded.
+        //
+        // The full map is written to its own content-hashed file in dist and fetched by the inline
+        // loader, instead of being inlined into the HTML: the map is hundreds of KB that changed on
+        // every deploy and had to be downloaded and parsed before the app could boot, on every page.
 
-    // Don't use chunks in dev mode.
-    // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
-    const chunksToServe = isDev ? {} : chunks
-    const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set();
-        window.ESBUILD_LOAD_CHUNKS = function(name) {
-            const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) {
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
-                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                }
-            }
+        // Don't use chunks in dev mode.
+        // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
+        const chunksToServe = isDev ? {} : chunks
+        const chunkMapFile = Object.keys(chunksToServe).length > 0 ? chunkMapFileName(entry, chunksToServe) : null
+        if (chunkMapFile) {
+            fse.writeFileSync(path.resolve(absWorkingDir, 'dist', chunkMapFile), chunkMapFileContents(chunksToServe))
         }
-        window.ESBUILD_LOAD_CHUNKS('index');
-    `
+        const chunkCode = Object.keys(chunks).length > 0 ? chunkLoaderScript(chunksToServe, chunkMapFile) : ''
 
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
-    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
-    const cssFileFallback = `${entry}.css?t=${buildId}`
-    const needsCssFallback = cssFile !== cssFileFallback
-    const cssLoader = `
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.crossOrigin = "anonymous";
-        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
-        ${
-            needsCssFallback
-                ? `link.onerror = function() {
-            link.onerror = null;
-            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
-            var fallbackLink = document.createElement("link");
-            fallbackLink.rel = "stylesheet";
-            fallbackLink.crossOrigin = "anonymous";
-            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
-            document.head.appendChild(fallbackLink);
-        };`
-                : ''
-        }
-        document.head.appendChild(link)
-    `
+        // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails or
+        // stalls (e.g. CDN returns 403, or the request hangs). Mirrors the JS fallback above.
+        const cssFileFallback = `${entry}.css?t=${buildId}`
+        // The stable build links its split eager stylesheets and keeps the full one as its fallback.
+        const cssLoader =
+            isStable && eagerCss.length > 0
+                ? stableCssLoaderScript(eagerCss, cssFile, cssFileFallback)
+                : cssFile
+                  ? cssLoaderScript(cssFile, cssFileFallback)
+                  : ''
+
+        return `<script nonce="{{ request.csp_nonce }}" type="application/javascript">
+                    // The stylesheet link is added just below, at runtime, so a slow CSS fetch does
+                    // not hold up these boot scripts. The loader publishes window.ESBUILD_CSS_READY,
+                    // and the app entry waits on it before its first render, so React does not paint
+                    // real markup that no stylesheet reaches. See cssLoader.mjs.
+                    ${cssLoader}
+                    ${scriptCode}
+                    ${chunkCode}
+                </script>`
+    }
+
+    // With stable chunk names built, the backend picks the boot variant per request. See
+    // frontend/bin/stableChunkNames.mjs and the stable_chunks context in posthog/utils.py.
+    const scripts = stable
+        ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true, eagerCss: stable.eagerCss ?? [] })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
+        : bootScript(chunks, entrypoints)
 
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
-            `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
-                    ${cssFile ? cssLoader : ''}
-                    ${scriptCode}
-                    ${Object.keys(chunks).length > 0 ? chunkCode : ''}
-                </script>
+            `   ${scripts}
             </head>`
         )
     )
@@ -246,6 +258,20 @@ export const commonConfig = {
                 })
             },
         },
+        // zod re-exports every error-message locale as `z.locales`. Any import that keeps the whole
+        // `z` object (a named `z` import, the default import, a shared chunk anchor) then ships all
+        // of them. We only use `en`, which zod imports directly, so the locales barrel exports `en`
+        // only. The eager graph check has a tripwire for another locale file in case the path moves.
+        {
+            name: 'zod-en-locale-only',
+            setup(build) {
+                build.onLoad({ filter: /[\\/]zod[\\/]v4[\\/]locales[\\/]index\.js$/ }, (args) => ({
+                    contents: 'export { default as en } from "./en.js";',
+                    loader: 'js',
+                    resolveDir: path.dirname(args.path),
+                }))
+            },
+        },
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
@@ -279,6 +305,7 @@ export const commonConfig = {
     alias: {
         buffer: 'buffer',
         crypto: 'crypto-browserify',
+        'node:crypto': 'crypto-browserify',
         stream: 'stream-browserify',
     },
     tsconfig: tsconfigPath,
@@ -287,6 +314,8 @@ export const commonConfig = {
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
+        '.bin': 'file',
+        '.wasm': 'file',
         '.ttf': 'file',
         '.png': 'file',
         '.gif': 'file',
@@ -617,7 +646,7 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
-                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[\/\\])node_modules([\/\\]|$)/],
+                    ignored: [/.*(Type|\.test\.stories)\.[tj]sx?$/, /(^|[/\\])node_modules([/\\]|$)/],
                     ignoreInitial: true,
                     followSymlinks: false,
                 }

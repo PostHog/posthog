@@ -10,12 +10,15 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.service import (
+    AWSCredentials,
     AzureBlobBatchExportInputs,
     BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
     PostgresBatchExportInputs,
     RedshiftBatchExportInputs,
+    RedshiftCopyInputs,
     S3BatchExportInputs,
+    S3CompatibleBatchExportInputs,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
 )
@@ -31,14 +34,12 @@ DESTINATION_INPUTS = {
         use_variant_type="true",  # type: ignore
         use_automatic_schema_evolution="false",  # type: ignore
     ),
-    "S3": S3BatchExportInputs(
+    "S3Compatible": S3CompatibleBatchExportInputs(
         batch_export_id="test",
         team_id=1,
         bucket_name="bucket",
         region="us-east-1",
         prefix="prefix/",
-        aws_access_key_id="key",
-        aws_secret_access_key="secret",
         use_virtual_style_addressing="true",  # type: ignore
         max_file_size_mb="100",  # type: ignore
     ),
@@ -89,7 +90,7 @@ class TestTypeCoercionInBatchExportInputs:
         [
             ("Databricks", "use_variant_type", True),
             ("Databricks", "use_automatic_schema_evolution", False),
-            ("S3", "use_virtual_style_addressing", True),
+            ("S3Compatible", "use_virtual_style_addressing", True),
             ("Postgres", "has_self_signed_cert", True),
             ("BigQuery", "use_json_type", True),
         ],
@@ -102,7 +103,7 @@ class TestTypeCoercionInBatchExportInputs:
         [
             ("Postgres", "port", 5432),
             ("Redshift", "port", 5439),
-            ("S3", "max_file_size_mb", 100),
+            ("S3Compatible", "max_file_size_mb", 100),
             ("AzureBlob", "max_file_size_mb", 50),
         ],
     )
@@ -130,8 +131,6 @@ class TestTypeCoercionInBatchExportInputs:
             bucket_name="bucket",
             region="us-east-1",
             prefix="prefix/",
-            aws_access_key_id="key",
-            aws_secret_access_key="secret",
             max_file_size_mb=None,
         )
         assert inputs.max_file_size_mb is None
@@ -140,7 +139,7 @@ class TestTypeCoercionInBatchExportInputs:
 @pytest.fixture
 async def batch_export(ateam):
     destination = await BatchExportDestination.objects.acreate(
-        type="S3",
+        type="AwsS3",
         config={
             "bucket_name": "test",
             "region": "us-east-1",
@@ -282,3 +281,41 @@ async def test_creates_backfill_without_id_does_not_deduplicate(ateam, batch_exp
 def test_align_timestamp_to_interval(timestamp, interval, interval_offset, timezone, expected):
     batch_export = BatchExport(interval=interval, interval_offset=interval_offset, timezone=timezone)
     assert align_timestamp_to_interval(timestamp, batch_export) == expected
+
+
+class TestRedshiftCopyInputsCredentials:
+    # EncryptedJSONField stringifies scalar leaves on the decrypt round trip, so an
+    # integration id saved as an int can read back as a numeric string.
+    @pytest.mark.parametrize(
+        "authorization,bucket_credentials,expected_authorization,expected_bucket_credentials",
+        [
+            (123, 456, 123, 456),
+            ("123", "456", 123, 456),
+            (
+                "arn:aws:iam::123456789012:role/my-role",
+                {"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+                "arn:aws:iam::123456789012:role/my-role",
+                AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret"),
+            ),
+        ],
+    )
+    def test_copy_credentials_are_parsed(
+        self, authorization, bucket_credentials, expected_authorization, expected_bucket_credentials
+    ):
+        inputs = RedshiftBatchExportInputs(
+            batch_export_id="test",
+            team_id=1,
+            database="db",
+            mode="COPY",
+            copy_inputs={  # type: ignore
+                "s3_bucket": "bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "prefix/",
+                "authorization": authorization,
+                "bucket_credentials": bucket_credentials,
+            },
+        )
+
+        assert isinstance(inputs.copy_inputs, RedshiftCopyInputs)
+        assert inputs.copy_inputs.authorization == expected_authorization
+        assert inputs.copy_inputs.bucket_credentials == expected_bucket_credentials

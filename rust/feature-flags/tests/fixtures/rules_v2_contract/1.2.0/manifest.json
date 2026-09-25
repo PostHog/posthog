@@ -1,0 +1,419 @@
+{
+  "manifest_version": 1,
+  "contract": {
+    "name": "feature_flag_rules_v2",
+    "version": "1.2.0",
+    "config_version": 2
+  },
+  "corpus": {
+    "version": "1.1.0",
+    "config_version_locked": 1,
+    "case_id_pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+    "published_versions_are_immutable": true,
+    "expectation_change": "Any changed expected value requires a new corpus version and a review explanation."
+  },
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "compatibility": {
+    "published_versions_are_immutable": true,
+    "patch": "Documentation or integrity-tool changes that do not change accepted configs or frozen literals.",
+    "minor": "Additive fixtures or artifacts that do not change accepted configs or frozen literals.",
+    "major": "Any change to accepted configs, rejected configs, or frozen literals."
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "index": "SHA256SUMS",
+    "content": "raw_file_bytes",
+    "entry_format": "<lowercase_hex_digest><two_spaces><relative_posix_path><line_feed>",
+    "entry_order": "bytewise_path",
+    "excluded_from_index": [
+      "SHA256SUMS"
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "README.md",
+      "kind": "documentation"
+    },
+    {
+      "path": "registries/literals.json",
+      "kind": "registry",
+      "version": "1.0.0"
+    },
+    {
+      "path": "schemas/config.schema.json",
+      "kind": "schema",
+      "version": "1.0.0"
+    },
+    {
+      "path": "fixtures/config/valid/boolean_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.boolean_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/string_group_assignment.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.string_group_assignment",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_number_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_number_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/reserved_object_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.reserved_object_value",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/valid/version_float_literal.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.version_float_literal",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_version.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_version",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version",
+        "message_contains": "2 was expected"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_string.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_string",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/version_boolean.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.version_boolean",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "const",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_config_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_config_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "",
+        "message_contains": "groups"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/unknown_rule_field.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.unknown_rule_field",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "additionalProperties",
+        "instance_path": "/rules/0",
+        "message_contains": "implicit_default"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_on_rollout_miss.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_on_rollout_miss",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "on_rollout_miss"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/missing_experiment_paused.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.missing_experiment_paused",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "required",
+        "instance_path": "/rules/0",
+        "message_contains": "paused"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/non_uuid_rule_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.non_uuid_rule_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/id"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_seed.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_seed",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/empty_string_value.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.empty_string_value",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minLength",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/return_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.return_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_value_type_mismatch.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_value_type_mismatch",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/variants/0/value"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/null_experiment_id.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.null_experiment_id",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "type",
+        "instance_path": "/rules/0/experiment_id",
+        "message_contains": "integer"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/object_value_max_depth.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.object_value_max_depth",
+      "expected": "valid"
+    },
+    {
+      "path": "fixtures/config/invalid/object_value_too_deep.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.object_value_too_deep",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "oneOf",
+        "instance_path": "/rules/0/value/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child/child"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/rollout_percentage_above_maximum.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.rollout_percentage_above_maximum",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maximum",
+        "instance_path": "/rules/0/rollout_percentage"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/variant_key_invalid_characters.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.variant_key_invalid_characters",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "pattern",
+        "instance_path": "/rules/0/variants/0/key"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_few_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_few_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "minItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/too_many_variants.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.too_many_variants",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxItems",
+        "instance_path": "/rules/0/variants"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/seed_too_long.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.seed_too_long",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "maxLength",
+        "instance_path": "/rules/0/seed"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_percentage_rollout_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_percentage_rollout_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/invalid/group_experiment_with_assign_by.json",
+      "kind": "fixture",
+      "fixture_id": "config.invalid.group_experiment_with_assign_by",
+      "expected": "invalid",
+      "expected_failure": {
+        "keyword": "not",
+        "instance_path": "/rules/0"
+      }
+    },
+    {
+      "path": "fixtures/config/valid/group_all_rule_types.json",
+      "kind": "fixture",
+      "fixture_id": "config.valid.group_all_rule_types",
+      "expected": "valid"
+    },
+    {
+      "path": "schemas/hash_sha1_60_v1.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "schemas/v1_evaluation.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "schemas/legacy_projection.schema.json",
+      "kind": "schema",
+      "version": "1.1.0"
+    },
+    {
+      "path": "corpus/hash_sha1_60_v1.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/hash_sha1_60_v1.schema.json",
+      "case_ids": [
+        "hash.rollout.ascii_division_edge",
+        "hash.rollout.ascii_excluded",
+        "hash.variant.ascii",
+        "hash.holdout.literal_prefix",
+        "hash.concatenation.no_separator_escaping",
+        "hash.identifier.empty",
+        "hash.identifier.unicode_utf8",
+        "hash.identifier.truncated_ascii",
+        "hash.identifier.truncated_scalar_values",
+        "hash.identifier.exactly_200_multibyte",
+        "hash.identifier.integer_group_key",
+        "threshold.equal_is_included",
+        "threshold.next_binary64_above_is_excluded",
+        "threshold.zero_percent_zero_hash",
+        "threshold.zero_percent_smallest_hash",
+        "threshold.hundred_percent_short_circuit",
+        "threshold.two_decimal_division_equal",
+        "threshold.two_decimal_division_excluded",
+        "threshold.two_decimal_division_included_below_quotient",
+        "variant.zero_hash_first_variant",
+        "variant.boundary_is_exclusive",
+        "variant.just_below_boundary",
+        "variant.accumulated_boundary_left_to_right",
+        "variant.accumulated_boundary_third",
+        "variant.two_decimal_weights_boundary",
+        "variant.hash_one_off_the_end",
+        "variant.sum_below_one_off_the_end",
+        "parity.rollout_identical_bytes",
+        "parity.variant_identical_bytes",
+        "parity.holdout_identical_bytes",
+        "parity.empty_identifier_divergent",
+        "parity.final_variant_fallback_divergent"
+      ]
+    },
+    {
+      "path": "corpus/v1_evaluation.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/v1_evaluation.schema.json",
+      "case_ids": [
+        "v1.boolean.targeted_match_with_payload",
+        "v1.boolean.targeting_miss",
+        "v1.boolean.rollout_included",
+        "v1.boolean.rollout_excluded",
+        "v1.boolean.rollout_miss_continues_to_lower_condition",
+        "v1.boolean.rollout_miss_early_exit",
+        "v1.boolean.reason_priority_keeps_earlier_rollout_miss",
+        "v1.boolean.reason_priority_prefers_later_rollout_miss",
+        "v1.boolean.null_rollout_is_100",
+        "v1.boolean.empty_distinct_id_included_at_zero_percent",
+        "v1.boolean.empty_distinct_id_included_below_prefix_hash",
+        "v1.multivariate.variant_from_hash_with_payload",
+        "v1.multivariate.variant_from_hash_control",
+        "v1.multivariate.variant_override",
+        "v1.multivariate.invalid_variant_override_uses_hash",
+        "v1.multivariate.partial_rollout_included",
+        "v1.multivariate.partial_rollout_excluded",
+        "v1.multivariate.empty_distinct_id_first_variant",
+        "v1.group.included_by_group_key",
+        "v1.group.excluded_by_group_key",
+        "v1.group.integer_group_key_normalized",
+        "v1.group.missing_group_key",
+        "v1.dependency.satisfied",
+        "v1.dependency.unsatisfied",
+        "v1.dependency.variant_match",
+        "v1.dependency.variant_mismatch",
+        "v1.dependency.missing_target",
+        "v1.holdout.member",
+        "v1.holdout.not_member",
+        "v1.holdout.empty_distinct_id_hashes_prefix",
+        "v1.omission.inactive_flag"
+      ]
+    },
+    {
+      "path": "corpus/legacy_projection.json",
+      "kind": "corpus",
+      "version": "1.1.0",
+      "schema": "schemas/legacy_projection.schema.json",
+      "case_ids": [
+        "projection.boolean_true",
+        "projection.boolean_true_with_payload",
+        "projection.boolean_false_targeting_miss",
+        "projection.boolean_false_out_of_rollout",
+        "projection.variant",
+        "projection.variant_with_payload",
+        "projection.holdout_variant",
+        "projection.no_group_type",
+        "projection.missing_dependency",
+        "projection.failed_evaluation",
+        "projection.inactive_omitted"
+      ]
+    }
+  ]
+}

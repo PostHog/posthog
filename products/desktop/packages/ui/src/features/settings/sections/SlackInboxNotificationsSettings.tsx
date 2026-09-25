@@ -92,7 +92,7 @@ export function SlackInboxNotificationsSettings({
           {!isLoading && slackIntegrations.length > 1 ? (
             <SettingsCardRow
               label="Workspace"
-              description="Channels below are listed from this workspace."
+              description="Channels below are listed from this workspace"
             >
               <SettingsOptionSelect
                 value={

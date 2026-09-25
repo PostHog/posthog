@@ -160,7 +160,11 @@ export function AlertEditorFormDetails({
         <div className="space-y-2">
             <div className="flex gap-4 items-center">
                 <LemonField className="flex-auto" name="name">
-                    <LemonInput placeholder="Alert name" data-attr={nameDataAttr} />
+                    <LemonInput
+                        placeholder="Alert name"
+                        data-attr={nameDataAttr}
+                        status={nameError ? 'danger' : undefined}
+                    />
                 </LemonField>
                 {enabled ? (
                     <LemonField name="enabled">

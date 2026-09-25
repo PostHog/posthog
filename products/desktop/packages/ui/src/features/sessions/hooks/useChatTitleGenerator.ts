@@ -16,6 +16,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { countUserPrompts } from "@posthog/ui/features/sessions/hooks/promptCount";
 import {
   sessionStoreSetters,
   useSessionStore,
@@ -60,7 +61,7 @@ export function useChatTitleGenerator(task: Task): void {
     if (!taskRunId) return 0;
     const session = state.sessions[taskRunId];
     if (!session?.events) return 0;
-    return extractUserPromptsFromEvents(session.events).length;
+    return countUserPrompts(session.events);
   });
 
   useEffect(() => {
@@ -148,7 +149,7 @@ export function useChatTitleGenerator(task: Task): void {
                     task.id === taskId ? { ...task, title } : task,
                   ),
               );
-              queryClient.setQueriesData<Schemas.TaskSummary[]>(
+              queryClient.setQueriesData<Schemas.TaskSummaryDTO[]>(
                 { queryKey: taskKeys.allSummaries() },
                 (old) =>
                   old?.map((task) =>

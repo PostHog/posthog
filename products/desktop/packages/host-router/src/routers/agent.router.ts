@@ -6,9 +6,16 @@ import type { AgentService } from "@posthog/workspace-server/services/agent/agen
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
 import {
   AgentServiceEvent,
+  authTerminalOutput,
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
+  claudeAuthTerminalInput,
+  claudeSubscriptionStatusOutput,
+  codexCloudAuthAttemptInput,
+  codexCloudAuthTokensOutput,
+  codexSubscriptionLoginOutput,
+  codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -83,6 +90,77 @@ export const agentRouter = router({
     .query(({ ctx }) =>
       ctx.container.get<AgentService>(AGENT_SERVICE).getRtkStatus(),
     ),
+
+  codexSubscriptionStatus: publicProcedure
+    .output(codexSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexSubscriptionStatus(),
+    ),
+
+  claudeSubscriptionStatus: publicProcedure
+    .output(claudeSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeSubscriptionStatus(),
+    ),
+
+  claudeAuthTerminal: publicProcedure
+    .input(claudeAuthTerminalInput)
+    .output(authTerminalOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeAuthTerminal(input.action),
+    ),
+
+  codexSubscriptionLoginStart: publicProcedure
+    .output(codexSubscriptionLoginOutput)
+    .mutation(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startCodexSubscriptionLogin(),
+    ),
+
+  codexCloudAuthTerminal: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .output(authTerminalOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexCloudAuthTerminal(input.attemptId),
+    ),
+
+  codexCloudAuthFileRead: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .output(codexCloudAuthTokensOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .readCodexCloudAuthFile(input.attemptId),
+    ),
+
+  codexCloudAuthFileRemove: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .removeCodexCloudAuthFile(input.attemptId),
+    ),
+
+  codexCloudAuthFinish: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .finishCodexCloudAuth(input.attemptId),
+    ),
+
+  codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),
+  ),
 
   reconnect: publicProcedure
     .input(reconnectSessionInput)
@@ -235,6 +313,10 @@ export const agentRouter = router({
     .query(({ ctx, input }) =>
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
-        .getPreviewConfigOptions(input.apiHost, input.adapter),
+        .getPreviewConfigOptions(
+          input.apiHost,
+          input.adapter,
+          input.allHarnessModels,
+        ),
     ),
 });

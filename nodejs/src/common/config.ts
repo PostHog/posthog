@@ -129,6 +129,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: string
     PERSONHOG_TLS: boolean
     PERSONHOG_TIMEOUT_MS: number
+    /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
+    PERSONHOG_MERGE_TIMEOUT_MS: number
     PERSONHOG_READ_MAX_BYTES: number
     PERSONHOG_WRITE_MAX_BYTES: number
     PERSONHOG_PING_INTERVAL_MS: number
@@ -164,7 +166,6 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
     /**
@@ -215,6 +216,16 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    // The number of connections the HTTP/2 dispatchers open per origin. The request helper holds a burst to a cold
+    // origin behind one probe request, so this cap only bounds an origin that negotiates HTTP/1.1 and the spill past
+    // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
+    // lane allows 6 per registrable domain.
+    EXTERNAL_REQUEST_H2_CONNECTIONS: number
+    // Which teams send their third-party requests through the egress proxy. Only a deployment in the rollout sets
+    // this. Left unset, a configured proxy carries every request, which is the behavior from before the rollout.
+    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
+    // everyone else's requests, '*' for all.
+    EXTERNAL_REQUEST_PROXY_TEAMS: string
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -227,6 +238,17 @@ export type CommonConfig = BaseServerConfig & {
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    // With the Rust VM enabled, coalesce concurrent same-program invocations into one
+    // executeBatch FFI call per tick, executed off the JS event loop, instead of per-invocation
+    // executeSync on the JS thread.
+    CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
+
+    // Timeout for the internal audience-resolution calls a batch workflow makes while paging its
+    // target audience. These run ClickHouse queries that routinely take longer than the 3s
+    // EXTERNAL_REQUEST_TIMEOUT_MS inter-service budget, so they get a larger one of their own —
+    // without it, resolving a non-trivial audience always times out and the whole batch run fails.
+    CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: number
 
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
     TRANSFORMATIONS_HOG_TIMEOUT_MS: number
@@ -242,6 +264,8 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_PROXY_TEAMS'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -253,6 +277,8 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
+        EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
     }
 }
 
@@ -320,6 +346,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_TLS: false,
         PERSONHOG_TIMEOUT_MS: 3000,
+        PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -355,7 +382,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         CONSUMER_USE_V2: false,
@@ -406,6 +432,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
+        EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
+        EXTERNAL_REQUEST_PROXY_TEAMS: '',
 
         // PostHog analytics
         POSTHOG_API_KEY: '',
@@ -415,6 +443,8 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper

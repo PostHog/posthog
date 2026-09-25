@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _comments_stream,
     _get_headers,
     _iter_block_children,
+    _iter_page_ids,
     _parse_retry_after,
     _request,
     _search_body,
@@ -67,9 +68,9 @@ class FakeSession:
 
     def _next(self) -> FakeResponse:
         index = len(self.calls) - 1
-        if callable(self._responses):
-            return self._responses(index)
-        return self._responses.pop(0)
+        if isinstance(self._responses, list):
+            return self._responses.pop(0)
+        return self._responses(index)
 
     def request(
         self,
@@ -212,6 +213,37 @@ class TestNotion:
         assert sum(t.num_rows for t in tables) == 1
         assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
         assert "start_cursor" not in session.calls[1]["params"]
+
+    def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
+        # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
+        # rejects with the same 400 validation_error as the search/users streams. The blocks/comments
+        # fan-out must restart enumeration rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                _list_response([{"id": "p1"}], has_more=True, next_cursor="c1"),
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        logger = mock.MagicMock()
+
+        page_ids = list(_iter_page_ids(cast(requests.Session, session), logger))
+
+        assert page_ids == ["p1", "p1"]
+        assert logger.warning.called
+        # Second request replays the now-stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[1]["json"]["start_cursor"] == "c1"
+        assert "start_cursor" not in session.calls[2]["json"]
+
+    def test_iter_page_ids_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+
+        with pytest.raises(NotionBadRequestError):
+            list(_iter_page_ids(cast(requests.Session, session), mock.MagicMock()))
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
@@ -513,8 +545,18 @@ class TestNotion:
         assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT
         assert logger.warning.called
 
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+    @parameterized.expand(
+        [
+            (200, True, None),
+            (401, False, "Create a new internal integration token"),
+            (403, False, "Give it read capabilities"),
+            (500, False, "Wait a few minutes"),
+        ]
+    )
+    def test_validate_credentials_status_mapping(
+        self, status_code: int, expected_valid: bool, expected_next_step: str | None
+    ) -> None:
+        # Every refusal has to name a next step: the wizard shows this string and nothing else.
         session = FakeSession([FakeResponse({}, status_code=status_code)])
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
@@ -523,14 +565,22 @@ class TestNotion:
         if expected_valid:
             assert message is None
         else:
-            assert message is not None
+            assert expected_next_step is not None
+            assert expected_next_step in (message or "")
+            assert str(status_code) not in (message or "")
 
     def test_validate_credentials_handles_exception(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session", side_effect=requests.ConnectionError("boom")):
+        # A connection error repr names the host and the urllib3 internals, none of which the
+        # person filling in the token field can act on.
+        with mock.patch(
+            f"{MODULE}.make_tracked_session",
+            side_effect=requests.ConnectionError("HTTPSConnectionPool(host='api.notion.com', port=443)"),
+        ):
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
-        assert message == "boom"
+        assert "Wait a few minutes" in (message or "")
+        assert "HTTPSConnectionPool" not in (message or "")
 
 
 @pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))

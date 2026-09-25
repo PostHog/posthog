@@ -230,7 +230,6 @@ test.describe("Pi enrichment", () => {
           environment: "local",
         },
         model: "claude-haiku-4-5",
-        projectTrusted: false,
         providerOptions: { apiKey: "gateway-test-key", baseUrl },
         enrichment: {
           apiUrl: baseUrl,

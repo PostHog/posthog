@@ -12,6 +12,7 @@ import type {
   JsonRpcMessage,
   JsonRpcRequest,
   OptimisticItem,
+  PendingFollowupMessage,
   StoredLogEntry,
   UserShellExecuteParams,
 } from "@posthog/shared";
@@ -124,19 +125,19 @@ function promoteImportedUserPrompt(
     return null;
   }
   const content = update.content as
-    | { type?: string; text?: string }
+    | { type?: string; text?: string; _meta?: { ui?: { hidden?: boolean } } }
     | undefined;
   if (content?.type !== "text" || !content.text) return null;
+  // A hidden chunk is context the model reads and the person never typed: a compaction summary,
+  // a mode note. Promoting it would put text nobody wrote at the top of their thread.
+  if (content._meta?.ui?.hidden) return null;
   return createUserMessageEvent(content.text, ts);
 }
 
 /**
  * Create a user message event for display.
  */
-export function createUserPromptEvent(
-  prompt: ContentBlock[],
-  ts: number,
-): AcpMessage {
+function createUserPromptEvent(prompt: ContentBlock[], ts: number): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -151,7 +152,7 @@ export function createUserPromptEvent(
   };
 }
 
-export function createUserMessageEvent(text: string, ts: number): AcpMessage {
+function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
 }
 
@@ -461,7 +462,7 @@ export function normalizePromptToBlocks(
   );
 }
 
-export { isFatalSessionError, isRateLimitError } from "@posthog/shared";
+export { isFatalSessionError } from "@posthog/shared";
 
 /**
  * Whether a list of events already contains a `session/prompt` request.
@@ -506,18 +507,19 @@ export function isSteerPromptParams(params: unknown): boolean {
  * echoes. Pinned bubbles are left alone: the initial prompt is deduped against
  * its echo by the merge layer, which upgrades it with the server's timestamp.
  */
-export function selectEchoedOptimisticItemIds(
-  optimisticItems: OptimisticItem[],
+function countPromptEchoes(
   events: AcpMessage[],
   firstUnseenEntryIndex: number,
-): string[] {
+  taskRunId?: string,
+): Map<string, number> {
   const echoCounts = new Map<string, number>();
   for (const event of events) {
     const msg = event.message;
     if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
-    const entryIndex = getStoredLogEventPosition(event)?.entryIndex;
-    if (entryIndex === undefined || entryIndex < firstUnseenEntryIndex)
+    const position = getStoredLogEventPosition(event);
+    if (position === undefined || position.entryIndex < firstUnseenEntryIndex)
       continue;
+    if (taskRunId !== undefined && position.taskRunId !== taskRunId) continue;
     const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
       ?.prompt;
     if (!blocks?.length) continue;
@@ -526,6 +528,13 @@ export function selectEchoedOptimisticItemIds(
     }).text.trim();
     echoCounts.set(text, (echoCounts.get(text) ?? 0) + 1);
   }
+  return echoCounts;
+}
+
+function selectItemsMatchingEchoes(
+  optimisticItems: OptimisticItem[],
+  echoCounts: Map<string, number>,
+): string[] {
   if (echoCounts.size === 0) return [];
 
   const echoed: string[] = [];
@@ -538,6 +547,95 @@ export function selectEchoedOptimisticItemIds(
     echoed.push(item.id);
   }
   return echoed;
+}
+
+export function selectEchoedOptimisticItemIds(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  firstUnseenEntryIndex: number,
+): string[] {
+  return selectItemsMatchingEchoes(
+    optimisticItems,
+    countPromptEchoes(events, firstUnseenEntryIndex),
+  );
+}
+
+export function selectEchoedOptimisticItemIdsAfterRebuild(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  committedEvents: AcpMessage[],
+  rebuiltWindow: { taskRunId: string; firstEntryIndex: number },
+): string[] {
+  const { taskRunId, firstEntryIndex } = rebuiltWindow;
+  const echoCounts = countPromptEchoes(events, firstEntryIndex, taskRunId);
+  for (const [text, committed] of countPromptEchoes(
+    committedEvents,
+    firstEntryIndex,
+    taskRunId,
+  )) {
+    const remaining = (echoCounts.get(text) ?? 0) - committed;
+    if (remaining > 0) {
+      echoCounts.set(text, remaining);
+    } else {
+      echoCounts.delete(text);
+    }
+  }
+  return selectItemsMatchingEchoes(optimisticItems, echoCounts);
+}
+
+export function selectUnseededPendingFollowups(
+  pending: PendingFollowupMessage[],
+  events: AcpMessage[],
+  optimisticItems: OptimisticItem[],
+): PendingFollowupMessage[] {
+  if (pending.length === 0) return [];
+
+  const covers: { text: string; ts: number }[] = [];
+  const cover = (text: string, ts: number): void => {
+    const key = text.trim();
+    if (key) covers.push({ text: key, ts });
+  };
+  for (const event of events) {
+    const msg = event.message;
+    if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
+    const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
+      ?.prompt;
+    if (!blocks?.length) continue;
+    cover(
+      extractPromptDisplayContent(blocks, { filterHidden: true }).text,
+      event.ts,
+    );
+  }
+  for (const item of optimisticItems) {
+    if (item.type !== "user_message") continue;
+    cover(
+      stripTrailingAttachmentSummary(item.content),
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+
+  const claimed = new Set<number>();
+  const unseeded: PendingFollowupMessage[] = [];
+  for (const message of pending) {
+    const key = stripTrailingAttachmentSummary(message.content).trim();
+    if (!key) continue;
+    const recordedAt = message.ts ? Date.parse(message.ts) : Number.NaN;
+    const floor = Number.isNaN(recordedAt)
+      ? Number.NEGATIVE_INFINITY
+      : recordedAt;
+    const index = covers.findIndex(
+      (candidate, position) =>
+        !claimed.has(position) &&
+        candidate.text === key &&
+        candidate.ts >= floor,
+    );
+    if (index === -1) {
+      unseeded.push(message);
+    } else {
+      claimed.add(index);
+    }
+  }
+  return unseeded;
 }
 
 /**

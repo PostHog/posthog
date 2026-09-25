@@ -22,6 +22,8 @@ import type { ManagedServer, ServerManager } from "./server-manager";
 import {
   type BridgedContent,
   invokeTool,
+  type McpCallDetails,
+  mcpCallDetails,
   type SearchableTool,
   type ToolBridge,
 } from "./tool-bridge";
@@ -41,6 +43,7 @@ export interface Hit {
   /** Exact pi tool name to call, if known (live or cached). Absent = server-only hit. */
   piName?: string;
   serverName: string;
+  title?: string;
   description: string;
   connected: boolean;
   score: number;
@@ -57,7 +60,14 @@ export type McpProxyDetails =
   | { kind: "error"; message: string }
   | { kind: "search"; query: string; hits: Hit[] }
   | { kind: "connect"; server: string; toolCount: number }
-  | { kind: "call"; server: string; tool: string; piName: string };
+  | {
+      kind: "call";
+      server: string;
+      tool: string;
+      title?: string;
+      piName: string;
+      posthog?: McpCallDetails["posthog"];
+    };
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[-_]/g, " ");
@@ -89,12 +99,13 @@ async function search(
   for (const tool of live) {
     const s = score(
       queryTerms,
-      `${tool.piName} ${tool.mcpName} ${tool.description} ${tool.serverName}`,
+      `${tool.piName} ${tool.mcpName} ${tool.title ?? ""} ${tool.description} ${tool.serverName}`,
     );
     if (s > 0) {
       hits.set(tool.piName, {
         piName: tool.piName,
         serverName: tool.serverName,
+        ...(tool.title ? { title: tool.title } : {}),
         description: truncateDescription(tool.description),
         connected: true,
         score: s,
@@ -116,12 +127,13 @@ async function search(
         if (hits.has(tool.name)) continue;
         const s = score(
           queryTerms,
-          `${tool.name} ${tool.mcpName} ${tool.description} ${server.name}`,
+          `${tool.name} ${tool.mcpName} ${tool.title ?? ""} ${tool.description} ${server.name}`,
         );
         if (s > 0) {
           hits.set(tool.name, {
             piName: tool.name,
             serverName: server.name,
+            ...(tool.title ? { title: tool.title } : {}),
             description: truncateDescription(tool.description),
             connected: false,
             score: s,
@@ -166,7 +178,7 @@ function formatHits(hits: Hit[]): string {
       const suffix = hit.connected
         ? ""
         : " (not connected — connects on first call)";
-      return `${hit.piName}${suffix} — ${hit.description}`;
+      return `${hit.piName}${suffix} — ${hit.title ? `${hit.title}: ` : ""}${hit.description}`;
     })
     .join("\n");
 }
@@ -328,7 +340,7 @@ async function callOrConnect(
 
   manager.touch(owner);
   const timeoutMs = manager.getRequestTimeoutMs(owner);
-  const { content } = await invokeTool(
+  const { content, structuredContent, _meta } = await invokeTool(
     client,
     owner,
     meta.mcpName,
@@ -338,7 +350,22 @@ async function callOrConnect(
   );
   return {
     content,
-    details: { kind: "call", server: owner, tool: meta.mcpName, piName: name },
+    details: {
+      kind: "call",
+      server: owner,
+      tool: meta.mcpName,
+      ...(meta.title ? { title: meta.title } : {}),
+      piName: name,
+      posthog: mcpCallDetails(
+        owner,
+        meta.mcpName,
+        {
+          structuredContent,
+          _meta,
+        },
+        meta.title,
+      ),
+    },
   };
 }
 

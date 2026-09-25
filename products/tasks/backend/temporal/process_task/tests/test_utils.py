@@ -12,6 +12,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
+    POSTHOG_MCP_DESCRIPTION,
     GitHubCredentialSource,
     McpServerConfig,
     RunState,
@@ -31,21 +32,92 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_from_state,
+    mcp_exec_skills_env_vars,
+    parse_run_state,
+    sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
     def test_glm_5_3_supports_claude_reasoning_efforts(self) -> None:
-        assert "zai-org/glm-5.3" in get_models_for_runtime_adapter("claude")
-        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", "zai-org/glm-5.3")) == (
-            "high",
-            "max",
-        )
+        for model in ("zai-org/glm-5.3", "zai-org/glm-5.3-flash"):
+            assert model in get_models_for_runtime_adapter("claude")
+            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+                "high",
+                "max",
+            )
 
     def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
+
+    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
+        for model in ("claude-fable-5", "claude-fable-5-1"):
+            assert model in get_models_for_runtime_adapter("claude")
+            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode",
+            )
+
+
+class TestRunStateModelAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, "posthog-gateway", None),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_user_id": 12},
+                "own-subscription",
+                "claude",
+            ),
+            (
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "codex",
+            ),
+        ]
+    )
+    def test_decodes_legacy_fields(self, state: dict, kind: str, adapter: str | None) -> None:
+        access = RunState.model_validate(state).model_access
+        assert access.kind == kind
+        assert access.adapter == adapter
+        assert access.owner_id == (12 if adapter else None)
+
+    @parameterized.expand(
+        [
+            ({"claude_model_access": "own-subscription", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "claude", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "codex", "claude_model_access": "own-subscription"},),
+        ]
+    )
+    def test_rejects_incompatible_subscriptions(self, state: dict) -> None:
+        with self.assertRaises(ValueError):
+            _ = RunState.model_validate(state).model_access
+
+
+class TestRunStateResumeCompatibility(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("resume", {"handoff_resumed": True}, True, False),
+            ("idle", {"handoff_resumed": True, "handoff_resume_idle": True}, True, True),
+        ]
+    )
+    def test_parse_run_state_accepts_legacy_resume_keys(
+        self, _name: str, state: dict[str, bool], expected_resume: bool, expected_idle: bool
+    ) -> None:
+        parsed = parse_run_state(state)
+
+        self.assertEqual(parsed.same_run_resume, expected_resume)
+        self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
 class TestRunStateSnapshotPaths(TestCase):
@@ -141,7 +213,7 @@ class TestRunStateSnapshotPaths(TestCase):
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
-class TestGetSandboxMcpConfigs(TestCase):
+class TestGetSandboxMcpConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
@@ -173,6 +245,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url=expected_mcp_url,
                     headers=self._expected_headers(),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -187,6 +260,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url="https://custom-mcp.example.com/mcp",
                     headers=self._expected_headers(),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -201,6 +275,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -217,6 +292,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -233,6 +309,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
                     headers=self._expected_headers(read_only=True),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -262,6 +339,7 @@ class TestGetSandboxMcpConfigs(TestCase):
                     name="posthog",
                     url="http://host.docker.internal:8787/mcp",
                     headers=self._expected_headers(),
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
@@ -281,6 +359,16 @@ class TestGetSandboxMcpConfigs(TestCase):
                 {"name": "X-PostHog-Task-Id", "value": "task-uuid-123"},
             ]
 
+    def test_origin_product_adds_task_origin_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, origin_product="signals_scout")
+            assert configs[0].headers == [
+                *self._expected_headers(),
+                {"name": "X-PostHog-Task-Origin", "value": "signals_scout"},
+            ]
+
     def test_no_task_id_omits_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
@@ -288,34 +376,109 @@ class TestGetSandboxMcpConfigs(TestCase):
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert all(h["name"] != "X-PostHog-Task-Id" for h in configs[0].headers)
 
+    def test_describes_posthog_capabilities_for_agent_discovery(self) -> None:
+        # A pi agent searches its configured servers before connecting to any of them, matching
+        # only the server name and this description. Without capability words, an agent looking
+        # for "insights" or "feature flags" concludes it has no PostHog tools.
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            description = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)[0].description or ""
+
+        for capability in ("insight", "dashboard", "feature flag", "experiment", "error", "sql"):
+            assert capability in description.lower()
+
     @parameterized.expand(
         [
-            (None, "posthog-code"),
-            ("", "posthog-code"),
-            ("posthog-code", "posthog-code"),
-            ("some-other-origin", "posthog-code"),
-            ("slack", "slack"),
-            ("posthog_ai", "posthog_ai"),
+            (None, False, None, "posthog-code"),
+            ("", False, None, "posthog-code"),
+            ("posthog-code", False, None, "posthog-code"),
+            ("some-other-origin", False, None, "posthog-code"),
+            ("slack", False, None, "slack"),
+            ("workflow", True, None, "slack"),
+            ("posthog_ai", False, None, "posthog_ai"),
+            ("eval", False, None, "eval"),
+            (None, False, "posthog_ai", "posthog_ai"),
+            ("", False, "posthog_ai", "posthog_ai"),
+            (None, True, "posthog_ai", "slack"),
+            ("slack", False, "posthog_ai", "slack"),
+            ("eval", False, "posthog_ai", "eval"),
+            ("posthog-code", False, "posthog_ai", "posthog-code"),
+            ("some-other-origin", False, "posthog_ai", "posthog-code"),
+            (None, False, "signals_scout", "posthog-code"),
         ]
     )
-    def test_consumer_header_reflects_interaction_origin(
-        self, interaction_origin: str | None, expected_consumer: str
+    def test_consumer_header_reflects_reply_context(
+        self,
+        interaction_origin: str | None,
+        slack_reply_context: bool,
+        origin_product: str | None,
+        expected_consumer: str,
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = "https://app.posthog.com"
-            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, interaction_origin=interaction_origin)
+            configs = get_sandbox_ph_mcp_configs(
+                self.TOKEN,
+                self.PROJECT_ID,
+                interaction_origin=interaction_origin,
+                slack_reply_context=slack_reply_context,
+                origin_product=origin_product,
+            )
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
-                    headers=self._expected_headers(consumer=expected_consumer),
+                    headers=[
+                        *self._expected_headers(consumer=expected_consumer),
+                        *([{"name": "X-PostHog-Task-Origin", "value": origin_product}] if origin_product else []),
+                    ],
+                    description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
+    def test_exclude_tools_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = "https://app.posthog.com"
+            configs = get_sandbox_ph_mcp_configs(
+                self.TOKEN, self.PROJECT_ID, exclude_tools=["docs-search", "DOCS-SEARCH", "not a tool"]
+            )
+            assert {"name": "x-posthog-exclude-tools", "value": "docs-search"} in configs[0].headers
+            omitted = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert all(header["name"] != "x-posthog-exclude-tools" for header in omitted[0].headers)
+
+
+class TestMcpExcludeTools(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (["docs-search", "DOCS-SEARCH", "not a tool"], ["docs-search"]),
+            (None, []),
+            ([], []),
+        ]
+    )
+    def test_sanitize_mcp_exclude_tools(self, names, expected) -> None:
+        assert sanitize_mcp_exclude_tools(names) == expected
+
+    def test_mcp_exclude_tools_from_state_requires_a_string_list(self) -> None:
+        assert mcp_exclude_tools_from_state({"mcp_exclude_tools": ["docs-search", 1]}) == ["docs-search"]
+        assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
+        assert mcp_exclude_tools_from_state(None) == []
+
 
 class TestMcpServerConfigToDict(TestCase):
+    def test_description_is_serialized_for_the_sandbox(self) -> None:
+        # The agent server drops keys the schema doesn't declare, so an unserialized
+        # description never reaches the agent's tool search.
+        config = McpServerConfig(
+            type="http",
+            name="Linear",
+            url="https://mcp.example.com/mcp",
+            description="Manage Linear issues, projects, and workflows.",
+        )
+        assert config.to_dict()["description"] == "Manage Linear issues, projects, and workflows."
+
     def test_minimal_config(self) -> None:
         config = McpServerConfig(type="http", name="posthog", url="https://mcp.posthog.com/mcp")
         assert config.to_dict() == {
@@ -340,7 +503,7 @@ class TestMcpServerConfigToDict(TestCase):
         }
 
 
-class TestFetchUserMcpServerConfigs(TestCase):
+class TestFetchUserMcpServerConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     TEAM_ID = 42
     USER_ID = 7
@@ -381,6 +544,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
         assert configs == [
@@ -394,26 +558,33 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_allowlist_restricts_mounted_connectors(self, mock_facade, mock_api_url) -> None:
-        # A loop run snapshots the connectors its owner selected. Without enforcement the sandbox
-        # mounts every shared team connector; the allowlist must keep only the selected ones.
+    def test_carries_the_installation_description_for_agent_discovery(self, mock_facade, mock_api_url) -> None:
+        # Connectors are mounted unconnected, so the agent's tool search matches them on this
+        # description; without it "Linear" is only findable by literally searching "linear".
         mock_api_url.return_value = self.API_BASE
         mock_facade.return_value = [
-            self._make_installation(id="keep", name="Kept"),
-            self._make_installation(id="drop", name="Dropped"),
+            self._make_installation(description="Manage Linear issues, projects, and workflows.")
         ]
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=["keep"])
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
 
-        assert [config.name for config in configs] == ["Kept"]
+        assert configs[0].description == "Manage Linear issues, projects, and workflows."
 
+    @parameterized.expand([("selection", ["keep"]), ("empty_selection", [])])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_empty_allowlist_mounts_nothing(self, mock_facade, mock_api_url) -> None:
+    def test_installation_allowlist_is_forwarded_to_the_facade(
+        self, _name: str, allowed: list[str], mock_facade, mock_api_url
+    ) -> None:
+        # A loop run snapshots the connectors its owner selected. The facade applies the list on
+        # the member path (and only there), so this layer must hand it over untouched, an empty
+        # selection included.
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [self._make_installation()]
+        mock_facade.return_value = []
 
-        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=allowed)
+
+        assert mock_facade.call_args.kwargs["allowed_installation_ids"] == allowed
 
     @parameterized.expand(
         [
@@ -431,22 +602,36 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
     @parameterized.expand(
         [
-            ("slack", "slack"),
-            ("posthog_ai", "posthog_ai"),
-            ("posthog_code", "posthog-code"),
-            (None, "posthog-code"),
+            ("slack", False, None, "slack"),
+            ("workflow", True, None, "slack"),
+            ("posthog_ai", False, None, "posthog_ai"),
+            ("eval", False, None, "eval"),
+            ("posthog_code", False, None, "posthog-code"),
+            (None, False, None, "posthog-code"),
+            (None, False, "posthog_ai", "posthog_ai"),
         ]
     )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_consumer_header_reflects_interaction_origin(
-        self, interaction_origin: str | None, expected_consumer: str, mock_facade, mock_api_url
+    def test_consumer_header_reflects_reply_context(
+        self,
+        interaction_origin: str | None,
+        slack_reply_context: bool,
+        origin_product: str | None,
+        expected_consumer: str,
+        mock_facade,
+        mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
         mock_facade.return_value = [self._make_installation()]
 
         configs = get_user_mcp_server_configs(
-            self.TOKEN, self.TEAM_ID, self.USER_ID, interaction_origin=interaction_origin
+            self.TOKEN,
+            self.TEAM_ID,
+            self.USER_ID,
+            interaction_origin=interaction_origin,
+            slack_reply_context=slack_reply_context,
+            origin_product=origin_product,
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
@@ -487,6 +672,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
@@ -518,6 +704,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
 
@@ -1409,3 +1596,41 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         getattr(self, f"_{case}")()
 
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
+
+
+class TestMcpExecSkillsEnvVars(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("web_phai_flag_on", "posthog_ai", None, True, True),
+            ("slack_flag_on", "slack", None, True, True),
+            ("eval_flag_on", "eval", None, True, True),
+            ("desktop_keeps_bundled_skills_even_with_flag_on", None, None, True, False),
+            ("web_phai_flag_off", "posthog_ai", None, False, False),
+            ("web_phai_task_without_interaction_origin_flag_on", None, "posthog_ai", True, True),
+            ("web_phai_task_without_interaction_origin_flag_off", None, "posthog_ai", False, False),
+        ]
+    )
+    def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
+        self,
+        _name: str,
+        interaction_origin: str | None,
+        origin_product: str | None,
+        flag_enabled: bool,
+        expect_stripped: bool,
+    ) -> None:
+        ctx = MagicMock(
+            interaction_origin=interaction_origin,
+            origin_product=origin_product,
+            organization_id="org-1",
+            distinct_id="user-1",
+        )
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
+        ) as flag_check:
+            env = mcp_exec_skills_env_vars(ctx)
+
+        assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
+        if interaction_origin is None and origin_product is None:
+            flag_check.assert_not_called()
+        else:
+            flag_check.assert_called_once_with("org-1", "user-1")

@@ -2,6 +2,7 @@ import { CostManagementSettings } from "@posthog/ui/features/cost-management/Cos
 import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpServersView";
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
+import { AppearanceSettings } from "@posthog/ui/features/settings/sections/AppearanceSettings";
 import { DiscordSettings } from "@posthog/ui/features/settings/sections/DiscordSettings";
 import { EnvironmentsSettings } from "@posthog/ui/features/settings/sections/environments/EnvironmentsSettings";
 import { GeneralSettings } from "@posthog/ui/features/settings/sections/GeneralSettings";
@@ -10,15 +11,14 @@ import { HarnessSettings } from "@posthog/ui/features/settings/sections/HarnessS
 import { NotificationsSettings } from "@posthog/ui/features/settings/sections/NotificationsSettings";
 import { PersonalizationSettings } from "@posthog/ui/features/settings/sections/PersonalizationSettings";
 import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
-import { QuickAskSettings } from "@posthog/ui/features/settings/sections/QuickAskSettings";
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
+import { TaskAgentDefaultsSettings } from "@posthog/ui/features/settings/sections/TaskAgentDefaultsSettings";
 import { TerminalSettings } from "@posthog/ui/features/settings/sections/TerminalSettings";
 import { WorkspacesSettings } from "@posthog/ui/features/settings/sections/WorkspacesSettings";
 import { WorktreesSettings } from "@posthog/ui/features/settings/sections/worktrees/WorktreesSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
-import { CustomizeSidebarSettings } from "@posthog/ui/features/sidebar/components/CustomizeSidebarDialog";
 import { SkillsView } from "@posthog/ui/features/skills/SkillsView";
 import type { ComponentType, ReactNode } from "react";
 
@@ -46,6 +46,7 @@ function defineSettingsPage(
 
 const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
+  appearance: defineSettingsPage("Appearance", AppearanceSettings),
   notifications: defineSettingsPage("Notifications", NotificationsSettings),
   "plan-usage": defineSettingsPage("Plan & usage", PlanUsageSettings),
   "cost-management": defineSettingsPage(
@@ -59,7 +60,12 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     "Environments",
     EnvironmentsSettings,
   ),
-  agents: defineSettingsPage("Agents", AgentsSettings),
+  agents: defineSettingsPage(
+    "Agents",
+    AgentsSettings,
+    SETTINGS_PAGE_LAYOUT.FULL_BLEED,
+  ),
+  "task-agent-defaults": defineSettingsPage("Model", TaskAgentDefaultsSettings),
   skills: defineSettingsPage(
     "Skills",
     SkillsView,
@@ -74,11 +80,9 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     "Personalization",
     PersonalizationSettings,
   ),
-  sidebar: defineSettingsPage("Sidebar", CustomizeSidebarSettings),
   terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
-  "quick-ask": defineSettingsPage("Quick ask", QuickAskSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
   slack: defineSettingsPage("Slack", SlackSettings),
   discord: defineSettingsPage("Discord", DiscordSettings),
@@ -108,10 +112,10 @@ function SettingsPageHeader({
   return (
     <div
       className={`flex items-center gap-2 ${
-        bordered ? "shrink-0 border-gray-5 border-b px-6 py-4" : ""
+        bordered ? "h-14 shrink-0 border-border border-b px-6" : ""
       }`}
     >
-      {icon && <span className="text-gray-10">{icon}</span>}
+      {icon && <span className="text-muted-foreground">{icon}</span>}
       <span className="font-medium text-lg leading-6.5">{title}</span>
     </div>
   );

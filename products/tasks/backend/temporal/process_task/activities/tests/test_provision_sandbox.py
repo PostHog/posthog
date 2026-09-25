@@ -2,6 +2,8 @@ import os
 import sys
 import socket
 import asyncio
+import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -10,9 +12,15 @@ from django.test import override_settings
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
-from products.tasks.backend.exceptions import RepositoryCloneError
+from products.tasks.backend.exceptions import (
+    ComputeBillingLimitError,
+    OrganizationExecutionError,
+    RepositoryCloneError,
+    SandboxCleanupError,
+    SandboxRateLimitedError,
+)
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
@@ -28,6 +36,14 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
+
+
+@pytest.fixture(autouse=True)
+def organization_state(mocker):
+    teams = mocker.patch("products.tasks.backend.temporal.process_task.organization.Team.objects.filter")
+    state = teams.return_value.values_list.return_value.first
+    state.return_value = (False, True)
+    return state
 
 
 def _context_for_desktop_bootstrap(
@@ -48,21 +64,94 @@ def _context_for_desktop_bootstrap(
     )
 
 
-def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
-    sandbox = mocker.Mock()
-    sandbox.config.image_fallback = None
-    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+class _ShellSandbox:
+    def __init__(self, env: dict[str, str]) -> None:
+        self.config = type("Config", (), {"image_fallback": None})()
+        self.env = env
 
-    _prepare_posthog_desktop_cloud_task(
-        _context_for_desktop_bootstrap(),
-        sandbox,
-        "PostHog/posthog",
-    )
+    def execute(self, command: str, timeout_seconds: int) -> ExecutionResult:
+        result = subprocess.run(["sh", "-c", command], env=self.env, capture_output=True, text=True, timeout=10)
+        return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
 
-    sandbox.execute.assert_called_once_with(
-        "cd /tmp/workspace/repos/posthog/posthog/products/desktop && pnpm bootstrap:cloud-task",
-        timeout_seconds=10 * 60,
+
+@pytest.fixture
+def desktop_bootstrap_shell(mocker, tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "products" / "desktop" / "scripts").mkdir(parents=True)
+    (repo / "products" / "desktop" / "scripts" / "wait-cloud-task-bootstrap.sh").touch()
+    state_dir = tmp_path / "state"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    pnpm = fake_bin / "pnpm"
+    pnpm.write_text(
+        f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n'
+        f"while [ ! -f {tmp_path}/release ]; do sleep 0.05; done\n"
+        f"exit $(cat {tmp_path}/release)\n"
     )
+    pnpm.chmod(0o755)
+    mocker.patch.object(provision_sandbox_module, "sandbox_repo_path", return_value=str(repo))
+    mocker.patch.object(provision_sandbox_module, "DESKTOP_BOOTSTRAP_STATE_DIR", str(state_dir))
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "POSTHOG_DESKTOP_BOOTSTRAP_STATE_DIR": str(state_dir),
+    }
+    return _ShellSandbox(env), tmp_path
+
+
+def _wait_for_desktop_bootstrap(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    script = Path(__file__).parents[7] / "products/desktop/scripts/wait-cloud-task-bootstrap.sh"
+    return subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True, timeout=30)
+
+
+@pytest.mark.parametrize(
+    "pnpm_exit_code, build_timeout_seconds, expected_exit_code",
+    [(0, 60, 0), (3, 60, 3), (None, 1, 124)],
+)
+def test_desktop_bootstrap_runs_detached_and_reports_its_exit_code(
+    mocker, desktop_bootstrap_shell, pnpm_exit_code, build_timeout_seconds, expected_exit_code
+):
+    sandbox, tmp_path = desktop_bootstrap_shell
+    mocker.patch.object(provision_sandbox_module, "DESKTOP_BOOTSTRAP_TIMEOUT_SECONDS", build_timeout_seconds)
+
+    _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "PostHog/posthog")
+    assert (tmp_path / "state" / "started").exists()
+    if pnpm_exit_code is not None:
+        (tmp_path / "release").write_text(str(pnpm_exit_code))
+    waited = _wait_for_desktop_bootstrap(sandbox.env)
+
+    assert (tmp_path / "calls").read_text() == "bootstrap:cloud-task\n"
+    assert waited.returncode == expected_exit_code, waited.stderr
+
+
+def test_desktop_bootstrap_relaunch_replaces_a_running_build(desktop_bootstrap_shell):
+    sandbox, tmp_path = desktop_bootstrap_shell
+
+    _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
+    first_launcher = int((tmp_path / "state" / "launcher.pid").read_text())
+    _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
+    (tmp_path / "release").write_text("0")
+    waited = _wait_for_desktop_bootstrap(sandbox.env)
+
+    assert waited.returncode == 0, waited.stderr
+    assert (tmp_path / "calls").read_text() == "bootstrap:cloud-task\nbootstrap:cloud-task\n"
+    assert not Path(f"/proc/{first_launcher}").exists()
+
+
+def test_desktop_bootstrap_skips_a_branch_without_the_wait_script(desktop_bootstrap_shell):
+    sandbox, tmp_path = desktop_bootstrap_shell
+    (tmp_path / "repo" / "products" / "desktop" / "scripts" / "wait-cloud-task-bootstrap.sh").unlink()
+
+    _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
+
+    assert not (tmp_path / "state").exists()
+    assert not (tmp_path / "calls").exists()
+
+
+def test_wait_for_desktop_bootstrap_reports_when_nothing_was_launched(tmp_path):
+    env = {**os.environ, "POSTHOG_DESKTOP_BOOTSTRAP_STATE_DIR": str(tmp_path / "missing")}
+
+    assert _wait_for_desktop_bootstrap(env).returncode == 2
 
 
 @pytest.mark.parametrize(
@@ -102,22 +191,19 @@ def test_skips_desktop_workspace_preparation_when_warm_flag_is_off(mocker):
     sandbox.execute.assert_not_called()
 
 
-def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
-    from temporalio.exceptions import ApplicationError
-
+@pytest.mark.parametrize(
+    "execute_behavior",
+    [
+        {"return_value": ExecutionResult(stdout="", stderr="no space left", exit_code=1)},
+        {"side_effect": RuntimeError("sandbox exec failed")},
+    ],
+)
+def test_desktop_bootstrap_launch_failure_does_not_fail_the_run(mocker, execute_behavior):
     sandbox = mocker.Mock()
     sandbox.config.image_fallback = None
-    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="build failed", exit_code=1)
+    sandbox.execute.configure_mock(**execute_behavior)
 
-    with pytest.raises(ApplicationError) as error:
-        _prepare_posthog_desktop_cloud_task(
-            _context_for_desktop_bootstrap(),
-            sandbox,
-            "posthog/posthog",
-        )
-
-    assert error.value.non_retryable is True
-    assert "build failed" in str(error.value)
+    _prepare_posthog_desktop_cloud_task(_context_for_desktop_bootstrap(), sandbox, "posthog/posthog")
 
 
 @pytest.mark.parametrize(
@@ -135,33 +221,78 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "snapshot_kind, state, capability, expected",
+    "task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
     [
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             True,
         ),
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             True,
             False,
         ),
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_DIRECTORY,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
         ),
-        (SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
+        (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.ACP,
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            True,
+        ),
+        (
+            Task.Runtime.ACP,
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_DIRECTORY,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.PI,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, snapshot_kind, state, capability, expected
+    mocker, task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
+    context.task_runtime = task_runtime
     context.state = state
     prepared = PrepareSandboxForRepositoryOutput(
         sandbox_name="task-sandbox-task-id",
@@ -169,8 +300,8 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         github_token="",
         branch=None,
         environment_variables={},
-        snapshot_id=None,
-        snapshot_external_id="snapshot-1",
+        snapshot_id=snapshot_id,
+        snapshot_external_id=snapshot_external_id,
         used_snapshot=True,
         should_create_snapshot=False,
         shallow_clone=True,
@@ -179,7 +310,7 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         snapshot_kind=snapshot_kind,
     )
     sandbox = mocker.Mock()
-    sandbox.agent_server_supports_prewarmed_resume_idle.return_value = capability
+    sandbox.agent_server_supports_prewarmed_resume_message_driven.return_value = capability
 
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 
@@ -195,16 +326,27 @@ def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str
 
 
 @pytest.mark.parametrize(
-    ("handoff_resumed", "using_modal_snapshot", "expected"),
+    ("same_run_resume", "using_modal_snapshot", "from_import_run", "expected"),
     [
-        (True, False, "handoff"),
-        (True, True, "handoff_and_snapshot"),
-        (False, True, "snapshot_only"),
-        (False, False, "neither"),
+        (True, False, False, "same_run"),
+        (True, True, False, "same_run_and_snapshot"),
+        (False, True, False, "snapshot_only"),
+        (False, False, False, "neither"),
+        (False, False, True, "imported_transcript"),
+        (False, True, True, "snapshot_only"),
     ],
 )
-def test_resume_mode_label(handoff_resumed: bool, using_modal_snapshot: bool, expected: str) -> None:
-    assert resume_mode_label(handoff_resumed=handoff_resumed, using_modal_snapshot=using_modal_snapshot) == expected
+def test_resume_mode_label(
+    same_run_resume: bool, using_modal_snapshot: bool, from_import_run: bool, expected: str
+) -> None:
+    assert (
+        resume_mode_label(
+            same_run_resume=same_run_resume,
+            using_modal_snapshot=using_modal_snapshot,
+            from_import_run=from_import_run,
+        )
+        == expected
+    )
 
 
 @pytest.mark.asyncio
@@ -277,7 +419,7 @@ async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch: 
     "state, expected_branch",
     [
         ({"resume_from_run_id": "previous-run-id"}, "feature-branch"),
-        ({"handoff_resumed": True}, "feature-branch"),
+        ({"same_run_resume": True}, "feature-branch"),
         ({}, None),
     ],
 )
@@ -297,7 +439,10 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
     )
     sandbox = mocker.Mock()
     sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
-    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.provision_sandbox.posthoganalytics.feature_enabled",
         return_value=True,
@@ -348,7 +493,10 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
         ),
         ExecutionResult(stdout="", stderr="", exit_code=0),
     ]
-    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
 
     async_to_sync(activity_environment.run)(
         clone_repository_in_sandbox,
@@ -398,7 +546,10 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         exit_code=124,
         error="execution stopped",
     )
-    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
     metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
     capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
 
@@ -433,3 +584,140 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         }
     )
     assert str(capture_exception.call_args.args[0]) == "clone output"
+
+
+def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:
+    return PrepareSandboxForRepositoryOutput(
+        sandbox_name="sandbox-name",
+        repository="posthog/posthog",
+        github_token="github-token",
+        branch=None,
+        environment_variables={},
+        snapshot_id=None,
+        snapshot_external_id=None,
+        used_snapshot=False,
+        should_create_snapshot=False,
+        shallow_clone=True,
+        image_source="fresh",
+        image_source_label="fresh image",
+    )
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize(
+    "state, reason",
+    [
+        ((True, True), "organization_pending_deletion"),
+        ((True, False), "organization_pending_deletion"),
+        ((False, False), "organization_deactivated"),
+        (None, "organization_not_found"),
+    ],
+)
+def test_blocked_organization_creates_no_sandbox(
+    mocker, activity_environment, organization_state, warm, state, reason
+) -> None:
+    organization_state.return_value = state
+    context = _context_for_desktop_bootstrap()
+    context.state = {"await_user_message": warm}
+    sandbox_class = mocker.patch.object(provision_sandbox_module, "get_sandbox_class_for_run_backend")
+
+    error_type = ComputeBillingLimitError if reason == "organization_deactivated" else OrganizationExecutionError
+    with pytest.raises(error_type) as error:
+        async_to_sync(activity_environment.run)(
+            create_sandbox_for_repository,
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create()),
+        )
+
+    assert error.value.non_retryable is True
+    assert error.value.type == error_type.__name__
+    assert error.value.context["reason"] == reason
+    sandbox_class.return_value.create.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failing_step,destroy_fails",
+    [
+        ("get_connect_credentials", False),
+        ("get_connect_credentials", True),
+        ("start_cpu_billing_sampler", False),
+    ],
+)
+def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={"await_user_message": True},
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.image_fallback = None
+    sandbox.config.snapshot_restored = False
+    sandbox.launch_dev_stack_bootstrap.return_value = False
+    sandbox.start_cpu_billing_sampler.return_value = True
+    getattr(sandbox, failing_step).side_effect = SandboxRateLimitedError(
+        "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
+    )
+    if destroy_fails:
+        sandbox.destroy.side_effect = SandboxCleanupError(
+            "Failed to destroy sandbox", {"sandbox_id": "sandbox-id"}, cause=RuntimeError("terminate failed")
+        )
+
+    mocker.patch.object(
+        provision_sandbox_module,
+        "get_sandbox_class_for_run_backend",
+        return_value=mocker.Mock(create=mocker.Mock(return_value=sandbox)),
+    )
+    mocker.patch.object(provision_sandbox_module, "emit_agent_log")
+    mocker.patch.object(provision_sandbox_module, "_emit_image_source_log")
+    mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+    mocker.patch.object(provision_sandbox_module, "record_sandbox_created")
+    mocker.patch.object(provision_sandbox_module, "increment_snapshot_usage")
+    mocker.patch.object(provision_sandbox_module, "increment_snapshot_restore")
+    task_run = mocker.patch.object(provision_sandbox_module, "TaskRun")
+
+    with pytest.raises(SandboxRateLimitedError):
+        async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        )
+
+    sandbox.destroy.assert_called_once_with()
+    task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
+
+
+def test_create_reads_the_sandbox_template_from_the_run_context(mocker):
+    # The prepare output carries no template on purpose: a prepare activity claimed by an
+    # older worker during a rolling deploy returns the old shape.
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={"await_user_message": True, "sandbox_template": "autoresearch_base"},
+    )
+    create = mocker.Mock(
+        side_effect=SandboxRateLimitedError("Sandbox control plane is rate limited", {"operation": "create"})
+    )
+    mocker.patch.object(
+        provision_sandbox_module, "get_sandbox_class_for_run_backend", return_value=mocker.Mock(create=create)
+    )
+    mocker.patch.object(provision_sandbox_module, "emit_agent_log")
+    mocker.patch.object(provision_sandbox_module, "_emit_image_source_log")
+    mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+
+    with pytest.raises(SandboxRateLimitedError):
+        async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        )
+
+    assert create.call_args.args[0].template == SandboxTemplate.AUTORESEARCH_BASE

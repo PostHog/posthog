@@ -35,6 +35,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { settingsToggleItemClassName } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
 import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
@@ -42,6 +43,8 @@ import {
   type CompletionSound,
   type CustomSound,
   NOTIFICATION_DEFAULTS,
+  NOTIFICATION_PAUSE_MS,
+  notificationsPaused,
   type SpokenFocusMode,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
@@ -86,6 +89,7 @@ export function NotificationsSettings() {
     completionVolume,
     scaleSoundWithTaskLength,
     customSounds,
+    notificationsPausedUntil,
     setDesktopNotifications,
     setDockBadgeNotifications,
     setDockBounceNotifications,
@@ -95,6 +99,7 @@ export function NotificationsSettings() {
     setScaleSoundWithTaskLength,
     removeCustomSound,
     renameCustomSound,
+    setNotificationsPausedUntil,
   } = useSettingsStore();
 
   const [addSoundOpen, setAddSoundOpen] = useState(false);
@@ -127,6 +132,32 @@ export function NotificationsSettings() {
   }, [desktopNotifications, setDesktopNotifications]);
 
   const notificationsDenied = window.Notification?.permission === "denied";
+
+  const paused = notificationsPaused(notificationsPausedUntil);
+
+  // Clear the pause when it ends, so the row does not keep showing it.
+  useEffect(() => {
+    if (!paused || notificationsPausedUntil === null) return;
+    const timeout = setTimeout(
+      () => setNotificationsPausedUntil(null),
+      notificationsPausedUntil - Date.now(),
+    );
+    return () => clearTimeout(timeout);
+  }, [paused, notificationsPausedUntil, setNotificationsPausedUntil]);
+
+  const handlePauseChange = useCallback(
+    (pause: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "notifications_paused",
+        new_value: pause,
+        old_value: paused,
+      });
+      setNotificationsPausedUntil(
+        pause ? Date.now() + NOTIFICATION_PAUSE_MS : null,
+      );
+    },
+    [paused, setNotificationsPausedUntil],
+  );
 
   const handleDesktopNotificationsChange = useCallback(
     async (checked: boolean) => {
@@ -233,7 +264,7 @@ export function NotificationsSettings() {
 
       <SettingsSection
         label="Alerts"
-        description="How agents get your attention when they finish or need you."
+        description="How agents get your attention when they finish or need you"
         action={
           <Button
             type="button"
@@ -282,9 +313,36 @@ export function NotificationsSettings() {
             </>
           )}
         </div>
+        <SettingsCard>
+          <SettingsCardRow
+            label="Pause alerts"
+            description={
+              paused && notificationsPausedUntil !== null
+                ? `Paused until ${new Date(
+                    notificationsPausedUntil,
+                  ).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}. In-app toasts still show.`
+                : "Mute sounds, voice and system notifications for 1 hour"
+            }
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handlePauseChange(!paused)}
+            >
+              {paused ? "Resume" : "Pause for 1 hour"}
+            </Button>
+          </SettingsCardRow>
+        </SettingsCard>
       </SettingsSection>
 
-      <SettingsSection label="Sound">
+      <SettingsSection
+        label="Sound"
+        description="What plays when an agent finishes or needs you"
+      >
         <SettingsCard>
           <SettingsCardRow
             label="Completion sound"
@@ -350,6 +408,8 @@ export function NotificationsSettings() {
                         completionSound,
                         completionVolume,
                         customSounds,
+                        1,
+                        "settings_preview",
                       )
                     }
                   >
@@ -372,7 +432,11 @@ export function NotificationsSettings() {
           </SettingsCardRow>
 
           {customSounds.length > 0 && (
-            <SettingsCardRow label="Custom sounds" stacked>
+            <SettingsCardRow
+              label="Custom sounds"
+              description="Your own sound files, available in the completion sound list"
+              stacked
+            >
               <div className="flex w-full flex-col gap-1.5">
                 {customSounds.map((sound) => (
                   <CustomSoundRow
@@ -389,7 +453,10 @@ export function NotificationsSettings() {
 
           {completionSound !== "none" && (
             <>
-              <SettingsCardRow label="Volume">
+              <SettingsCardRow
+                label="Volume"
+                description="How loud alert sounds play"
+              >
                 <div className="flex items-center gap-3">
                   <Slider
                     aria-label="Sound volume"
@@ -403,7 +470,7 @@ export function NotificationsSettings() {
                     step={1}
                     className="w-[120px]"
                   />
-                  <span className="w-8 text-right text-[12px] text-gray-10 tabular-nums">
+                  <span className="w-8 text-right text-[12px] text-muted-foreground tabular-nums">
                     {completionVolume}%
                   </span>
                 </div>
@@ -526,7 +593,7 @@ function VoiceSection() {
   return (
     <SettingsSection
       label="Voice"
-      description="The agent says a short line out loud, so you catch it across parallel tasks without watching the screen."
+      description="The agent says a short line out loud, so you catch it across parallel tasks without watching the screen"
     >
       <SettingsCard>
         <SettingsCardRow
@@ -551,13 +618,12 @@ function VoiceSection() {
                 value={speakAbout}
                 onValueChange={handleSpeakAboutChange}
                 aria-label="Speak about"
-                className="gap-1"
               >
                 <ToggleGroupItem
                   value="needs_input"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Needs you
                 </ToggleGroupItem>
@@ -565,7 +631,7 @@ function VoiceSection() {
                   value="completion"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Task finished
                 </ToggleGroupItem>
@@ -573,14 +639,17 @@ function VoiceSection() {
                   value="progress"
                   size="sm"
                   variant="outline"
-                  className="h-6 px-2.5 text-[12px] text-gray-11 data-[pressed]:border-(--accent-9) data-[pressed]:bg-(--accent-3) data-[pressed]:text-(--accent-11)"
+                  className={settingsToggleItemClassName}
                 >
                   Progress
                 </ToggleGroupItem>
               </ToggleGroup>
             </SettingsCardRow>
 
-            <SettingsCardRow label="When to speak">
+            <SettingsCardRow
+              label="When to speak"
+              description="Which sessions get spoken narration"
+            >
               <SettingsSelect
                 ariaLabel="When to speak"
                 value={spokenFocusMode}
@@ -609,8 +678,8 @@ function VoiceSection() {
             label="ElevenLabs voice"
             description={
               elevenLabsKeyConfigured
-                ? "Key saved. The expressive Eleven v3 voice is on."
-                : "Optional. Add an API key for an expressive voice; otherwise your system voice is used."
+                ? "Key saved; the expressive Eleven v3 voice is on"
+                : "Optional; add an API key for an expressive voice; otherwise your system voice is used"
             }
           >
             {elevenLabsKeyConfigured ? (
@@ -717,7 +786,7 @@ function CustomSoundRow({
           if (event.key === "Enter") event.currentTarget.blur();
         }}
       />
-      <span className="text-[11px] text-gray-9 tabular-nums">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {formatDurationSeconds(sound.durationMs)}
       </span>
       <Tooltip content={`Play ${sound.name}`}>
@@ -727,7 +796,13 @@ function CustomSoundRow({
           size="icon-sm"
           aria-label={`Play ${sound.name}`}
           onClick={() =>
-            playCompletionSound(`custom:${sound.id}`, volume, [sound])
+            playCompletionSound(
+              `custom:${sound.id}`,
+              volume,
+              [sound],
+              1,
+              "settings_preview",
+            )
           }
         >
           <Play weight="fill" size={11} />
@@ -763,6 +838,7 @@ function TestSection({
 
   const testToast = () =>
     bus?.notify({
+      reason: "settings_test",
       body: "Test notification",
       toast: {
         level: "success",
@@ -775,6 +851,7 @@ function TestSection({
   const testToastDeepLink = () => {
     if (!bus || !deepLinkTask) return;
     bus.notify({
+      reason: "settings_test",
       body: `"${deepLinkTask.title}"`,
       target: { kind: "task", taskId: deepLinkTask.id },
       toast: {
@@ -802,7 +879,10 @@ function TestSection({
   };
 
   return (
-    <SettingsSection label="Test">
+    <SettingsSection
+      label="Test"
+      description="Send yourself an alert to check the channels above"
+    >
       <SettingsCard>
         <SettingsCardRow
           label="Send a test alert"

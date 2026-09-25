@@ -1,11 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
-} from "../../../posthog-exec-permission";
+} from "@posthog/harness/extensions/posthog-mcp-policy";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearMcpToolMetadataCache,
   fetchMcpToolMetadata,
@@ -215,7 +215,7 @@ describe("canUseTool MCP approval enforcement", () => {
     setMcpToolApprovalStates({ mcp__posthog__exec: "approved" });
 
     const context = createContext("mcp__posthog__exec", {
-      toolInput: { command: "call experiment-get-all {}" },
+      toolInput: { command: "call experiment-list {}" },
     });
     const result = await canUseTool(context);
 
@@ -400,7 +400,7 @@ describe("canUseTool MCP approval enforcement", () => {
     setMcpToolApprovalStates({ mcp__posthog__exec: "approved" });
 
     const context = createContext("mcp__posthog__exec", {
-      toolInput: { command: "call experiment-get-all {}" },
+      toolInput: { command: "call experiment-list {}" },
       session: {
         permissionMode: "bypassPermissions",
         posthogExecPermissionRegex,

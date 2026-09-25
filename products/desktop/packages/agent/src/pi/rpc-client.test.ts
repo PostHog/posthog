@@ -2,13 +2,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
+import type { TaskContext } from "@posthog/shared/task-context";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPiRpcClient,
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
 } from "./rpc-client";
-import type { TaskContext } from "./task-system-prompt";
 
 function taskContext(cwd: string): TaskContext {
   return {
@@ -48,6 +48,39 @@ describe("createRuntimeMcpServers", () => {
         url: "https://mcp.example/sse",
       },
     });
+  });
+
+  it("carries a server description so search finds it before it connects", () => {
+    // Lazy servers hold no tool metadata until first use, so pi's `mcp` search matches
+    // them on name and description alone.
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "Linear",
+          type: "http",
+          url: "https://mcp.example/linear",
+          headers: [],
+          description: "Manage Linear issues, projects, and workflows.",
+        },
+      ]),
+    ).toMatchObject({
+      Linear: {
+        description: "Manage Linear issues, projects, and workflows.",
+      },
+    });
+  });
+
+  it("omits the description key for servers without one", () => {
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "plain",
+          type: "http",
+          url: "https://mcp.example/mcp",
+          headers: [],
+        },
+      ]).plain,
+    ).not.toHaveProperty("description");
   });
 
   it("maps local tools to an eager direct stdio server", () => {
@@ -98,57 +131,6 @@ describe("createPiRpcClient", () => {
       (client as unknown as { options: { env?: Record<string, string> } })
         .options.env,
     ).toBeUndefined();
-  });
-
-  it("passes repository trust over the private bootstrap pipe", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "pi-project-trust-"));
-    const hostPath = join(directory, "host.mjs");
-    const capturePath = join(directory, "bootstrap.json");
-    await writeFile(
-      hostPath,
-      `
-import { readFileSync, writeFileSync } from "node:fs";
-
-writeFileSync(${JSON.stringify(capturePath)}, readFileSync(3, "utf8"));
-process.stdin.resume();
-`,
-    );
-    const client = createPiRpcClient({
-      cliPath: hostPath,
-      taskContext: taskContext(directory),
-      projectTrusted: true,
-      extensions: ["auto-publish"],
-      providerOptions: { apiKey: "proxy-key" },
-      enrichment: {
-        apiUrl: "http://127.0.0.1:5678",
-        publicApiUrl: "https://us.posthog.com",
-        projectId: 2,
-        apiKey: "enrichment-proxy-key",
-      },
-    });
-
-    try {
-      await client.start();
-      await vi.waitFor(async () => {
-        await expect(readFile(capturePath, "utf8")).resolves.toBe(
-          JSON.stringify({
-            providerOptions: { apiKey: "proxy-key" },
-            enrichment: {
-              apiUrl: "http://127.0.0.1:5678",
-              publicApiUrl: "https://us.posthog.com",
-              projectId: 2,
-              apiKey: "enrichment-proxy-key",
-            },
-            projectTrusted: true,
-            taskContext: taskContext(directory),
-            extensions: ["auto-publish"],
-          }),
-        );
-      });
-    } finally {
-      await client.stop();
-      await rm(directory, { recursive: true });
-    }
   });
 
   it("passes requested extensions privately and enables Electron's Node mode", async () => {

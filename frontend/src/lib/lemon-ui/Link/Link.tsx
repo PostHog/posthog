@@ -9,7 +9,7 @@ import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/But
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { isExternalLink } from 'lib/utils/url'
+import { hasDangerousScheme, isExternalLink } from 'lib/utils/url'
 import { urlToResource } from 'scenes/urls'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -90,16 +90,10 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
+// Any scheme-qualified target belongs to the browser, not to the app router. A target the router
+// claims gets the project prefix, and `/project/<id>/chrome-extension://…` matches no route.
 const isDirectLink = (url: string): boolean => {
-    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
-}
-
-const hasDangerousScheme = (url: string): boolean => {
-    // Browsers ignore leading control chars/whitespace and any tabs/newlines embedded in the scheme,
-    // so strip them all before matching. javascript:/vbscript: targets must never become an href —
-    // not even when disableClientSideRouting would otherwise skip the routing rewrite.
-    const normalized = url.replace(/[\u0000-\u0020]/g, '').toLowerCase()
-    return /^(javascript|vbscript):/.test(normalized)
+    return /^([a-zA-Z][a-zA-Z\d+\-.]*:|:\/\/)/.test(url)
 }
 
 /** Resolve a `to` target into a concrete href string. */
@@ -110,6 +104,8 @@ function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: bo
     if (typeof to !== 'string') {
         return '#'
     }
+    // Never let a javascript:/vbscript: target become an href, not even when
+    // disableClientSideRouting would otherwise skip the routing rewrite below.
     if (hasDangerousScheme(to)) {
         return '#'
     }
@@ -149,7 +145,9 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         },
         ref
     ) => {
-        const externalLink = isExternalLink(to)
+        // `isExternalLink` knows http and mailto only, and `router.actions.push` rejects any other
+        // scheme with a `SecurityError`, so the scheme test widens the same exclusion.
+        const browserOwnedLink = isExternalLink(to) || (typeof to === 'string' && isDirectLink(to))
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -165,7 +163,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 return
             }
 
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            if (!target && to && !browserOwnedLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {

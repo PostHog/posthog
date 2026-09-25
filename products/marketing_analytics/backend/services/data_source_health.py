@@ -9,6 +9,7 @@ import structlog
 
 from posthog.schema import NativeMarketingSource
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -19,8 +20,10 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
+    is_native_source_enabled,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -56,12 +59,12 @@ def _source_schemas_url(source_id: str | None) -> str | None:
     return f"/data-management/sources/managed-{source_id}/schemas"
 
 
-@dataclass
+@frozen
 class RequiredTableStatus:
     table_name: str
     present: bool
     should_sync: bool
-    status: str | None  # ExternalDataSchema.Status value (Completed/Running/Failed/Paused/Cancelled) or None
+    status: str | None  # ExternalDataSchemaStatus value (Completed/Running/Failed/Paused/Cancelled) or None
     last_synced_at: datetime | None
 
 
@@ -122,7 +125,9 @@ async def get_data_source_health(
     `marketing_analytics_config.sources_map` instead of triggering another
     Postgres roundtrip. None → service loads it itself.
     """
-    targets = EXTERNAL_SOURCE_TYPE_TO_NATIVE
+    targets = {
+        key: native for key, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items() if is_native_source_enabled(key, team)
+    }
     if source_type is not None:
         targets = {k: v for k, v in targets.items() if k == source_type}
 
@@ -297,13 +302,13 @@ def _get_last_job_state(source: ExternalDataSource) -> tuple[datetime | None, st
     the failure has been resolved by a subsequent successful sync.
     """
     last_completed = (
-        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJob.Status.COMPLETED)
+        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJobStatus.COMPLETED)
         .order_by("-finished_at")
         .values_list("finished_at", flat=True)
         .first()
     )
     last_failed = (
-        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJob.Status.FAILED)
+        ExternalDataJob.objects.filter(pipeline=source, status=ExternalDataJobStatus.FAILED)
         .exclude(latest_error__isnull=True)
         .order_by("-created_at")
         .values("created_at", "latest_error")
@@ -324,7 +329,7 @@ def _get_rows_synced(source: ExternalDataSource) -> tuple[int, int]:
     in_24h = (
         ExternalDataJob.objects.filter(
             pipeline=source,
-            status=ExternalDataJob.Status.COMPLETED,
+            status=ExternalDataJobStatus.COMPLETED,
             finished_at__gte=now - timedelta(hours=24),
         ).aggregate(total=Sum("rows_synced"))["total"]
         or 0
@@ -332,7 +337,7 @@ def _get_rows_synced(source: ExternalDataSource) -> tuple[int, int]:
     in_7d = (
         ExternalDataJob.objects.filter(
             pipeline=source,
-            status=ExternalDataJob.Status.COMPLETED,
+            status=ExternalDataJobStatus.COMPLETED,
             finished_at__gte=now - timedelta(days=7),
         ).aggregate(total=Sum("rows_synced"))["total"]
         or 0

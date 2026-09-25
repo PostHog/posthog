@@ -8,7 +8,6 @@ import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/Deskto
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import {
   useLogoutMutation,
-  useRedeemInviteCodeMutation,
   useRetryDesktopAccessMutation,
   useSelectProjectMutation,
   useSwitchOrgMutation,
@@ -19,18 +18,26 @@ import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/us
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
 import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
+import { FeedbackHost } from "@posthog/ui/features/feedback/FeedbackHost";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
+import { NewLoopDialog } from "@posthog/ui/features/loops/components/NewLoopDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { SettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
+import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
+import {
+  isBackgroundAccessRecheck,
+  nextLastAllowedProjectId,
+} from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
@@ -63,12 +70,41 @@ function App({ devToolbar }: AppProps) {
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
-  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
   const logoutMutation = useLogoutMutation();
   const desktopAccessIsCurrent =
     desktopAccess.projectId === authState.currentProjectId;
   const hasDesktopAccess =
     desktopAccessIsCurrent && desktopAccess.status === "allowed";
+  // Once the app has shown for a project, a background access recheck for
+  // that same project must not unmount it into the loading screen (see
+  // isBackgroundAccessRecheck). The ref updates in an effect, so when a
+  // "checking" flip renders it still holds the project from the last settled
+  // render.
+  const lastAllowedProjectRef = useRef<number | null>(null);
+  useEffect(() => {
+    lastAllowedProjectRef.current = nextLastAllowedProjectId(
+      lastAllowedProjectRef.current,
+      {
+        isAuthenticated,
+        currentProjectId: authState.currentProjectId,
+        accessIsCurrent: desktopAccessIsCurrent,
+        accessStatus: desktopAccess.status,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentProjectId,
+    desktopAccessIsCurrent,
+    desktopAccess.status,
+  ]);
+  const isRevalidatingAccess =
+    desktopAccessIsCurrent &&
+    isBackgroundAccessRecheck(
+      lastAllowedProjectRef.current,
+      authState.currentProjectId,
+      desktopAccess.status,
+    );
+  const settledDesktopAccess = hasDesktopAccess || isRevalidatingAccess;
   const switchError =
     selectProjectMutation.isError || switchOrgMutation.isError
       ? "Couldn't switch your selection. Try again."
@@ -86,19 +122,20 @@ function App({ devToolbar }: AppProps) {
     desktopAccessIsCurrent &&
     ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const consent = useOrgConsent(isAuthenticated && hasDesktopAccess);
+  const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
   const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasDesktopAccess &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     !consent.satisfied;
   const isCheckingAccess =
     isAuthenticated &&
     hasCompletedOnboarding &&
     (!desktopAccessIsCurrent ||
-      ["unchecked", "checking"].includes(desktopAccess.status) ||
-      (hasDesktopAccess && consent.status === "loading"));
+      (["unchecked", "checking"].includes(desktopAccess.status) &&
+        !isRevalidatingAccess) ||
+      (settledDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
   useConsentAnalytics(
@@ -111,13 +148,15 @@ function App({ devToolbar }: AppProps) {
   // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
   // a route the user has already moved off.
   const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
-  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+  useEffect(() => {
+    spacesLayoutEnabledRef.current = spacesLayoutEnabled;
+  }, [spacesLayoutEnabled]);
 
   const readyForMainApp =
     isBootstrapped &&
     isAuthenticated &&
     hasCompletedOnboarding &&
-    hasDesktopAccess &&
+    settledDesktopAccess &&
     consent.status === "resolved" &&
     consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
@@ -203,8 +242,21 @@ function App({ devToolbar }: AppProps) {
     return <AppLoadingScreen />;
   }
 
+  // Which screen the app is on. The four pre-router screens render instead of
+  // the RouterProvider, so anything the routed shell mounts is absent there.
+  const activeScreen =
+    !hasCompletedOnboarding && !isBlockedByAccessPolicy
+      ? "onboarding"
+      : !isAuthenticated
+        ? "auth"
+        : isBlockedByAccessPolicy
+          ? "desktop-access"
+          : consent.status === "error" || needsConsent
+            ? "consent"
+            : "main";
+
   const renderContent = () => {
-    if (!hasCompletedOnboarding && !isBlockedByAccessPolicy) {
+    if (activeScreen === "onboarding") {
       return (
         <motion.div
           key="onboarding"
@@ -218,15 +270,17 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (!isAuthenticated) {
+    if (activeScreen === "auth") {
       return (
         <motion.div key="auth" initial={{ opacity: 1 }} className="h-full">
-          <AuthScreen />
+          <AuthScreen
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.talkToHuman)}
+          />
         </motion.div>
       );
     }
 
-    if (isBlockedByAccessPolicy) {
+    if (activeScreen === "desktop-access") {
       return (
         <motion.div
           key="desktop-access"
@@ -242,18 +296,13 @@ function App({ devToolbar }: AppProps) {
               selectProjectMutation.isPending || switchOrgMutation.isPending
             }
             isRetrying={retryDesktopAccessMutation.isPending}
-            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
             isLoggingOut={logoutMutation.isPending}
             switchError={switchError}
-            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
             onSelectOrganization={(organizationId) =>
               switchOrgMutation.mutate(organizationId)
             }
             onSelectProject={(projectId) =>
               selectProjectMutation.mutate(projectId)
-            }
-            onRedeemInviteCode={(inviteCode) =>
-              redeemInviteCodeMutation.mutate(inviteCode)
             }
             onRetry={() => retryDesktopAccessMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}
@@ -263,7 +312,7 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (consent.status === "error" || needsConsent) {
+    if (activeScreen === "consent") {
       return (
         <motion.div key="consent" initial={{ opacity: 1 }} className="h-full">
           <ConsentScreen
@@ -297,6 +346,9 @@ function App({ devToolbar }: AppProps) {
         shouldSuppress={isNotAuthenticatedError}
       >
         <div className="flex h-screen flex-col">
+          {/* The routed shell mounts its own banner at `__root`; the pre-router
+              screens are outside the router, so they get it from here. */}
+          {activeScreen !== "main" && <ConnectivityBanner />}
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {isAuthenticated ? (
               <AnimatePresence mode="wait">{content}</AnimatePresence>
@@ -306,6 +358,9 @@ function App({ devToolbar }: AppProps) {
             <ScopeReauthPrompt />
             <AddDirectoryDialog />
             <ErrorDetailsDialog />
+            {isAuthenticated && <NewLoopDialog />}
+            <UpdateAvailableModal />
+            {isAuthenticated && <FeedbackHost />}
           </div>
           {devToolbar}
         </div>

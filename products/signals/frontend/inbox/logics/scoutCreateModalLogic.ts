@@ -1,14 +1,19 @@
-import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { hashCodeForString } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
+import type { MCPServiceAccountServerApi } from 'products/mcp_store/frontend/generated/api.schemas'
+import { signalsScoutConfigUpdate, signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type {
+    SignalScoutConfigApi,
     SignalScoutConfigOptionsApi,
     SignalScoutCreateApi,
     SignalScoutCreateResponseApi,
@@ -17,29 +22,62 @@ import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills
 
 import {
     dailyCronToTime,
+    dayTimeToWeeklyCron,
     DEFAULT_SCOUT_DAILY_TIME,
+    DEFAULT_SCOUT_WEEKLY_DAY,
+    MAX_SCOUT_DISPLAY_NAME_LENGTH,
+    prettifyScoutSkillName,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
-    SIGNALS_SCOUT_SKILL_PREFIX,
+    SCOUT_WEEKLY_ON_SCHEDULE_MODE,
     timeToDailyCron,
+    weeklyCronToDayTime,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
+import { scoutMcpServersLogic } from './scoutMcpServersLogic'
 
 type ScoutCreateConfigFormValues = Required<
     Pick<
         SignalScoutConfigOptionsApi,
-        'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags' | 'mcp_gateway_server_ids'
+        | 'enabled'
+        | 'emit'
+        | 'run_interval_minutes'
+        | 'run_cron_schedule'
+        | 'tags'
+        | 'mcp_gateway_server_ids'
+        | 'repositories'
+        | 'write_scopes'
     >
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
 
-export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'> & {
-    config: ScoutCreateConfigFormValues
-    dailyTime: string
-}
+// `display_name` and `name` are optional on the request body — the server accepts either — but the form
+// always holds both as strings, with `name` empty unless a prefill supplied one.
+export type ScoutCreateFormValues = Pick<SignalScoutCreateApi, 'description' | 'body'> &
+    Required<Pick<SignalScoutCreateApi, 'display_name' | 'name'>> & {
+        config: ScoutCreateConfigFormValues
+        /** Run time for both the daily and the weekly mode, so switching between them keeps it. */
+        dailyTime: string
+        /** Cron day-of-week the weekly mode runs on. */
+        weeklyDay: string
+    }
 
-export type ScoutCreateInitialValues = Partial<Pick<SignalScoutCreateApi, 'name' | 'description' | 'body'>> & {
+export type ScoutCreateInitialValues = Partial<
+    Pick<SignalScoutCreateApi, 'display_name' | 'name' | 'description' | 'body'>
+> & {
     config?: Partial<ScoutCreateConfigFormValues>
+    /**
+     * The scout suggestion this form was opened from. Sent with the create so the suggestion stops
+     * being offered. Kept off the form values: it identifies the opening, not anything editable, and
+     * the form is persisted as a draft.
+     */
+    suggestionId?: string
+    /**
+     * The config of a scout that already exists, when the form opens to turn it on rather than
+     * create it. The name, description and body then show what the scout is and stay read-only;
+     * submitting patches this config with the run settings instead of creating a skill.
+     */
+    existingConfigId?: string
 }
 
 export interface ScoutCreateModalLogicProps {
@@ -47,13 +85,20 @@ export interface ScoutCreateModalLogicProps {
     initialValues?: ScoutCreateInitialValues
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
+    /** Called instead of `onCreated` when the form turned an existing scout on. */
+    onEnabled?: (config: SignalScoutConfigApi) => void
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
-    name: SIGNALS_SCOUT_SKILL_PREFIX,
+    display_name: '',
+    // The skill name is the scout's permanent identity, and the server derives it from the display
+    // name. It is a form value only so a prefill that proposed one (a suggestion, a template deep
+    // link) can send that exact name back — nothing renders an input for it.
+    name: '',
     description: '',
     body: '',
     dailyTime: DEFAULT_SCOUT_DAILY_TIME,
+    weeklyDay: DEFAULT_SCOUT_WEEKLY_DAY,
     config: {
         enabled: true,
         emit: true,
@@ -61,34 +106,133 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_cron_schedule: null,
         tags: [],
         mcp_gateway_server_ids: [],
+        repositories: [],
+        write_scopes: [],
     },
 }
 
-export function getScoutCreateFormValues(initialValues?: ScoutCreateInitialValues): ScoutCreateFormValues {
+/** The form holds the whole skill name, so a caller's name is taken as it is. */
+export function getScoutCreateFormValues(initialValues: ScoutCreateInitialValues | undefined): ScoutCreateFormValues {
     const config = {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES.config,
         ...initialValues?.config,
     }
+    // `suggestionId` rides on the props, not the form: it is sent with the create but is nothing
+    // the person edits, and the form values are persisted as a draft.
+    const {
+        suggestionId: _suggestionId,
+        existingConfigId: _existingConfigId,
+        ...editableInitialValues
+    } = initialValues ?? {}
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
-        ...initialValues,
+        ...editableInitialValues,
+        name: (initialValues?.name ?? '').trim(),
+        display_name: (initialValues?.display_name ?? '').trim() || prettifyScoutSkillName(initialValues?.name ?? ''),
         config,
-        dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
+        dailyTime:
+            dailyCronToTime(config.run_cron_schedule) ??
+            weeklyCronToDayTime(config.run_cron_schedule)?.time ??
+            DEFAULT_SCOUT_DAILY_TIME,
+        weeklyDay: weeklyCronToDayTime(config.run_cron_schedule)?.day ?? DEFAULT_SCOUT_WEEKLY_DAY,
     }
+}
+
+/**
+ * A stable logic key per opening context. The blank create form gets one draft; each prefilled
+ * template keeps its own. The draft is persisted keyed by this, so it must not change between mounts
+ * of the same context — `useId()` would mint a new key each mount and lose the draft.
+ */
+export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues | undefined): string {
+    const name = initialValues?.name?.trim()
+    if (initialValues?.existingConfigId) {
+        // A form opened on an existing scout shows that scout as it is now, read-only, so a draft
+        // persisted under the bare name must not outlive a change to the skill or the pick's cadence.
+        // Keying on the content means a fresh read always opens fresh.
+        const content = JSON.stringify([
+            initialValues.description ?? '',
+            initialValues.body ?? '',
+            initialValues.config ?? {},
+        ])
+        return `existing-${initialValues.existingConfigId}-${hashCodeForString(content)}`
+    }
+    if (name) {
+        return name
+    }
+    const description = initialValues?.description?.trim()
+    const body = initialValues?.body?.trim()
+    if (description || body) {
+        // A prefilled template can omit a valid name, because the deep-link decoder drops an invalid
+        // one. Keying on name alone then returns 'new' for that template, the same key the blank
+        // create form uses, so their persisted drafts share one slot and each overwrites the other.
+        // Key a name-less prefill by a stable hash of its content instead, so every opening context
+        // keeps its own draft. Hash the two fields apart so a description/body split cannot collide.
+        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}`
+    }
+    return 'new'
 }
 
 function isValidScoutDailyTime(dailyTime: string): boolean {
     return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)
 }
 
+function isWeeklySchedule(config: ScoutCreateConfigFormValues): boolean {
+    return weeklyCronToDayTime(config.run_cron_schedule) !== null
+}
+
+/**
+ * The day the weekly mode writes. A draft persisted before that mode existed carries no day of its
+ * own — kea-localstorage restores the stored object over the whole default rather than merging new
+ * fields — so read the saved cron first and fall back to the default.
+ */
+function scoutWeeklyDay(form: ScoutCreateFormValues): string {
+    const day = weeklyCronToDayTime(form.config.run_cron_schedule)?.day ?? form.weeklyDay
+    return day && /^[0-6]$/.test(day) ? day : DEFAULT_SCOUT_WEEKLY_DAY
+}
+
+// Version of the persisted draft's shape. The `name` field used to hold only the part after
+// `signals-scout-`, because the input rendered the prefix separately and the submit added it back.
+// Restoring such a draft into the field that now holds the whole name would create a differently
+// named scout, and would leave its suggestion on offer, because the backend retires a suggestion
+// only when the submitted name matches the one it proposed. Bumping this drops those drafts.
+// Bumped again for the display name: a v2 draft carries no `display_name`, and kea-localstorage
+// restores the stored object over the whole default rather than merging in new fields, so it would
+// reopen with a blank required field and the name the person typed gone.
+const SCOUT_CREATE_DRAFT_STORAGE_VERSION = 'v3.'
+
+// Names the inbox reads as sub-pages of `/inbox/scouts/`, so a scout that took one could never be
+// opened. The backend refuses them too; this is so the reason shows next to the field.
+const RESERVED_SCOUT_NAMES = new Set(['scratchpad', 'findings', 'runs'])
+
+function scoutDisplayNameError(displayName: string): string | undefined {
+    const trimmed = displayName.trim()
+    if (!trimmed) {
+        return 'Name is required'
+    }
+    if (trimmed.length > MAX_SCOUT_DISPLAY_NAME_LENGTH) {
+        return `Name must be ${MAX_SCOUT_DISPLAY_NAME_LENGTH} characters or fewer`
+    }
+    return undefined
+}
+
 function scoutNameError(name: string): string | undefined {
     const normalizedName = name.trim()
+    if (!normalizedName) {
+        // Only a prefill carries one, and the server generates a name when none is sent.
+        return undefined
+    }
+    // The shared skill-name rule rejects spaces too, but as "lowercase letters, numbers, and hyphens
+    // only", which does not tell someone who typed "checkout failures" what to change.
+    if (/\s/.test(normalizedName)) {
+        return 'Name cannot contain spaces. Use hyphens between words.'
+    }
     const validationError = validateSkillName(normalizedName)
     if (validationError) {
         return validationError
     }
-    if (!normalizedName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-        return `Name must start with ${SIGNALS_SCOUT_SKILL_PREFIX}`
+    // `validateSkillName` has already rejected anything but lowercase, so no folding is needed here.
+    if (RESERVED_SCOUT_NAMES.has(normalizedName)) {
+        return `'${normalizedName}' is reserved by the inbox. Pick another name.`
     }
     return undefined
 }
@@ -105,9 +249,11 @@ function scoutTagsError(tags: string[]): string | undefined {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scoutCreateModalLogicValues {
+    teamScoutServers: MCPServiceAccountServerApi[] // scoutMcpServersLogic
     currentTeamId: number | null // teamLogic
     isScoutCreateFormSubmitting: boolean
     isScoutCreateFormValid: boolean
+    mcpServersDefaulted: boolean
     scoutCreateForm: ScoutCreateFormValues
     scoutCreateFormAllErrors: Record<string, any>
     scoutCreateFormChanged: boolean
@@ -122,6 +268,12 @@ export interface scoutCreateModalLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scoutCreateModalLogicActions {
+    markMcpServersDefaulted: () => {
+        value: true
+    }
+    resetMcpServersDefaulted: () => {
+        value: true
+    }
     resetScoutCreateForm: (values?: ScoutCreateFormValues) => {
         values?: ScoutCreateFormValues
     }
@@ -143,6 +295,9 @@ export interface scoutCreateModalLogicActions {
     }
     setScoutCreateScheduleMode: (scheduleMode: string) => {
         scheduleMode: string
+    }
+    setScoutCreateWeeklyDay: (weeklyDay: string) => {
+        weeklyDay: string
     }
     submitScoutCreateForm: () => {
         value: boolean
@@ -182,16 +337,36 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
     props({} as ScoutCreateModalLogicProps),
     key((logicProps) => logicProps.logicKey),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], scoutMcpServersLogic, ['teamScoutServers']],
     })),
     actions({
         setScoutCreateScheduleMode: (scheduleMode: string) => ({ scheduleMode }),
         setScoutCreateDailyTime: (dailyTime: string) => ({ dailyTime }),
+        setScoutCreateWeeklyDay: (weeklyDay: string) => ({ weeklyDay }),
+        markMcpServersDefaulted: true,
+        resetMcpServersDefaulted: true,
     }),
+    reducers(({ props: logicProps }) => ({
+        // A caller that passes explicit server ids opts out of the "all servers" default. Persisted
+        // alongside the draft so a restored draft keeps the user's server selection, rather than the
+        // "all servers" default re-applying on the next open. Scoped to the user and project so the
+        // marker cannot suppress another project's default selection. Discarding the draft resets it
+        // to the initial value, so the next open re-applies the default rather than opening with every
+        // server switched off. The defaulting subscription calls `resetScoutCreateForm`, so the reset
+        // is a separate action rather than tied to the form reset.
+        mcpServersDefaulted: [
+            logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
+            {
+                markMcpServersDefaulted: () => true,
+                resetMcpServersDefaulted: () => logicProps.initialValues?.config?.mcp_gateway_server_ids !== undefined,
+            },
+        ],
+    })),
     forms(({ props: logicProps, actions, values }) => ({
         scoutCreateForm: {
             defaults: getScoutCreateFormValues(logicProps.initialValues),
-            errors: ({ name, description, body, config, dailyTime }) => {
+            errors: ({ display_name, name, description, body, config, dailyTime }) => {
                 const runIntervalError =
                     !Number.isFinite(config.run_interval_minutes) ||
                     config.run_interval_minutes < 30 ||
@@ -201,6 +376,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 const tagsError = scoutTagsError(config.tags)
 
                 return {
+                    display_name: scoutDisplayNameError(display_name),
                     name: scoutNameError(name),
                     description: !description.trim()
                         ? 'Description is required'
@@ -209,7 +385,9 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                           : undefined,
                     body: !body.trim() ? 'Instructions are required' : undefined,
                     dailyTime:
-                        dailyCronToTime(config.run_cron_schedule) !== null && !isValidScoutDailyTime(dailyTime)
+                        (dailyCronToTime(config.run_cron_schedule) !== null ||
+                            weeklyCronToDayTime(config.run_cron_schedule) !== null) &&
+                        !isValidScoutDailyTime(dailyTime)
                             ? 'Run time is required'
                             : undefined,
                     config:
@@ -224,15 +402,44 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                     throw new Error('No project selected')
                 }
 
+                const existingConfigId = logicProps.initialValues?.existingConfigId
+                if (existingConfigId) {
+                    // The scout exists already, so only its run settings are written. The name,
+                    // description and body were shown for the person to check, not to change.
+                    try {
+                        const { enabled: _enabled, ...runSettings } = formValues.config
+                        const config = await signalsScoutConfigUpdate(String(values.currentTeamId), existingConfigId, {
+                            ...runSettings,
+                            enabled: true,
+                        })
+                        actions.resetScoutCreateForm()
+                        actions.resetMcpServersDefaulted()
+                        lemonToast.success('Scout turned on')
+                        logicProps.onEnabled?.(config)
+                        logicProps.onClose()
+                    } catch (error) {
+                        const apiError = error instanceof ApiError ? error : null
+                        lemonToast.error(apiError?.detail ?? 'Could not turn the scout on')
+                        throw error
+                    }
+                    return
+                }
+
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        name: formValues.name.trim(),
+                        display_name: formValues.display_name.trim(),
+                        // Omitted for an ordinary create, so the server derives the identity. A
+                        // prefill sends the exact name it proposed, which is what retires its
+                        // suggestion and what an existing scout of that name is matched against.
+                        name: formValues.name.trim() || undefined,
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
+                        suggestion_id: logicProps.initialValues?.suggestionId,
                     })
 
                     actions.resetScoutCreateForm()
+                    actions.resetMcpServersDefaulted()
                     lemonToast.success(
                         scout.created ? 'Scout created' : 'Scout already exists. Its settings were updated.'
                     )
@@ -241,8 +448,10 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 } catch (error) {
                     const apiError = error instanceof ApiError ? error : null
                     if (apiError?.status === 409 || apiError?.attr === 'name') {
+                        // Reported against the name field the person can actually edit: the skill
+                        // name only ever comes from a prefill, so it has no input to point at.
                         actions.setScoutCreateFormManualErrors({
-                            name: apiError.detail ?? 'A scout with this name already exists',
+                            display_name: apiError.detail ?? 'A scout with this name already exists',
                         })
                     } else {
                         lemonToast.error(apiError?.detail ?? 'Could not create the scout')
@@ -252,20 +461,65 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             },
         },
     })),
+    // Persist the draft so it survives navigating away or reloading. kea-localstorage keys it by the
+    // logic path plus the logic key, so each opening context keeps its own draft (see
+    // `scoutCreateModalLogicKey`). Scope the key to the user and project so a draft from one project
+    // cannot restore in another and submit that project's server or integration ids to the wrong one.
+    // The default and handlers already come from the form above; this only attaches the persistence
+    // option to those same reducers. Persist the changed flag alongside the draft, and with the same
+    // scope, so a restored draft keeps the unsaved-input guard. kea-forms resets the flag to false on
+    // a fresh mount, so without this a restored draft would open unguarded and one backdrop click
+    // would discard it.
+    reducers(() => ({
+        scoutCreateForm: [
+            DEFAULT_SCOUT_CREATE_FORM_VALUES,
+            buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION),
+            {},
+        ],
+        scoutCreateFormChanged: [false, buildUserScopedPersistenceConfig(SCOUT_CREATE_DRAFT_STORAGE_VERSION), {}],
+    })),
+    // The team's servers load asynchronously, so the default is applied once they arrive
+    // rather than in the form defaults. Applying it once keeps a later reload from
+    // re-selecting servers the user switched off.
+    subscriptions(({ actions, values }) => ({
+        teamScoutServers: (teamScoutServers: MCPServiceAccountServerApi[]) => {
+            if (values.mcpServersDefaulted || teamScoutServers.length === 0) {
+                return
+            }
+            actions.markMcpServersDefaulted()
+            const mcpGatewayServerIds = teamScoutServers.map((server) => server.id)
+            if (values.scoutCreateFormChanged) {
+                // The user edited the form before the servers loaded, so keep the changed flag.
+                actions.setScoutCreateFormValue('config.mcp_gateway_server_ids', mcpGatewayServerIds)
+                return
+            }
+            // Apply the default through a reset so the pre-selection keeps the form pristine. A form
+            // marked changed blocks the overlay-close click and shows a false "unsaved input" warning.
+            actions.resetScoutCreateForm({
+                ...values.scoutCreateForm,
+                config: { ...values.scoutCreateForm.config, mcp_gateway_server_ids: mcpGatewayServerIds },
+            })
+        },
+    })),
     listeners(({ actions, values }) => ({
         setScoutCreateScheduleMode: ({ scheduleMode }) => {
             if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
                 return
             }
-            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE) {
+            if (scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE || scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE) {
                 const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
                     ? values.scoutCreateForm.dailyTime
                     : DEFAULT_SCOUT_DAILY_TIME
+                const weeklyDay = scoutWeeklyDay(values.scoutCreateForm)
                 actions.setScoutCreateFormValues({
                     dailyTime,
+                    weeklyDay,
                     config: {
                         ...values.scoutCreateForm.config,
-                        run_cron_schedule: timeToDailyCron(dailyTime),
+                        run_cron_schedule:
+                            scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE
+                                ? dayTimeToWeeklyCron(weeklyDay, dailyTime)
+                                : timeToDailyCron(dailyTime),
                     },
                 })
                 return
@@ -292,7 +546,22 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
                 dailyTime,
                 config: {
                     ...values.scoutCreateForm.config,
-                    run_cron_schedule: timeToDailyCron(dailyTime),
+                    run_cron_schedule: isWeeklySchedule(values.scoutCreateForm.config)
+                        ? dayTimeToWeeklyCron(scoutWeeklyDay(values.scoutCreateForm), dailyTime)
+                        : timeToDailyCron(dailyTime),
+                },
+            })
+        },
+        setScoutCreateWeeklyDay: ({ weeklyDay }) => {
+            const dailyTime = isValidScoutDailyTime(values.scoutCreateForm.dailyTime)
+                ? values.scoutCreateForm.dailyTime
+                : DEFAULT_SCOUT_DAILY_TIME
+            actions.setScoutCreateFormValues({
+                weeklyDay,
+                dailyTime,
+                config: {
+                    ...values.scoutCreateForm.config,
+                    run_cron_schedule: dayTimeToWeeklyCron(weeklyDay, dailyTime),
                 },
             })
         },

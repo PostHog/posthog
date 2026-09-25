@@ -1,8 +1,14 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    AccountsQuery,
     AccountsTableQuery,
     DataWarehouseNode,
     EntityType,
@@ -18,12 +24,17 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import get_data_warehouse_table_name
+from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.access_controlled_resources import (
+    _TRANSITIVE_SYSTEM_TABLE_SCOPES,
     _references_data_warehouse,
     queried_access_controlled_resources,
 )
 
+from products.access_control.backend.facade.user_access_control import RESOURCE_FALLBACK_MAP
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -65,6 +76,27 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
+            (
+                "account_email_threads_lazy_join",
+                "select accounts.email_threads.count from system.accounts as accounts",
+                {"account", "ticket"},
+            ),
+            (
+                "account_support_tickets_lazy_join",
+                "select support_tickets.recent from system.accounts",
+                {"account", "ticket"},
+            ),
+            ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
+            # rows follow the caller's canvas grants as well as their activity-log access.
+            ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
+            ("account_tagged_items", "select * from system._account_tagged_items", {"account"}),
+            ("account_resource_notebooks", "select * from system._account_resource_notebooks", {"account"}),
+            ("ticket_tagged_items", "select * from system._ticket_tagged_items", {"ticket"}),
+            ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
+            ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
+            ("task_public_channels", "select * from system._task_public_channels", {"task"}),
+            ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
@@ -103,17 +135,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_data_quality_checks",
                 "select config from system.information_schema.data_quality_checks",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_check_runs",
                 "select failed_row_count from system.information_schema.data_quality_check_runs",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_health",
                 "select health from system.information_schema.data_quality_health",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
@@ -138,6 +170,17 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_accounts_table_query_partitions_on_account_access(self):
         assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
+
+    @parameterized.expand(
+        [
+            ("select", {"select": ["email_threads.count"]}),
+            ("metric", {"metrics": ["sum(support_tickets.count)"]}),
+            ("filter", {"filterExpression": "email_threads.count > 0"}),
+            ("order", {"orderBy": ["support_tickets.count"]}),
+        ]
+    )
+    def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
+        assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
@@ -230,12 +273,79 @@ class TestQueriedAccessControlledResources(BaseTest):
         # hit skips that resolution, so the user's table denials must partition the key.
         assert result == {"warehouse_view", "warehouse_table", "external_data_source"}
 
+    @parameterized.expand(
+        [
+            (
+                "system table behind two views",
+                {"notebook_view": "select * from system.notebooks", "outer_view": "select * from notebook_view"},
+                "select * from outer_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "views that reference each other",
+                {"view_a": "select * from view_b", "view_b": "select * from view_a"},
+                "select * from view_a",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
+        ]
+    )
+    def test_view_definitions_are_walked(self, _name, views, sql, expected):
+        for name, definition in views.items():
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+            )
+        assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
+    def test_view_fan_out_does_not_scale_queries(self) -> None:
+        # Views that share a base view must each be walked once, so six of them cost the same queries as two.
+        def _cost(fan_out: int) -> tuple[int, int]:
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"base_view_{fan_out}",
+                query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+            )
+            view_names = [f"view_{fan_out}_{i}" for i in range(fan_out)]
+            for name in view_names:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name=name,
+                    query={"kind": "HogQLQuery", "query": f"select * from base_view_{fan_out}"},
+                )
+            query = HogQLQuery(query=f"select * from {', '.join(view_names)}")
+            with (
+                CaptureQueriesContext(connection) as ctx,
+                patch("posthog.hogql.parser.parse_select", wraps=parse_select) as parse_spy,
+            ):
+                assert queried_access_controlled_resources(query, self.team) == {
+                    "warehouse_view",
+                    "warehouse_table",
+                    "external_data_source",
+                    "notebook",
+                }
+            return len(ctx.captured_queries), parse_spy.call_count
+
+        (queries_6, parses_6), (queries_2, parses_2) = _cost(6), _cost(2)
+        assert queries_6 == queries_2
+        # Each added view costs one parse. A base view walked again for each parent would cost two.
+        assert parses_6 - parses_2 == 4
+
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(
             HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks"), self.team
         )
         assert result == {"warehouse_table", "notebook", "external_data_source"}
+
+    def test_bypassed_scope_drops_only_its_own_fallback_parent(self):
+        # The map has a single entry, so a second one is patched in: a principal that bypasses one child's
+        # access control must still partition on the fallback parent of a child it does not bypass.
+        self._create_warehouse_table("my_warehouse_table")
+        query = HogQLQuery(query="select 1 from my_warehouse_table, system.notebooks")
+        with patch.dict(RESOURCE_FALLBACK_MAP, {"notebook": "dashboard"}):
+            result = queried_access_controlled_resources(
+                query, self.team, bypassed_scopes=frozenset({"warehouse_table"})
+            )
+        assert result == {"warehouse_table", "notebook", "dashboard"}
 
     def test_catalog_fetch_loads_only_name_fields(self):
         source = ExternalDataSource.objects.create(
@@ -271,3 +381,20 @@ class TestQueriedAccessControlledResources(BaseTest):
         # A name that resolves to a warehouse table in a different team must not grant the scope here.
         result = queried_access_controlled_resources(HogQLQuery(query="select * from other_team_table"), self.team)
         assert result == set()
+
+
+class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
+    def test_every_hidden_system_table_partitions_the_cache(self) -> None:
+        unpartitioned = sorted(
+            name
+            for name, node in SystemTables().children.items()
+            if node.hidden
+            and isinstance(node.table, PostgresTable)
+            and node.table.access_scope is None
+            and not _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(f"system.{name}")
+        )
+        assert not unpartitioned, (
+            f"Hidden system tables with no cache partitioning: {unpartitioned}. Declare the "
+            f"`access_scope` the table's rows sit under, or add the scopes its predicates depend "
+            f"on to _TRANSITIVE_SYSTEM_TABLE_SCOPES."
+        )

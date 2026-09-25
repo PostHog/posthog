@@ -5,11 +5,11 @@ import { LemonButton, LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemo
 import {
     BarChart,
     type BarChartConfig,
-    createXAxisTickCallback,
     type DateRangeZoomData,
     DefaultTooltip,
     type HeatmapBrushData,
     HighlightedRange,
+    type PointClickData,
     type Series,
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
@@ -25,6 +25,7 @@ import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import {
     type TracingDurationHistogramData,
     type TracingLatencyHeatmapData,
@@ -32,6 +33,7 @@ import {
     snapDurationToBucket,
 } from './durationBuckets'
 import { SparklineCompareOverlay } from './SparklineCompareOverlay'
+import { bucketRangeToDateRange, type TracingDateRangeSource } from './sparklineSelection'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
 import type { TracingChartType } from './tracingFiltersLogic'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
@@ -47,9 +49,16 @@ interface CompareConfig {
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
-    onDateRangeChange: (dateRange: DateRange) => void
+    onDateRangeChange: (dateRange: DateRange, source: TracingDateRangeSource) => void
     displayTimezone: string
+    /** End of the queried window, used as `date_to` when the selection runs to the last bucket
+     *  (which has no following bucket to end on). */
+    currentDateTo?: string | null
     compare?: CompareConfig
+    /** True while any time comparison is active (named preset or custom). Disables drag/click
+     *  range selection — the draggable overlay only exists for the custom preset, so `compare`
+     *  alone can't gate interactions for named presets. */
+    compareActive?: boolean
     visibleRowDateRange?: VisibleSpanTimeRange | null
     /** When set, render a duration histogram instead of the time series (list sorted by duration). */
     durationHistogram?: TracingDurationHistogramData | null
@@ -73,7 +82,9 @@ export function TracingSparkline({
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    currentDateTo,
     compare,
+    compareActive = false,
     visibleRowDateRange,
     durationHistogram,
     visibleRowDurationRange,
@@ -104,11 +115,9 @@ export function TracingSparkline({
     // Duration mode is categorical (1ms, 2ms, ...); activity mode is a time axis keyed on ISO dates.
     const timeConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: {
-                tickFormatter: createXAxisTickCallback({ allDays: sparklineData.dates, timezone: displayTimezone }),
-            },
+            xAxis: { timezone: displayTimezone },
         }),
-        [sparklineData.dates, displayTimezone]
+        [displayTimezone]
     )
     const durationConfig = useChartConfig<BarChartConfig>(() => ({}), [])
 
@@ -116,7 +125,7 @@ export function TracingSparkline({
         (label: string): string => {
             const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
             const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
-            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+            return `${d.format(TRACING_DATE_TIME_FORMAT)} ${tz}`
         },
         [displayTimezone]
     )
@@ -169,17 +178,29 @@ export function TracingSparkline({
         return { start: sparklineData.dates[startIndex], end: sparklineData.dates[endIndex] }
     }, [compare, visibleRowDateRange, sparklineData.dates])
 
-    // Drag-select sets the date range — the drag is the only way to narrow the list, so it's wired
+    // Both gestures narrow the list to the buckets they cover, so they share one mapping. Wired
     // directly rather than through the drag-to-zoom flag. Meaningless on a duration axis.
-    const onDateRangeZoom = useCallback(
-        ({ startIndex, endIndex }: DateRangeZoomData): void => {
-            const dateFrom = sparklineData.dates[startIndex]
-            const dateTo = sparklineData.dates[endIndex + 1]
-            if (dateFrom) {
-                onDateRangeChange({ date_from: dateFrom, date_to: dateTo })
+    const selectBuckets = useCallback(
+        (startIndex: number, endIndex: number, source: TracingDateRangeSource): void => {
+            const dateRange = bucketRangeToDateRange(sparklineData.dates, startIndex, endIndex, currentDateTo)
+            if (dateRange) {
+                onDateRangeChange(dateRange, source)
             }
         },
-        [sparklineData.dates, onDateRangeChange]
+        [sparklineData.dates, currentDateTo, onDateRangeChange]
+    )
+
+    const onDateRangeZoom = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData): void => selectBuckets(startIndex, endIndex, 'sparkline_drag'),
+        [selectBuckets]
+    )
+
+    // Clicking a single bar is the discoverable shorthand for dragging across it. Quill routes a
+    // click here only once it has ruled out a drag, so a drag-select does not also fire this.
+    // Setting the handler is what turns the cursor into a pointer over the bars.
+    const onPointClick = useCallback(
+        ({ dataIndex }: PointClickData): void => selectBuckets(dataIndex, dataIndex, 'sparkline_bar_click'),
+        [selectBuckets]
     )
 
     const renderTooltip = useCallback(
@@ -259,7 +280,8 @@ export function TracingSparkline({
                                 labels={sparklineData.dates}
                                 theme={theme}
                                 config={timeConfig}
-                                onDateRangeZoom={compare ? undefined : onDateRangeZoom}
+                                onDateRangeZoom={compareActive ? undefined : onDateRangeZoom}
+                                onPointClick={compareActive ? undefined : onPointClick}
                                 tooltip={renderTooltip}
                             >
                                 {activityHighlight && (

@@ -123,6 +123,10 @@
                     {
                         "name": "@posthog/brand/hoggies/png",
                         "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
+                    },
+                    {
+                        "name": "storybook/preview-api",
+                        "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
                     }
                 ],
                 "patterns": [
@@ -199,6 +203,12 @@
             "files": ["services/mcp/src/generated/**/*.ts"],
             "rules": {
                 "no-useless-escape": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/generated/**/*.ts", "services/mcp/src/tools/generated/**/*.ts"],
+            "rules": {
+                "@typescript-eslint/explicit-function-return-type": "off"
             }
         },
         {

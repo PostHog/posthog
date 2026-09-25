@@ -1,9 +1,8 @@
-import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -14,8 +13,10 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
@@ -23,11 +24,12 @@ import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotic
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
+import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { ScopeAccessLevel, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
+        <div className="AuthScene__card flex flex-col items-center gap-4 p-8 text-center">
             <IconWarning className="text-muted-alt text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
             <div className="text-sm text-muted">{description}</div>
@@ -37,7 +39,7 @@ export const OAuthAuthorizeError = ({ title, description }: { title: string; des
 
 export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Element => {
     return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
+        <div className="AuthScene__card flex flex-col items-center gap-4 p-8">
             <IconCheckCircle className="text-success text-4xl" />
             <div className="text-xl font-semibold">Authorization successful</div>
             <div className="text-sm text-muted text-center">
@@ -56,7 +58,7 @@ export const OAuthAuthorizeRedirecting = ({
     redirectUrl: string
 }): JSX.Element => {
     return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4">
+        <div className="AuthScene__card flex flex-col items-center gap-4 p-8">
             <Spinner className="text-3xl" />
             <div className="text-xl font-semibold">Redirecting to {appName}…</div>
             <div className="text-sm text-muted text-center max-w-md">
@@ -134,6 +136,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         showReadOnlyBulkAction,
         oauthApplication,
         oauthApplicationLoading,
+        appName,
         allOrganizations,
         filteredTeams,
         oauthAuthorization,
@@ -146,6 +149,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
+        accessControlsApply,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -212,174 +216,196 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     if (oauthApplicationLoading) {
         return (
-            <div className="flex items-center justify-center h-full py-12">
-                <Spinner />
-            </div>
+            <OAuthAuthorizeLayout>
+                <div className="flex items-center justify-center py-12">
+                    <Spinner />
+                </div>
+            </OAuthAuthorizeLayout>
         )
     }
 
     if (!oauthApplication) {
         return (
-            <OAuthAuthorizeError
-                title="No application found"
-                description="The application requesting access to your data does not exist."
-            />
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeError
+                    title="No application found"
+                    description="The application requesting access to your data does not exist."
+                />
+            </OAuthAuthorizeLayout>
         )
     }
 
-    // The name is HTML-escaped at ingestion (see posthog/api/oauth/client_name.py). Decode it
-    // back to plain text so React's own output-escaping renders it correctly instead of showing
-    // literal entities like "&amp;".
-    const appName = decode(oauthApplication.name)
-
     if (authorizationComplete) {
-        return <OAuthAuthorizeSuccess appName={appName} />
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeSuccess appName={appName} />
+            </OAuthAuthorizeLayout>
+        )
     }
 
     if (isRedirecting) {
-        return <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+            </OAuthAuthorizeLayout>
+        )
     }
 
     return (
-        <div className="min-h-full overflow-y-auto">
-            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
-                <div className="text-center mb-4 sm:mb-8">
-                    {oauthApplication.logo_uri && (
-                        <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
-                            <img
-                                src={oauthApplication.logo_uri}
-                                alt={`${appName} logo`}
-                                className="w-full h-full object-contain"
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                    // Hide the image container if the logo fails to load
-                                    // (e.g. Cross-Origin-Resource-Policy: same-origin)
-                                    const container = (e.target as HTMLImageElement).parentElement
-                                    if (container) {
-                                        container.style.display = 'none'
-                                    }
-                                }}
-                            />
-                        </div>
-                    )}
-                    <h2 className="text-xl sm:text-2xl font-semibold">
-                        Authorize <strong>{appName}</strong>
-                    </h2>
-                    <p className="text-muted mt-2 text-sm sm:text-base">{appName} is requesting access to your data.</p>
-                </div>
-
-                {isImpersonated && (
-                    <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
-                        <IconWarning className="text-warning shrink-0" />
-                        <span>
-                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
-                            are short-lived and will be revoked when impersonation ends
-                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
+        <OAuthAuthorizeLayout>
+            <div className="shrink-0 mb-3">
+                <AuthCardTitle
+                    title={
+                        <>
+                            <span>Authorize </span>
+                            <span>{appName}</span>
+                        </>
+                    }
+                    sub={`${appName} is requesting access to your data.`}
+                    className="mb-2"
+                />
+                {user && (
+                    <div className="flex items-center justify-center gap-1.5 min-w-0 text-sm text-muted">
+                        <ProfilePicture user={user} size="sm" className="shrink-0" />
+                        <span className="truncate">
+                            <span className="font-semibold text-primary">{user.email}</span>
+                            {[currentOrganization?.name ?? user.organization?.name, window.location.host]
+                                .filter(Boolean)
+                                .map((part) => ` · ${part}`)
+                                .join('')}
                         </span>
                     </div>
                 )}
+            </div>
 
-                {!oauthApplication.is_verified && (
-                    <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
-                        <IconWarning className="text-warning shrink-0" />
-                        <span>
-                            <strong>Unverified application.</strong> This application has not been verified by PostHog.
-                            Only continue if you recognize and trust this application.
-                        </span>
-                    </div>
-                )}
-
-                {scopesWereDefaulted && isMcpResource && (
-                    <LemonBanner type="info" className="mb-4">
-                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
-                        Showing all permissions the PostHog MCP server supports.
-                    </LemonBanner>
-                )}
-
-                <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
-                    <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
-                        {requiredAccessLevel === 'team' ? (
-                            <>
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel>Organization</LemonLabel>
-                                    <LemonSelect
-                                        fullWidth
-                                        placeholder="Select organization"
-                                        options={orgOptions}
-                                        value={selectedOrganization}
-                                        onChange={(val) => {
-                                            if (val) {
-                                                setSelectedOrganization(val)
-                                            }
-                                        }}
-                                    />
+            {/* Nothing in the column grows: the card hugs a short permission list, and only
+                stretches to the window height when the list is longer than that. */}
+            <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization" className="flex flex-col min-h-0">
+                <div className="AuthScene__card flex flex-col min-h-0 overflow-hidden">
+                    {/* Everything the person reads and adjusts scrolls in here. The action row
+                        below sits outside, so Authorize stays reachable however many
+                        permissions the application asks for. */}
+                    <div className="flex flex-col min-h-0 overflow-y-auto" data-attr="oauth-permissions-scroll">
+                        <div className="flex flex-col gap-4 sm:gap-6 p-4 sm:p-6">
+                            {isImpersonated && (
+                                <div className="flex items-center gap-2 p-3 bg-danger-highlight border border-danger rounded text-sm">
+                                    <IconWarning className="text-warning shrink-0" />
+                                    <span>
+                                        <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in
+                                        this session are short-lived and will be revoked when impersonation ends
+                                        {isImpersonationReadOnly
+                                            ? ', and write scopes will be downgraded to read-only'
+                                            : ''}
+                                        .
+                                    </span>
                                 </div>
+                            )}
 
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel>Project</LemonLabel>
-                                    {showCreateProject ? (
-                                        <InlineCreateForm
-                                            label="New project name"
-                                            placeholder="e.g. My App"
-                                            loading={newProjectLoading}
-                                            onSubmit={createNewProject}
-                                            onCancel={() => setShowCreateProject(false)}
+                            {!oauthApplication.is_verified && (
+                                <div className="flex items-center gap-2 p-3 bg-warning-highlight border border-warning rounded text-sm">
+                                    <IconWarning className="text-warning shrink-0" />
+                                    <span>
+                                        <strong>Unverified application.</strong> This application has not been verified
+                                        by PostHog. Only continue if you recognize and trust this application.
+                                    </span>
+                                </div>
+                            )}
+
+                            {scopesWereDefaulted && (
+                                <LemonBanner type="info">
+                                    <strong>No permissions requested.</strong>{' '}
+                                    {isMcpResource
+                                        ? "This application didn't request specific permissions. Showing all permissions the PostHog MCP server supports."
+                                        : "This application didn't request specific permissions, so everything it can access is selected below. Change anything you don't want to grant."}
+                                </LemonBanner>
+                            )}
+
+                            {requiredAccessLevel === 'team' ? (
+                                <>
+                                    <div className="flex flex-col gap-2">
+                                        <LemonLabel>Organization</LemonLabel>
+                                        <LemonSelect
+                                            fullWidth
+                                            placeholder="Select organization"
+                                            options={orgOptions}
+                                            value={selectedOrganization}
+                                            onChange={(val) => {
+                                                if (val) {
+                                                    setSelectedOrganization(val)
+                                                }
+                                            }}
                                         />
-                                    ) : (
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1 min-w-0">
-                                                <LemonSelect
-                                                    fullWidth
-                                                    placeholder={
-                                                        selectedOrganization
-                                                            ? 'Select project'
-                                                            : 'Select an organization first'
-                                                    }
-                                                    options={projectOptions}
-                                                    value={oauthAuthorization.scoped_teams[0] ?? null}
-                                                    onChange={(val) => {
-                                                        if (val) {
-                                                            setOauthAuthorizationValue('scoped_teams', [val])
+                                    </div>
+
+                                    <div className="flex flex-col gap-2">
+                                        <LemonLabel>Project</LemonLabel>
+                                        {showCreateProject ? (
+                                            <InlineCreateForm
+                                                label="New project name"
+                                                placeholder="e.g. My App"
+                                                loading={newProjectLoading}
+                                                onSubmit={createNewProject}
+                                                onCancel={() => setShowCreateProject(false)}
+                                            />
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <LemonSelect
+                                                        fullWidth
+                                                        placeholder={
+                                                            selectedOrganization
+                                                                ? 'Select project'
+                                                                : 'Select an organization first'
                                                         }
-                                                    }}
+                                                        options={projectOptions}
+                                                        value={oauthAuthorization.scoped_teams[0] ?? null}
+                                                        onChange={(val) => {
+                                                            if (val) {
+                                                                setOauthAuthorizationValue('scoped_teams', [val])
+                                                            }
+                                                        }}
+                                                        disabledReason={
+                                                            !selectedOrganization
+                                                                ? 'Select an organization first'
+                                                                : undefined
+                                                        }
+                                                    />
+                                                </div>
+                                                <LemonButton
+                                                    className="shrink-0"
+                                                    type="secondary"
+                                                    size="small"
+                                                    icon={<IconPlus />}
                                                     disabledReason={
                                                         !selectedOrganization
                                                             ? 'Select an organization first'
-                                                            : undefined
+                                                            : (projectCreationForbiddenReason ?? undefined)
                                                     }
+                                                    onClick={handleShowCreateProject}
                                                 />
                                             </div>
-                                            <LemonButton
-                                                className="shrink-0"
-                                                type="secondary"
-                                                size="small"
-                                                icon={<IconPlus />}
-                                                disabledReason={
-                                                    !selectedOrganization
-                                                        ? 'Select an organization first'
-                                                        : (projectCreationForbiddenReason ?? undefined)
-                                                }
-                                                onClick={handleShowCreateProject}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            </>
-                        ) : (
-                            <ScopeAccessSelector
-                                accessType={oauthAuthorization.access_type}
-                                organizations={allOrganizations}
-                                teams={filteredTeams ?? undefined}
-                                requiredAccessLevel={requiredAccessLevel}
-                                autoSelectFirst={true}
-                            />
-                        )}
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <ScopeAccessSelector
+                                    accessType={oauthAuthorization.access_type}
+                                    organizations={allOrganizations}
+                                    teams={filteredTeams ?? undefined}
+                                    requiredAccessLevel={requiredAccessLevel}
+                                    autoSelectFirst={true}
+                                />
+                            )}
+                        </div>
 
-                        <div className="flex flex-col gap-3">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex flex-col">
+                            {/* Sticky and full-bleed, so the bulk actions stay in reach once the
+                                first rows scroll away. z-10 clears the access selectors, whose
+                                own parts sit at z-index 2. */}
+                            <div className="AuthScene__cardSurface sticky top-0 z-10 flex items-center justify-between gap-2 flex-wrap px-4 sm:px-6 py-2 border-y border-border">
                                 <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
                                 {adjustableScopeRows.length > 1 && (
-                                    <div className="flex items-center gap-1">
+                                    <div className="flex items-center gap-1 flex-wrap">
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
@@ -406,7 +432,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     </div>
                                 )}
                             </div>
-                            <>
+                            <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
                                 {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
                                     <ul className="space-y-2">
                                         {identityScopeDescriptions.map((description, idx) => (
@@ -451,9 +477,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ))}
                                     </div>
                                 )}
-                            </>
+                                {accessControlsApply && (
+                                    <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
+                                        <strong className="block">Access controls still apply.</strong>
+                                        {appName} can only do what both your access level and these permissions allow.
+                                    </LemonBanner>
+                                )}
+                            </div>
                         </div>
+                    </div>
 
+                    <div className="shrink-0 flex flex-col gap-3 px-4 sm:px-6 py-4 border-t border-border">
                         {redirectDomain && (
                             <div className="text-xs text-muted">
                                 <p>
@@ -466,11 +500,12 @@ export const OAuthAuthorize = (): JSX.Element => {
                             </div>
                         )}
 
-                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
+                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                             <LemonButton
                                 type="tertiary"
                                 status="alt"
                                 htmlType="button"
+                                data-attr="oauth-authorize-cancel"
                                 loading={isCanceling}
                                 disabledReason={
                                     isCanceling
@@ -489,6 +524,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
+                                data-attr="oauth-authorize-submit"
                                 loading={isOauthAuthorizationSubmitting}
                                 disabledReason={
                                     isOauthAuthorizationSubmitting
@@ -503,9 +539,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                             </LemonButton>
                         </div>
                     </div>
-                </Form>
-            </div>
-        </div>
+                </div>
+            </Form>
+        </OAuthAuthorizeLayout>
     )
 }
 

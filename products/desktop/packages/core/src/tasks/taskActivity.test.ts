@@ -28,7 +28,7 @@ describe("taskActivityTimestamp", () => {
     );
   });
 
-  it("uses the latest task or run update in updated mode", () => {
+  it("ignores the run's write time in updated mode", () => {
     const task = makeTask({
       updated_at: "2026-01-02T00:00:00Z",
       latest_run: {
@@ -48,7 +48,32 @@ describe("taskActivityTimestamp", () => {
     });
 
     expect(taskActivityTimestamp(task, "updated")).toBe(
-      new Date("2026-01-04T00:00:00Z").getTime(),
+      new Date("2026-01-02T00:00:00Z").getTime(),
+    );
+  });
+
+  it("ignores a run's write time when the backend sent an activity stamp", () => {
+    const task = makeTask({
+      updated_at: "2026-09-23T13:41:11Z",
+      last_activity_at: "2025-02-11T16:30:35Z",
+      latest_run: {
+        id: "run-1",
+        task: "task-1",
+        team: 1,
+        branch: null,
+        status: "completed",
+        log_url: "",
+        error_message: null,
+        output: null,
+        state: { imported_from: "conversation" },
+        created_at: "2025-02-11T16:29:51Z",
+        updated_at: "2026-09-23T13:41:11Z",
+        completed_at: "2025-02-11T16:30:35Z",
+      },
+    });
+
+    expect(taskActivityTimestamp(task, "updated")).toBe(
+      new Date("2025-02-11T16:30:35Z").getTime(),
     );
   });
 

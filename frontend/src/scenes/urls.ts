@@ -10,15 +10,16 @@ import {
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
+import { ActivityTab, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
 
 import type { BillingSectionId } from './billing/types'
+import type { BatchExportSceneTab } from './data-pipelines/batch-exports/BatchExportScene'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
+import type { DestinationsSceneTab } from './data-pipelines/destinationsSceneLogic'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
-import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -55,8 +56,7 @@ export const urls = {
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
-    destinations: (): string => '/data-management/destinations',
-    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
+    destinations: (tab?: DestinationsSceneTab): string => `/data-management/destinations${tab ? `?tab=${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
@@ -150,10 +150,6 @@ export const urls = {
         const hashString = hashParams.toString()
         return `/sql${queryString ? `?${queryString}` : ''}${hashString ? `#${hashString}` : ''}`
     },
-    annotations: (): string => '/data-management/annotations',
-    annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    comments: (): string => '/data-management/comments',
-    comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
@@ -172,9 +168,14 @@ export const urls = {
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    identityProviderConfig: (
+        feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
+        configId: string | ':configId'
+    ): string => `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -182,6 +183,7 @@ export const urls = {
     // Onboarding / setup routes
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     login2FASetup: (): string => '/login/2fa_setup',
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
@@ -199,11 +201,12 @@ export const urls = {
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     twoFactorReset: (userUuid: string, token: string): string => `/reset_2fa/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
-    verifyEmail: (userUuid: string = '', token: string = ''): string =>
-        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
+    verifyEmail: (userUuid: string = ''): string => `/verify_email${userUuid ? `/${userUuid}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
     agenticAccountMismatch: (): string => '/agentic/account-mismatch',
@@ -251,17 +254,25 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
+    organizationBillingRealTimeUsage: (): string => '/organization/billing/real-time-usage',
     advancedActivityLogs: (): string => '/activity-logs',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     instanceStaffUsers: (): string => '/instance/staff_users',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     instanceKafkaInspector: (): string => '/instance/kafka_inspector',
     instanceSettings: (): string => '/instance/settings',
     instanceMetrics: (): string => `/instance/metrics`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrations: (): string => '/instance/async_migrations',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
@@ -270,6 +281,7 @@ export const urls = {
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
     codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
+    codeLoopLink: (loopId: string): string => `/code/loop/${loopId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
@@ -294,6 +306,8 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
+    terminal: (): string => '/terminal',
+    projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
     links: (params?: string): string =>
@@ -303,19 +317,21 @@ export const urls = {
     metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
-    wizard: (): string => `/wizard`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
-    batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
+    batchExport: (id: string, tab?: BatchExportSceneTab): string =>
+        `/pipeline/batch-exports/${id}${tab ? `?tab=${tab}` : ''}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     productTours: (): string => '/product_tours',
     productTour: (id: string, params?: string): string =>
+        // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
@@ -330,6 +346,7 @@ export const urls = {
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsPagePerformance: (): string => '/web/page-performance',
+    webAnalyticsAgents: (): string => '/web/agents',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',

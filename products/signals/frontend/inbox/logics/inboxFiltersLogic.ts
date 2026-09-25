@@ -1,14 +1,30 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import type { UserType } from '~/types'
 
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
-import { INBOX_SCOPE_FOR_YOU, INBOX_TAB_KEYS, InboxScope, SignalReportPriority } from '../types'
+import { parseTeammateInboxScope } from '../inboxMembership'
+import {
+    INBOX_LEGACY_TAB_KEYS,
+    INBOX_REPORT_SECTION_KEYS,
+    INBOX_SCOPE_FOR_YOU,
+    INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
+    INBOX_TAB_KEYS,
+    InboxReportSectionKey,
+    InboxScope,
+    SignalReportPriority,
+} from '../types'
+import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
 export interface InboxReviewerOption {
@@ -23,11 +39,30 @@ export type InboxSortDirection = 'asc' | 'desc'
 const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
+/**
+ * The states selected by default: the two that hold open work. The closed states (Resolved,
+ * Dismissed) stay one checkbox away so the fresh inbox leads with what needs a person.
+ */
+export const DEFAULT_STATE_FILTER: InboxReportSectionKey[] = ['monitoring', 'needs-decision']
+
+/**
+ * URL value for an explicitly empty selection (every state). An absent `state` param means the
+ * default selection, so the empty selection needs its own encoding; without it, the URL rewrite
+ * after unchecking the last state would immediately hydrate the default back.
+ */
+const STATE_PARAM_ALL = 'all'
+
+/** Whether a state selection is exactly the default, in any order. */
+export function isDefaultStateFilter(stateFilter: InboxReportSectionKey[]): boolean {
+    return sameSet(stateFilter, DEFAULT_STATE_FILTER)
+}
+
 // Query-param keys that mirror the filter state so a view can be shared via URL.
-const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'sort', 'search'] as const
+const FILTER_URL_KEYS = ['scope', 'source', 'scout', 'priority', 'state', 'sort', 'search'] as const
 
 const VALID_SOURCE_VALUES = new Set(INBOX_SOURCE_OPTIONS.map((o) => o.value))
 const VALID_PRIORITIES = new Set<string>(INBOX_PRIORITY_OPTIONS)
+const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 // Only the field/direction combinations the Sort control actually offers — validating the field and
 // direction independently would accept keys like `priority:desc` that have no matching UI option.
 const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
@@ -37,6 +72,7 @@ export interface InboxFilterState {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: SignalReportPriority[]
+    stateFilter: InboxReportSectionKey[]
     sortField: InboxSortField
     sortDirection: InboxSortDirection
     searchQuery: string
@@ -61,6 +97,18 @@ function parseListParam(raw: unknown, valid: Set<string>): string[] {
         return []
     }
     return raw.split(',').filter((v) => valid.has(v))
+}
+
+/**
+ * Decode the `state` param: the sentinel means every state, an explicit list is validated, and
+ * anything else (absent, or nothing but unknown values) falls back to the default selection.
+ */
+function parseStateParam(raw: unknown): InboxReportSectionKey[] {
+    if (raw === STATE_PARAM_ALL) {
+        return []
+    }
+    const parsed = parseListParam(raw, VALID_STATE_VALUES) as InboxReportSectionKey[]
+    return parsed.length > 0 ? parsed : DEFAULT_STATE_FILTER
 }
 
 // Scout skill names are team-specific and dynamic, so there is no static valid set to check a
@@ -90,6 +138,7 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
         sourceProductFilter: parseListParam(searchParams.source, VALID_SOURCE_VALUES),
         scoutFilter: parseScoutParam(searchParams.scout),
         priorityFilter: parseListParam(searchParams.priority, VALID_PRIORITIES) as SignalReportPriority[],
+        stateFilter: parseStateParam(searchParams.state),
         sortField,
         sortDirection,
         searchQuery: typeof searchParams.search === 'string' ? searchParams.search : '',
@@ -97,15 +146,22 @@ export function parseFilterSearchParams(searchParams: Record<string, any>): Inbo
 }
 
 /**
- * The inbox tab in the current URL, or null off a tab route (the scout panels, or a bare `/inbox`).
- * Read from the router rather than connected from `inboxSceneLogic`, which already connects this
- * logic — the reverse edge would be a cycle.
+ * The inbox page tab the filters apply to, for the `tab` analytics property: the tab segment from
+ * the URL (`reports`, `scouts`, or `settings` under the redesign, or a legacy tab key), or null off
+ * a tab route (the scout panels, or a bare `/inbox`). The redesigned Reports tab is one flat list
+ * with no sub-view, so it reports `reports` and stays consistent with the `tab` that
+ * `captureInboxViewed` sends for the same visit. Read from the router rather than connected from
+ * `inboxSceneLogic`, which already connects this logic, because the reverse edge would be a cycle.
  */
-function currentInboxTab(): string | null {
+function currentInboxTab(redesign: boolean): string | null {
     const segments = router.values.location.pathname.split('/').filter(Boolean)
     const inboxIndex = segments.indexOf('inbox')
     const candidate = inboxIndex === -1 ? undefined : segments[inboxIndex + 1]
-    return candidate && (INBOX_TAB_KEYS as string[]).includes(candidate) ? candidate : null
+    const tabKeys = (redesign ? INBOX_TAB_KEYS : INBOX_LEGACY_TAB_KEYS) as string[]
+    if (!candidate || !tabKeys.includes(candidate)) {
+        return null
+    }
+    return candidate
 }
 
 function sameSet(a: string[], b: string[]): boolean {
@@ -126,6 +182,11 @@ export function filterSearchParams(values: InboxFilterState): Record<string, str
     }
     if (values.priorityFilter.length > 0) {
         params.priority = values.priorityFilter.join(',')
+    }
+    if (values.stateFilter.length === 0) {
+        params.state = STATE_PARAM_ALL
+    } else if (!isDefaultStateFilter(values.stateFilter)) {
+        params.state = values.stateFilter.join(',')
     }
     if (values.sortField !== DEFAULT_SORT_FIELD || values.sortDirection !== DEFAULT_SORT_DIRECTION) {
         params.sort = `${values.sortField}:${values.sortDirection}`
@@ -174,10 +235,17 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface inboxFiltersLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    user: UserType | null // userLogic
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
+    isRedesign: boolean
+    knownTeammate: {
+        label: string
+        uuid: string
+    } | null
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
     scoutFilter: string[]
@@ -185,6 +253,8 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
+    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    visibleStateFilter: InboxReportSectionKey[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -233,6 +303,16 @@ export interface inboxFiltersLogicActions {
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
     }
+    setKnownTeammate: (
+        uuid: string,
+        label: string
+    ) => {
+        label: string
+        uuid: string
+    }
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
+    }
     setScope: (scope: InboxScope) => {
         scope: InboxScope
     }
@@ -255,6 +335,9 @@ export interface inboxFiltersLogicActions {
     toggleSourceProduct: (source: string) => {
         source: string
     }
+    toggleState: (state: InboxReportSectionKey) => {
+        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -266,6 +349,11 @@ export interface inboxFiltersLogicMeta {
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[]
         ) => boolean
+        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
+        visibleStateFilter: (
+            stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
+            user: UserType | null
+        ) => InboxReportSectionKey[]
     }
 }
 
@@ -294,8 +382,13 @@ export type inboxFiltersLogicType = MakeLogicType<
 export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxFiltersLogic']),
 
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+    })),
+
     actions({
         setScope: (scope: InboxScope) => ({ scope }),
+        setKnownTeammate: (uuid: string, label: string) => ({ uuid, label }),
         // Auto-select a default scope (e.g. Entire project when the user has no assigned reports)
         // without marking it as an explicit user choice, so a later real choice still wins and persists.
         applyDefaultScope: (scope: InboxScope) => ({ scope }),
@@ -305,6 +398,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
+        // The report states (Needs decision, Review and merge, …) shown in the flat Reports list.
+        // Multi-select: the open-work states are selected by default (DEFAULT_STATE_FILTER), and an
+        // empty selection means every state the user can see.
+        toggleState: (state: InboxReportSectionKey) => ({ state }),
+        // Replace the whole selection. The priority control is a single select, but the state
+        // stays a list so a shared link carrying several priorities still filters by all of them.
+        setPriorityFilter: (priorities: SignalReportPriority[]) => ({ priorities }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
         setFilters: (filters: InboxFilterState) => ({ filters }),
@@ -319,9 +419,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         availableReviewers: [
             [] as InboxReviewerOption[],
             {
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
                     // The api wrapper already returns the typed `{ user_uuid, name, email }[]` array.
-                    return await api.signalReports.availableReviewers(query)
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],
@@ -332,32 +436,50 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         const captureQueryChange = (change: InboxQueryChange): void =>
             captureInboxQueryChanged({
                 change,
-                tab: currentInboxTab(),
+                tab: currentInboxTab(values.isRedesign),
                 scope: values.scope,
                 sortField: values.sortField,
                 sortDirection: values.sortDirection,
                 sourceProductFilter: values.sourceProductFilter,
                 scoutFilter: values.scoutFilter,
                 priorityFilter: values.priorityFilter,
+                stateFilter: values.stateFilter,
                 searchQuery: values.searchQuery,
                 hasActiveFilters: values.hasActiveFilters,
             })
 
+        const rememberSelectedTeammate = (): void => {
+            const uuid = parseTeammateInboxScope(values.scope)
+            const reviewer = values.availableReviewers.find((reviewer) => reviewer.user_uuid === uuid)
+            if (uuid && reviewer) {
+                actions.setKnownTeammate(uuid, reviewer.name || reviewer.email)
+            }
+        }
+
         return {
+            loadAvailableReviewersSuccess: rememberSelectedTeammate,
             searchAvailableReviewers: async ({ query }, breakpoint) => {
                 await breakpoint(300)
                 actions.loadAvailableReviewers({ query: query.trim() || undefined })
             },
             // `applyDefaultScope` is deliberately absent — it's the empty-inbox auto-default, not a
             // user choice, and counting it as engagement is exactly the inflation we're trying to avoid.
-            setScope: () => captureQueryChange('scope'),
+            setScope: () => {
+                rememberSelectedTeammate()
+                captureQueryChange('scope')
+            },
             setSort: () => captureQueryChange('sort'),
             toggleSourceProduct: () => captureQueryChange('source_product'),
             toggleScout: () => captureQueryChange('scout'),
             clearScoutFilter: () => captureQueryChange('scout'),
             togglePriority: () => captureQueryChange('priority'),
+            setPriorityFilter: () => captureQueryChange('priority'),
+            toggleState: () => captureQueryChange('state'),
             clearFilters: () => captureQueryChange('clear'),
-            setFilters: () => captureQueryChange('url'),
+            setFilters: () => {
+                rememberSelectedTeammate()
+                captureQueryChange('url')
+            },
             // The search box fires per keystroke; settle first so a typed phrase is one event.
             setSearchQuery: async (_, breakpoint) => {
                 await breakpoint(600)
@@ -367,6 +489,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     }),
 
     reducers({
+        // Keep the selected label when a search removes its row from the returned roster.
+        knownTeammate: [
+            null as { uuid: string; label: string } | null,
+            { setKnownTeammate: (_, { uuid, label }) => ({ uuid, label }) },
+        ],
         scope: [
             INBOX_SCOPE_FOR_YOU as InboxScope,
             { persist: true },
@@ -442,15 +569,29 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 togglePriority: (state, { priority }) =>
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
+                setPriorityFilter: (_, { priorities }) => priorities,
                 setFilters: (_, { filters }) => filters.priorityFilter,
                 clearFilters: () => [],
+            },
+        ],
+        stateFilter: [
+            DEFAULT_STATE_FILTER,
+            { persist: true },
+            {
+                toggleState: (current, { state }) =>
+                    current.includes(state) ? current.filter((s) => s !== state) : [...current, state],
+                setFilters: (_, { filters }) => filters.stateFilter,
+                clearFilters: () => DEFAULT_STATE_FILTER,
             },
         ],
     }),
 
     selectors({
-        // Whether any list-narrowing filter is active. Scope and sort are excluded: they don't hide
-        // reports the way search/source/priority do, and `clearFilters` leaves them untouched.
+        // Whether any server-side list-narrowing filter is active. Scope and sort are excluded: they
+        // don't hide reports the way search/source/priority do, and `clearFilters` leaves them
+        // untouched. The state filter is also excluded: it only narrows which states the flat
+        // Reports list renders (client-side, redesign only), so the surfaces that need it check
+        // `stateFilter` directly.
         hasActiveFilters: [
             (s) => [s.searchQuery, s.sourceProductFilter, s.scoutFilter, s.priorityFilter],
             (
@@ -463,6 +604,22 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sourceProductFilter.length > 0 ||
                 scoutFilter.length > 0 ||
                 priorityFilter.length > 0,
+        ],
+        isRedesign: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
+        ],
+        // The stored state filter can name states the current user cannot see: a staff-only state
+        // from a shared link, or one persisted before staff access changed. The list and the filter
+        // control read this narrowed view, so a hidden state can never strand the list on a
+        // selection the control has no checkbox to clear. The raw `stateFilter` stays stored and in
+        // the URL, so a staff user opening the same link still gets the full selection.
+        visibleStateFilter: [
+            (s) => [s.stateFilter, s.user],
+            (stateFilter: InboxReportSectionKey[], user: UserType | null): InboxReportSectionKey[] =>
+                user?.is_staff
+                    ? stateFilter
+                    : stateFilter.filter((key) => !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
         ],
     }),
 
@@ -479,6 +636,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleScout: toUrl,
             clearScoutFilter: toUrl,
             togglePriority: toUrl,
+            setPriorityFilter: toUrl,
+            toggleState: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,
         }
@@ -510,6 +669,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 !sameSet(values.sourceProductFilter, parsed.sourceProductFilter) ||
                 !sameSet(values.scoutFilter, parsed.scoutFilter) ||
                 !sameSet(values.priorityFilter, parsed.priorityFilter) ||
+                !sameSet(values.stateFilter, parsed.stateFilter) ||
                 values.sortField !== parsed.sortField ||
                 values.sortDirection !== parsed.sortDirection ||
                 values.searchQuery !== parsed.searchQuery
@@ -523,6 +683,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [urls.inbox(':tab')]: applyFromUrl,
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
+            [urls.inboxRuns()]: applyFromUrl,
+            [urls.inboxTriage()]: applyFromUrl,
             [urls.inboxScout(':skillName')]: applyFromUrl,
             [urls.inboxScout(':skillName', ':findingId')]: applyFromUrl,
             [urls.inboxReport(':tab', ':reportId')]: applyFromUrl,

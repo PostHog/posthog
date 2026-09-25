@@ -2,7 +2,7 @@ import { Gauge } from 'prom-client'
 
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
-import { producerStatsSchema } from './kafka-producer-stats-schema'
+import { BrokerStats, LatencyWindowMicroseconds, producerStatsSchema } from './kafka-producer-stats-schema'
 
 export const kafkaProducerQueueMessages = new Gauge({
     name: 'kafka_producer_queue_messages',
@@ -34,10 +34,34 @@ export const kafkaProducerCallbackQueueDepth = new Gauge({
     labelNames: ['producer_name'],
 })
 
-export const kafkaProducerAnyBrokersDown = new Gauge({
-    name: 'kafka_producer_any_brokers_down',
-    help: '1 if any broker the producer knows about is not in the UP state, 0 otherwise.',
+export const kafkaProducerBrokers = new Gauge({
+    name: 'kafka_producer_brokers',
+    help: 'Number of brokers the producer knows about, by librdkafka connection state (INIT, DOWN, UP, ...). Bootstrap entries are excluded.',
+    labelNames: ['producer_name', 'state'],
+})
+
+export const kafkaProducerRequestsInFlight = new Gauge({
+    name: 'kafka_producer_requests_in_flight',
+    help: 'Requests sent to brokers that still wait for a response, summed over brokers.',
     labelNames: ['producer_name'],
+})
+
+export const kafkaProducerRequestsQueued = new Gauge({
+    name: 'kafka_producer_requests_queued',
+    help: 'Requests in broker output buffers that librdkafka has not sent yet, summed over brokers.',
+    labelNames: ['producer_name'],
+})
+
+export const kafkaProducerBusiestBrokerRequestsInFlight = new Gauge({
+    name: 'kafka_producer_busiest_broker_requests_in_flight',
+    help: 'Requests in flight on the broker connection that has the most. Compare with max.in.flight.requests.per.connection.',
+    labelNames: ['producer_name'],
+})
+
+export const kafkaProducerBrokerLatencySeconds = new Gauge({
+    name: 'kafka_producer_broker_latency_seconds',
+    help: 'librdkafka broker latency over the last stats window. stat=mean is over all brokers; stat=max_p99 is the highest broker p99. latency=internal_queue is the partition queue wait, request_queue is the output buffer wait, round_trip is the broker RTT.',
+    labelNames: ['producer_name', 'latency', 'stat'],
 })
 
 export const kafkaProducerTopicBatchSizeBytesAvg = new Gauge({
@@ -61,6 +85,8 @@ export const kafkaProducerTopicBatchCountAvg = new Gauge({
  */
 export class ProducerStatsTracker {
     private producerName: string
+    /** States reported at least once, so a state no broker is in any more is reset to zero rather than left stale. */
+    private reportedBrokerStates = new Set<string>()
 
     constructor(producerName: string) {
         this.producerName = producerName
@@ -107,10 +133,28 @@ export class ProducerStatsTracker {
         }
 
         if (stats.brokers) {
-            const brokers = Object.values(stats.brokers)
-            if (brokers.length > 0) {
-                const anyDown = brokers.some((b) => b.state !== 'UP')
-                kafkaProducerAnyBrokersDown.set(labels, anyDown ? 1 : 0)
+            const countsByState = new Map<string, number>()
+            const learnedBrokers: BrokerStats[] = []
+            for (const broker of Object.values(stats.brokers)) {
+                // librdkafka lists configured bootstrap servers with nodeid -1 next to the learned brokers.
+                const isBootstrap = broker.nodeid !== undefined && broker.nodeid < 0
+                if (isBootstrap) {
+                    continue
+                }
+                learnedBrokers.push(broker)
+                if (broker.state !== undefined) {
+                    countsByState.set(broker.state, (countsByState.get(broker.state) ?? 0) + 1)
+                }
+            }
+            this.trackBrokerRequests(learnedBrokers)
+            for (const state of this.reportedBrokerStates) {
+                if (!countsByState.has(state)) {
+                    kafkaProducerBrokers.set({ ...labels, state }, 0)
+                }
+            }
+            for (const [state, count] of countsByState) {
+                kafkaProducerBrokers.set({ ...labels, state }, count)
+                this.reportedBrokerStates.add(state)
             }
         }
 
@@ -125,5 +169,54 @@ export class ProducerStatsTracker {
                 }
             }
         }
+    }
+
+    private trackBrokerRequests(brokers: BrokerStats[]): void {
+        const labels = { producer_name: this.producerName }
+        const inFlightPerBroker = brokers.map((broker) => broker.waitresp_cnt ?? 0)
+        kafkaProducerRequestsInFlight.set(
+            labels,
+            inFlightPerBroker.reduce((sum, count) => sum + count, 0)
+        )
+        kafkaProducerBusiestBrokerRequestsInFlight.set(labels, Math.max(0, ...inFlightPerBroker))
+        kafkaProducerRequestsQueued.set(
+            labels,
+            brokers.reduce((sum, broker) => sum + (broker.outbuf_cnt ?? 0), 0)
+        )
+        this.trackBrokerLatency(
+            'internal_queue',
+            brokers.map((broker) => broker.int_latency)
+        )
+        this.trackBrokerLatency(
+            'request_queue',
+            brokers.map((broker) => broker.outbuf_latency)
+        )
+        this.trackBrokerLatency(
+            'round_trip',
+            brokers.map((broker) => broker.rtt)
+        )
+    }
+
+    private trackBrokerLatency(
+        latency: 'internal_queue' | 'request_queue' | 'round_trip',
+        windows: (LatencyWindowMicroseconds | undefined)[]
+    ): void {
+        let sumMicroseconds = 0
+        let sampleCount = 0
+        let maxP99Microseconds = 0
+        for (const window of windows) {
+            if (!window?.cnt) {
+                continue
+            }
+            sumMicroseconds += window.sum ?? 0
+            sampleCount += window.cnt
+            maxP99Microseconds = Math.max(maxP99Microseconds, window.p99 ?? 0)
+        }
+        const labels = { producer_name: this.producerName, latency }
+        kafkaProducerBrokerLatencySeconds.set(
+            { ...labels, stat: 'mean' },
+            sampleCount > 0 ? sumMicroseconds / sampleCount / 1e6 : 0
+        )
+        kafkaProducerBrokerLatencySeconds.set({ ...labels, stat: 'max_p99' }, maxP99Microseconds / 1e6)
     }
 }

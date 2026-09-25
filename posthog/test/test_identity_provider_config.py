@@ -110,7 +110,7 @@ class TestIdentityProviderConfig(BaseTest):
         domain._complete_verification()
         self._link(domain, config)
 
-        assert OrganizationDomain.objects.get_is_saml_available_for_email("person@posthog.com")
+        assert IdentityProviderConfig.objects.get_is_saml_available_for_email("person@posthog.com")
 
         LinkedIdentityProviderConfig.objects.filter(organization_domain=domain).delete()
-        assert not OrganizationDomain.objects.get_is_saml_available_for_email("person@posthog.com")
+        assert not IdentityProviderConfig.objects.get_is_saml_available_for_email("person@posthog.com")

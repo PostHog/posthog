@@ -93,9 +93,15 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowTemplatesCreateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -106,6 +112,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -215,9 +222,15 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowTemplatesUpdateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -228,6 +241,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -345,12 +359,13 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                     source: zod
                                         .enum([
                                             'events',
+                                            'internal-events',
                                             'person-updates',
                                             'data-warehouse-table',
                                             'data-warehouse-view',
                                         ])
                                         .describe(
-                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                            '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                         )
                                         .default(hogFlowTemplatesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
                                     actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -361,6 +376,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    bytecode_contract: zod.string().optional(),
                                 }),
                                 zod.null(),
                             ])
@@ -394,6 +410,9 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyConversionOneWindowMax = 32
+
+export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$')
 export const hogFlowsCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsCreateBodyActionsItemIdMax = 200
@@ -415,6 +434,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -461,12 +489,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         source: zod
                                             .enum([
                                                 'events',
+                                                'internal-events',
                                                 'person-updates',
                                                 'data-warehouse-table',
                                                 'data-warehouse-view',
                                             ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault),
                                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -477,6 +506,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -487,11 +517,19 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsCreateBodyConversionOneWindowMax)
+                        .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -502,7 +540,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -589,9 +627,15 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -602,6 +646,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -644,12 +689,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                         source: zod
                                                             .enum([
                                                                 'events',
+                                                                'internal-events',
                                                                 'person-updates',
                                                                 'data-warehouse-table',
                                                                 'data-warehouse-view',
                                                             ])
                                                             .describe(
-                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                             )
                                                             .default(
                                                                 hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -670,6 +716,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -692,12 +739,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                             source: zod
                                                                 .enum([
                                                                     'events',
+                                                                    'internal-events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
                                                                     'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -718,6 +766,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -743,7 +792,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -772,6 +821,9 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsUpdateBodyConversionOneWindowMax = 32
+
+export const hogFlowsUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$')
 export const hogFlowsUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsUpdateBodyActionsItemIdMax = 200
@@ -839,12 +891,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                         source: zod
                                             .enum([
                                                 'events',
+                                                'internal-events',
                                                 'person-updates',
                                                 'data-warehouse-table',
                                                 'data-warehouse-view',
                                             ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault),
                                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -855,6 +908,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -865,11 +919,19 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsUpdateBodyConversionOneWindowMax)
+                        .regex(hogFlowsUpdateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -880,7 +942,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -967,9 +1029,15 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -980,6 +1048,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -1022,12 +1091,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                         source: zod
                                                             .enum([
                                                                 'events',
+                                                                'internal-events',
                                                                 'person-updates',
                                                                 'data-warehouse-table',
                                                                 'data-warehouse-view',
                                                             ])
                                                             .describe(
-                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                             )
                                                             .default(
                                                                 hogFlowsUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -1048,6 +1118,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -1070,12 +1141,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                             source: zod
                                                                 .enum([
                                                                     'events',
+                                                                    'internal-events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
                                                                     'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -1096,6 +1168,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1121,7 +1194,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1150,6 +1223,11 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyConversionOneWindowMax = 32
+
+export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
@@ -1220,12 +1298,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                         source: zod
                                             .enum([
                                                 'events',
+                                                'internal-events',
                                                 'person-updates',
                                                 'data-warehouse-table',
                                                 'data-warehouse-view',
                                             ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(
                                                 hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault
@@ -1238,6 +1317,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1248,11 +1328,19 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyConversionOneWindowMax)
+                        .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -1263,7 +1351,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -1350,9 +1438,15 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1363,6 +1457,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -1405,12 +1500,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                         source: zod
                                                             .enum([
                                                                 'events',
+                                                                'internal-events',
                                                                 'person-updates',
                                                                 'data-warehouse-table',
                                                                 'data-warehouse-view',
                                                             ])
                                                             .describe(
-                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                             )
                                                             .default(
                                                                 hogFlowsPartialUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -1431,6 +1527,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -1453,12 +1550,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                             source: zod
                                                                 .enum([
                                                                     'events',
+                                                                    'internal-events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
                                                                     'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsPartialUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -1479,6 +1577,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -1504,7 +1603,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -1721,6 +1820,11 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMi
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowMax = 32
+
+export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsInvocationsCreateBodyConfigurationOneEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax = 200
@@ -1756,6 +1860,15 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+                ),
+            origin_product: zod
+                .union([
+                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -1845,12 +1958,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             source: zod
                                                 .enum([
                                                     'events',
+                                                    'internal-events',
                                                     'person-updates',
                                                     'data-warehouse-table',
                                                     'data-warehouse-view',
                                                 ])
                                                 .describe(
-                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                 )
                                                 .default(
                                                     hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault
@@ -1865,6 +1979,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             transpiled: zod.unknown().optional(),
                                             filter_test_accounts: zod.boolean().optional(),
                                             bytecode_error: zod.string().optional(),
+                                            bytecode_contract: zod.string().optional(),
                                         })
                                         .describe(
                                             "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -1875,11 +1990,19 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                             ),
+                        window: zod
+                            .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowMax)
+                            .regex(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp)
+                            .nullish()
+                            .describe(
+                                "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
+                            ),
                         window_minutes: zod
                             .number()
                             .nullish()
                             .describe(
-                                'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                                "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                             ),
                         bytecode: zod
                             .unknown()
@@ -1890,7 +2013,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                    "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
                 ),
             exit_condition: zod
                 .enum([
@@ -1984,12 +2107,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     source: zod
                                         .enum([
                                             'events',
+                                            'internal-events',
                                             'person-updates',
                                             'data-warehouse-table',
                                             'data-warehouse-view',
                                         ])
                                         .describe(
-                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                            '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                         )
                                         .default(
                                             hogFlowsInvocationsCreateBodyConfigurationOneActionsItemFiltersOneSourceDefault
@@ -2002,6 +2126,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     transpiled: zod.unknown().optional(),
                                     filter_test_accounts: zod.boolean().optional(),
                                     bytecode_error: zod.string().optional(),
+                                    bytecode_contract: zod.string().optional(),
                                 }),
                                 zod.null(),
                             ])
@@ -2044,12 +2169,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                             source: zod
                                                                 .enum([
                                                                     'events',
+                                                                    'internal-events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
                                                                     'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -2070,6 +2196,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -2092,12 +2219,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                                 source: zod
                                                                     .enum([
                                                                         'events',
+                                                                        'internal-events',
                                                                         'person-updates',
                                                                         'data-warehouse-table',
                                                                         'data-warehouse-view',
                                                                     ])
                                                                     .describe(
-                                                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                     )
                                                                     .default(
                                                                         hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -2118,6 +2246,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                                                 transpiled: zod.unknown().optional(),
                                                                 filter_test_accounts: zod.boolean().optional(),
                                                                 bytecode_error: zod.string().optional(),
+                                                                bytecode_contract: zod.string().optional(),
                                                             }),
                                                             zod.null(),
                                                         ])
@@ -2143,7 +2272,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             ])
                             .describe(
-                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
@@ -2223,6 +2352,33 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.'
                 ),
+            email_sending_paused_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    "When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it."
+                ),
+            email_sending_paused_reason: zod
+                .string()
+                .describe(
+                    'Plain-language reason for the pause, naming the signal and the window. Empty when not paused.'
+                ),
+            email_sending_paused_by: zod
+                .string()
+                .describe(
+                    'Who paused it: \"auto\" for the deliverability detector, \"staff\" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused.'
+                ),
+            email_sending_pause_requires_support: zod
+                .boolean()
+                .describe(
+                    'True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller.'
+                ),
+            email_sending_resumed_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe(
+                    'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -2230,7 +2386,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Test trigger payload, typically {event, person, groups}.'),
+        .describe(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person."
+        ),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
@@ -2391,6 +2549,25 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ *
+ * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
+ * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
+ * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
+ * the scheduler itself applies in `internal_process_due_schedules`.
+ *
+ * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
+ * after a timed-out request): a repeat with the same key returns the first call's result
+ * instead of firing a second AI task. Without the header, every call fires a new run.
+ */
+export const HogFlowsRunCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .record(zod.string(), zod.unknown().describe('Override value for one workflow variable.'))
+        .optional()
+        .describe("Variable value overrides, merged with the workflow's own variable defaults for this run only."),
+})
+
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
@@ -2439,6 +2616,11 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsBulkDeleteCreateBodyConversionOneWindowMax = 32
+
+export const hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsBulkDeleteCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200
@@ -2463,6 +2645,15 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -2509,12 +2700,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                         source: zod
                                             .enum([
                                                 'events',
+                                                'internal-events',
                                                 'person-updates',
                                                 'data-warehouse-table',
                                                 'data-warehouse-view',
                                             ])
                                             .describe(
-                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                             )
                                             .default(
                                                 hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault
@@ -2527,6 +2719,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -2537,11 +2730,19 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .describe(
                             "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]."
                         ),
+                    window: zod
+                        .string()
+                        .max(hogFlowsBulkDeleteCreateBodyConversionOneWindowMax)
+                        .regex(hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp)
+                        .nullish()
+                        .describe(
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
+                        ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            'Conversion window in minutes after a person enters the workflow. null = no explicit window.'
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -2552,7 +2753,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+                "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion \/ exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
             ),
         exit_condition: zod
             .enum([
@@ -2639,9 +2840,15 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
+                                    .enum([
+                                        'events',
+                                        'internal-events',
+                                        'person-updates',
+                                        'data-warehouse-table',
+                                        'data-warehouse-view',
+                                    ])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                        '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -2652,6 +2859,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -2694,12 +2902,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                         source: zod
                                                             .enum([
                                                                 'events',
+                                                                'internal-events',
                                                                 'person-updates',
                                                                 'data-warehouse-table',
                                                                 'data-warehouse-view',
                                                             ])
                                                             .describe(
-                                                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                             )
                                                             .default(
                                                                 hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault
@@ -2720,6 +2929,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -2742,12 +2952,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                             source: zod
                                                                 .enum([
                                                                     'events',
+                                                                    'internal-events',
                                                                     'person-updates',
                                                                     'data-warehouse-table',
                                                                     'data-warehouse-view',
                                                                 ])
                                                                 .describe(
-                                                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
+                                                                    '\* `events` - events\n\* `internal-events` - internal-events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                                                 )
                                                                 .default(
                                                                     hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault
@@ -2768,6 +2979,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -2793,7 +3005,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -2815,6 +3027,8 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
+
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.record(zod.string(), zod.unknown()).describe('Property filters to apply'),
     group_type_index: zod.number().nullish().describe('Group type index for group-based targeting'),
@@ -2823,5 +3037,11 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "When 'email', count unique email addresses instead of persons, matching how batch email sends deduplicate recipients.\n\n\* `email` - email"
+        ),
+    sends_email: zod
+        .boolean()
+        .default(hogFlowsUserBlastRadiusCreateBodySendsEmailDefault)
+        .describe(
+            'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
         ),
 })

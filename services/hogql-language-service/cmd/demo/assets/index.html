@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>HogQL local playground</title>
+        <link rel="stylesheet" href="/style.css" />
+        <script src="/app.js" defer></script>
+    </head>
+    <body>
+        <header>
+            <div>
+                <span class="eyebrow">Developer tools</span>
+                <div class="title-row">
+                    <h1>HogQL playground</h1>
+                    <span id="server-status" class="server-status" role="status" aria-live="polite">
+                        <span id="server-status-dot" class="server-status-dot" aria-hidden="true"></span>
+                        <span id="server-status-text">Checking server</span>
+                    </span>
+                </div>
+            </div>
+            <span class="badge">Local only · synthetic catalog</span>
+        </header>
+        <p class="intro">
+            Try autocomplete and validation against a separate instance of the Go language service. Queries are
+            analyzed, never executed.
+        </p>
+        <main>
+            <section class="workspace">
+                <div class="editor panel">
+                    <div class="section-heading">
+                        <h2>Query</h2>
+                        <span id="position" class="muted"></span>
+                    </div>
+                    <label for="example">Load an example</label>
+                    <select id="example"></select>
+                    <p id="example-note" class="hint"></p>
+                    <label for="query" class="sr-only">HogQL query</label>
+                    <textarea
+                        id="query"
+                        spellcheck="false"
+                        autocapitalize="off"
+                        autocomplete="off"
+                        aria-describedby="editor-help"
+                    ></textarea>
+                    <div class="toolbar">
+                        <button id="validate" class="primary" type="button">Validate</button>
+                        <button id="complete" type="button">Complete at cursor</button>
+                        <label class="checkbox-label">
+                            <input id="auto-analyze" type="checkbox" />
+                            Analyze as you type
+                        </label>
+                        <span id="editor-help" class="hint">Ctrl/⌘ Enter: validate · Ctrl/⌘ Shift Enter: complete</span>
+                    </div>
+                    <p id="connection" class="hint" role="status">Loading the synthetic catalog…</p>
+                </div>
+                <div class="results">
+                    <section class="panel" aria-labelledby="validation-title">
+                        <div class="section-heading">
+                            <h2 id="validation-title">Validation</h2>
+                            <span id="validation-time" class="muted"></span>
+                        </div>
+                        <div id="validation" aria-live="polite">
+                            <p class="muted">Validate the query to see diagnostics.</p>
+                        </div>
+                        <button id="validation-copy" type="button" disabled>Copy request and response</button>
+                        <p id="validation-copy-status" class="hint" role="status"></p>
+                        <details id="validation-feedback-details">
+                            <summary>Last validation request and response</summary>
+                            <textarea
+                                id="validation-feedback"
+                                class="feedback-text"
+                                readonly
+                                spellcheck="false"
+                                aria-label="Validation request and response"
+                            ></textarea>
+                        </details>
+                        <details>
+                            <summary>Raw validation response</summary>
+                            <pre id="validation-json">No request yet.</pre>
+                        </details>
+                    </section>
+                    <section class="panel" aria-labelledby="completion-title">
+                        <div class="section-heading">
+                            <h2 id="completion-title">Completion</h2>
+                            <span id="completion-time" class="muted"></span>
+                        </div>
+                        <p id="completion-status" class="hint" aria-live="polite">
+                            Place the cursor where you want suggestions.
+                        </p>
+                        <div id="suggestions"></div>
+                        <button id="more" type="button" hidden>Load more</button>
+                        <button id="completion-copy" type="button" disabled>Copy request and response</button>
+                        <p id="completion-copy-status" class="hint" role="status"></p>
+                        <details id="completion-feedback-details">
+                            <summary>Last completion request and response</summary>
+                            <textarea
+                                id="completion-feedback"
+                                class="feedback-text"
+                                readonly
+                                spellcheck="false"
+                                aria-label="Completion request and response"
+                            ></textarea>
+                        </details>
+                        <details>
+                            <summary>Raw completion response</summary>
+                            <pre id="completion-json">No request yet.</pre>
+                        </details>
+                    </section>
+                </div>
+            </section>
+            <aside class="panel" aria-labelledby="catalog-title">
+                <div class="section-heading">
+                    <h2 id="catalog-title">Synthetic catalog</h2>
+                    <a href="/api/catalog" target="_blank" rel="noopener">View JSON</a>
+                </div>
+                <p class="hint">
+                    A small PostHog-like schema with invented warehouse tables and property names. No project data is
+                    loaded.
+                </p>
+                <label for="catalog-filter">Filter fields and properties</label>
+                <input id="catalog-filter" type="search" placeholder="For example, timestamp" />
+                <div id="catalog"></div>
+                <details class="limitations">
+                    <summary>Scope and limitations</summary>
+                    <p>
+                        This page calls the real Go autocomplete and validate endpoints. It does not run SQL or compare
+                        results with Django.
+                    </p>
+                    <p>
+                        CTE and subquery examples help expose gaps in the service. The page displays its responses
+                        without filling in suggestions itself.
+                    </p>
+                    <p>
+                        The catalog is a hand-maintained subset. Virtual joins, all product tables, and project-specific
+                        schemas are not modeled completely.
+                    </p>
+                    <p>
+                        Enable Analyze as you type to validate and complete after a short typing pause, or use the
+                        buttons and shortcuts. Click a suggestion to insert it. Results clear when you edit the query or
+                        move the completion cursor.
+                    </p>
+                    <p>
+                        Follow-up work and exclusions are tracked in
+                        <code>docs/internal/hogql-language-service-demo.md</code>.
+                    </p>
+                </details>
+            </aside>
+        </main>
+        <footer>UTF-16 editor positions · In-memory catalog · No Django or ClickHouse required</footer>
+    </body>
+</html>

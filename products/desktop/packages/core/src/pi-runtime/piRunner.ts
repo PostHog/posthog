@@ -1,9 +1,8 @@
-import type { TaskContextInput } from "@posthog/agent/pi/task-system-prompt";
 import type { PiThinkingLevel } from "@posthog/agent/pi/types";
+import type { TaskContextInput } from "@posthog/shared/task-context";
 
 export interface PiRunInput {
   taskContext: TaskContextInput;
-  projectTrustPath?: string;
   prompt: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
@@ -11,7 +10,6 @@ export interface PiRunInput {
 
 export interface PiResumeInput {
   taskContext: Pick<TaskContextInput, "taskId" | "cwd">;
-  projectTrustPath?: string;
 }
 
 export interface PiRunner {

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest
 
@@ -10,6 +11,7 @@ from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
     filter_flags_by_active_param,
+    filter_stale_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -99,14 +101,191 @@ class TestFilterFlagsByActiveParam(BaseTest):
         }
         assert self._filter(False) == {"disabled"}
 
-    def test_stale_filter_agrees_with_status_checker(self):
-        """The SQL filter and the per-flag status checker must classify the same flags as stale."""
-        checker_stale = {
+    def _checker_stale(self) -> set[str]:
+        return {
             flag.key
             for flag in FeatureFlag.objects.filter(team=self.team)
             if FeatureFlagStatusChecker(feature_flag=flag).get_status()[0] == FeatureFlagStatus.STALE
         }
-        assert self._filter("STALE") == checker_stale
+
+    # (flag key, extra FeatureFlag kwargs, whether that flag is stale). Each case creates its
+    # flag, then asserts the filter and the checker agree across the whole team, so setUp's four
+    # stale flags are re-checked on every case. Most cases add a shape that must not be stale,
+    # because setUp already covers the stale ones.
+    @parameterized.expand(
+        [
+            (
+                "recently_evaluated",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "last_called_at": timezone.now() - timedelta(days=1),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                False,
+            ),
+            (
+                "boolean_zero_rollout",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]},
+                },
+                False,
+            ),
+            (
+                "partial_rollout",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                },
+                False,
+            ),
+            (
+                "targeted_condition_at_full_rollout",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {
+                        "groups": [{"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100}]
+                    },
+                },
+                False,
+            ),
+            (
+                "multivariate_split_variants",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                False,
+            ),
+            (
+                "young_flag_at_full_rollout",
+                {
+                    "created_at": timezone.now() - timedelta(days=5),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                False,
+            ),
+            (
+                "disabled_flag_at_full_rollout",
+                {
+                    "active": False,
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                },
+                False,
+            ),
+            # Only case that reaches the usage branch's `active=True` guard, because every
+            # other disabled case leaves `last_called_at` NULL and stops at the config branch.
+            (
+                "disabled_flag_with_old_last_called_at",
+                {
+                    "active": False,
+                    "last_called_at": timezone.now() - timedelta(days=35),
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                },
+                False,
+            ),
+            # The two legacy shapes the checker reads as no targeting. Each matches its own arm
+            # of the SQL: an absent key is SQL NULL, a stored null is the jsonb scalar `null`.
+            (
+                "properties_key_absent",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            (
+                "null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            # Only case that reaches the config branch's last OR arm, where `filters` being
+            # non-nullable makes `= '{}'` the whole test.
+            (
+                "empty_filters_object",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {},
+                },
+                True,
+            ),
+        ]
+    )
+    def test_stale_filter_agrees_with_status_checker(
+        self, key: str, flag_kwargs: dict[str, Any], expected_stale: bool
+    ) -> None:
+        FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **flag_kwargs)
+
+        filter_stale = self._filter("STALE")
+        assert filter_stale == self._checker_stale()
+        assert (key in filter_stale) is expected_stale
+
+    def test_stale_filter_honours_an_explicit_threshold(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="called-ten-days-ago",
+            active=True,
+            last_called_at=timezone.now() - timedelta(days=10),
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+
+        def stale_keys(**kwargs: Any) -> set[str]:
+            return {flag.key for flag in filter_stale_flags(FeatureFlag.objects.filter(team=self.team), **kwargs)}
+
+        assert "called-ten-days-ago" not in stale_keys()
+        assert "called-ten-days-ago" in stale_keys(stale_threshold=timezone.now() - timedelta(days=5))
+
+    def test_stale_filter_survives_a_legacy_scalar_groups_value(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="scalar-groups",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"groups": "all"},
+            created_by=self.user,
+        )
+
+        # Without the guard `jsonb_array_elements` raises, and the error aborts the statement for
+        # every flag the query covers rather than skipping this row.
+        assert "scalar-groups" not in self._filter("STALE")
+        assert "stale" in self._filter("STALE")
+
+    def test_stale_filter_query_count_does_not_grow_with_candidate_count(self) -> None:
+        def evaluate() -> list[FeatureFlag]:
+            return list(filter_stale_flags(FeatureFlag.objects.filter(team=self.team)))
+
+        with self.assertNumQueries(1):
+            baseline = evaluate()
+
+        FeatureFlag.objects.bulk_create(
+            FeatureFlag(
+                team=self.team,
+                key=f"bulk-stale-{index}",
+                active=True,
+                created_at=timezone.now() - timedelta(days=60),
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+                created_by=self.user,
+            )
+            for index in range(20)
+        )
+
+        with self.assertNumQueries(1):
+            expanded = evaluate()
+
+        assert len(expanded) == len(baseline) + 20
 
 
 class TestRolloutSummary(BaseTest):
@@ -141,6 +320,14 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            (
+                "null_group_properties",
+                {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
             # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
             # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
             # match the staleness detection it shares logic with.
@@ -165,6 +352,20 @@ class TestRolloutSummary(BaseTest):
                 {
                     "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
                     "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                False,
+                100,
+                True,
+            ),
+            # The multivariate path reads the same null `properties` through
+            # is_group_fully_rolled_out, where `len(None)` used to raise. The boolean case above
+            # reaches is_boolean_flag_fully_rolled_out instead.
+            (
+                "multivariate_null_group_properties",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": None, "rollout_percentage": 100}],
                 },
                 True,
                 False,

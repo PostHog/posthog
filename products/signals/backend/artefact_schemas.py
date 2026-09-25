@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -73,7 +75,8 @@ class SignalFinding(BaseModel):
         json_schema_extra={"minProperties": 1},
         description=(
             "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
-            "Values are short explanations of WHY each commit is relevant. "
+            "Each value is one sentence of at most 12 words that explains why the commit is relevant. "
+            "Name the affected surface or behavior instead of listing implementation details. "
             "Use `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on "
             "the most critical code paths to identify commits that caused, or are most closely related to, "
             "the issue described by this report. Prioritize causative commits (e.g. the commit that introduced a bug) "
@@ -176,15 +179,31 @@ class RelevantCommit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str
+    reason: str = Field(max_length=500)
     sha: str
     url: str
 
 
 class SuggestedReviewerEntry(BaseModel):
-    """One reviewer in a `suggested_reviewers` artefact's content list."""
+    """One reviewer in a `suggested_reviewers` artefact's content list.
 
-    github_login: str = Field(description="GitHub login identifying the reviewer (stored lowercased).")
+    A reviewer is a PostHog user; a GitHub login is an attribute some of them have. An entry carries
+    `user_uuid`, `github_login`, or both, and readers match on either — so a teammate who never
+    connected GitHub still routes a report. Entries written before `user_uuid` existed carry a login
+    alone, and read-time enrichment resolves those the way it always did.
+    """
+
+    github_login: str | None = Field(
+        default=None,
+        description=(
+            "GitHub login identifying the reviewer (stored lowercased). Null when the reviewer has "
+            "no linked GitHub account."
+        ),
+    )
+    user_uuid: str | None = Field(
+        default=None,
+        description="UUID of the PostHog user this entry routes to. Null on entries written before reviewers carried one.",
+    )
     github_name: str | None = Field(default=None, description="Optional human-readable display name.")
     relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
@@ -192,6 +211,7 @@ class SuggestedReviewerEntry(BaseModel):
     )
     reason: str | None = Field(
         default=None,
+        max_length=500,
         description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
     )
     is_skill_owner: bool = Field(
@@ -203,19 +223,207 @@ class SuggestedReviewerEntry(BaseModel):
             "could name a privileged teammate as owner and have an implementation agent run as them."
         ),
     )
+    source_skill: str | None = Field(
+        default=None,
+        description=(
+            "Name of the scout skill whose run wrote this entry, stamped server-side at the write. "
+            "Autostart unions this skill's current owners into its identity exclusion, so the "
+            "exclusion holds even when the run's best-effort edit tally was lost — the provenance "
+            "commits atomically with the pick itself. None for entries no scout wrote (pipeline, "
+            "custom agent, human edits)."
+        ),
+    )
 
     @field_validator("github_login")
     @classmethod
-    def github_login_must_not_be_empty(cls, v: str) -> str:
+    def github_login_must_not_be_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         # Strip on the way in: read-time enrichment and autostart look logins up with
         # `login.lower()` and no strip, so a padded login would persist but never match.
         return v.strip()
 
+    @field_validator("user_uuid")
+    @classmethod
+    def user_uuid_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Canonicalize rather than keep the caller's spelling: readers match this value with a jsonb
+        # containment filter, where a differently-formatted UUID for the same user never hits.
+        try:
+            return str(UUID(v.strip()))
+        except (ValueError, AttributeError):
+            raise ValueError("must be a UUID")
+
+    @model_validator(mode="after")
+    def must_identify_a_reviewer(self) -> SuggestedReviewerEntry:
+        if not self.github_login and not self.user_uuid:
+            raise ValueError("must carry a github_login, a user_uuid, or both")
+        return self
+
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
+
+
+class ChannelAssignment(BaseModel):
+    """The space that currently owns a report. The latest assignment wins."""
+
+    channel_id: UUID | None = Field(description="Channel UUID, or null to leave the report unassigned.")
+
+
+# A scoring pass runs several models over one report (one served, the rest challengers), and every
+# one of them lands in a single row. The cap bounds that row, so a manifest that grew past what a
+# reader could order cannot make every report read expensive.
+MAX_RANKING_MODEL_RESULTS = 5
+# The serving manifest owns the role vocabulary, so `roles` stays free text. This is the one role
+# a reader of these rows acts on: the model whose scores the inbox would order on.
+RANKING_SERVED_ROLE = "served"
+
+
+class RankingModelResult(BaseModel):
+    """One model's part of a scoring pass.
+
+    The identity fields mirror the training dag's own columns and its `metadata.json`, so a stored
+    score joins to the model that wrote it without a lookup. A skipped result is kept rather than
+    dropped, because "this model could not score this report" is the coverage read the serving work
+    is measured on.
+    """
+
+    # Pydantic reserves the `model_` prefix for its own API, so the guard is lifted here. Renaming
+    # the fields would break the join to the dag, which is the reason they carry these names.
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_name: str = Field(description="Feature family the model belongs to, e.g. `report_embeddings`.")
+    model_version: str = Field(description="Training partition the model was fit on, as `YYYY-MM-DD`.")
+    model_kind: str = Field(description="Learner the model store loads the booster with, e.g. `xgboost`.")
+    roles: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Roles the serving manifest gave this model in the pass. Exactly one result in a pass "
+            "carries `served`; the rest are challengers."
+        ),
+    )
+    feature_schema_version: int = Field(
+        description="Feature contract version the scores were computed under, from the serving feature set."
+    )
+    status: Literal["scored", "skipped"] = Field(description="Whether this model produced probabilities.")
+    skip_reason: str | None = Field(
+        default=None, description="Why a skipped model produced no scores, e.g. a missing report vector."
+    )
+    # A head's score is consumed as a probability, by a threshold and by the composite score over
+    # the heads, so a raw margin stored here would be silently wrong rather than unusable. The
+    # bound belongs on the field so the generated schema carries it too.
+    scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+        default_factory=dict,
+        description="Outcome head name to its calibrated probability. Empty on a skipped model.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Copied from the model's metadata.json: training partition, feature set, per-head "
+            "readability and holdout summary, so a reader can judge a score without the model store."
+        ),
+    )
+
+    @property
+    def key(self) -> str:
+        return f"{self.model_name}@{self.model_version}"
+
+    @field_validator("model_name", "model_version", "model_kind")
+    @classmethod
+    def identity_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+    @model_validator(mode="after")
+    def status_agrees_with_the_scores(self) -> RankingModelResult:
+        # `status` and `scores` are two statements about the same thing, so a row that disagrees
+        # with itself is worse than a missing one: a scored result with no score reads as a model
+        # that ran, and `RankingScore` would accept it as the served entry, leaving a reader with
+        # a served model it can get no probability out of.
+        if self.status == "scored" and not self.scores:
+            raise ValueError("a scored model must carry at least one score")
+        if self.status == "skipped" and self.scores:
+            raise ValueError("a skipped model must carry no scores")
+        return self
+
+
+class RankingScore(BaseModel):
+    """Content schema for a `ranking_score` artefact: one scoring pass over one report.
+
+    A pass writes one artefact carrying every model it ran, so latest-row-wins gives a reader the
+    report's whole current score in one row. Splitting a pass over one row per model would make
+    "the current served score" a question about several rows, and a pass that scored a different
+    set of models than the last one would leave stale rows looking current.
+    """
+
+    scored_at: datetime = Field(description="When the sweep scored the report.")
+    embedding_inserted_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Landing time of the report vector the pass scored, which is the sweep's idempotency "
+            "key. Absent when no model in the pass read a vector."
+        ),
+    )
+    manifest_version: str = Field(description="Version of the serving manifest that chose the models for the pass.")
+    served_key: str = Field(
+        description="Key in `results` of the model whose scores the inbox would order on, as `<model_name>@<model_version>`."
+    )
+    results: dict[str, RankingModelResult] = Field(
+        min_length=1,
+        max_length=MAX_RANKING_MODEL_RESULTS,
+        description="Every model the pass ran, keyed by `<model_name>@<model_version>`.",
+    )
+
+    @field_validator("manifest_version", "served_key")
+    @classmethod
+    def must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+    @model_validator(mode="after")
+    def served_score_is_resolvable(self) -> RankingScore:
+        # A consumer reads the served score as `results[served_key]`, so each rule here closes one
+        # way that expression returns the wrong thing or nothing at all.
+        served_keys = []
+        for key, result in self.results.items():
+            if key != result.key:
+                raise ValueError(f"result key {key!r} does not match its model {result.key!r}")
+            if RANKING_SERVED_ROLE in result.roles:
+                served_keys.append(key)
+        if len(served_keys) != 1:
+            raise ValueError(f"exactly one result must carry the {RANKING_SERVED_ROLE!r} role, got {served_keys}")
+        if self.served_key not in self.results:
+            raise ValueError(f"served_key {self.served_key!r} is not a key of results")
+        served = self.results[self.served_key]
+        if RANKING_SERVED_ROLE not in served.roles:
+            raise ValueError(f"served_key {self.served_key!r} does not carry the {RANKING_SERVED_ROLE!r} role")
+        if served.status != "scored":
+            raise ValueError(f"served_key {self.served_key!r} is {served.status}, so the pass has no served score")
+        return self
+
+
+# Reason code shared by the dismissal writer (the state API) and the corrections reader
+# (`repo_corrections`), defined here so the two cannot drift apart.
+DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Reason codes that claim the issue is fixed, rather than stating a preference about the report.
+# A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
+# way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
+# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
+# Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
+# dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
+# unbounded row is a cost on every repository selection, not just on the write.
+DISMISSAL_NOTE_MAX_LENGTH = 4000
+DISMISSAL_REASON_MAX_LENGTH = 128
+# GitHub caps owners at 39 and repositories at 100 characters.
+DISMISSAL_REPOSITORY_MAX_LENGTH = 512
+DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
 class Dismissal(BaseModel):
@@ -225,12 +433,37 @@ class Dismissal(BaseModel):
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
-    reason: str | None = Field(default=None, description="Caller-owned dismissal reason code.")
-    note: str | None = Field(default=None, description="Free-form dismissal note.")
+    reason: str | None = Field(
+        default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
+    )
+    note: str | None = Field(
+        default=None, max_length=DISMISSAL_NOTE_MAX_LENGTH, description="Free-form dismissal note."
+    )
+    selected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the pipeline had selected when the report was dismissed, in 'owner/repo' "
+            "format. Recorded on wrong-repo dismissals so selection mistakes are queryable without "
+            "joining the repo_selection artefact history."
+        ),
+    )
+    corrected_repository: str | None = Field(
+        default=None,
+        max_length=DISMISSAL_REPOSITORY_MAX_LENGTH,
+        description=(
+            "Repository the dismisser said the report should have targeted, in 'owner/repo' format. "
+            "Fed back into future repository selection for the project."
+        ),
+    )
     user_id: int | None = Field(default=None, description="ID of the dismissing user, when known.")
-    user_uuid: str | None = Field(default=None, description="UUID of the dismissing user, when known.")
+    user_uuid: str | None = Field(
+        default=None, max_length=DISMISSAL_IDENTITY_MAX_LENGTH, description="UUID of the dismissing user, when known."
+    )
     slack_user_id: str | None = Field(
-        default=None, description="Slack user who dismissed via a Slack action, when that's where the click came from."
+        default=None,
+        max_length=DISMISSAL_IDENTITY_MAX_LENGTH,
+        description="Slack user who dismissed via a Slack action, when that's where the click came from.",
     )
 
 
@@ -339,6 +572,10 @@ class TaskRunArtefact(BaseModel):
 
     task_id: str = Field(description="UUID of the `tasks.Task` this run belongs to.")
     run_id: str | None = Field(default=None, description="UUID of the specific `TaskRun`, if known.")
+    automation_branch: str | None = Field(
+        default=None,
+        description="Server-generated branch for this automatically started implementation run. Absent on manual runs.",
+    )
     product: str = Field(
         description="Product that ran the task — `signals` for the built-in pipeline, or a custom agent's "
         "product identifier."
@@ -488,6 +725,116 @@ class RelatedTo(BaseModel):
         return v
 
 
+MAX_REPORT_LINK_REASON_LENGTH = 500
+# One write declares one report's place in a stack, so a handful of links is the whole shape. The cap
+# bounds the per-link cycle check each write does.
+MAX_REPORT_LINKS_PER_WRITE = 10
+
+
+class ReportLink(BaseModel):
+    """Content schema for a `report_link` artefact: a typed, directed link from this report to
+    another `SignalReport`. The row reads as a sentence starting at the report it is written on:
+    "this report `kind` the report named by `report_id`".
+
+    Unlike `related_to`, nothing is mirrored onto the target. The direction is the payload, so
+    writing the reverse row would assert the opposite relationship. A reader that wants both
+    sides queries the type from either end.
+
+    `SignalReportArtefact.add_log` rejects a link that names the report it is written on, a link
+    to a report outside the writing team, and a link that closes a cycle of the same kind, so an
+    ordering the pipeline reads (a stack of dependent pull requests) can never contradict itself.
+    """
+
+    kind: ReportLinkKind = Field(description="How this report relates to the report named by `report_id`.")
+    report_id: str = Field(description="UUID of the SignalReport this link points at, in the same project.")
+    reason: str | None = Field(
+        default=None,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        description="Optional one-line note on why the reports are linked this way.",
+    )
+
+    @field_validator("report_id")
+    @classmethod
+    def report_id_must_be_a_uuid(cls, v: str) -> str:
+        try:
+            return str(UUID(v.strip()))
+        except ValueError:
+            raise ValueError("must be a UUID")
+
+
+class ImplementationTarget(BaseModel):
+    task_id: UUID
+    run_id: UUID
+    claim_id: UUID | None = None
+    pr_url: str
+    head_sha: str = Field(min_length=1)
+    automation_artefact_id: UUID
+
+
+class ImplementationAssessment(BaseModel):
+    obsolete_pr_urls: list[str] = Field(
+        description="Only URLs from the supplied PostHog candidates whose fixes must be replaced. Empty means keep them all."
+    )
+    reason: str = Field(min_length=1, description="What changed and why these specific fixes no longer fit.")
+
+
+class ImplementationDecision(BaseModel):
+    """Server-bound research recommendation, protected because it authorizes replacement work."""
+
+    supersede: bool = Field(
+        description=(
+            "True only when what you found changes what the fix should be — a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason to set this, because the open pull request already implements "
+            "that fix. A true decision can start an automated replacement; selected predecessors "
+            "close only after the replacement completes with verified open PRs."
+        )
+    )
+    reason: str = Field(
+        description="One or two sentences naming what changed and why the existing pull request no longer fits."
+    )
+    targets: list[ImplementationTarget] = Field(default_factory=list)
+    research_run_count: int | None = None
+    research_started_at: datetime | None = None
+    content_revision_count: int = 0
+    blocked_reason: Literal["revision_limit"] | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class ImplementationReplacement(BaseModel):
+    decision_id: UUID
+    decision: ImplementationDecision
+    run_id: UUID
+
+
+class ImplementationDispatch(BaseModel):
+    decision_id: UUID
+    source_skill: str | None = None
+    status: Literal["pending", "processing", "retrying", "blocked", "started", "cancelled"] = "pending"
+    attempt: int = 0
+    next_retry_at: datetime | None = None
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+    reason: str = ""
+
+
+class ImplementationHandover(BaseModel):
+    replacement_id: UUID
+    status: Literal["processing", "completed", "failed", "cancelled", "needs_attention"]
+    results: dict[str, Literal["closed", "already_closed", "skipped"]] = Field(default_factory=dict)
+    replacement_pr_urls: list[str] = Field(default_factory=list)
+    explanation: str = ""
+    attempt: int = 0
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+
+
 class CodeReviewCounts(BaseModel):
     """One review turn's valid findings by effective priority (threshold-independent)."""
 
@@ -526,16 +873,147 @@ class CodeReview(BaseModel):
     )
 
 
+class WorkClaim(BaseModel):
+    display_name: str | None = Field(
+        default=None, description="Server-generated actor label at claim time. Null for older claims."
+    )
+
+
+class WorkRelease(BaseModel):
+    reason: Literal["released", "taken_over"] = Field(description="Why ownership ended.")
+
+
+class PullRequestLink(BaseModel):
+    url: str = Field(description="Canonical GitHub pull request URL.")
+
+
+class CheckResult(BaseModel):
+    """Content schema for a `check_result` artefact: one run of a `SignalReportCheck`.
+
+    The forward-looking half of a report's log. A report says what was true when it was written; a
+    check result says whether that still holds, measured on the check's own schedule. System-generated
+    — the check executor is the only writer, so the type is read-only through the generic artefact API.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    outcome: Literal["passed", "failed", "errored"] = Field(
+        description=(
+            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+        )
+    )
+    explanation: str = Field(description="One line saying what was measured and how it compared.")
+    observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
+    baseline_value: float | None = Field(
+        default=None, description="The value recorded when the check was written, when the author gave one."
+    )
+    threshold: str | None = Field(default=None, description="The expectation the value was compared against.")
+    run_id: str | None = Field(
+        default=None,
+        description="Scout run that answered an `agent` check. Absent on a deterministic run, which has none.",
+    )
+
+    @field_validator("explanation")
+    @classmethod
+    def explanation_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class CheckLifecycleEntry(BaseModel):
+    """What every entry in a check's life carries, so the three cannot drift apart.
+
+    A check soaks for days before its first run, so its verdict alone leaves the log silent over
+    the window a reader most wants explained. These types fill that silence. All are
+    system-generated: `check_result`'s writer is the executor, and the writers below are in
+    `report_check_artefacts`.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this entry describes.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+
+
+class CheckScheduled(CheckLifecycleEntry):
+    """A check now watches this report: when it runs, what it watches, and which lane answers it."""
+
+    rationale: str = Field(default="", description="Why the author wrote the check, in their own words.")
+    next_run_at: str = Field(description="ISO 8601 date of the first run. Provisional when `arms_on_resolve`.")
+    arms_on_resolve: bool = Field(
+        description="True when the report has not resolved yet, so the clock starts at the resolve."
+    )
+    soak_minutes: int | None = Field(
+        default=None, description="How long after the resolve the first run waits. Absent on a dated check."
+    )
+    skill_name: str | None = Field(
+        default=None,
+        description="Scout skill that answers an `agent` check. Absent when it runs on the fleet's follow-up scout.",
+    )
+    runs: int = Field(default=1, description="How many runs the check was written for.")
+
+
+class CheckExpired(CheckLifecycleEntry):
+    """A check reached its horizon without deciding, the one transition nobody chose.
+
+    An absent `last_run_at` is what a reader acts on: the claim was never re-measured, so the
+    report's conclusion still stands unverified.
+    """
+
+    expired_at: str = Field(description="ISO 8601 time the sweep retired the check.")
+    last_run_at: str | None = Field(
+        default=None, description="ISO 8601 time of the last run. Absent when the check never ran at all."
+    )
+
+
+class CheckCancelled(CheckLifecycleEntry):
+    """A check was stopped before it could decide.
+
+    Kept apart from `check_scheduled` so each entry records one transition and the renderer reads
+    the type rather than a nullable field.
+    """
+
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+        description="Which path stopped the check."
+    )
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
+    SafetyJudgment
+    | ActionabilityAssessment
+    | PriorityAssessment
+    | RepoSelectionResult
+    | SuggestedReviewers
+    | ChannelAssignment
+    | ImplementationDecision
+    | ImplementationDispatch
+    | RankingScore
 )
 LogArtefactContent = (
-    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+    CodeReference
+    | Commit
+    | TaskRunArtefact
+    | NoteArtefact
+    | TitleChange
+    | SummaryChange
+    | CodeReview
+    | RelatedTo
+    | ReportLink
+    | WorkClaim
+    | WorkRelease
+    | PullRequestLink
+    | CheckResult
+    | CheckScheduled
+    | CheckExpired
+    | CheckCancelled
+    | ImplementationReplacement
+    | ImplementationHandover
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -549,6 +1027,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "channel_assignment": ChannelAssignment,
+    "ranking_score": RankingScore,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
     "commit": Commit,
@@ -558,6 +1038,18 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "report_link": ReportLink,
+    "work_claim": WorkClaim,
+    "work_release": WorkRelease,
+    "pull_request": PullRequestLink,
+    "check_result": CheckResult,
+    "check_scheduled": CheckScheduled,
+    "check_expired": CheckExpired,
+    "check_cancelled": CheckCancelled,
+    "implementation_decision": ImplementationDecision,
+    "implementation_dispatch": ImplementationDispatch,
+    "implementation_replacement": ImplementationReplacement,
+    "implementation_handover": ImplementationHandover,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -570,10 +1062,38 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # is their only writer, so accepting them through the generic API would let a caller fabricate edits
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
+# `check_result` is likewise system-generated — the check executor is its only writer; accepting it
+# through the API would let a caller fabricate a verdict for a soak that never ran. The three
+# lifecycle types around it are closed for the same reason: a fabricated `check_scheduled` claims a
+# watch nobody set up, and a fabricated `check_expired` or `check_cancelled` retires one that is
+# still running.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
+# may write them; API writes would let callers fabricate automation provenance or completion.
+# `ranking_score` is model output: the scoring sweep is its only writer, so accepting it through
+# the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {
+        "task_run",
+        "video_segment",
+        "title_change",
+        "summary_change",
+        "code_review",
+        "work_claim",
+        "work_release",
+        "pull_request",
+        "check_result",
+        "check_scheduled",
+        "check_expired",
+        "check_cancelled",
+        "report_link",
+        "implementation_decision",
+        "implementation_dispatch",
+        "implementation_replacement",
+        "implementation_handover",
+        "ranking_score",
+    }
 )
 
 
