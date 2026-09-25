@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -51,7 +52,7 @@ jest.mock('./TerminalSession', () => ({
         attach: jest.fn(),
         detach: jest.fn(),
         dispose: jest.fn(),
-        view: { clear: jest.fn(), write: jest.fn(), cols: 80, rows: 24, focus: jest.fn() },
+        view: { clear: jest.fn(), reset: jest.fn(), write: jest.fn(), cols: 80, rows: 24, focus: jest.fn() },
     })),
 }))
 jest.mock('./posthogFilesystem', () => ({
@@ -80,11 +81,11 @@ describe('terminal lifecycle', () => {
     afterEach(() => jest.restoreAllMocks())
 
     it('starts the selected Modal size and prevents a new session until Stop finishes', async () => {
+        terminalLogic.actions.setEnvironment('modal')
         terminalLogic.actions.attach(document.createElement('div'))
         expect(terminalLogic.values.status).toBe('idle')
         expect(TerminalRuntime).not.toHaveBeenCalled()
         expect(ModalTerminalRuntime).not.toHaveBeenCalled()
-        terminalLogic.actions.setEnvironment('modal')
         terminalLogic.actions.setSandboxSize('high_memory')
         terminalLogic.actions.start()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
@@ -106,6 +107,24 @@ describe('terminal lifecycle', () => {
         finishStop()
         await waitFor(() => expect(terminalLogic.values.status).toBe('idle'))
         expect(window.posthogTerminal).toBeUndefined()
+    })
+
+    it('auto-starts WASM and requires confirmation before switching to Modal', async () => {
+        const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => jest.fn())
+        terminalLogic.actions.attach(document.createElement('div'))
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const runtime = jest.mocked(TerminalRuntime).mock.results[0].value
+        terminalLogic.actions.requestEnvironment('modal')
+        expect(terminalLogic.values.environment).toBe('posthog-linux-wasm')
+        expect(runtime.dispose).not.toHaveBeenCalled()
+        const confirm = dialog.mock.calls[0][0].primaryButton?.onClick
+        await confirm?.({} as never)
+        expect(runtime.dispose).toHaveBeenCalledTimes(1)
+        expect(terminalLogic.values.environment).toBe('modal')
+        expect(terminalLogic.values.status).toBe('idle')
+        expect(ModalTerminalRuntime).not.toHaveBeenCalled()
+        terminalLogic.actions.attach(document.createElement('div'))
+        expect(ModalTerminalRuntime).not.toHaveBeenCalled()
     })
 
     it.each([false, true])('preserves the Modal sandbox on project changes, with explicit Stop: %s', async (stop) => {

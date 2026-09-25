@@ -67,7 +67,7 @@ export function TerminalView({
 }): JSX.Element {
     const { status, error, saveError, hasSelection, pasting, clipboardError, environment, sandboxSize } =
         useValues(terminalLogic)
-    const { start, stop, attach, detach, insertCommand, copy, paste, setEnvironment, setSandboxSize } =
+    const { start, stop, attach, detach, insertCommand, copy, paste, requestEnvironment, setSandboxSize } =
         useActions(terminalLogic)
     const container = useRef<HTMLDivElement>(null)
     const [infoOpen, setInfoOpen] = useState(false)
@@ -90,8 +90,8 @@ export function TerminalView({
                 <LemonSelect
                     size="xsmall"
                     value={environment}
-                    onChange={(value) => setEnvironment(value as TerminalEnvironment)}
-                    disabledReason={active ? 'Stop the terminal to change environments' : undefined}
+                    onChange={(value) => requestEnvironment(value as TerminalEnvironment)}
+                    disabledReason={status === 'stopping' ? 'Stopping the sandbox' : undefined}
                     aria-label="Environment"
                     data-attr="terminal-environment"
                     className="min-w-0 max-w-full"

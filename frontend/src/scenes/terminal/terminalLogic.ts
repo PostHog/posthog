@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -55,6 +56,7 @@ export interface terminalLogicValues {
     environment: TerminalEnvironment
     error: string | null
     hasSelection: boolean
+    hasStarted: boolean
     pasting: boolean
     runRequested: boolean
     sandboxSize: TerminalSandboxSizeEnumApi
@@ -130,6 +132,9 @@ export interface terminalLogicActions {
     releaseDisplayInput: () => {
         value: true
     }
+    requestEnvironment: (environment: TerminalEnvironment) => {
+        environment: TerminalEnvironment
+    }
     setClipboardError: (error: string | null) => {
         error: string | null
     }
@@ -193,6 +198,7 @@ export const terminalLogic = kea<terminalLogicType>([
         actions: [terminalDockLogic, ['focusTerminal', 'setRequestedFolder']],
     }),
     actions({
+        requestEnvironment: (environment: TerminalEnvironment) => ({ environment }),
         setEnvironment: (environment: TerminalEnvironment) => ({ environment }),
         setSandboxSize: (sandboxSize: TerminalSandboxSizeEnumApi) => ({ sandboxSize }),
         openUrl: (url: string) => ({ url }),
@@ -276,6 +282,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 setStatus: (state, { status }) => (status === 'error' ? false : state),
             },
         ],
+        hasStarted: [false, { start: () => true, stop: () => true }],
         runRequested: [
             false,
             { start: () => true, stop: (state, { preserveRunRequested }) => preserveRunRequested && state },
@@ -292,7 +299,46 @@ export const terminalLogic = kea<terminalLogicType>([
         ],
     }),
     listeners(({ actions, asyncActions, values, cache }) => ({
-        setEnvironment: () => cache.session?.view.clear(),
+        requestEnvironment: ({ environment }) => {
+            if (environment === values.environment || values.status === 'stopping') {
+                return
+            }
+            if (!cache.runtime && !cache.modalRuntime) {
+                actions.setEnvironment(environment)
+                return
+            }
+            const currentEnvironment = values.environment
+            const projectId = values.currentTeamId
+            const disposables = cache.disposables
+            LemonDialog.open({
+                title: 'Switch terminal environment?',
+                shouldAwaitSubmit: true,
+                description:
+                    currentEnvironment === 'modal'
+                        ? 'Switching stops the sandbox and deletes its files.'
+                        : 'Switching stops Linux. Local files and unsaved edits will be lost.',
+                primaryButton: {
+                    children: 'Stop and switch',
+                    status: 'danger',
+                    onClick: async () => {
+                        if (
+                            disposables.isDisposed ||
+                            values.environment !== currentEnvironment ||
+                            values.currentTeamId !== projectId ||
+                            values.status === 'stopping'
+                        ) {
+                            return
+                        }
+                        await asyncActions.stop()
+                        if (!disposables.isDisposed && values.status === 'idle' && values.currentTeamId === projectId) {
+                            actions.setEnvironment(environment)
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        setEnvironment: () => cache.session?.view.reset(),
         openUrl: ({ url }) => {
             const target = new URL(url, window.location.origin)
             const targetProjectId = getProjectIdentifierInPath(target.pathname)
@@ -397,7 +443,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 )
             }
             cache.session.attach(container)
-            if (values.runRequested) {
+            if ((!values.hasStarted && values.environment === 'posthog-linux-wasm') || values.runRequested) {
                 actions.start()
             }
         },

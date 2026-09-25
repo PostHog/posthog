@@ -44,11 +44,6 @@ function DockedTerminalPreview(): JSX.Element {
     )
 }
 
-async function startTerminal(): Promise<void> {
-    await waitFor(() => expect(document.querySelector('[data-attr="terminal-start"]')).not.toBeNull())
-    await userEvent.click(document.querySelector('[data-attr="terminal-start"]')!)
-}
-
 const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
@@ -332,7 +327,9 @@ export const Default: StoryObj<typeof TerminalScene> = {}
 export const ModalSandbox: StoryObj<typeof TerminalScene> = {
     play: async () => {
         await userEvent.click(document.querySelector('[data-attr="terminal-environment"]')!)
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         await userEvent.click(within(document.body).getByText('Modal sandbox (cloud, experimental)'))
+        await userEvent.click(within(document.body).getByRole('button', { name: 'Stop and switch' }))
         await waitFor(() => expect(document.querySelector('[data-attr="terminal-sandbox-settings"]')).not.toBeNull())
         await userEvent.click(document.querySelector('[data-attr="terminal-sandbox-settings"]')!)
     },
@@ -363,7 +360,6 @@ export const Docked: StoryObj<typeof TerminalScene> = {
     play: async () => {
         await waitFor(() => expect(terminalDockLogic.isMounted()).toBe(true))
         terminalDockLogic.actions.setDockOpen(true)
-        await startTerminal()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
     },
 }
@@ -387,7 +383,6 @@ export const Narrow: StoryObj<typeof TerminalScene> = {
 
 export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
     play: async () => {
-        await startTerminal()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         void terminalLogic.cache.filesystem
             .confirmOperation({
@@ -414,7 +409,6 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
 export const Framebuffer: StoryObj<typeof TerminalScene> = {
     parameters: { testOptions: { snapshotTargetSelector: 'body' } },
     play: async () => {
-        await startTerminal()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         terminalLogic.actions.setDisplayOpen(true)
     },
@@ -424,7 +418,6 @@ export const LiveDoom: StoryObj<typeof TerminalScene> = {
     tags: ['!test'],
     parameters: { liveRuntime: true },
     play: async () => {
-        await startTerminal()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
         window.posthogTerminal?.write('doom\n')
     },
@@ -434,7 +427,6 @@ export const LiveClassics: StoryObj<typeof TerminalScene> = {
     tags: ['!test'],
     parameters: { liveRuntime: true },
     play: async () => {
-        await startTerminal()
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
         window.posthogTerminal?.write('figlet PostHog\n')
     },
