@@ -3,13 +3,13 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { EmailPreviewPerson, renderEmailPreview } from 'scenes/hog-functions/email-templater/emailPreview'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 
 import { BroadcastEmailValue, BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
-import { EmailPreviewPerson, renderEmailPreview } from './emailPreview'
 
 const PREVIEW_PERSON_LIMIT = 25
 

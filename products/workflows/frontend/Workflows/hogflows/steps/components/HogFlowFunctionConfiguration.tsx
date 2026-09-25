@@ -21,6 +21,16 @@ import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowRefere
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
+// One shared instance, so a re-render hands consumers the same person reference and a preview
+// that renders against it is not recomputed for every keystroke.
+const PLACEHOLDER_PERSON = {
+    id: 'person123',
+    properties: {
+        email: 'user@example.com',
+        name: 'John Doe',
+    },
+}
+
 // Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
 // The available globals depend on the trigger type: batch runs have no external triggering event,
 // but the worker backfills a real event.distinct_id at dequeue, so batch must expose `event` too or
@@ -86,13 +96,7 @@ export function buildSampleGlobals(
             },
             timestamp: '2024-01-01T12:00:00Z',
         }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
+        sampleGlobals.person = PLACEHOLDER_PERSON
         sampleGlobals.groups = {}
     } else if (triggerType === 'batch') {
         // Batch runs carry a synthesized event whose distinct_id the worker backfills from the
@@ -104,13 +108,7 @@ export function buildSampleGlobals(
             properties: {},
             timestamp: '2024-01-01T12:00:00Z',
         }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
+        sampleGlobals.person = PLACEHOLDER_PERSON
     } else if (isSlackMessageTriggerConfig(trigger)) {
         // Property names mirror what the Slack trigger emits (slack_workflow_events.py). No
         // person: Slack-triggered runs are person-less.

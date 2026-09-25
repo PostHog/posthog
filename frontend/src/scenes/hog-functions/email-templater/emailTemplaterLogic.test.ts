@@ -52,6 +52,34 @@ describe('emailTemplaterLogic', () => {
         jest.useRealTimers()
     })
 
+    describe('merge tag preview', () => {
+        const previewPerson = { id: 'person-1', properties: { first_name: 'Sam' } }
+
+        it('resolves the body against the person the host named', async () => {
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, html: '<div>Hi {{ person.properties.first_name }}</div>' },
+                    previewPerson,
+                })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                emailPreview: expect.objectContaining({ html: '<div>Hi Sam</div>' }),
+            })
+        })
+
+        // A hog email uses a different syntax and a different runtime, so rendering liquid over it
+        // would show the author something the send never produces.
+        it('renders nothing against a person while the email is templated with hog', async () => {
+            logic = emailTemplaterLogic(makeProps({ templating: 'hog', previewPerson }))
+            logic.mount()
+            logic.actions.setTemplatingEngine('hog')
+
+            await expectLogic(logic).toMatchValues({ previewPerson: null })
+        })
+    })
+
     describe('advanced fields', () => {
         it('hides advanced fields by default', async () => {
             logic = emailTemplaterLogic(makeProps())
