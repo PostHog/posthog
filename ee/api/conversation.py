@@ -15,7 +15,7 @@ from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
@@ -86,6 +86,11 @@ STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_stream_iteration_latency_seconds",
     "Time between iterations in the async stream loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+ORPHANED_CONVERSATION_LOCK_COUNTER = Counter(
+    "posthog_ai_orphaned_conversation_lock_cleared_total",
+    "Conversations released from a non-idle status that no live Temporal run backed",
 )
 
 
@@ -465,6 +470,36 @@ class ConversationViewSet(
         context["user"] = cast(User, self.request.user)
         return context
 
+    def _clear_orphaned_lock(self, conversation: Conversation) -> bool:
+        """Release a non-idle conversation that no live Temporal run backs.
+
+        The status field is written by the activity that runs the turn, so a worker that dies
+        mid-turn locks the conversation out of every later message. Ask Temporal instead, and free
+        the row when it holds nothing. Returns whether the conversation can now take a new message.
+        """
+
+        async def has_live_run() -> bool:
+            return await AgentExecutor(conversation).ahas_live_run()
+
+        # `ahas_live_run` answers True on a Temporal failure, so this guard only covers the
+        # sync-to-async bridge itself. Keep it: an orphaned chat must never surface as a 500.
+        try:
+            if asgi_async_to_sync(has_live_run)():
+                return False
+        except Exception as e:
+            logger.exception(
+                "Failed to check conversation liveness",
+                conversation_id=str(conversation.id),
+                error=str(e),
+            )
+            return False
+
+        conversation.status = Conversation.Status.IDLE
+        conversation.save(update_fields=["status", "updated_at"])
+        ORPHANED_CONVERSATION_LOCK_COUNTER.inc()
+        logger.warning("Cleared orphaned conversation lock", conversation_id=str(conversation.id))
+        return True
+
     def create(self, request: Request, *args, **kwargs):
         """
         Unified endpoint that handles both conversation creation and streaming.
@@ -543,7 +578,7 @@ class ConversationViewSet(
             else:
                 is_research = True
 
-        if has_message and not is_idle:
+        if has_message and not is_idle and not self._clear_orphaned_lock(conversation):
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
