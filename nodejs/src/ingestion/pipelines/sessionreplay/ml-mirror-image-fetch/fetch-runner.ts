@@ -26,7 +26,7 @@ import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
-import { urlHistoryExpiresAtMs } from './url-history-expiry'
+import { storedUrlHistoryCache, urlHistoryExpiresAtMs } from './url-history-expiry'
 
 export type ShedReason =
     | 'breaker_open'
@@ -821,7 +821,7 @@ export class FetchRunner implements FetchPass {
                 nextFetchAtMs,
                 storageExpiresAtMs: nextFetchAtMs,
                 outcome: String(outcome),
-                cache,
+                cache: storedUrlHistoryCache(candidate.originalRef, cache),
             },
             configurationUpdates,
         }

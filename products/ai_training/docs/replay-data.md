@@ -234,7 +234,8 @@ Source deduplication uses the image reference, which names the team and the sess
 Session deletion does not remove images, so a session cannot lose an image that another session fetched.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
 Its URL history expires eight days after the end of the session's UTC month.
-Explicit HTTP freshness or cache restrictions can shorten this expiry; they cannot extend it.
+HTTP freshness and cache directives do not change this expiry, because the stored image for a team, month and URL is write-once.
+A `no-store` response leaves no cache metadata in that history.
 Robots.txt and TDM reservation caches keep their shared origin keys and existing expiry rules.
 It does not inherit v1 seen flags or successful fetch results.
 
