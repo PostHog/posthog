@@ -9,7 +9,8 @@ Celery task and Temporal activity contexts alike, no request assumed.
 (all optional): ``title`` / ``body`` override the generated copy, ``url``
 links to the run or PR, ``task_id`` / ``task_run_id`` identify the run for
 push deep-linking and email idempotency, ``report`` is the run's final agent
-message, delivered in email and Slack bodies.
+message, delivered in email and Slack bodies. ``dedupe_key`` replaces the run id in the email
+idempotency key, for events that can happen more than once per run.
 """
 
 from typing import Any
@@ -49,6 +50,8 @@ _EVENT_DEFAULTS: dict[str, tuple[str, str]] = {
     "run_completed": ("finished", "The run finished successfully."),
     "run_failed": ("failed", "The run failed. Check the run for details."),
     "pr_created": ("opened a PR", "A new pull request was opened."),
+    "pr_merged": ("had a PR merged", "A pull request from this loop was merged."),
+    "pr_closed": ("had a PR closed", "A pull request from this loop was closed without merging."),
     "needs_attention": ("needs attention", "This loop needs your attention."),
 }
 
@@ -155,7 +158,8 @@ def _send_email(
     if not is_email_available():
         return
     try:
-        campaign_key = f"loop_run_summary:{loop.id}:{payload.get('task_run_id') or payload.get('fire_key') or event}"
+        dedupe_key = payload.get("dedupe_key") or payload.get("task_run_id") or payload.get("fire_key") or event
+        campaign_key = f"loop_run_summary:{loop.id}:{dedupe_key}"
         template_context = {
             "loop_name": loop.name,
             "event_title": title,

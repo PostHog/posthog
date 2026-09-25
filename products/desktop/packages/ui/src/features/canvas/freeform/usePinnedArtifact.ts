@@ -25,6 +25,27 @@ export interface PinnedArtifact {
    * the pin's mint time (otherwise the expiry timer would keep firing on a URL
    * that's already been recovered). */
   refreshKey: number;
+  contentKey: string | null;
+}
+
+function artifactContentKey(build: CanvasBuildRecord): string | null {
+  const manifest = build.manifest;
+  if (!manifest) return null;
+  const assets = manifest.assets
+    .map((asset) => `${asset.path}:${asset.contentHash}`)
+    .sort()
+    .join("|");
+  return `${manifest.entryHtml}#${assets}#${JSON.stringify(manifest.capabilities)}`;
+}
+
+function sameArtifactBytes(
+  pinned: PinnedArtifact,
+  build: CanvasBuildRecord,
+): boolean {
+  const next = artifactContentKey(build);
+  return (
+    pinned.contentKey !== null && next !== null && pinned.contentKey === next
+  );
 }
 
 /**
@@ -74,9 +95,13 @@ export function usePinnedArtifact({
   // path when the pinned URL expired.
   const [refreshKey, setRefreshKey] = useState(0);
   if (publishedBuild?.artifactUrl) {
+    const buildChanged =
+      !!pinnedArtifact &&
+      pinnedArtifact.buildId !== publishedBuild.id &&
+      !sameArtifactBytes(pinnedArtifact, publishedBuild);
     const adoptFresh =
       !pinnedArtifact ||
-      pinnedArtifact.buildId !== publishedBuild.id ||
+      buildChanged ||
       pinnedArtifact.refreshKey !== refreshKey;
     if (adoptFresh) {
       setPinnedArtifact({
@@ -84,6 +109,7 @@ export function usePinnedArtifact({
         url: publishedBuild.artifactUrl,
         mintedAt: mintedAt || Date.now(),
         refreshKey,
+        contentKey: artifactContentKey(publishedBuild),
       });
     }
   } else if (lifecycle && pinnedArtifact) {

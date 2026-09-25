@@ -357,7 +357,7 @@ function VisionObservationListContent({
             }
             try {
                 const result = await app.callServerTool({
-                    name: 'vision-observations-retrieve',
+                    name: 'vision-observations-get',
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
