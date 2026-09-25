@@ -698,6 +698,18 @@ tools:
         system_prompt_hint: Error issue filtering and aggregation (error-tracking category)
         ui_app: error-issue-list
         response:
+            text_include_params: [dateRange]
+            text_include:
+                - id
+                - name
+                - status
+                - severity
+                - first_seen
+                - last_seen
+                - aggregations.occurrences
+                - aggregations.users
+                - aggregations.sessions
+                - _posthogUrl
             include:
                 - id
                 - name
