@@ -1,12 +1,19 @@
 """Choose which relationship definitions customer analytics may control and which warehouse view of
 external decisions fills each of them. Taking control of a definition enrolls no account at once.
-From then on, a person's change to a controlled relationship on a linked account enrolls that
-account under every controlled definition. ``adopt_account_ownership`` enrolls accounts in reviewed
-batches. No path unenrolls an account, so control cannot end after the first enrollment.
+From then on, a person's change to a controlled relationship on a linked account, or an accepted
+Salesforce claim on it, enrolls that account under every controlled definition.
+``adopt_account_ownership`` enrolls accounts in reviewed batches. No path unenrolls an account, so
+control cannot end after the first enrollment.
+
+Binding a claim view pins its SQL, switches its claims off and prints the SHA-256 of that text.
+Enable claims in a separate call, after checking that the digest matches the SQL you reviewed, for
+example with ``printf '%s' "$SQL" | shasum -a 256``; a file saved by an editor usually ends with a
+newline that changes the digest. An edit to the view stops its sweep until the view is bound and
+enabled again.
 
     python manage.py configure_account_ownership --team-id 2 --control <definition uuid>
-    python manage.py configure_account_ownership --team-id 2 --claim-view <definition uuid> <view uuid> \\
-        --claims <definition uuid> enabled
+    python manage.py configure_account_ownership --team-id 2 --claim-view <definition uuid> <view uuid>
+    python manage.py configure_account_ownership --team-id 2 --claims <definition uuid> enabled
 """
 
 from typing import Any
@@ -35,8 +42,9 @@ class Command(BaseCommand):
             metavar="DEFINITION_ID",
             help=(
                 "Let customer analytics take control of this single-holder definition per account. A person's "
-                "change to a controlled relationship on a linked account then enrolls that account under every "
-                "controlled definition. --uncontrol is refused once any account is enrolled. Repeatable."
+                "change to a controlled relationship on a linked account, or an accepted Salesforce claim on it, "
+                "then enrolls that account under every controlled definition. --uncontrol is refused once any "
+                "account is enrolled. Repeatable."
             ),
         )
         parser.add_argument(
@@ -54,8 +62,8 @@ class Command(BaseCommand):
             default=[],
             metavar=("DEFINITION_ID", "SAVED_QUERY_ID"),
             help=(
-                "Bind the warehouse view of decisions that fill this controlled definition; see "
-                "logic/ownership_claims.py. Repeatable."
+                "Bind the warehouse view of decisions that fill this controlled definition and pin its SQL; "
+                "see logic/ownership_claims.py. Bind again after any edit to the view. Repeatable."
             ),
         )
         parser.add_argument(
@@ -90,6 +98,16 @@ class Command(BaseCommand):
         if contradicted:
             raise CommandError(
                 f"--claim-view and --clear-claim-view both name {', '.join(str(d) for d in sorted(contradicted))}"
+            )
+        # Enabling in the binding call would run the pinned text before anyone compared its digest
+        # with the SQL they reviewed.
+        unreviewed = {definition_id for definition_id, _ in claim_views} & {
+            definition_id for definition_id, enabled in switches if enabled
+        }
+        if unreviewed:
+            raise CommandError(
+                f"--claim-view and --claims enabled both name {', '.join(str(d) for d in sorted(unreviewed))}; "
+                "bind, check the printed claim_view_sha256, then enable claims in a separate call"
             )
 
         # One transaction, so a refused change leaves the configuration as it was. Every definition
@@ -130,7 +148,8 @@ class Command(BaseCommand):
                 f"team {team.id}: {definition.name} ({definition.id}) "
                 f"controlled={'yes' if definition.is_controlled else 'no'} "
                 f"claims={'enabled' if definition.claims_enabled else 'disabled'} "
-                f"claim_view={definition.claim_saved_query_id or '<unset>'}"
+                f"claim_view={definition.claim_saved_query_id or '<unset>'} "
+                f"claim_view_sha256={definition.claim_saved_query_sha256 or '<unset>'}"
             )
 
     @staticmethod
