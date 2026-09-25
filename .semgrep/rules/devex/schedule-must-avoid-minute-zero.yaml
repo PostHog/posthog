@@ -1,0 +1,87 @@
+rules:
+    - id: schedule-must-avoid-minute-zero
+      message: |
+          This schedule fires at minute zero of the hour.
+
+          Fleet schedules that fire together concentrate query load. Check how the job tracks
+          its input before moving it: a rolling lookback equal to the interval can skip data
+          when its start moves. Jitter needs a cursor or enough overlapping lookback.
+
+          - Celery beat and Dagster: write a fixed minute that no other job in that hour holds,
+            for example `crontab(minute="23")` or `cron_schedule="23 * * * *"`.
+          - Temporal fleet schedule: start two minutes after the boundary and add jitter,
+            for example `ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))`
+            with `ScheduleSpec(..., jitter=timedelta(minutes=10))`.
+          - Sub-hourly or per-entity Temporal schedule: pass
+            `offset=deterministic_offset(<stable id>, <interval>)` from `posthog/scheduling/jitter.py`.
+
+          Keep the existing time when a customer chose it or a fixed lookback requires it. Add
+          `# nosemgrep: schedule-must-avoid-minute-zero -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          # Celery beat at minute 0 of every hour, or of every N hours. crontab's hour defaults to "*".
+          - patterns:
+                - pattern-either:
+                      - pattern: crontab(..., minute="0", ...)
+                      - pattern: crontab(..., minute="00", ...)
+                      - pattern: crontab(..., minute=0, ...)
+                - pattern-either:
+                      - patterns:
+                            - pattern: crontab(...)
+                            - pattern-not: crontab(..., hour=$HOUR, ...)
+                      - patterns:
+                            - pattern: crontab(..., hour="$HOUR", ...)
+                            - metavariable-regex:
+                                  metavariable: $HOUR
+                                  regex: ^\*(/\d+)?$
+          # Dagster and Temporal cron strings with minute 0 and an hour field of "*" or "*/N".
+          - patterns:
+                - pattern-either:
+                      - pattern: $SCHEDULE(..., cron_schedule="$CRON", ...)
+                      - pattern: ScheduleSpec(..., cron_expressions=[..., "$CRON", ...], ...)
+                - metavariable-regex:
+                      metavariable: $CRON
+                      regex: ^\s*0+\s+\*(/\d+)?\s
+          # A Temporal interval with no offset starts on the epoch grid, so a sub-daily interval that
+          # fits evenly into the day fires at minute zero. An interval the rule cannot read counts as short.
+          - patterns:
+                - pattern: ScheduleIntervalSpec(...)
+                - pattern-not: ScheduleIntervalSpec(..., offset=$OFFSET, ...)
+                - pattern-either:
+                      - patterns:
+                            - pattern: ScheduleIntervalSpec(..., every=$INTERVAL, ...)
+                            - metavariable-regex:
+                                  metavariable: $INTERVAL
+                                  regex: ^[A-Za-z_][\w.]*$
+                      - patterns:
+                            - pattern: ScheduleIntervalSpec(..., every=datetime.timedelta(hours=$HOURS), ...)
+                            - metavariable-regex:
+                                  metavariable: $HOURS
+                                  regex: ^([1-9]|1\d|2[0-3]|[A-Za-z_][\w.]*)$
+                      - patterns:
+                            - pattern: ScheduleIntervalSpec(..., every=datetime.timedelta(minutes=$MINUTES), ...)
+                            - metavariable-regex:
+                                  metavariable: $MINUTES
+                                  regex: ^([1-9]\d{0,2}|1[0-3]\d\d|14[0-3]\d|[A-Za-z_][\w.]*)$
+                      - patterns:
+                            - pattern: ScheduleIntervalSpec(..., every=datetime.timedelta(seconds=$SECONDS), ...)
+                            - metavariable-regex:
+                                  metavariable: $SECONDS
+                                  regex: ^([1-9]\d{0,3}|[1-7]\d{4}|8[0-5]\d{3}|86[0-3]\d\d|[A-Za-z_][\w.]*)$
+      paths:
+          include:
+              - dags/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+      metadata:
+          category: performance
+          subcategory: audit
+          confidence: HIGH
