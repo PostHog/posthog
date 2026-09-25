@@ -488,6 +488,20 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('isAnthropicConnector()', () => {
+        it.each([
+            [{ clientName: 'Anthropic/ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'Cowork', userAgent: 'Claude-User' }, true],
+            [{ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }, true],
+            [{ clientName: 'claude-code', vendorClient: 'ClaudeCode' }, false],
+            [{ vendorClient: 'ClaudeCode' }, false],
+            [{}, false],
+        ])('resolves %j to %s', (input, expected) => {
+            expect(new MCPClientProfile(input).isAnthropicConnector()).toBe(expected)
+        })
+    })
+
     describe('capabilities.supportsInstructions', () => {
         it.each([['codex'], ['Codex'], ['CODEX'], ['codex-cli'], ['Codex CLI'], ['codex/1.2.3'], ['openai-codex']])(
             'is false for Codex variant %s',

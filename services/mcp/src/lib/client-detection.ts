@@ -297,8 +297,12 @@ export class MCPClientProfile {
         // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
         // is safe and intended: every Anthropic product belongs in CLI mode, so
         // there is nothing to misclassify.
+        return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
+    }
+
+    isAnthropicConnector(): boolean {
+        // The connector omits `x-anthropic-client` on `tools/list` and sends it on the call, so this must not read it.
         return (
-            matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
             matchesAnyFragment(this.userAgent, ANTHROPIC_USER_AGENT_FRAGMENTS) ||
             normalizeClientName(this.clientName ?? '').startsWith('anthropic')
         )
