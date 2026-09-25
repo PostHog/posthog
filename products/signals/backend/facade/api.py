@@ -16,7 +16,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
@@ -49,8 +49,6 @@ from products.signals.backend.signal_metadata import SourceSliceSignalStats, fet
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 
 if TYPE_CHECKING:
-    from posthog.models import User
-
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -1176,8 +1174,8 @@ def repair_report_actionability_cache(
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
 
 
-def scout_creation_available(*, team: Team, user: "User") -> bool:
-    """Whether to offer ``user`` scout creation on ``team``'s project.
+def scout_creation_available(*, team_id: int, user_id: int) -> bool:
+    """Whether to offer the user scout creation on the team's project.
 
     Two checks, both on the canonical project: it runs scouts (enrollment in the `signals-scout` flag
     payload), and the user passes the scout create endpoint's own check (editor access to skills).
@@ -1186,6 +1184,10 @@ def scout_creation_available(*, team: Team, user: "User") -> bool:
         team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
     )
 
+    team = Team.objects.select_related("parent_team").filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return False
     canonical_team = team.parent_team or team
     if not team_is_enrolled(canonical_team.id):
         return False
