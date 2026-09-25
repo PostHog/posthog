@@ -7,14 +7,17 @@ import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { NEW_FLAG, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import type { Mocks } from '~/mocks/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, SidePanelTab } from '~/types'
 
 import { FeatureFlagStaleBanner } from './FeatureFlagStaleBanner'
 
@@ -22,6 +25,17 @@ jest.mock('posthog-js')
 
 const FLAG_ID = 1
 const ACTION_SELECTOR = '[data-attr="feature-flag-stale-banner-view-usage"]'
+const REVIEW_CLEANUP_SELECTOR = '[data-attr="feature-flag-stale-banner-review-cleanup"]'
+
+/** Both are required for the action to render: the internal release gate, and the new sandbox view. */
+function setCleanupActionAvailable(available: boolean): void {
+    enabledFeaturesLogic.actions.setFeatureFlags(
+        available ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT] : [],
+        available
+            ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true, [FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT]: true }
+            : {}
+    )
+}
 
 const HEADING = 'This flag may no longer be needed'
 const GUIDANCE = 'Review usage and code references before disabling or archiving this flag.'
@@ -317,5 +331,56 @@ describe('FeatureFlagStaleBanner', () => {
 
         expect(logic.values.activeTab).toBe(FeatureFlagsTab.USAGE)
         expect(posthog.capture).toHaveBeenCalledWith('feature flag stale banner view usage clicked')
+    })
+
+    describe('Review cleanup with AI action', () => {
+        it('is hidden while the internal release flag is off', async () => {
+            useMocks(endpointMocks())
+            const logic = mountAndRender()
+            await settle(logic)
+
+            expect(document.querySelector(REVIEW_CLEANUP_SELECTOR)).not.toBeInTheDocument()
+        })
+
+        it('is hidden on the legacy chat view even when the release flag is on', async () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT], {
+                [FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT]: true,
+            })
+            useMocks(endpointMocks())
+            const logic = mountAndRender()
+            await settle(logic)
+
+            expect(document.querySelector(REVIEW_CLEANUP_SELECTOR)).not.toBeInTheDocument()
+        })
+
+        it('opens PostHog AI on a fresh request, and disables itself so a repeat click cannot start a second one', async () => {
+            setCleanupActionAvailable(true)
+            useMocks(endpointMocks())
+            const logic = mountAndRender()
+            await settle(logic)
+
+            const button = document.querySelector<HTMLButtonElement>(REVIEW_CLEANUP_SELECTOR)
+            expect(button).toBeInTheDocument()
+            expect(button).toBeEnabled()
+
+            act(() => {
+                button?.click()
+            })
+
+            expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'feature flag stale banner review cleanup with ai clicked',
+                expect.objectContaining({ flag_id: FLAG_ID })
+            )
+
+            const captureCallsAfterFirstClick = (posthog.capture as jest.Mock).mock.calls.length
+            act(() => {
+                document.querySelector<HTMLButtonElement>(REVIEW_CLEANUP_SELECTOR)?.click()
+            })
+
+            expect(document.querySelector(REVIEW_CLEANUP_SELECTOR)).toHaveAttribute('aria-disabled', 'true')
+            expect((posthog.capture as jest.Mock).mock.calls.length).toBe(captureCallsAfterFirstClick)
+        })
     })
 })

@@ -10,7 +10,13 @@ import {
 
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
-import { featureFlagContextItems, mutationTargetsFeatureFlag } from './featureFlagAiContext'
+import {
+    FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
+    FEATURE_FLAG_CLEANUP_SKILL,
+    featureFlagCleanupAssessmentContextItems,
+    featureFlagContextItems,
+    mutationTargetsFeatureFlag,
+} from './featureFlagAiContext'
 
 // The backend's own cap on a text attachment (MAX_TEXT_LENGTH in the posthog_ai backend). Asserting
 // the literal rather than importing the frontend constant is deliberate: raising the frontend cap
@@ -131,6 +137,65 @@ describe('featureFlagAiContext', () => {
         // Without the count the agent can't tell a flag with no targeting from one whose targeting
         // was too large to send.
         expect(JSON.parse(value).release_condition_count).toBe(1)
+    })
+
+    describe('featureFlagCleanupAssessmentContextItems', () => {
+        it('points the agent at the cleanup skill with a visible chip', () => {
+            const items = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
+
+            expect(items).toContainEqual(expect.objectContaining({ type: 'skill', key: FEATURE_FLAG_CLEANUP_SKILL }))
+        })
+
+        it('tells the agent this request is assessment only and not a green light to change the flag', () => {
+            const instructions = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123).find(
+                (item) => item.type === 'instructions'
+            )
+
+            expect(instructions?.value).toContain(FEATURE_FLAG_CLEANUP_SKILL)
+            expect(instructions?.value).toMatch(/assessment only/i)
+            expect(instructions?.value).toMatch(/re-fetch its current definition/i)
+            expect(instructions?.value).toMatch(/do not.*change this flag/i)
+        })
+
+        it('never puts the flag key or description inside the trusted instruction text', () => {
+            // The flag's own key/name are project-authored strings a customer chose, so they must stay
+            // in the untrusted `feature_flag_cleanup_target` item, never interpolated into the trusted
+            // block the agent is told to follow unconditionally.
+            const flag = { ...baseFeatureFlag, key: 'a-distinctive-flag-key', name: 'a distinctive description' }
+            const instructions = featureFlagCleanupAssessmentContextItems(flag, 123).find(
+                (item) => item.type === 'instructions'
+            )
+
+            expect(instructions?.value).not.toContain('a-distinctive-flag-key')
+            expect(instructions?.value).not.toContain('a distinctive description')
+        })
+
+        it('carries the saved project, id, and key as untrusted data the agent can act on', () => {
+            const block = wrapWithPosthogContext(
+                'assess this flag',
+                featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
+            )
+            const target = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123).find(
+                (item) => item.type === 'feature_flag_cleanup_target'
+            )
+
+            expect(JSON.parse(target?.value ?? '')).toEqual({
+                project_id: 123,
+                id: baseFeatureFlag.id,
+                key: baseFeatureFlag.key,
+            })
+            // The trusted block may name the item ("the feature_flag_cleanup_target item") without
+            // leaking its data - the flag's own key is the thing that must stay out of it.
+            const trustedBlock = block.match(/<posthog_trusted_context>[\s\S]*?<\/posthog_trusted_context>/)?.[0] ?? ''
+            expect(trustedBlock).not.toContain(baseFeatureFlag.key)
+            expect(block).toContain(baseFeatureFlag.key)
+        })
+
+        it('shares one dismiss group, so closing the chip detaches the instruction and the saved identity too', () => {
+            const items = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
+
+            expect(items.every((item) => item.dismissGroup === FEATURE_FLAG_CLEANUP_DISMISS_GROUP)).toBe(true)
+        })
     })
 
     test.each([
