@@ -2174,6 +2174,94 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         assert feature.payload.get("survey_id")
         assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
 
+    def _feature_with_survey(self, name: str, stage: str) -> tuple[EarlyAccessFeature, Survey]:
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name=name)
+        survey = ensure_waitlist_survey_for_feature(feature)
+        assert survey is not None
+        feature.refresh_from_db()
+        if stage != EarlyAccessFeature.Stage.CONCEPT:
+            feature.stage = stage
+            feature.save()
+        return feature, survey
+
+    def test_close_ends_survey_and_moves_id_off_the_payload(self):
+        from posthog.tasks.early_access_feature import close_waitlist_survey_for_feature
+
+        feature, survey = self._feature_with_survey("Graduating", EarlyAccessFeature.Stage.ALPHA)
+
+        assert close_waitlist_survey_for_feature(feature) == survey
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        feature.refresh_from_db()
+        assert "survey_id" not in feature.payload
+        assert "survey_question_id" not in feature.payload
+        assert feature.payload["closed_survey_id"] == str(survey.id)
+
+    def test_close_keeps_the_original_end_date_on_a_second_run(self):
+        from posthog.tasks.early_access_feature import close_waitlist_survey_for_feature
+
+        feature, survey = self._feature_with_survey("Graduated twice", EarlyAccessFeature.Stage.BETA)
+        close_waitlist_survey_for_feature(feature)
+        survey.refresh_from_db()
+        first_end_date = survey.end_date
+
+        feature.refresh_from_db()
+        assert close_waitlist_survey_for_feature(feature) is None
+
+        survey.refresh_from_db()
+        assert survey.end_date == first_end_date
+
+    def test_close_skips_concept_stage_features(self):
+        from posthog.tasks.early_access_feature import close_waitlist_survey_for_feature
+
+        feature, survey = self._feature_with_survey("Still coming soon", EarlyAccessFeature.Stage.CONCEPT)
+
+        assert close_waitlist_survey_for_feature(feature) is None
+
+        survey.refresh_from_db()
+        assert survey.end_date is None
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(survey.id)
+
+    @patch("posthog.tasks.early_access_feature.ph_scoped_capture")
+    def test_close_task_ends_the_survey_and_captures_the_graduation(self, mock_capture):
+        from posthog.tasks.early_access_feature import close_waitlist_survey_for_graduated_feature
+
+        feature, survey = self._feature_with_survey("Task graduation", EarlyAccessFeature.Stage.BETA)
+
+        close_waitlist_survey_for_graduated_feature(str(feature.id))
+
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+        mock_capture.assert_called_once()
+
+    @patch("posthog.tasks.early_access_feature.close_waitlist_survey_for_graduated_feature.delay")
+    def test_stage_change_through_the_api_enqueues_the_close_task(self, mock_delay):
+        feature, _ = self._feature_with_survey("Api graduation", EarlyAccessFeature.Stage.CONCEPT)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+                {"stage": "alpha"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        mock_delay.assert_called_once_with(str(feature.id))
+
+    @patch("posthog.tasks.early_access_feature.close_waitlist_survey_for_graduated_feature.delay")
+    def test_post_save_does_not_enqueue_the_close_task_without_a_survey(self, mock_delay):
+        flag = FeatureFlag.objects.create(team=self.team, key="no-close", created_by=self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            EarlyAccessFeature.objects.create(
+                team=self.team, name="No close", stage=EarlyAccessFeature.Stage.BETA, feature_flag=flag
+            )
+
+        mock_delay.assert_not_called()
+
     @patch("posthog.tasks.early_access_feature.capture_event")
     @patch("posthog.hogql.query.execute_hogql_query")
     def test_migrate_command_skips_already_responded_emails(self, mock_query, mock_capture):

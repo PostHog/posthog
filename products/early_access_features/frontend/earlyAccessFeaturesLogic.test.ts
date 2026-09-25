@@ -51,15 +51,21 @@ describe('earlyAccessFeaturesLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/early_access_feature': {
-                    count: 2,
+                    count: 3,
                     results: [
                         mockFeature({ id: 'feature-1', payload: { survey_id: 'survey-1' } }),
                         mockFeature({ id: 'feature-2', stage: EarlyAccessFeatureStage.Beta }),
+                        // Graduated: its waitlist survey is closed, but the sign-ups still count
+                        mockFeature({
+                            id: 'feature-3',
+                            stage: EarlyAccessFeatureStage.Alpha,
+                            payload: { closed_survey_id: 'survey-3' },
+                        }),
                     ],
                 },
                 '/api/projects/:team_id/surveys/responses_count': ({ request }) => {
                     responsesCountUrl = request.url
-                    return [200, { 'survey-1': 42 }]
+                    return [200, { 'survey-1': 42, 'survey-3': 7 }]
                 },
             },
         })
@@ -72,9 +78,9 @@ describe('earlyAccessFeaturesLogic', () => {
             'loadWaitlistResponsesCountSuccess',
         ])
 
-        // Only the feature with a waitlist survey contributes an id
-        expect(new URL(responsesCountUrl!).searchParams.get('survey_ids')).toEqual('survey-1')
-        expect(logic.values.waitlistResponsesCount).toEqual({ 'survey-1': 42 })
+        // Only the features with a waitlist survey contribute an id
+        expect(new URL(responsesCountUrl!).searchParams.get('survey_ids')).toEqual('survey-1,survey-3')
+        expect(logic.values.waitlistResponsesCount).toEqual({ 'survey-1': 42, 'survey-3': 7 })
     })
 
     it('skips the responses count request when no feature has a waitlist survey', async () => {
