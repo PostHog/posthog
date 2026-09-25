@@ -889,12 +889,11 @@ tools:
             anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the
             full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the
             inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when
-            you want the gate and the counts without the inventory. The gate and the counts are re-read on every
-            request rather than served from the cached row, so `existing_inbox_reports` agrees with
-            `inbox-reports-list`: `total` is the default list scope, `total_including_dismissed` is the
-            `include_all_statuses=true` scope you dedupe against, and `counted_at` says when they were read. Distinct
-            from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the
-            scout's inferred learnings.
+            you want the gate and the counts without the inventory. The gate and the counts are re-read on every request
+            rather than served from the cached row, so `existing_inbox_reports` agrees with `inbox-reports-list`:
+            `total` is the default list scope, `total_including_dismissed` is the `include_all_statuses=true` scope you
+            dedupe against, and `counted_at` says when they were read. Distinct from `scout-scratchpad-search`: profile
+            is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.
     scout-record-output:
         operation: signals_scout_record_output
         enabled: true
