@@ -548,7 +548,7 @@ const logsAttributeValuesList = (): ToolBase<
 
 const LogsAttributesListSchema = () => {
     const LogsAttributesRetrieveQueryParams = orvalSchemas.LogsAttributesRetrieveQueryParams()
-    return LogsAttributesRetrieveQueryParams
+    return LogsAttributesRetrieveQueryParams.omit({ date_from: true, date_to: true })
 }
 
 const logsAttributesList = (): ToolBase<
@@ -566,6 +566,7 @@ const logsAttributesList = (): ToolBase<
                 attribute_type: params.attribute_type,
                 dateRange: params.dateRange,
                 filterGroup: params.filterGroup,
+                keys: params.keys,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
