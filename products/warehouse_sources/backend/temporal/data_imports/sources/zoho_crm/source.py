@@ -61,6 +61,15 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             "Non-JSON response from": "Zoho CRM returned a non-JSON response, for example an HTML error or login page, instead of data. Check that the data center you picked matches your Zoho account, then try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The tracked session's `DEFAULT_RETRY` already retries 429/5xx responses before
+        # `raise_for_status()` can raise here. A response that still exhausts that budget is a
+        # transient Zoho or edge outage, not a bug, and Temporal's activity retry recovers once it
+        # clears. So keep it out of error tracking as noise, and out of the customer-visible error.
+        # `requests.Response.raise_for_status` derives these prefixes from the status code alone,
+        # not the vendor's reason text, so they're stable to match on.
+        return {"429 Client Error", "Server Error"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
