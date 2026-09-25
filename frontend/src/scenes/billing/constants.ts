@@ -40,7 +40,6 @@ export const SPEND_TYPES = [
     { label: 'Group analytics', value: 'group_analytics' },
     { label: 'Recordings', value: 'recording_count_in_period' },
     { label: 'Mobile recordings', value: 'mobile_billable_recording_count_in_period' },
-    { label: 'Mobile recordings captured', value: 'mobile_recording_count_in_period' },
     { label: 'Feature flag requests', value: 'billable_feature_flag_requests_count_in_period' },
     { label: 'Exceptions', value: 'exceptions_captured_in_period' },
     { label: 'Survey responses', value: 'survey_responses_count_in_period' },
@@ -65,6 +64,7 @@ export const USAGE_ONLY_TYPES = [
     { label: 'Cloud compute spend (USD)', value: 'sandbox_compute_credits_used_in_period' },
     { label: 'Cloud compute CPU (core-seconds)', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
     { label: 'Cloud compute memory (GiB-seconds)', value: 'sandbox_compute_memory_mib_seconds_in_period' },
+    { label: 'Mobile recordings captured', value: 'mobile_recording_count_in_period' },
 ] as const
 
 export const USAGE_TYPES = [...SPEND_TYPES, ...USAGE_ONLY_TYPES] as const

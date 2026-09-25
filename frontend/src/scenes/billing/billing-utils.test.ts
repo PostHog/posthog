@@ -7,20 +7,24 @@ import {
 } from './billing-utils'
 
 describe('getUsageTypeOptions', () => {
-    it('includes informational Desktop component metrics in Usage but not Spend', () => {
+    it('includes informational metrics in Usage but not Spend', () => {
         const usageOptions = getUsageTypeOptions()
         const spendOptions = getSpendTypeOptions()
-        const componentTypes = [
+        const usageOnlyTypes = [
             'posthog_code_token_credits_used_in_period',
             'sandbox_compute_credits_used_in_period',
             'sandbox_compute_cpu_millicore_seconds_in_period',
             'sandbox_compute_memory_mib_seconds_in_period',
+            'mobile_recording_count_in_period',
         ]
 
-        for (const usageType of componentTypes) {
+        for (const usageType of usageOnlyTypes) {
             expect(usageOptions.some((option) => option.key === usageType)).toBe(true)
             expect(spendOptions.some((option) => option.key === usageType)).toBe(false)
         }
+
+        expect(usageOptions.some((option) => option.key === 'mobile_billable_recording_count_in_period')).toBe(true)
+        expect(spendOptions.some((option) => option.key === 'mobile_billable_recording_count_in_period')).toBe(true)
     })
 
     it('reports only selectable Spend types in interaction analytics', () => {
