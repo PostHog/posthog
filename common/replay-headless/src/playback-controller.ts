@@ -135,8 +135,10 @@ export class PlaybackController {
         const ts = this.currentTimestamp()
         for (const seg of this.segments) {
             const next = seg.windowId != null ? this.windowsById.get(seg.windowId) : undefined
-            if (next && next !== tab && seg.endTimestamp > ts) {
-                this.activate(next, Math.max(ts, seg.startTimestamp))
+            const resumeAt = Math.max(ts, seg.startTimestamp)
+            // A window with nothing left after resumeAt would finish at once and hand playback straight back.
+            if (next && next !== tab && seg.endTimestamp > ts && next.lastTimestamp > resumeAt) {
+                this.activate(next, resumeAt)
                 return
             }
         }

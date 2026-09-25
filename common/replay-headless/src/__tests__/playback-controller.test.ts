@@ -373,6 +373,17 @@ describe('PlaybackController', () => {
             jest.restoreAllMocks()
         })
 
+        it('does not hand over to a window that has already run out of events', () => {
+            const { a, windows, segments } = twoWindows()
+            const exhausted = windows.map((tab) => (tab.windowId === 2 ? { ...tab, lastTimestamp: 3500 } : tab))
+            const controller = new PlaybackController(exhausted, segments, 1000, {}, mockBridge())
+
+            a.getCurrentTime.mockReturnValue(4000)
+            a._emit('finish')
+
+            expect(controller.isStopped).toBe(true)
+        })
+
         it('continues in another window when the one on screen runs out of events', () => {
             const { a, b, windows, segments } = twoWindows()
             const bridge = mockBridge()

@@ -38,10 +38,10 @@ export type ReplayerSetupFailure = 'no_snapshots' | 'no_full_snapshot'
 const MAX_REPLAYED_WINDOWS = 20
 
 /** The windows with the most active time, which are the ones worth their memory when a session opened too many. */
-function busiestWindowIds(segments: RecordingSegment[], limit: number): Set<number> {
+function busiestWindowIds(segments: RecordingSegment[], candidates: Set<number>, limit: number): Set<number> {
     const activeMs = new Map<number, number>()
     for (const seg of segments) {
-        if (seg.windowId != null) {
+        if (seg.windowId != null && candidates.has(seg.windowId)) {
             activeMs.set(seg.windowId, (activeMs.get(seg.windowId) ?? 0) + (seg.isActive ? seg.durationMs : 0))
         }
     }
@@ -134,16 +134,19 @@ export async function createReplayers(
     )
     const segments = mergeInactiveSegments(rawSegments)
     const firstTimestamp = snapshots[0].timestamp
-    const windowIds = Object.keys(snapshotsByWindowId).map(Number)
+    // rrweb cannot build a page without a full snapshot, and its Replayer throws on fewer than two events.
+    const replayableIds = new Set(
+        Object.entries(snapshotsByWindowId)
+            .filter(([, events]) => events.length >= 2 && events.some((event) => event.type === EventType.FullSnapshot))
+            .map(([windowId]) => Number(windowId))
+    )
     const keptWindowIds =
-        windowIds.length > MAX_REPLAYED_WINDOWS ? busiestWindowIds(segments, MAX_REPLAYED_WINDOWS) : new Set(windowIds)
+        replayableIds.size > MAX_REPLAYED_WINDOWS
+            ? busiestWindowIds(segments, replayableIds, MAX_REPLAYED_WINDOWS)
+            : replayableIds
     const windows: ReplayerWindow[] = []
     for (const [windowId, windowEvents] of Object.entries(snapshotsByWindowId)) {
         if (!keptWindowIds.has(Number(windowId))) {
-            continue
-        }
-        // rrweb cannot build a page without a full snapshot, and its Replayer throws on fewer than two events.
-        if (windowEvents.length < 2 || !windowEvents.some((event) => event.type === EventType.FullSnapshot)) {
             continue
         }
         const root = document.createElement('div')
