@@ -43,3 +43,8 @@ posthog.1370_backfill_taggeditem_generic_pointer
 # selects reports that still hold no cached judgment, and each value is recomputed from the
 # artefact log.
 signals.0154_backfill_report_actionability
+
+# Turns the self-driving PR label on for teams that never chose, in id-ordered batches so no single
+# transaction locks a row per team. Re-running is a no-op: a pass only selects rows that still hold
+# the old default, and a team whose audit trail records a choice is excluded on every pass.
+signals.0156_enable_pull_request_label
