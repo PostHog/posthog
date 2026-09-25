@@ -25,8 +25,8 @@ catalogs:
       specifier: ^0.38.0
       version: 0.38.0
     '@posthog/react':
-      specifier: ^1.11.1
-      version: 1.11.1
+      specifier: ^1.11.2
+      version: 1.11.2
     '@storybook/react':
       specifier: ^10.4.3
       version: 10.4.6
@@ -877,7 +877,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -2801,7 +2801,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@testing-library/jest-dom':
         specifier: '*'
         version: 5.17.0
@@ -3639,7 +3639,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4282,7 +4282,7 @@ importers:
         version: link:../../packages/quill/packages/primitives
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -10854,8 +10854,8 @@ packages:
       '@modelcontextprotocol/server':
         optional: true
 
-  '@posthog/react@1.11.1':
-    resolution: {integrity: sha512-mHpef0Vp7e0103ePGOWbFDC7v/E0jpMI8OeTCkTCsL2DSV4PP2oIcBSiuxELQPo5MV6yBpGx/hwkWNcbDp65Aw==}
+  '@posthog/react@1.11.2':
+    resolution: {integrity: sha512-6iO+dbmm9x31lhnmxBWKJlI5iWaCRx9fsUfVyrYz2zRhG9QcUmQr22jj2DKK2zaWNTp1gO1GCE7VxiqBqYwTxA==}
     peerDependencies:
       '@types/react': 18.3.27
       posthog-js: '>=1.257.2'
@@ -23065,8 +23065,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.493.0:
-    resolution: {integrity: sha512-Sigyv9yKJAX9Nilf1WMOr8CIeXmVsmjdY62Bo5+mkrn5/gwEEfCcfnOMIwIvetwvUQLw4fYif1FBbvKX5evwPQ==}
+  unlayer-types@1.494.0:
+    resolution: {integrity: sha512-7hAIgqVRQYFxzk3gxm6a7S7AbFvWras2TKykPDrg4sZFx7Xm1GHoo4Lgt4W582X/aLJp8e94Mkpyup/9e2xXsg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30527,7 +30527,7 @@ snapshots:
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
-  '@posthog/react@1.11.1(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
+  '@posthog/react@1.11.2(@types/react@18.3.27)(posthog-js@1.434.13(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
       posthog-js: 1.434.13(@types/react@18.3.27)(react@18.3.1)
       react: 18.3.1
@@ -43651,7 +43651,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.493.0
+      unlayer-types: 1.494.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45970,7 +45970,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.493.0: {}
+  unlayer-types@1.494.0: {}
 
   unpipe@1.0.0: {}
 
