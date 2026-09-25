@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.conf import settings
 
 from temporalio.client import (
@@ -36,6 +38,9 @@ async def create_autoresearch_daily_schedule(client: Client) -> None:
             CoordinatorWorkflowInput(),
             id=_WORKFLOW_ID,
             task_queue=settings.AUTORESEARCH_TASK_QUEUE,
+            # Longer than one pipeline's children (inference, then kickoff), shorter than a day, so a
+            # stuck coordinator ends before the next tick instead of making SKIP drop every later one.
+            execution_timeout=timedelta(hours=12),
         ),
         spec=ScheduleSpec(
             calendars=[

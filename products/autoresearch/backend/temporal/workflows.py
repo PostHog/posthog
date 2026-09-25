@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -100,7 +101,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
     The champion is read here, not passed in, so a retry after a promotion during scoring scores
     with the new champion instead of failing again on the archived one.
     """
-    with team_scope(inp.team_id):
+    with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
         if pipeline.status not in _LIVE_STATUSES:
             return RunInferenceResult(run_id="", rows_scored=0, status="skipped")
@@ -127,6 +128,8 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
 # Scoring can take minutes for large populations.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
+# A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
+_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 # Covers both attempts plus their backoff, so the child never cuts off a retry.
 _INFERENCE_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
@@ -159,6 +162,7 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
                 prediction_date=inp.prediction_date,
             ),
             start_to_close_timeout=_SCORE_ATTEMPT_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
             retry_policy=_SCORE_RETRY,
         )
 
@@ -223,7 +227,7 @@ _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=3)
 @activity.defn(name="autoresearch-validation.run_validation")
 def activity_run_validation(inp: RunValidationInput) -> RunValidationResult:
     """Find all matured unvalidated prediction dates and validate each one."""
-    with team_scope(inp.team_id):
+    with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
         if pipeline.status not in _LIVE_STATUSES:
             return RunValidationResult(dates_validated=0, total_rows=0, status="skipped")
@@ -269,6 +273,7 @@ class AutoresearchValidationWorkflow(PostHogWorkflow):
             activity_run_validation,
             RunValidationInput(pipeline_id=inp.pipeline_id, team_id=inp.team_id),
             start_to_close_timeout=_VALIDATION_ATTEMPT_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
             retry_policy=_VALIDATION_RETRY,
         )
 

@@ -2,7 +2,7 @@
 
 The scheduled half of autoresearch. Three workflows and four activities, registered on `settings.AUTORESEARCH_TASK_QUEUE` by `start_temporal_worker`, which imports `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
 
-Nothing here implements product logic. Every activity is a thin call into `../inference/`, `../evaluation/`, or `../training/` — the same functions the management commands and the API reach. That is deliberate: the scheduled path must not be able to drift from the headless one.
+Scoring, validation and training live in `../inference/`, `../evaluation/`, and `../training/` — the same functions the management commands and the API reach — and the activities call them, so the scheduled path cannot drift from the headless one. What stays here is the sweep's own logic: discovery (cadence, rollout, creator access) and the kickoff's eligibility gates, budget debit and row lock.
 
 ## What lives here
 
@@ -34,11 +34,11 @@ daily schedule
              └─ activity_kickoff_training       → ../training/
 ```
 
-The coordinator decides _whether_ each pipeline is due; the child workflows do one pipeline's work.
+The coordinator decides _whether_ each pipeline is due; the child workflows do one pipeline's work. Keep that split — per-pipeline logic in the coordinator is what makes a fan-out impossible to reason about.
 Validation runs on every daily sweep, because a matured date should not wait for the next scoring day.
 Scoring and training kickoff run on a cadence day only, compared by calendar day, and kickoff starts after scoring ends.
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
-Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does. Keep that split — per-pipeline logic in the coordinator is what makes a fan-out impossible to reason about.
+Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
 
 Note that training is launched by an _activity_, not a child workflow, because the actual agent run happens in a Tasks sandbox with its own lifecycle. Autoresearch does not own that workflow; it fires it and the `TaskRun` `post_save` signal (`../training/ingestion.py`) picks the result back up.
 
@@ -60,6 +60,6 @@ Temporal activity payloads are capped at roughly 2 MiB, and autoresearch moves g
 - **Editing a `@workflow.defn` body breaks in-flight executions.** Adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers fails replay with a non-determinism error on every running execution.
   Gate new commands behind `workflow.patched("...")`, or on a new field of an existing activity's output dataclass that defaults to the skip value. Activity _implementations_ and activity _input_ dataclasses are safe to edit; command sequences are not.
 - **Never gate a workflow command on something computed inside the workflow body** — a feature flag, a setting, the clock, a database read. That is itself non-deterministic.
-- Keep activities thin. If you are writing product logic here, it belongs in the package the activity calls, or the management commands will quietly behave differently from production.
+- Keep scoring, validation and training logic out of the activities. It belongs in the package the activity calls, or the management commands will quietly behave differently from production. Only sweep-specific decisions (what is due, who may launch) stay here.
 - New workflows and activities must be added to `WORKFLOWS` / `ACTIVITIES` in `__init__.py` or they are never registered — this fails silently, since nothing errors when a workflow simply never runs.
 - **If you add or rename a workflow or activity, update this file to match.**

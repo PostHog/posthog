@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import User
 
@@ -175,12 +176,16 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         pipeline = self._create_pipeline(status=AutoresearchPipeline.Status.PAUSED)
 
         result: RunInferenceResult | RunValidationResult
+        env = ActivityEnvironment()
         if step == "inference":
-            result = activity_run_inference(
-                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11")
+            result = env.run(
+                activity_run_inference,
+                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
             )
         else:
-            result = activity_run_validation(RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+            result = env.run(
+                activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+            )
 
         assert result.status == "skipped"
         mock_inference.assert_not_called()
