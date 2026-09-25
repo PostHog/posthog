@@ -12,7 +12,13 @@ from posthog.api.test.test_team import create_team
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
 
 pytestmark = [pytest.mark.django_db]
@@ -65,7 +71,22 @@ def _create_run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETE
     return run_id
 
 
-def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team):
+@pytest.mark.parametrize(
+    "contract_enum,model_choices",
+    [
+        (contracts.DestinationType, BatchExportDestination.Destination),
+        (contracts.BatchExportModel, BatchExport.Model),
+        (contracts.BatchExportModel, BatchExportOnDemand.Model),
+        (contracts.BatchExportRunStatus, BatchExportRun.Status),
+        (contracts.BatchExportBackfillStatus, BatchExportBackfill.Status),
+    ],
+    ids=["destination type", "model", "on-demand model", "run status", "backfill status"],
+)
+def test_contract_enums_match_the_model_choices(contract_enum, model_choices):
+    assert {member.value for member in contract_enum} == set(model_choices.values)
+
+
+def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team, organization):
     scheduled = _create_export(team, name="scheduled")
     on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
 
@@ -75,9 +96,14 @@ def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team)
     _create_run(batch_export_id=scheduled, finished_at=WINDOW_END + dt.timedelta(hours=1), records=100)
     _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=100, status=BatchExportRun.Status.FAILED)
 
-    assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == [
-        contracts.TeamTotal(team_id=team.pk, total=22)
-    ]
+    uncounted_team = create_team(organization=organization)
+    uncounted = _create_export(uncounted_team, name="uncounted")
+    _create_run(batch_export_id=uncounted, finished_at=IN_WINDOW, records=None)
+
+    assert set(api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END)) == {
+        contracts.TeamTotal(team_id=team.pk, total=22),
+        contracts.TeamTotal(team_id=uncounted_team.pk, total=0),
+    }
 
 
 @pytest.mark.parametrize(
@@ -233,6 +259,28 @@ def test_latest_run_is_by_creation_and_latest_completed_run_is_by_finish(team):
 
     assert latest is not None and latest.id == created_last
     assert latest_completed is not None and latest_completed.id == finished_last
+
+
+def test_backfills_for_export_lists_every_backfill_newest_first_within_the_team(team, organization):
+    export_id = _create_export(team)
+    backfill_ids = []
+    for offset in (2, 0, 1):
+        backfill_id = testing.create_backfill(
+            export_id,
+            team_id=team.pk,
+            status=BatchExportBackfill.Status.COMPLETED,
+            start_at=IN_WINDOW - dt.timedelta(days=offset),
+        )
+        BatchExportBackfill.objects.filter(id=backfill_id).update(created_at=IN_WINDOW + dt.timedelta(hours=offset))
+        backfill_ids.append(backfill_id)
+    other_team = create_team(organization=organization)
+
+    assert [backfill.id for backfill in api.list_backfills_for_export(export_id, team.pk)] == [
+        backfill_ids[0],
+        backfill_ids[2],
+        backfill_ids[1],
+    ]
+    assert api.list_backfills_for_export(export_id, other_team.pk) == []
 
 
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):

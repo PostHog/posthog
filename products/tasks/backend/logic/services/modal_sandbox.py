@@ -1823,6 +1823,22 @@ class ModalSandbox(AgentServerLaunchMixin):
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
 
+    def exit_reason(self) -> str | None:
+        returncode = self._sandbox.returncode
+        if returncode is None:
+            try:
+                returncode = self._sandbox.poll()
+            except Exception as e:
+                logger.warning(f"Failed to poll sandbox {self.id} for its exit code: {e}")
+                return None
+        if returncode is None:
+            return None
+        if returncode == 137:
+            return "killed with exit code 137, usually because it ran out of memory"
+        if returncode == 124:
+            return "timed out"
+        return f"exited with code {returncode}"
+
     @property
     def name(self) -> str:
         return self.config.name
