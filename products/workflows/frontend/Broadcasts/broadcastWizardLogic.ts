@@ -900,9 +900,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
                 return
             }
+            // Overlapping autosaves share the pending flag, so only the latest edit may clear it.
+            const generation = (cache.emailEditGeneration = (cache.emailEditGeneration ?? 0) + 1)
+            const clearPending = (): void => {
+                if (cache.emailEditGeneration === generation) {
+                    cache.emailEditPending = false
+                }
+            }
             cache.emailEditPending = true
             await breakpoint(1000)
-            if (!values.broadcastId || !values.currentProjectId) {
+            if (
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.currentStep !== 'content' ||
+                values.broadcast?.status !== 'draft'
+            ) {
+                // Continue or Launch saves this edit instead.
+                clearPending()
                 return
             }
             const projectId = String(values.currentProjectId)
@@ -911,11 +925,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // assistant's edit between two keystrokes comes back as a conflict instead of being lost.
                 await saves.run(async () => {
                     actions.draftAutosaved(await saveWithoutClobbering(projectId, values.broadcastId!, values))
-                    cache.emailEditPending = false
+                    clearPending()
                 })
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
-                    cache.emailEditPending = false
+                    clearPending()
                     cache.autosaveConflict = true
                     actions.applyExternalEdit(error.latest, values.broadcast)
                     lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
