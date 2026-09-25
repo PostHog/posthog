@@ -37,7 +37,14 @@ class TestLanguageServiceClient(SimpleTestCase):
         response.ok = True
         response.status_code = 200
         response.content = b'{"valid":true,"diagnostics":[],"durationMicros":42}'
-        response.json.return_value = {"valid": True, "diagnostics": [], "durationMicros": 42}
+        response.json.return_value = {
+            "valid": True,
+            "diagnostics": [],
+            "tableNames": [],
+            "durationMicros": 42,
+            "catalogRevision": "warehouse-aliases-v1:cached",
+            "positionEncoding": "utf-16",
+        }
         request.return_value = response
 
         result = LanguageServiceClient().validate(12, 34, "SELECT 1")
@@ -59,7 +66,8 @@ class TestLanguageServiceClient(SimpleTestCase):
         assert claims["team_id"] == 12
         assert claims["user_id"] == 34
         assert claims["operations"] == ["validate"]
-        assert result.body["valid"] is True
+        assert result.body.valid is True
+        assert result.body.notices == []
         assert result.response_size_bytes == len(response.content)
 
     @patch("posthog.hogql.language_service.internal_requests.request")
@@ -97,6 +105,90 @@ class TestLanguageServiceClient(SimpleTestCase):
 
         with self.assertRaises(MalformedLanguageServiceResponse):
             LanguageServiceClient().validate(12, 34, "SELECT event FROM events")
+
+    @parameterized.expand(
+        [
+            ("diagnostics_collection", {"diagnostics": {}}, "SELECT 1"),
+            ("diagnostics_nested", {"diagnostics": [None]}, "SELECT 1"),
+            ("notices_collection", {"notices": {}}, "SELECT 1"),
+            ("notices_nested", {"notices": [None]}, "SELECT 1"),
+            ("notice_missing_message", {"notices": [{"start": 1, "end": 2}]}, "SELECT 1"),
+            ("notice_missing_start", {"notices": [{"message": "field", "end": 2}]}, "SELECT 1"),
+            ("notice_missing_end", {"notices": [{"message": "field", "start": 1}]}, "SELECT 1"),
+            ("notice_boolean_offset", {"notices": [{"message": "field", "start": True, "end": 2}]}, "SELECT 1"),
+            ("notice_string_offset", {"notices": [{"message": "field", "start": "1", "end": 2}]}, "SELECT 1"),
+            ("notice_empty_span", {"notices": [{"message": "field", "start": 2, "end": 2}]}, "SELECT 1"),
+            ("notice_out_of_range", {"notices": [{"message": "field", "start": 1, "end": 99}]}, "SELECT 1"),
+            (
+                "diagnostic_out_of_range",
+                {"diagnostics": [{"code": "syntax_error", "message": "bad", "start": 0, "end": 99}]},
+                "SELECT 1",
+            ),
+            ("wrong_encoding", {"positionEncoding": "utf-8"}, "SELECT 1"),
+            ("null_table_names", {"tableNames": None}, "SELECT 1"),
+            ("numeric_duration", {"durationMicros": "42"}, "SELECT 1"),
+        ]
+    )
+    @patch("posthog.hogql.language_service.internal_requests.request")
+    def test_rejects_invalid_validation_data(
+        self, _name: str, changed: dict[str, object], query: str, request: MagicMock
+    ) -> None:
+        response = MagicMock(ok=True, status_code=200, content=b"invalid")
+        response.json.return_value = {
+            "valid": True,
+            "diagnostics": [],
+            "tableNames": [],
+            "durationMicros": 42,
+            "catalogRevision": "warehouse-aliases-v1:cached",
+            "positionEncoding": "utf-16",
+            **changed,
+        }
+        request.return_value = response
+
+        with self.assertRaises(MalformedLanguageServiceResponse) as raised:
+            LanguageServiceClient().validate(12, 34, query)
+
+        assert str(raised.exception) == "language service returned invalid validation data"
+        assert raised.exception.__cause__ is None
+
+    @patch("posthog.hogql.language_service.internal_requests.request")
+    def test_preserves_utf16_offsets_and_ignores_unknown_fields(self, request: MagicMock) -> None:
+        query = "SELECT '😀', event FROM events"
+        response = MagicMock(ok=True, status_code=200, content=b"valid")
+        response.json.return_value = {
+            "valid": True,
+            "diagnostics": [{"code": "unknown_property", "message": "missing", "start": 13, "end": 18}],
+            "notices": [{"message": "field", "start": 13, "end": 18, "fix": "event", "future": 1}],
+            "tableNames": ["events"],
+            "durationMicros": 42,
+            "catalogRevision": "warehouse-aliases-v1:cached",
+            "positionEncoding": "utf-16",
+            "future": 1,
+        }
+        request.return_value = response
+
+        result = LanguageServiceClient().validate(12, 34, query)
+
+        assert (result.body.notices[0].start, result.body.notices[0].end) == (13, 18)
+        assert result.body.notices[0].fix == "event"
+        assert result.body.diagnostics[0].code == "unknown_property"
+
+    @patch("posthog.hogql.language_service.internal_requests.request")
+    def test_accepts_zero_width_diagnostic_at_end_of_query(self, request: MagicMock) -> None:
+        response = MagicMock(ok=True, status_code=200, content=b"valid")
+        response.json.return_value = {
+            "valid": False,
+            "diagnostics": [{"code": "syntax_error", "message": "Unexpected end", "start": 8, "end": 8}],
+            "tableNames": [],
+            "durationMicros": 42,
+            "catalogRevision": "warehouse-aliases-v1:cached",
+            "positionEncoding": "utf-16",
+        }
+        request.return_value = response
+
+        result = LanguageServiceClient().validate(12, 34, "SELECT 1")
+
+        assert result.body.diagnostics[0].start == result.body.diagnostics[0].end == 8
 
     @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
     @patch("posthog.hogql.language_service.internal_requests.request", side_effect=requests.Timeout("timed out"))

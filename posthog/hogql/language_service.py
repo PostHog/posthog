@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import field
 from datetime import timedelta
 from hashlib import sha256
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -16,6 +16,7 @@ import redis
 import requests
 import structlog
 import posthoganalytics
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, model_validator
 
 from posthog.schema import DatabaseSchemaDataWarehouseTable, DatabaseSchemaQueryResponse
 
@@ -27,6 +28,7 @@ from posthog.hogql.editor_assist_metrics import (
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
 from posthog.redis import get_client
@@ -66,21 +68,76 @@ class MalformedLanguageServiceResponse(LanguageServiceError):
     pass
 
 
-@dataclass(frozen=True)
-class LanguageServiceResult:
-    body: dict[str, Any]
+class ValidationSuggestion(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", hide_input_in_errors=True)
+
+    label: str
+    distance: int
+
+
+class ValidationDiagnostic(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", hide_input_in_errors=True)
+
+    code: str
+    message: str
+    start: int
+    end: int
+    suggestions: list[ValidationSuggestion] = Field(default_factory=list)
+
+
+class ValidationNotice(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", hide_input_in_errors=True)
+
+    message: str
+    start: int
+    end: int
+    fix: str | None = None
+
+
+class LanguageServiceValidationResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore", hide_input_in_errors=True)
+
+    valid: bool
+    diagnostics: list[ValidationDiagnostic]
+    notices: list[ValidationNotice] = Field(default_factory=list)
+    tableNames: list[str]
+    durationMicros: int
+    catalogRevision: str
+    positionEncoding: Literal["utf-16"]
+
+    @model_validator(mode="after")
+    def validate_spans(self, info: ValidationInfo) -> LanguageServiceValidationResponse:
+        if not isinstance(info.context, dict):
+            raise ValueError("missing query length for validation response")
+        query_length_utf16: int = info.context["query_length_utf16"]
+        for diagnostic in self.diagnostics:
+            if not 0 <= diagnostic.start <= diagnostic.end <= query_length_utf16:
+                raise ValueError("invalid diagnostic span")
+        for notice in self.notices:
+            if not 0 <= notice.start < notice.end <= query_length_utf16:
+                raise ValueError("invalid notice span")
+        return self
+
+
+@frozen
+class LanguageServiceResult[T = dict[str, Any]]:
+    body: T = field(repr=False)
     duration_seconds: float
     response_size_bytes: int
+
+
+type RawLanguageServiceResult = LanguageServiceResult[dict[str, Any]]
+type ValidationLanguageServiceResult = LanguageServiceResult[LanguageServiceValidationResponse]
 
 
 def coordinate_catalog_publication(
     team_id: int,
     user_id: int,
     service_target: str,
-    check_catalog: Callable[[], LanguageServiceResult | None],
+    check_catalog: Callable[[], RawLanguageServiceResult | ValidationLanguageServiceResult | None],
     publish_catalog: Callable[[], None],
     timings: HogQLTimings | None = None,
-) -> LanguageServiceResult | None:
+) -> RawLanguageServiceResult | ValidationLanguageServiceResult | None:
     scope = sha256(
         f"{service_target}:{team_id}:{user_id}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()
     ).hexdigest()
@@ -88,7 +145,7 @@ def coordinate_catalog_publication(
     marker_key = f"{key_prefix}:success"
     lock_key = f"{key_prefix}:lock"
 
-    def measured_check_catalog() -> LanguageServiceResult | None:
+    def measured_check_catalog() -> RawLanguageServiceResult | ValidationLanguageServiceResult | None:
         with _measure(timings, "language_service_check"):
             return check_catalog()
 
@@ -271,12 +328,12 @@ class LanguageServiceClient:
             raise LanguageServiceError("HogQL language service is not configured")
         self.signing_key = keys[0]
 
-    def publish(self, team_id: int, user_id: int, revision: str, catalog: dict[str, Any]) -> LanguageServiceResult:
+    def publish(self, team_id: int, user_id: int, revision: str, catalog: dict[str, Any]) -> RawLanguageServiceResult:
         return self._request(
             "PUT", team_id, user_id, "catalog", "publish", {"revision": revision, "catalog": catalog}, 10
         )
 
-    def autocomplete(self, team_id: int, user_id: int, query: str, position: int) -> LanguageServiceResult:
+    def autocomplete(self, team_id: int, user_id: int, query: str, position: int) -> RawLanguageServiceResult:
         return self._request(
             "POST",
             team_id,
@@ -287,8 +344,8 @@ class LanguageServiceClient:
             1,
         )
 
-    def validate(self, team_id: int, user_id: int, query: str) -> LanguageServiceResult:
-        return self._request(
+    def validate(self, team_id: int, user_id: int, query: str) -> ValidationLanguageServiceResult:
+        result = self._request(
             "POST",
             team_id,
             user_id,
@@ -296,6 +353,16 @@ class LanguageServiceClient:
             "validate",
             {"query": query, "positionEncoding": "utf-16"},
             1,
+        )
+        try:
+            validation = LanguageServiceValidationResponse.model_validate(
+                result.body,
+                context={"query_length_utf16": len(query.encode("utf-16-le", errors="surrogatepass")) // 2},
+            )
+        except ValidationError:
+            raise MalformedLanguageServiceResponse("language service returned invalid validation data") from None
+        return LanguageServiceResult(
+            body=validation, duration_seconds=result.duration_seconds, response_size_bytes=result.response_size_bytes
         )
 
     def _request(
@@ -307,7 +374,7 @@ class LanguageServiceClient:
         operation: str,
         payload: dict[str, Any],
         timeout_seconds: float,
-    ) -> LanguageServiceResult:
+    ) -> RawLanguageServiceResult:
         token = encode_jwt(
             {"team_id": team_id, "user_id": user_id, "operations": [operation]},
             timedelta(minutes=1),

@@ -6,7 +6,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import posthoganalytics
 from parameterized import parameterized
@@ -43,7 +43,9 @@ from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceError,
     LanguageServiceResult,
+    LanguageServiceValidationResponse,
     MalformedLanguageServiceResponse,
+    ValidationLanguageServiceResult,
     build_catalog,
 )
 
@@ -72,7 +74,71 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
+def _validation_result(
+    body: dict[str, object], query: str = "SELECT event FROM events JOIN evnts ON 1 = 1"
+) -> LanguageServiceResult[LanguageServiceValidationResponse]:
+    payload = {
+        "valid": True,
+        "diagnostics": [],
+        "tableNames": [],
+        "durationMicros": 0,
+        "catalogRevision": "warehouse-aliases-v1:cached",
+        "positionEncoding": "utf-16",
+        **body,
+    }
+    return LanguageServiceResult(
+        body=LanguageServiceValidationResponse.model_validate(
+            payload, context={"query_length_utf16": len(query.encode("utf-16-le", errors="surrogatepass")) // 2}
+        ),
+        duration_seconds=0,
+        response_size_bytes=0,
+    )
+
+
 class TestLanguageServiceRouting(SimpleTestCase):
+    @override_settings(
+        HOGQL_LANGUAGE_SERVICE_URL="http://language-service:8091",
+        HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=["test-language-service-signing-key"],
+    )
+    @patch("posthog.api.services.query._capture_malformed_language_service_response")
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
+    @patch("posthog.api.services.query.get_hogql_metadata")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.hogql.language_service.internal_requests.request")
+    def test_malformed_validation_http_response_uses_python_fallback(
+        self,
+        request: MagicMock,
+        _enabled: MagicMock,
+        python_metadata: MagicMock,
+        responses_total: MagicMock,
+        capture_malformed: MagicMock,
+    ) -> None:
+        query_text = "SELECT event FROM events"
+        request.return_value = MagicMock(ok=True, status_code=200, content=b"malformed")
+        request.return_value.json.return_value = {
+            "valid": True,
+            "diagnostics": {},
+            "tableNames": ["events"],
+            "durationMicros": 42,
+            "catalogRevision": "warehouse-aliases-v1:cached",
+            "positionEncoding": "utf-16",
+        }
+        python_metadata.return_value = HogQLMetadataResponse(
+            isValid=True, query=query_text, errors=[], warnings=[], notices=[], table_names=["events"]
+        )
+
+        response = process_query_model(
+            cast(Team, SimpleNamespace(pk=12)),
+            HogQLMetadata(query=query_text, language=HogLanguage.HOG_QL),
+            user=cast(User, SimpleNamespace(pk=34)),
+        )
+
+        assert response is python_metadata.return_value
+        capture_malformed.assert_called_once_with("metadata", "http_response")
+        responses_total.labels.assert_called_once_with(
+            operation="metadata", backend="python", reason="invalid_response"
+        )
+
     @parameterized.expand(
         [
             (
@@ -110,9 +176,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         body: dict[str, object] = {"valid": True, "diagnostics": [], "tableNames": ["events"]}
         if raw_notices is not None:
             body["notices"] = raw_notices
-        response = _metadata_response_from_language_service(
-            query, LanguageServiceResult(body=body, duration_seconds=0, response_size_bytes=0)
-        )
+        response = _metadata_response_from_language_service(query, _validation_result(body, query_text))
 
         assert response.isValid is True
         assert len(response.notices or []) == len(raw_notices or [])
@@ -411,7 +475,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         _enabled: MagicMock,
         responses_total: MagicMock,
     ) -> None:
-        client_class.return_value.validate.return_value = LanguageServiceResult(
+        client_class.return_value.validate.return_value = _validation_result(
             body={
                 "catalogRevision": "warehouse-aliases-v1:cached",
                 "valid": False,
@@ -430,8 +494,6 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 ],
                 "tableNames": ["events", "evnts"],
             },
-            duration_seconds=0.001,
-            response_size_bytes=128,
         )
 
         query = HogQLMetadata(
@@ -529,66 +591,6 @@ class TestLanguageServiceRouting(SimpleTestCase):
             capture_malformed.assert_not_called()
         else:
             capture_malformed.assert_called_once_with("metadata", malformed_stage)
-
-    @parameterized.expand(
-        [
-            ("diagnostics_collection", {"diagnostics": {}}, "SELECT event FROM events"),
-            ("diagnostics_nested", {"diagnostics": [None]}, "SELECT event FROM events"),
-            ("notices_collection", {"notices": {}}, "SELECT event FROM events"),
-            ("notices_nested", {"notices": [None]}, "SELECT event FROM events"),
-            ("notices_missing_message", {"notices": [{"start": 7, "end": 12}]}, "SELECT event FROM events"),
-            ("notices_missing_start", {"notices": [{"message": "field", "end": 12}]}, "SELECT event FROM events"),
-            ("notices_missing_end", {"notices": [{"message": "field", "start": 7}]}, "SELECT event FROM events"),
-            (
-                "notices_out_of_range",
-                {"notices": [{"message": "field", "start": 7, "end": 999}]},
-                "SELECT event FROM events",
-            ),
-        ]
-    )
-    @patch("posthog.api.services.query._capture_malformed_language_service_response")
-    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
-    @patch("posthog.api.services.query.get_hogql_metadata")
-    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
-    @patch("posthog.api.services.query.LanguageServiceClient")
-    def test_malformed_metadata_mapping_falls_back(
-        self,
-        _name: str,
-        payload: dict[str, object],
-        query_text: str,
-        client_class: MagicMock,
-        enabled: MagicMock,
-        python_metadata: MagicMock,
-        analytics_client: MagicMock,
-        capture_malformed: MagicMock,
-    ) -> None:
-        client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"catalogRevision": "warehouse-aliases-v1:cached", "diagnostics": [], **payload},
-            duration_seconds=0,
-            response_size_bytes=0,
-        )
-        python_metadata.return_value = HogQLMetadataResponse(
-            isValid=True,
-            query=query_text,
-            errors=[],
-            warnings=[],
-            notices=[],
-            table_names=["events"],
-        )
-
-        response = process_query_model(
-            cast(Team, SimpleNamespace(pk=12)),
-            HogQLMetadata(query=query_text, language=HogLanguage.HOG_QL),
-            user=cast(User, SimpleNamespace(pk=34)),
-        )
-
-        assert response is python_metadata.return_value
-        capture_malformed.assert_called_once_with("metadata", "response_mapping")
-        analytics_client.labels.assert_called_once_with(
-            operation="metadata", backend="python", reason="invalid_response"
-        )
-        analytics_client.labels.return_value.inc.assert_called_once_with()
-        enabled.assert_called_once()
 
     @parameterized.expand(
         [
@@ -890,7 +892,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         mock_language_service_call.return_value = _EditorAssistRoute(
             enabled=True,
             reason="served",
-            result=LanguageServiceResult(
+            result=_validation_result(
                 body={
                     "valid": False,
                     "diagnostics": [
@@ -903,8 +905,6 @@ class TestLanguageServiceRouting(SimpleTestCase):
                     ],
                     "tableNames": ["events"],
                 },
-                duration_seconds=0.001,
-                response_size_bytes=128,
             ),
         )
 
@@ -928,11 +928,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         get_redis_client: MagicMock,
         _enabled: MagicMock,
     ) -> None:
-        client_class.return_value.validate.return_value = LanguageServiceResult(
-            body={"valid": True, "catalogRevision": "warehouse-aliases-v1:cached"},
-            duration_seconds=0,
-            response_size_bytes=0,
-        )
+        client_class.return_value.validate.return_value = _validation_result({})
 
         result = _language_service_call(
             cast(Team, SimpleNamespace(pk=12)),
@@ -972,9 +968,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         first = (
             CatalogMissing("missing")
             if cached_revision is None
-            else LanguageServiceResult(
-                body={"valid": True, "catalogRevision": cached_revision}, duration_seconds=0, response_size_bytes=0
-            )
+            else _validation_result({"catalogRevision": cached_revision})
         )
         published_revision: list[str] = []
 
@@ -983,16 +977,12 @@ class TestLanguageServiceRouting(SimpleTestCase):
 
         client.publish.side_effect = publish
 
-        def validate(*_args: object) -> LanguageServiceResult:
+        def validate(*_args: object) -> ValidationLanguageServiceResult:
             if client.validate.call_count <= 2:
                 if isinstance(first, Exception):
                     raise first
                 return first
-            return LanguageServiceResult(
-                body={"valid": True, "catalogRevision": published_revision[0]},
-                duration_seconds=0,
-                response_size_bytes=0,
-            )
+            return _validation_result({"catalogRevision": published_revision[0]})
 
         client.validate.side_effect = validate
         build_schema.return_value = _DatabaseSchemaCatalog(response=MagicMock(), database=MagicMock())
@@ -1023,11 +1013,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
     ) -> None:
         client = client_class.return_value
         client.base_url = "http://language-service:8091"
-        client.validate.return_value = LanguageServiceResult(
-            body={"valid": True, "catalogRevision": "legacy-v1:cached"},
-            duration_seconds=0,
-            response_size_bytes=0,
-        )
+        client.validate.return_value = _validation_result({"catalogRevision": "legacy-v1:cached"})
         client.publish.side_effect = LanguageServiceError("language service returned 400")
         get_redis_client.return_value.get.return_value = None
         get_redis_client.return_value.lock.return_value.acquire.return_value = True
@@ -1070,21 +1056,11 @@ class TestLanguageServiceRouting(SimpleTestCase):
         client = client_class.return_value
         client.base_url = "http://language-service:8091"
         client.validate.side_effect = [
-            LanguageServiceResult(
-                body={"valid": True, "catalogRevision": "legacy-v1:cached"},
-                duration_seconds=0,
-                response_size_bytes=0,
-            ),
-            LanguageServiceResult(
-                body={"valid": True, "catalogRevision": "legacy-v1:cached"},
-                duration_seconds=0,
-                response_size_bytes=0,
-            ),
-            LanguageServiceResult(
-                body={"valid": True, "catalogRevision": retry_revision},
-                duration_seconds=0,
-                response_size_bytes=0,
-            ),
+            _validation_result({"catalogRevision": "legacy-v1:cached"}),
+            _validation_result({"catalogRevision": "legacy-v1:cached"}),
+            _validation_result({"catalogRevision": retry_revision})
+            if isinstance(retry_revision, str)
+            else MalformedLanguageServiceResponse("invalid catalog revision"),
         ]
         get_redis_client.return_value.get.return_value = None
         get_redis_client.return_value.lock.return_value.acquire.return_value = True
