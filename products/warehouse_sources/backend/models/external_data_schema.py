@@ -1702,28 +1702,27 @@ def _pause_schedule_then_disable_schema(schema: "ExternalDataSchema") -> None:
     never retries the pause. Keeping the row on until the pause lands makes a failed pause
     self-healing, because the table is still on and still unlisted when discovery next runs.
 
-    The failure is logged rather than raised: Django drops the remaining `on_commit` callbacks once
-    one raises, so raising here would also strand every other table removed in the same commit, and
-    on the API paths it would fail a request whose reconcile already committed.
+    Nothing here raises: Django drops the remaining `on_commit` callbacks once one of them raises,
+    so an error would also strand every other table removed in the same commit, and on the API
+    paths it would fail a request whose reconcile already committed. A pause that lands without its
+    write (or without its teardown dispatch) heals the same way, on the next discovery run. The
+    write is scoped to its own columns because the row was read before the commit, so a full save
+    would push back whatever a concurrent writer changed in the meantime.
     """
     # Call-time import for the reason given in update_should_sync above.
     from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
 
     try:
         pause_external_data_schedule(str(schema.id))
+        schema.should_sync = False
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.save(update_fields=["should_sync", "status", "updated_at"])
     except Exception:
         logger.exception(
-            "discovery_removed_schema_pause_failed",
+            "discovery_removed_schema_disable_failed",
             external_data_schema_id=str(schema.id),
             team_id=schema.team_id,
         )
-        return
-
-    schema.should_sync = False
-    schema.status = ExternalDataSchema.Status.COMPLETED
-    # Scoped write: the row was read before the commit, so a full save would push back whatever a
-    # concurrent writer changed on the other columns in the meantime.
-    schema.save(update_fields=["should_sync", "status", "updated_at"])
 
 
 def sync_old_schemas_with_new_schemas(
@@ -1825,11 +1824,9 @@ def sync_old_schemas_with_new_schemas(
                 s.soft_delete()
                 deleted_schemas.append(schema)
             elif s.should_sync:
-                # Turning the table off is the pause plus the write, in that order, and both run
-                # after the commit: callers can hold the source row lock in a transaction, and the
-                # Temporal call must not run inside it. A table that is already off needs no pause,
-                # and pausing it again on every discovery run would open a Temporal connection per
-                # table per run.
+                # After the commit because callers can hold the source row lock, and the Temporal
+                # call must not run inside it. A row already off needs no pause, and pausing it
+                # again every run would open a Temporal connection per table per run.
                 transaction.on_commit(partial(_pause_schedule_then_disable_schema, s))
             else:
                 s.status = ExternalDataSchema.Status.COMPLETED

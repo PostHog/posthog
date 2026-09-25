@@ -174,10 +174,8 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         mock_pause.assert_called_once_with(str(enabled_unsynced.id))
 
     def test_failed_pause_leaves_the_table_on_and_still_pauses_the_others(self) -> None:
-        # The sync workflow does not read should_sync, so a row written off while its schedule is
-        # still running keeps billing runs, and the next discovery run would skip it (already off)
-        # instead of retrying. A failed pause must leave the row on, so the next run tries again,
-        # and must not stop the other removed tables in the same commit from pausing.
+        # A row written off while its schedule still runs keeps billing, and the next discovery run
+        # would skip it as already off, so a failed pause has to leave the row on for that retry.
         source = self._make_source()
         unreachable = self._make_synced_schema(source, "leads")
         other_removed = self._make_synced_schema(source, "deals")

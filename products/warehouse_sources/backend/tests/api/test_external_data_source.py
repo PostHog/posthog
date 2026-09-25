@@ -14206,8 +14206,7 @@ class TestGithubMultiRepoPatch(APIBaseTest):
             },
         )
 
-        # Retiring a repo's rows pauses their schedule and writes them off after the commit, so the
-        # test has to run the on-commit callbacks to see the row turn off.
+        # Retiring a removed repo's rows finishes after the commit, so run the callbacks.
         with (
             patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
             self.captureOnCommitCallbacks(execute=True),
