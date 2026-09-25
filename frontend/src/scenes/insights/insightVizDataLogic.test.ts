@@ -1239,6 +1239,25 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('slowQueryPossibilities', () => {
+        it.each([
+            ['the default range', undefined, undefined, false],
+            ['the last 30 days', '-30d', null, false],
+            ['the last 90 days', '-90d', null, false],
+            ['the last 180 days', '-180d', null, true],
+            ['all time', 'all', null, true],
+            ['a custom range of a year', '2024-01-01', '2024-12-31', true],
+            ['a custom range of a week', '2024-01-01', '2024-01-08', false],
+        ])('%s', (_, date_from, date_to, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                dateRange: date_from === undefined ? trendsQueryDefault.dateRange : { date_from, date_to },
+            } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.slowQueryPossibilities.includes('large_date_range')).toBe(expected)
+        })
+    })
+
     describe('allEventNames', () => {
         it('resolves action series once actionsModel mounts, without mounting it itself', async () => {
             initKeaTests()

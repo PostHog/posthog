@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
@@ -467,15 +467,27 @@ export function SlowQuerySuggestions({
     insightProps: InsightLogicProps
     loadingTimeSeconds?: number
 }): JSX.Element | null {
-    const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
+    const { slowQueryPossibilities, querySource } = useValues(insightVizDataLogic(insightProps))
 
     // `loadingTimeSeconds` only advances on dataNodeLogic's wall-clock timer, which Storybook has no
     // way to fast-forward, so a story covering these suggestions would have to sit through
     // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
     // them a consequence of the insight loading instead of a race against the clock.
     const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+    const isShown = loadingTimeSeconds >= slowLoadingTime && slowQueryPossibilities.length > 0
 
-    if (loadingTimeSeconds < slowLoadingTime) {
+    const hasReported = useRef(false)
+    useEffect(() => {
+        if (isShown && !hasReported.current) {
+            hasReported.current = true
+            posthog.capture('insight slow query suggestions shown', {
+                kind: querySource?.kind,
+                slow_query_possibilities: slowQueryPossibilities,
+            })
+        }
+    }, [isShown, querySource?.kind, slowQueryPossibilities])
+
+    if (!isShown) {
         return null
     }
 
@@ -496,12 +508,10 @@ export function SlowQuerySuggestions({
                 <CodeWrapper>Strict</CodeWrapper>.
             </li>
         ) : null,
-        <li key="reduce_date_range">Reduce the date range.</li>,
+        slowQueryPossibilities.includes('large_date_range') ? (
+            <li key="large_date_range">Reduce the date range.</li>
+        ) : null,
     ].filter((x) => x !== null)
-
-    if (steps.length === 0) {
-        return null
-    }
 
     return (
         <div className="flex items-center px-4 py-6 rounded bg-primary gap-x-3">

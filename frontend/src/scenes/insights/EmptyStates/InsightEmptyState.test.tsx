@@ -4,13 +4,16 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { TeamType } from '~/types'
+import { InsightLogicProps, TeamType } from '~/types'
 
-import { InsightEmptyState } from './EmptyStates'
+import { InsightEmptyState, SlowQuerySuggestions } from './EmptyStates'
 
 describe('EmptyStates', () => {
     describe('<InsightEmptyState />', () => {
@@ -75,6 +78,35 @@ describe('EmptyStates', () => {
 
             expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
             expect(!!container.querySelector('[data-attr="insight-empty-state"]')).toBe(!expectSampleData)
+        })
+    })
+
+    describe('<SlowQuerySuggestions />', () => {
+        const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
+
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { name: 'nothing for a query with no known cause', dateFrom: '-30d', expectPanel: false },
+            { name: 'the date range tip for a long range', dateFrom: '-180d', expectPanel: true },
+            { name: 'the date range tip for an all time range', dateFrom: 'all', expectPanel: true },
+        ])('renders $name', ({ dateFrom, expectPanel }) => {
+            const logic = insightVizDataLogic(insightProps)
+            logic.mount()
+            logic.actions.updateQuerySource({
+                ...trendsQueryDefault,
+                dateRange: { date_from: dateFrom },
+            } as TrendsQuery)
+
+            const { queryByText } = render(<SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={20} />)
+
+            expect(!!queryByText('Reduce the date range.')).toBe(expectPanel)
         })
     })
 })

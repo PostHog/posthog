@@ -18,7 +18,7 @@ import {
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
+import { dateMapping, dateStringToDayJs, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -164,6 +164,10 @@ import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
+// The product defaults (last 7, 14 or 30 days) and the "Last 90 days" preset must stay
+// below this, or a query nobody widened gets told to narrow its range.
+const LARGE_DATE_RANGE_DAYS = 90
+
 // Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
 const NO_ACTIONS: ActionType[] = []
 
@@ -228,6 +232,7 @@ export interface insightVizDataLogicValues {
     isFormulaModeOpenedExplicitly: boolean
     isFunnels: boolean
     isIntervalManuallySet: boolean
+    isLargeDateRangeQuery: boolean
     isLifecycle: boolean
     isNonTimeSeriesDisplay: boolean
     isPaths: boolean
@@ -1317,10 +1322,12 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean
+        isLargeDateRangeQuery: (dateRange: DateRange | null | undefined) => boolean
         slowQueryPossibilities: (
             isAllEventsQuery: boolean,
             isFirstTimeForUserQuery: boolean,
-            isStrictFunnelQuery: boolean
+            isStrictFunnelQuery: boolean,
+            isLargeDateRangeQuery: boolean
         ) => SlowQueryPossibilities[]
     }
 }
@@ -2619,12 +2626,32 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
+        isLargeDateRangeQuery: [
+            (s) => [s.dateRange],
+            (dateRange: DateRange | null | undefined): boolean => {
+                const dateFrom = dateRange?.date_from
+                if (!dateFrom) {
+                    // No explicit range means the product default, which is never large.
+                    return false
+                }
+                if (dateFrom === 'all') {
+                    return true
+                }
+                const from = dateStringToDayJs(dateFrom)
+                const to = dateRange?.date_to ? dateStringToDayJs(dateRange.date_to) : dayjs()
+                if (!from || !to) {
+                    return false
+                }
+                return to.diff(from, 'day') > LARGE_DATE_RANGE_DAYS
+            },
+        ],
         slowQueryPossibilities: [
-            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery, s.isStrictFunnelQuery],
+            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery, s.isStrictFunnelQuery, s.isLargeDateRangeQuery],
             (
                 isAllEventsQuery: boolean,
                 isFirstTimeForUserQuery: boolean,
-                isStrictFunnelQuery: boolean
+                isStrictFunnelQuery: boolean,
+                isLargeDateRangeQuery: boolean
             ): SlowQueryPossibilities[] => {
                 const possibilities: SlowQueryPossibilities[] = []
                 if (isAllEventsQuery) {
@@ -2635,6 +2662,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 }
                 if (isStrictFunnelQuery) {
                     possibilities.push('strict_funnel')
+                }
+                if (isLargeDateRangeQuery) {
+                    possibilities.push('large_date_range')
                 }
                 return possibilities
             },
