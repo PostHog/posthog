@@ -69,6 +69,70 @@ def update_remote_config_cache(team: Team | int, ttl: int | None = None) -> bool
     return True
 
 
+def verify_team_remote_config(
+    team: Team,
+    db_batch_data: dict | None = None,
+    cache_batch_data: dict | None = None,
+    verbose: bool = False,
+) -> dict:
+    """
+    Verify a team's array/config.json cache entry against its persisted RemoteConfig row.
+
+    The comparison target is RemoteConfig.config (the last synced blob) for the reason
+    given in this module's docstring: build_config() is expensive and side-effecting, and
+    a sweep only needs to know the cache still serves what the last sync produced.
+
+    Returns a dict with 'status' ("match", "miss", "mismatch") and 'issue' type, plus
+    'db_data' whenever there is something to repair with. When verbose=True, includes a
+    'diffs' list of the top-level keys that differ.
+    """
+    if cache_batch_data and team.id in cache_batch_data:
+        cached_data, source, _ = cache_batch_data[team.id]
+    else:
+        # Redis-only read; get_from_cache() would fall through to S3 and then rebuild
+        # the config, which turns a verification pass into a fleet-wide rebuild.
+        cached_data, source, _ = remote_config_hypercache.batch_get_from_cache([team])[team.id]
+
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
+    else:
+        db_data = RemoteConfig.objects.filter(team=team).values_list("config", flat=True).first()
+
+    if not db_data:
+        # Nothing has been synced yet, so there is no authoritative value to compare
+        # against. Creating the row is sync_all_remote_configs' job, and reporting these
+        # teams as broken here would bury the entries this sweep exists to find.
+        return {"status": "match", "issue": "", "details": "No synced config"}
+
+    if not cached_data or source == "miss":
+        return {
+            "status": "miss",
+            "issue": "CACHE_MISS",
+            "details": "No cached data found",
+            "db_data": db_data,
+        }
+
+    if cached_data == db_data:
+        return {"status": "match", "issue": "", "details": ""}
+
+    diff_fields = sorted(key for key in set(db_data) | set(cached_data) if db_data.get(key) != cached_data.get(key))
+
+    result: dict = {
+        "status": "mismatch",
+        "issue": "DATA_MISMATCH",
+        "details": f"{len(diff_fields)} field(s) differ",
+        "diff_fields": diff_fields,
+        "db_data": db_data,
+    }
+
+    if verbose:
+        result["diffs"] = [
+            {"field": key, "db_value": db_data.get(key), "cached_value": cached_data.get(key)} for key in diff_fields
+        ]
+
+    return result
+
+
 REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=remote_config_hypercache,
     update_fn=update_remote_config_cache,

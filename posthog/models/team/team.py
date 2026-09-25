@@ -83,6 +83,11 @@ DEFAULT_CURRENCY = CurrencyCode.USD.value
 
 ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
 
+# Instance attribute carrying the pre-change api_token from _persist_api_token_change to
+# the RemoteConfig post_save receiver. It lives here so remote_config.py, which already
+# imports Team, can read it without an import cycle.
+REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR = "_remote_config_previous_api_token"
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -949,6 +954,9 @@ class Team(UUIDTClassicModel):
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
+        # Read by the RemoteConfig post_save receiver, which needs the old token to evict
+        # the entry it keys and to force a sync the unchanged payload would otherwise skip.
+        self.__dict__[REMOTE_CONFIG_PREVIOUS_TOKEN_ATTR] = old_token
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
