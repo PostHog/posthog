@@ -3,9 +3,9 @@
 
 On GitHub Actions, PostHog/posthog-github-action sends `posthog-ci-running-time` and one
 `posthog-ci-running-time-job` event per job. It reads the run from the Actions API by run id,
-and GitHub has no run for a Depot run id. This script reads the run from the Depot API instead
-and sends the same events with the same properties. `workflow` and `runner` tell the two
-engines apart.
+and GitHub has no run for a Depot run id. This script reads the workflow with
+`depot ci workflow show` instead and sends the same events with the same property keys.
+`workflow` and `runner` tell the two engines apart.
 """
 
 import os
@@ -14,13 +14,13 @@ import sys
 import json
 import math
 import datetime as dt
+import subprocess
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
 
 JSONObject = dict[str, Any]
 
-DEPOT_CI_SERVICE_URL = "https://api.depot.dev/depot.ci.v1.CIService"
 POSTHOG_BATCH_URL = "https://us.i.posthog.com/batch/"
 EVENT = "posthog-ci-running-time"
 DISTINCT_ID = "posthog-github-action"
@@ -69,23 +69,23 @@ def github_context(env: Mapping[str, str]) -> JSONObject:
     }
 
 
-def job_events(workflow: JSONObject, context: JSONObject, groups: JSONObject) -> list[JSONObject]:
+def job_events(jobs: list[JSONObject], context: JSONObject, groups: JSONObject) -> list[JSONObject]:
     events: list[JSONObject] = []
-    for job in workflow.get("jobs", []):
-        if job["jobKey"].endswith(MATRIX_PLACEHOLDER_SUFFIX):
+    for job in jobs:
+        if job["job_key"].endswith(MATRIX_PLACEHOLDER_SUFFIX):
             continue
         # A retried job keeps its earlier attempts. The Actions API reports the latest attempt only.
         latest = max(job.get("attempts") or [job], key=lambda attempt: attempt.get("attempt", 0))
-        finished_at = latest.get("finishedAt")
+        finished_at = latest.get("finished_at")
         if not finished_at:
             continue
         # A skipped job never starts, and the Actions API reports it with a zero duration.
-        started_at = latest.get("startedAt") or finished_at
+        started_at = latest.get("started_at") or finished_at
         events.append(
             {
                 "event": f"{EVENT}-job",
                 "properties": {
-                    "name": job.get("jobDisplayName") or job["jobKey"],
+                    "name": job.get("job_display_name") or job["job_key"],
                     "duration_seconds": seconds_between(started_at, finished_at),
                     "conclusion": conclusion(job["status"]),
                     "started_at": started_at,
@@ -100,24 +100,26 @@ def job_events(workflow: JSONObject, context: JSONObject, groups: JSONObject) ->
 
 
 def build_events(
-    workflow: JSONObject, workflow_url: str, status_job: str, env: Mapping[str, str], now: dt.datetime
+    shown: JSONObject, workflow_url: str, status_job: str, env: Mapping[str, str], now: dt.datetime
 ) -> list[JSONObject]:
     context = github_context(env)
     group_key = f"{context['repositoryOwner']}/{context['repository']}/{context['runId']}"
     groups = {"workflow_run": group_key}
+    started_at = shown["workflow"]["started_at"]
     properties: JSONObject = {
-        "duration_seconds": math.floor((now - dt.datetime.fromisoformat(workflow["runStartedAt"])).total_seconds()),
+        "duration_seconds": seconds_between(started_at, now.isoformat()),
         "url": workflow_url,
         "attempt": int(env["GITHUB_RUN_ATTEMPT"]),
-        "started_at": workflow["runStartedAt"],
+        "started_at": started_at,
+        "runner": RUNNER,
     }
+    jobs = shown.get("jobs") or []
     # A job key is `<workflow file>:<job id>`, with a `:matrix-NN` suffix on matrix cells.
-    gate = next((job for job in workflow.get("jobs", []) if job["jobKey"].partition(":")[2] == status_job), None)
+    gate = next((job for job in jobs if job["job_key"].partition(":")[2] == status_job), None)
     if gate is None:
         sys.stdout.write(f"::warning::Job '{status_job}' not found in the Depot workflow\n")
     else:
         properties["conclusion"] = conclusion(gate["status"])
-    properties["runner"] = RUNNER
 
     events = [{"event": EVENT, "properties": {**properties, **context, "$groups": groups}}]
     if "conclusion" in properties:
@@ -132,20 +134,21 @@ def build_events(
                 "distinct_id": f"$workflow_run_{group_key}",
             }
         )
-    events.extend(job_events(workflow, context, groups))
+    events.extend(job_events(jobs, context, groups))
     timestamp = now.isoformat()
     return [{"distinct_id": DISTINCT_ID, "timestamp": timestamp, **event} for event in events]
 
 
-def post_json(url: str, body: JSONObject, headers: Mapping[str, str]) -> JSONObject:
+def send_batch(token: str, events: list[JSONObject]) -> None:
     request = urllib.request.Request(
-        url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers}, method="POST"
+        POSTHOG_BATCH_URL,
+        data=json.dumps({"api_key": token, "batch": events}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        body = json.loads(response.read().decode() or "{}")
-    if not isinstance(body, dict):
-        raise ValueError(f"{url} returned JSON that is not an object")
-    return body
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the URL is the module constant above, not input
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS):
+        pass
 
 
 def main() -> int:
@@ -155,12 +158,15 @@ def main() -> int:
         sys.stdout.write("::error::DEPOT_JOB_URL does not name a Depot workflow\n")
         return 1
     workflow_url, org, workflow_id = match.groups()
-    workflow = post_json(
-        f"{DEPOT_CI_SERVICE_URL}/GetWorkflow",
-        {"workflowId": workflow_id},
-        {"Authorization": f"Bearer {env['DEPOT_CI_API_TOKEN']}", "x-depot-org": org},
+    shown = json.loads(
+        subprocess.run(
+            ["depot", "ci", "workflow", "show", workflow_id, "--org", org, "-o", "json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
     )
-    events = build_events(workflow, workflow_url, env["STATUS_JOB"], env, dt.datetime.now(dt.UTC))
+    events = build_events(shown, workflow_url, env["STATUS_JOB"], env, dt.datetime.now(dt.UTC))
     failed = False
     for token_name in ("POSTHOG_API_TOKEN", "POSTHOG_DEVEX_PROJECT_API_TOKEN"):
         token = env.get(token_name)
@@ -168,7 +174,7 @@ def main() -> int:
             sys.stdout.write(f"::warning::{token_name} is not set, so its project gets no events\n")
             continue
         try:
-            post_json(POSTHOG_BATCH_URL, {"api_key": token, "batch": events}, {})
+            send_batch(token, events)
         except OSError as error:
             sys.stdout.write(f"::warning::Sending events with {token_name} failed: {error}\n")
             failed = True
