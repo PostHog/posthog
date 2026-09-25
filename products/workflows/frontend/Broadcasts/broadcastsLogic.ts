@@ -80,8 +80,10 @@ export function canMoveToDraft(
 ): boolean {
     return (
         broadcast?.status === 'active' &&
-        // Only a send still to come can be stopped. Relaunching one that already went out would resend it.
-        !!broadcast.schedules?.some((schedule) => schedule.status !== 'completed') &&
+        // Only a send still to come can be stopped, since relaunching one that went out resends it. The
+        // wizard models a single schedule, so a relaunch would fold several into one.
+        broadcast.schedules?.length === 1 &&
+        broadcast.schedules[0].status !== 'completed' &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
