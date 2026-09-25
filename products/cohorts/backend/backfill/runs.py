@@ -97,7 +97,7 @@ def _contains_person_metadata_leaf(cohort: Cohort) -> bool:
     return any(leaf.get("type") == "person_metadata" for leaf in walk_filter_leaves(properties))
 
 
-def _catalog_drop_reason(cohort: Cohort) -> str | None:
+def _catalog_refusal_reason(cohort: Cohort) -> str | None:
     """The refusal for a cohort the frozen catalog will not compose, or ``None``.
 
     The catalog excludes a cohort whole for one dropped leaf, so both run kinds screen every leaf.
@@ -134,7 +134,7 @@ def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "contains person_metadata filters"
     if not _has_pinnable_person_filters(cohort):
         return NO_PERSON_FILTER
-    return _catalog_drop_reason(cohort)
+    return _catalog_refusal_reason(cohort)
 
 
 def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
@@ -157,7 +157,7 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     properties = (cohort.filters or {}).get("properties")
     if not any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties)):
         return NO_BEHAVIORAL_FILTER
-    return _catalog_drop_reason(cohort)
+    return _catalog_refusal_reason(cohort)
 
 
 def _run_status(preconditions_missing: list[str]) -> tuple[str, str]:

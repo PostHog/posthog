@@ -172,6 +172,10 @@ pub(super) enum Composability {
 ///
 /// Exhaustive rather than defaulted: a new eligibility variant has to decide here rather than
 /// silently join the class whose members are pruned away.
+///
+/// `_STRUCTURAL_EXCLUSIONS` in `products/cohorts/backend/parity/eligibility.py` copies the
+/// `NeverComposed` arm for the Django backfill gate, so change both together. A gate that admits a
+/// class this arm refuses creates runs the seeder fails whole.
 pub(super) const fn composability(eligibility: CohortEligibility) -> Composability {
     match eligibility {
         CohortEligibility::SingleLeaf(_)

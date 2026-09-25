@@ -266,8 +266,9 @@ class TestBackfillRuns(BaseTest):
                 "bytecodeless_person_sibling",
                 [_WINDOWED_LEAF, {"type": "person", "key": "email", "conditionHash": "person0000000001"}],
             ),
-            # Every leaf is kept, so only the tree tells this cohort apart from a seedable one.
+            # Every leaf is kept, so only the tree tells these cohorts apart from a seedable one.
             ("negated_root", [{**_WINDOWED_LEAF, "negation": True}]),
+            ("empty_group", [_WINDOWED_LEAF, {"type": "OR", "values": []}]),
         ]
     )
     def test_unseedable_behavioral_cohort_is_refused(self, _name: str, leaves: list[dict]) -> None:
