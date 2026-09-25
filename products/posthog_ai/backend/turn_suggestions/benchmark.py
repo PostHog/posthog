@@ -172,6 +172,9 @@ class ThresholdScore:
 
     @property
     def f1(self) -> float | None:
+        if self.recall == 0:
+            # Offering nothing on cases that want an offer scores zero, not unmeasured.
+            return 0.0
         if self.precision is None or self.recall is None:
             return None
         total = self.precision + self.recall
@@ -201,7 +204,12 @@ def _transcript_from_case(raw: dict[str, Any]) -> TurnTranscript:
 
 def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
     cases = []
+    names: set[str] = set()
     for raw in yaml.safe_load(path.read_text()):
+        # Results are matched across judges by case name, so a repeated name would mix two cases.
+        if raw["name"] in names:
+            raise ValueError(f"Duplicate benchmark case name: {raw['name']}")
+        names.add(raw["name"])
         transcript = _transcript_from_case(raw)
         cases.append(
             BenchmarkCase(

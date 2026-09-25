@@ -135,8 +135,11 @@ class Command(BaseCommand):
                 f"{ENDPOINTS_VARIABLE}. Repeat it to compare several. It replaces the variable for this run."
             ),
         )
-        parser.add_argument("--skip-jev", action="store_true", help="Judge with the endpoints only.")
-        parser.add_argument("--jev-only", action="store_true", help=f"Ignore {ENDPOINTS_VARIABLE} and judge with Jev.")
+        judge_choice = parser.add_mutually_exclusive_group()
+        judge_choice.add_argument("--skip-jev", action="store_true", help="Judge with the endpoints only.")
+        judge_choice.add_argument(
+            "--jev-only", action="store_true", help=f"Ignore {ENDPOINTS_VARIABLE} and judge with Jev."
+        )
         parser.add_argument(
             "--target-offer-rate",
             type=float,
@@ -162,11 +165,17 @@ class Command(BaseCommand):
 
     def _run(self, options: dict[str, Any], judges: list[Judge]) -> None:
         threshold: float = options["threshold"]
+        if not 0 <= threshold <= 1:
+            raise CommandError("--threshold is a probability between 0 and 1, such as 0.5.")
         if not 0 <= options["target_offer_rate"] <= 1:
             raise CommandError("--target-offer-rate is a share between 0 and 1, such as 0.45.")
+        try:
+            all_cases = load_cases(options["cases_file"])
+        except ValueError as error:
+            raise CommandError(str(error)) from None
         cases = [
             case
-            for case in load_cases(options["cases_file"])
+            for case in all_cases
             if (not options["case"] or any(needle in case.name for needle in options["case"]))
             and (not options["category"] or case.category in options["category"])
         ]
