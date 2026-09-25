@@ -35,7 +35,7 @@ use crate::{
         content::{MinifiedSourceFile, SourceMapFile},
         inject::get_release_for_maps,
         plain::inject::{is_javascript_file, is_stylesheet_file},
-        source_pairs::{read_pairs, ChunkFileNames, SourcePair},
+        source_pairs::{read_pairs, SourcePair},
     },
     utils::files::{content_hash, FileSelection, SourceFile},
 };
@@ -157,13 +157,6 @@ pub fn upload_pairs(
         }
     }
 
-    // Collected before the pairs with empty maps are set aside: those chunks are still named by
-    // content, and other chunks import them by name.
-    let chunk_file_names = match args.release_mode {
-        ReleaseMode::Event => ChunkFileNames::new(&pairs)?,
-        ReleaseMode::SymbolSet => ChunkFileNames::default(),
-    };
-
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
@@ -207,7 +200,7 @@ pub fn upload_pairs(
     }
     let empty_skipped = empty_pairs.len();
 
-    let uploads = prepare_uploads(valid_pairs, args.release_mode, &chunk_file_names)?;
+    let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
     let file_count = uploads.len();
     let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
@@ -288,13 +281,12 @@ pub fn upload_pairs(
 fn prepare_uploads(
     pairs: Vec<SourcePair>,
     release_mode: ReleaseMode,
-    chunk_file_names: &ChunkFileNames,
 ) -> Result<Vec<SymbolSetUpload>> {
     // Payload preparation (serialization + zstd compression) is CPU-bound,
     // so spread it across cores.
     let uploads = pairs
         .into_par_iter()
-        .map(|pair| pair.into_upload(release_mode, chunk_file_names))
+        .map(|pair| pair.into_upload(release_mode))
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
@@ -782,8 +774,8 @@ mod tests {
         let chunk_ids: Vec<_> = injected.iter().map(|pair| pair.get_chunk_id()).collect();
         assert_eq!(chunk_ids[0], chunk_ids[1]);
 
-        let uploads = prepare_uploads(injected, ReleaseMode::Event, &ChunkFileNames::default())
-            .expect("Failed to prepare uploads");
+        let uploads =
+            prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
         assert_eq!(uploads.len(), 1);
     }
 }

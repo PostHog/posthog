@@ -4,12 +4,13 @@ use posthog_cli::{
         content::{MinifiedSourceFile, SourceMapContent, SourceMapFile},
         inject::{inject_pairs, inject_pairs_legacy},
         plain::inject::{is_javascript_file, is_stylesheet_file},
-        source_pairs::{ChunkFileNames, SourcePair},
+        source_pairs::SourcePair,
     },
     utils::files::{FileSelection, SourceFile},
 };
 
 use anyhow::Result;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 use serde_json::json;
 
 use std::{
@@ -459,7 +460,7 @@ fn test_upload_set() {
 
     // Convert to UploadSet
     let upload_set = pair_with_different_ids
-        .into_upload(ReleaseMode::SymbolSet, &ChunkFileNames::default())
+        .into_upload(ReleaseMode::SymbolSet)
         .expect("Failed to convert to SymbolSetUpload");
 
     // Verify that the upload set uses the source's chunk ID, not the sourcemap's
@@ -486,7 +487,7 @@ fn test_event_mode_content_hash_tracks_the_snippet_variant() {
             .into_iter()
             .next()
             .expect("Failed to get first pair")
-            .into_upload(ReleaseMode::Event, &ChunkFileNames::default())
+            .into_upload(ReleaseMode::Event)
             .expect("Failed to convert to SymbolSetUpload")
             .content_hash
             .expect("event mode always sets a content hash")
@@ -638,7 +639,7 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
         )
     };
     let upload_of = |pair: SourcePair| {
-        pair.into_upload(ReleaseMode::Event, &ChunkFileNames::default())
+        pair.into_upload(ReleaseMode::Event)
             .expect("Failed to convert to SymbolSetUpload")
     };
 
@@ -708,11 +709,11 @@ fn content_named_release(
     .expect("Failed to inject pairs")
 }
 
-fn event_mode_hashes(pairs: Vec<SourcePair>, chunk_file_names: &ChunkFileNames) -> Vec<String> {
+fn event_mode_hashes(pairs: Vec<SourcePair>) -> Vec<String> {
     pairs
         .into_iter()
         .map(|pair| {
-            pair.into_upload(ReleaseMode::Event, chunk_file_names)
+            pair.into_upload(ReleaseMode::Event)
                 .expect("Failed to convert to SymbolSetUpload")
                 .content_hash
                 .expect("event mode always sets a content hash")
@@ -727,39 +728,32 @@ fn test_event_mode_content_hash_ignores_chunk_file_names() {
     let release = |release_id, entry_name, lazy_name| {
         content_named_release(release_id, entry_name, lazy_name, "console.log(1);")
     };
-    let hashes_with_names = |pairs: Vec<SourcePair>| {
-        let names = ChunkFileNames::new(&pairs).expect("Failed to index chunk file names");
-        event_mode_hashes(pairs, &names)
-    };
 
-    let first = release("release-a", "index-C3e2Htc9.js", "lazy-BrAf3own.js");
-    let second = release("release-b", "index-CSi0TbGB.js", "lazy-CGeNrzqs.js");
-    assert_eq!(hashes_with_names(first), hashes_with_names(second));
-
-    // The names are the only difference: hashed as they are, both chunks differ.
-    let first = release("release-a", "index-C3e2Htc9.js", "lazy-BrAf3own.js");
-    let second = release("release-b", "index-CSi0TbGB.js", "lazy-CGeNrzqs.js");
-    let before = event_mode_hashes(first, &ChunkFileNames::default());
-    let after = event_mode_hashes(second, &ChunkFileNames::default());
-    assert_ne!(before[0], after[0]);
-    assert_ne!(before[1], after[1]);
+    assert_eq!(
+        event_mode_hashes(release(
+            "release-a",
+            "index-C3e2Htc9.js",
+            "lazy-BrAf3own.js"
+        )),
+        event_mode_hashes(release(
+            "release-b",
+            "index-CSi0TbGB.js",
+            "lazy-CGeNrzqs.js"
+        ))
+    );
 }
 
 #[test]
 fn test_event_mode_content_hash_still_tracks_code_changes() {
     // A changed chunk must upload again. The entry still reaches it by name only, so the entry,
     // unchanged otherwise, is still recognized.
-    let hashes_of = |pairs: Vec<SourcePair>| {
-        let names = ChunkFileNames::new(&pairs).expect("Failed to index chunk file names");
-        event_mode_hashes(pairs, &names)
-    };
-    let before = hashes_of(content_named_release(
+    let before = event_mode_hashes(content_named_release(
         "release-a",
         "index-C3e2Htc9.js",
         "lazy-BrAf3own.js",
         "console.log(1);",
     ));
-    let after = hashes_of(content_named_release(
+    let after = event_mode_hashes(content_named_release(
         "release-b",
         "index-CSi0TbGB.js",
         "lazy-CGeNrzqs.js",
@@ -771,6 +765,33 @@ fn test_event_mode_content_hash_still_tracks_code_changes() {
         "the entry changed only in the lazy chunk's name"
     );
     assert_ne!(before[1], after[1], "the lazy chunk's code changed");
+}
+
+#[test]
+fn test_event_mode_upload_keeps_the_file_names() {
+    // Only the hash leaves the names out. The stored symbol set is the chunk as it shipped.
+    let pair = content_named_release(
+        "release-a",
+        "index-C3e2Htc9.js",
+        "lazy-BrAf3own.js",
+        "console.log(1);",
+    )
+    .into_iter()
+    .next()
+    .unwrap();
+    let (source, map) = (
+        pair.source.inner.content.clone(),
+        serde_json::to_string(&pair.sourcemap.inner.content).unwrap(),
+    );
+
+    let upload = pair
+        .into_upload(ReleaseMode::Event)
+        .expect("Failed to convert to SymbolSetUpload");
+    let stored: SourceAndMap = read_symbol_data(&upload.data).expect("Failed to read upload");
+
+    assert!(source.contains("./lazy-BrAf3own.js"));
+    assert_eq!(stored.minified_source, source);
+    assert_eq!(stored.sourcemap, map);
 }
 
 #[test]

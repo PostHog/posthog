@@ -2099,7 +2099,6 @@ dependencies = [
 name = "posthog-cli"
 version = "0.18.7"
 dependencies = [
- "aho-corasick",
  "anyhow",
  "chrono",
  "clap",
