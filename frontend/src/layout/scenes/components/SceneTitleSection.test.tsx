@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { SceneName } from './SceneTitleSection'
 
@@ -26,6 +26,31 @@ describe('SceneName', () => {
 
         fireEvent.blur(textarea)
         expect(onChange).toHaveBeenCalledWith('Paying users')
+    })
+
+    // Guards a duplicate rename request: Enter saves the value straight away, and the name prop
+    // only catches up once that save round-trips, so the blur right after it used to save again.
+    test('saves an Enter-then-blur rename once', () => {
+        jest.useFakeTimers()
+        try {
+            const onChange = jest.fn()
+            render(<SceneName name="Old name" onChange={onChange} canEdit saveOnBlur renameDebounceMs={0} />)
+
+            fireEvent.click(screen.getByRole('button'))
+
+            const textarea = screen.getByRole('textbox')
+            fireEvent.change(textarea, { target: { value: 'New name' } })
+            fireEvent.keyDown(textarea, { key: 'Enter' })
+            fireEvent.blur(textarea)
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange).toHaveBeenCalledWith('New name')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     // Guards the reconciliation change: a genuine external update (loading a resource,

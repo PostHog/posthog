@@ -477,12 +477,17 @@ export function SceneName({
     // the user's own edit arriving back through the form, so the render-phase
     // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
     const latestNameRef = useRef(initialName)
+    // The last value handed to `onChange`. Enter saves straight away and the blur that follows
+    // saves again, but `initialName` only catches up once the save round-trips, so without this
+    // one edit sends the same rename twice.
+    const lastSavedNameRef = useRef(initialName)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
         if (initialName !== latestNameRef.current) {
             setName(initialName)
             latestNameRef.current = initialName
         }
+        lastSavedNameRef.current = initialName
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -499,8 +504,16 @@ export function SceneName({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+    const saveName = (value: string): void => {
+        if (value === lastSavedNameRef.current) {
+            return
+        }
+        lastSavedNameRef.current = value
         onChange?.(value)
+    }
+
+    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+        saveName(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
@@ -569,8 +582,8 @@ export function SceneName({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
-                                    if (saveOnBlur && e.currentTarget.value !== initialName) {
-                                        onChange?.(e.currentTarget.value || '')
+                                    if (saveOnBlur) {
+                                        saveName(e.currentTarget.value || '')
                                     }
                                 }
                             }}
