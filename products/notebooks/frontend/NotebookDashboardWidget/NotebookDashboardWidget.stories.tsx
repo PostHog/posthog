@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor, within } from '@testing-library/react'
 import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { mswDecorator } from '~/mocks/browser'
-import { DashboardPlacement, DashboardTile } from '~/types'
+import { AccessControlLevel, DashboardBasicType, DashboardPlacement, DashboardTile } from '~/types'
 
 import { DashboardWidgetItem } from 'products/dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 
@@ -159,10 +160,73 @@ export const AddToDashboard: Story = {
             mocks: {
                 get: {
                     '/api/environments/:team_id/dashboards/': {
-                        results: [{ id: 1, name: 'Revenue overview', user_access_level: 'editor', deleted: false }],
+                        results: Array.from(
+                            { length: 250 },
+                            (_, index): DashboardBasicType => ({
+                                id: index + 1,
+                                name:
+                                    index === 0
+                                        ? 'Activation overview'
+                                        : index === 1
+                                          ? 'Board review'
+                                          : index === 249
+                                            ? 'Revenue overview'
+                                            : `Metrics report ${index + 1}`,
+                                description:
+                                    index === 0
+                                        ? 'Signups, onboarding, and activation across the product.'
+                                        : index === 249
+                                          ? 'Conversion from trial to paid plans.'
+                                          : '',
+                                created_by: {
+                                    id: index + 1,
+                                    uuid: `example-creator-${index + 1}`,
+                                    distinct_id: `example-creator-${index + 1}`,
+                                    first_name:
+                                        index === 0 ? 'Avery Stone' : index === 249 ? 'Jules Parker' : 'Morgan Reed',
+                                    email:
+                                        index === 0
+                                            ? 'avery@example.com'
+                                            : index === 249
+                                              ? 'jules@example.com'
+                                              : 'morgan@example.com',
+                                },
+                                created_at: '2026-01-01T00:00:00Z',
+                                pinned: index === 0,
+                                deleted: false,
+                                is_shared: false,
+                                last_accessed_at: null,
+                                creation_mode: 'default',
+                                user_access_level: index === 1 ? AccessControlLevel.Viewer : AccessControlLevel.Editor,
+                            })
+                        ),
+                        next: null,
+                        count: 250,
                     },
                 },
             },
         },
+        testOptions: { snapshotTargetSelector: 'body', viewportWidths: ['narrow', 'wide'] },
+    },
+    play: async () => {
+        const screen = within(document.body)
+        fireEvent.click(screen.getByText('Add to dashboard'))
+        await waitFor(() => {
+            if (screen.getByText('Choose a dashboard').closest('button')?.classList.contains('LemonButton--loading')) {
+                throw new Error('Dashboards are still loading')
+            }
+        })
+        fireEvent.click(await screen.findByText('Choose a dashboard'))
+        await screen.findByText('Activation overview')
+    },
+}
+
+export const SearchDashboardByCreator: Story = {
+    ...AddToDashboard,
+    play: async (context) => {
+        await AddToDashboard.play?.(context)
+        fireEvent.change(within(document.body).getByPlaceholderText('Search by name, description, or creator'), {
+            target: { value: 'Jules' },
+        })
     },
 }

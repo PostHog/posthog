@@ -18,6 +18,9 @@ Choose **Add to dashboard** from a generated widget's notebook menu to save its 
 Both generated notebook widgets and dashboard widgets must be enabled.
 The selected widget version must have an available preview before the menu offers **Add to dashboard**.
 Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
+Search the dashboard picker by name, description, or creator to find a destination.
+Each option shows its description and creator, and marks pinned dashboards.
+Dashboards without edit access cannot be selected.
 Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
 Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
 Public dashboards show a placeholder instead of notebook results.
