@@ -22,6 +22,7 @@ export const AI_TAXONOMY_EVENT_PROPERTIES = [
     '$ai_cache_reporting_exclusive',
     '$ai_cache_write_1h_token_price',
     '$ai_cache_write_token_price',
+    '$ai_cost_estimation_enabled',
     '$ai_cost_model_provider',
     '$ai_cost_model_source',
     '$ai_cost_passthrough',

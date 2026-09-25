@@ -261,6 +261,11 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
+    const costEstimationEnabled = event.properties['$ai_cost_estimation_enabled']
+    if (costEstimationEnabled === false || costEstimationEnabled === 'false') {
+        return event
+    }
+
     if (!event.properties['$ai_model']) {
         return event
     }

@@ -777,4 +777,7 @@ def call_llm_judge(
     if probability is not None:
         result_dict["probability"] = probability
 
+    if provider == "typesafe":
+        result_dict["cost_estimation_enabled"] = base_url.rstrip("/") == SystemOneClient.BASE_URL
+
     return result_dict

@@ -46,6 +46,7 @@ class EvaluationActivityResult(TypedDict, total=False):
     key_id: NotRequired[str | None]
     model: NotRequired[str]
     provider: NotRequired[str]
+    cost_estimation_enabled: NotRequired[bool]
     applicable: NotRequired[bool]
     skipped: NotRequired[bool]
     skip_reason: NotRequired[str]

@@ -43,6 +43,7 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 
 System One-compatible models are available under the existing LLM judge option.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
+Deploy the ingestion and evaluation worker changes before enabling the flag.
 Customers configure their own TypeSafe key or a compatible deployment with its own authentication.
 Evaluation connections never fall back to an instance TypeSafe key or gateway credential.
 PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`; customer projects cannot use those endpoints.
@@ -69,6 +70,11 @@ Compare results on representative inputs when changing models.
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
 The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
+Evaluations sent to the default TypeSafe endpoint use known model pricing to estimate cost.
+Custom deployments, including PostHog's gateway, retain their model name and token usage with cost left unknown.
+They set `$ai_cost_estimation_enabled` to `false`, so a matching model name cannot apply another service's price.
+System One results without endpoint pricing information also leave cost unknown.
+Ingestion still accepts explicitly reported costs and custom token prices; System One connection settings do not expose pricing overrides.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
 Uncertainty alone does not produce N/A.
