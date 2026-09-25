@@ -1,6 +1,7 @@
 import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
+import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-signature'
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
@@ -186,6 +187,8 @@ export interface ApiConfig {
     taskId?: string | undefined
     /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
+    clientIp?: string | undefined
+    clientIpSigningKeys?: string[] | undefined
 }
 
 // Matches ACTIVITY_LOG_INTENT_MAX_LENGTH in posthog/models/activity_logging/utils.py.
@@ -276,6 +279,14 @@ export class ApiClient {
                 'x-posthog-intent': intentHeaderValue(this.config.intent),
             }),
             'X-PostHog-Client': 'mcp',
+            // Signed per call, so a long tool call cannot outlive the signature's time window.
+            ...(this.config.clientIp && this.config.clientIpSigningKeys
+                ? await signedClientIpHeaders(
+                      MCP_CLIENT_IP_HEADERS,
+                      this.config.clientIpSigningKeys,
+                      this.config.clientIp
+                  )
+                : {}),
         }
         if (options?.body) {
             defaultHeaders['Content-Type'] = 'application/json'
