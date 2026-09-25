@@ -68,6 +68,15 @@ GROUP BY team_id, document_id
 HAVING argMax(JSONExtractBool(metadata, 'deleted'), inserted_at) = 0
 """
 
+# The scan is cross-team, so it cannot use the `team_id` sort-key prefix, and its cost grows with the
+# whole window. The time cap sits well inside `_TIME_BUDGET`, so a slow scan fails the tick with an
+# error instead of running into the activity timeout. It throws because a partial GROUP BY would
+# give a wrong newest-vector time.
+CANDIDATE_VECTORS_QUERY_SETTINGS: dict[str, int | str] = {
+    "max_execution_time": 180,
+    "timeout_overflow_mode": "throw",
+}
+
 
 @frozen
 class ScoringCandidate:
@@ -119,6 +128,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
                 "rendering": rendering,
                 "since": since.astimezone(datetime.UTC).replace(tzinfo=None),
             },
+            settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
         )
         or [],
