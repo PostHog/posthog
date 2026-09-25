@@ -443,11 +443,8 @@ class TestWarmTaskSandbox(APIBaseTest):
             ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
-    def test_warm_endpoint_forwards_the_report_and_the_desktop_gate_outcome(
-        self, _name, decision, entitled, mock_warm, _mock_warm_enabled
-    ):
+    def test_warm_endpoint_forwards_the_report_and_the_desktop_gate_outcome(self, _name, decision, entitled, mock_warm):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
@@ -2059,9 +2056,21 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
-    @parameterized.expand([("context_window", "1m"), ("claude_model_access", "own-subscription")])
-    def test_runtime_selection_mismatch_does_not_activate_warm_run(self, field, value):
-        task, run = self._warm_run()
+    @parameterized.expand(
+        [
+            ("context_window", {"context_window": "1m"}, None),
+            ("claude_model_access", {"claude_model_access": "own-subscription"}, None),
+            # A codex plan requires the codex runtime, so the warm run has to be warmed on it too.
+            # Otherwise the runtime alone decides the mismatch and the plan gate goes untested.
+            (
+                "codex_model_access",
+                {"codex_model_access": "own-subscription", "runtime_adapter": "codex"},
+                {"runtime_adapter": "codex"},
+            ),
+        ]
+    )
+    def test_runtime_selection_mismatch_does_not_activate_warm_run(self, _name, requested, warm_state):
+        task, run = self._warm_run(extra_state=warm_state)
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
             patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
@@ -2074,7 +2083,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     "mode": "interactive",
                     "branch": "main",
                     "pending_user_message": "do it",
-                    field: value,
+                    **requested,
                 },
             )
 

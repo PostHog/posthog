@@ -10,7 +10,7 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
-import { SignalReport } from '../types'
+import { EnrichedReviewer, SignalReport } from '../types'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
@@ -24,6 +24,91 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    describe('reviewer updates', () => {
+        const reviewer: EnrichedReviewer = {
+            github_login: 'example-reviewer',
+            github_name: 'Example Reviewer',
+            relevant_commits: [],
+            user: null,
+        }
+        const artefact = {
+            id: 'reviewers-1',
+            type: 'suggested_reviewers',
+            content: [reviewer],
+            created_at: '2026-01-01T00:00:00Z',
+        }
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [artefact] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': { ...artefact, content: [] },
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('keeps a removed reviewer hidden until the refreshed list arrives', async () => {
+            let releaseRefresh: () => void = () => {}
+            const heldRefresh = new Promise<void>((resolve) => {
+                releaseRefresh = resolve
+            })
+            let refreshStarted = false
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': async () => {
+                        refreshStarted = true
+                        await heldRefresh
+                        return { results: [{ ...artefact, content: [] }] }
+                    },
+                },
+            })
+
+            expect(logic.values.displayReviewers).toEqual([reviewer])
+            logic.actions.updateReviewers([], [])
+            expect(logic.values.displayReviewers).toEqual([])
+
+            try {
+                await waitFor(() => expect(refreshStarted).toBe(true))
+                expect(logic.values.displayReviewers).toEqual([])
+                expect(logic.values.isUpdatingReviewers).toBe(true)
+            } finally {
+                releaseRefresh()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            expect(logic.values.displayReviewers).toEqual([])
+            expect(logic.values.isUpdatingReviewers).toBe(false)
+        })
+
+        it('restores the reviewer and allows another edit when saving fails', async () => {
+            useMocks({
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': [500, { detail: 'Save failed' }],
+                },
+            })
+
+            logic.actions.updateReviewers([], [])
+            expect(logic.values.displayReviewers).toEqual([])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.displayReviewers).toEqual([reviewer])
+            expect(logic.values.isUpdatingReviewers).toBe(false)
+        })
+    })
+
     describe('implementationSlotClaim', () => {
         // The claim has to match `_implementation_slot_claim` server-side, or the Create PR action
         // greys out on a report the server would accept. The `completed` rows are the ones that

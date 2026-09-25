@@ -1086,7 +1086,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown) == self.snapshot
+        printed = self._printed_sql(breakdown)
+        assert printed == self.sql_snapshot(printed)
 
     # Entry properties must merge only for exceptional sessions; classifying the full range defeats the cache.
     @parameterized.expand(
@@ -1098,4 +1099,5 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_precomputed_sessions_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown, precomputed=True) == self.snapshot
+        printed = self._printed_sql(breakdown, precomputed=True)
+        assert printed == self.sql_snapshot(printed)
