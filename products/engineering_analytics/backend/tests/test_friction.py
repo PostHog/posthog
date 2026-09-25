@@ -172,6 +172,7 @@ class TestFrictionScore(SimpleTestCase):
     @parameterized.expand(
         [
             ("scored_author", "typical", 2, ["everyone"], [205, 204, 203, 202, 201]),
+            ("login_in_other_case", "TYPICAL", 2, ["everyone"], [205, 204, 203, 202, 201]),
             ("below_the_minimum", "newcomer", None, ["everyone"], [401, 400]),
         ]
     )

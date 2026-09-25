@@ -524,6 +524,8 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
             teams=[],
             pull_requests=[],
         )
+    # GitHub logins are case-insensitive, so a typed URL finds the author under the casing the rows store.
+    author = next((pr.author for pr in pull_requests if pr.author.lower() == author.lower()), author)
     members = _query_memberships(curated)
     scorer = FrictionScorer(pull_requests)
     items = scorer.score(_teams_by_author(members or {}))
