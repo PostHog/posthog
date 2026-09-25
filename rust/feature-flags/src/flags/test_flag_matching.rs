@@ -7615,7 +7615,18 @@ mod tests {
             key: "test-flag-normal".mock_into()
         );
 
-        let flags = flag_list_with_metadata(vec![flag_with_continuity, flag_without_continuity]);
+        let v2_flag_with_continuity: FeatureFlag = serde_json::from_value(json!({
+            "id": 3, "team_id": team.id, "key": "test-flag-v2-continuity", "active": true,
+            "ensure_experience_continuity": true,
+            "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": []}
+        }))
+        .unwrap();
+
+        let flags = flag_list_with_metadata(vec![
+            flag_with_continuity,
+            flag_without_continuity,
+            v2_flag_with_continuity,
+        ]);
 
         // Build dependency graph for the flags
         let precomputed = PrecomputedDependencyGraph::build(&flags, None);
@@ -7669,6 +7680,13 @@ mod tests {
                 "Normal flag should not have hash override error"
             );
         }
+
+        let v2_response = &response.flags["test-flag-v2-continuity"];
+        assert!(
+            !v2_response.failed,
+            "v2 flag with continuity should evaluate despite the hash override error"
+        );
+        assert_eq!(v2_response.reason.code, "no_condition_match");
     }
 
     #[tokio::test]

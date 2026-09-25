@@ -2681,17 +2681,19 @@ Note: Spec has 36 paths; the only other GETs are file downloads, embedded URL ge
 
 ## Dub — gaps
 
-Today (11): `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partners`, `payouts`, `sale_events`, `tags`
+Today (23): `analytics_browsers`, `analytics_cities`, `analytics_continents`, `analytics_countries`, `analytics_devices`, `analytics_os`, `analytics_referers`, `analytics_regions`, `analytics_timeseries`, `analytics_triggers`, `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partner_analytics_timeseries`, `partner_applications`, `partners`, `payouts`, `sale_events`, `tags`
 
 Diffed against: <https://spec.speakeasy.com/dub/dub/dub-with-code-samples>
 
-- [ ] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
-- [ ] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
-- [ ] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
+- [x] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
+- [x] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
+- [x] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
 - [ ] `GET /bounties/{bountyId}/submissions` — bounty submission records and their approval state (low)
 - [ ] `GET /links/count` — link counts grouped by domain/tag/folder/userId without paging all links (low)
 
 Note: api.dub.co/openapi.json 404s; the live spec is served from spec.speakeasy.com. Coverage of the object model (links, tags, folders, domains, customers, partners, commissions, payouts, and the three event types) is essentially complete - the gap is the aggregation layer.
+
+Note on the aggregation endpoints, added 2026-09-25: `/analytics` is imported as one table per `groupBy` breakdown, because each groupBy returns a different row shape. The `top_links` and `top_urls` breakdowns were deliberately left out - `links` already carries every link's destination URL alongside its lifetime clicks, leads and sales, so both are a grouping over a table we already sync. `/partners/analytics` has no program-wide mode: its handler rejects a request that names neither `partnerId` nor `tenantId`, even though the published spec marks both optional. It is therefore imported by walking every enrolled partner and stamping the partner id onto each row. The per-bucket `earnings` column is what it adds; `/partners` already reports each partner's lifetime totals (`totalClicks`, `totalLeads`, `totalSaleAmount`, `totalCommissions`). `/bounties/{bountyId}/submissions` is not syncable: the spec exposes no endpoint that lists bounties (`GET /bounties` does not exist, and no other response carries a `bountyId`), so there is no way to enumerate the parent IDs to fan out over.
 
 ## Dynatrace — gaps
 
@@ -2716,19 +2718,28 @@ Note: Diffed against the Environment API section of docs.dynatrace.com/docs/site
 
 ## E2B — gaps
 
-Today (3): `sandboxes`, `snapshots`, `templates`
+Today (7): `sandbox_metrics`, `sandbox_metrics_latest`, `sandboxes`, `snapshots`, `team_metrics`, `template_builds`, `templates`
 
 Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/openapi.yml>
 
-- [ ] `GET /sandboxes/metrics and GET /sandboxes/{sandboxID}/metrics` — CPU/memory/disk timeseries per sandbox - the usage metric everyone charts, and the only quantitative data E2B exposes (high)
-- [ ] `GET /teams/{teamID}/metrics and /teams/{teamID}/metrics/max` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [x] `GET /sandboxes/metrics and GET /sandboxes/{sandboxID}/metrics` — CPU/memory/disk timeseries per sandbox - the usage metric everyone charts, and the only quantitative data E2B exposes (high)
+- [x] `GET /teams/{teamID}/metrics` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [ ] `GET /teams/{teamID}/metrics/max` — one scalar per metric enum value, not a table; see the reasons below (high)
 - [ ] `GET /teams` — team lookup resolving the teamID stamped on sandboxes, templates and snapshots (medium)
-- [ ] `GET /templates/{templateID} (returns the template's build list) and /templates/{templateID}/builds/{buildID}/status` — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [x] `GET /templates/{templateID}` (returns the template's build list) — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [ ] `GET /templates/{templateID}/builds/{buildID}/status` — per-build status and logs; see the reasons below (medium)
 - [ ] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
 - [ ] `GET /volumes` — persistent volume inventory and their sandbox attachments (low)
 - [ ] `GET /v2/sandboxes/{sandboxID}/logs` — per-sandbox logs for failure analysis; high volume and per-ID fetch, so nice to have (low)
 
-Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
+Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes each path with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
+
+Not covered, with reasons:
+
+- `/teams` is the one endpoint in the spec that does not accept `ApiKeyAuth` — it is `AuthProviderBearerAuth` only, so the team-scoped API key this source stores cannot call it. Its `Team` schema also returns the team's live `apiKey`, which must not land in a warehouse table. The gap's rationale does not hold either: `ListedSandbox`, `Template` and `SnapshotInfo` carry no `teamID` to resolve.
+- `/teams/{teamID}/metrics/max` returns a single `{timestamp, value}` object per `metric` enum value, so it is one scalar per call rather than a table, and it is the max of the `team_metrics` series over the same window.
+- `/templates/{templateID}/builds/{buildID}/status` is a second fan-out hop costing one request per build. Its only non-log fields (`templateID`, `buildID`, `status`) already arrive in `template_builds`; the rest is build log entries.
+- `/teams/{teamID}/metrics` and the sandbox metrics endpoints do take `start`/`end` filters, but the spec documents no ordering guarantee, and a fan-out child's global ascending watermark would advance past sandboxes a partial run has not reached. Both ship full refresh, like the rest of the source.
 
 ## Easybill — gaps
 
