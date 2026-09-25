@@ -1272,6 +1272,21 @@ export namespace Schemas {
       readonly display_name: string;
     }
 
+    export interface AccountPresence {
+      /** Customer analytics account ID. */
+      readonly account_id: string;
+      /** People viewing this account. */
+      readonly viewers: readonly AccountPresenceViewer[];
+    }
+
+    export interface AccountPresenceListRequest {
+      /**
+         * Up to 100 account IDs to read presence for.
+         * @maxItems 100
+         */
+      account_ids: string[];
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
