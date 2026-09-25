@@ -27,12 +27,13 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
+        cached = get_cached_fields(str(self.organization_id))
+        if cached:
+            return cached
+
         record_count = self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id))
-            if cached:
-                return cached
             return {
                 "static_filters": {"users": [], "scopes": [], "activities": [], "clients": []},
                 "detail_fields": {},
@@ -50,6 +51,10 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
+        # The viewset always orders the queryset, and Django folds ordering columns into the
+        # DISTINCT key, so the ordering has to go before the helpers can dedupe in Postgres.
+        queryset = queryset.order_by()
+
         return {
             "users": self._get_available_users(queryset),
             "scopes": self._get_available_scopes(queryset),
@@ -57,37 +62,36 @@ class AdvancedActivityLogFieldDiscovery:
             "clients": self._get_available_clients(queryset),
         }
 
+    def _get_distinct_values(self, queryset: QuerySet, column: str) -> list[str]:
+        # DISTINCT has already collapsed the column to a handful of rows, so dropping the
+        # empty ones here costs nothing and keeps the field name out of a lookup key.
+        values = queryset.values_list(column, flat=True).distinct()
+        return sorted(value for value in values if value)
+
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = queryset.values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
-        seen_users = set()
-        unique_users = []
+        users_query = (
+            queryset.filter(user__isnull=False)
+            .values("user__uuid", "user__first_name", "user__last_name", "user__email")
+            .distinct()
+            .order_by("user__email")
+        )
 
-        for user in users_query:
-            if user["user__uuid"] and user["user__uuid"] not in seen_users:
-                seen_users.add(user["user__uuid"])
-                unique_users.append(
-                    {
-                        "value": str(user["user__uuid"]),
-                        "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
-                    }
-                )
-
-        return unique_users
+        return [
+            {
+                "value": str(user["user__uuid"]),
+                "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
+            }
+            for user in users_query
+        ]
 
     def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.values_list("scope", flat=True)
-        scopes = set(scopes_query)
-        return [{"value": scope} for scope in sorted(scopes) if scope]
+        return [{"value": scope} for scope in self._get_distinct_values(queryset, "scope")]
 
     def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.values_list("activity", flat=True)
-        activities = set(activities_query)
-        return [{"value": activity} for activity in sorted(activities) if activity]
+        return [{"value": activity} for activity in self._get_distinct_values(queryset, "activity")]
 
     def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.values_list("client", flat=True)
-        clients = set(clients_query)
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+        return [{"value": client} for client in self._get_distinct_values(queryset, "client")]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
