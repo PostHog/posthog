@@ -148,19 +148,25 @@ def _restart_snapshot_in_buffer(schema: ExternalDataSchema, logger: FilteringBou
 
 
 def _start_restarted_snapshot(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
-    """Rebuild the paused schedule and start the new snapshot. A failure stays pending for the next capture run."""
+    """Rebuild the paused schedule and start the new snapshot.
+
+    A failed or skipped rebuild stays pending for the next capture run. The restart paused this
+    schedule itself, so nothing else starts the snapshot once a deliberate hold lifts.
+    """
     try:
-        _resume_schedule(schema, trigger=True)
+        resumed = _resume_schedule(schema, trigger=True)
     except Exception:
         logger.exception("cdc_legacy_snapshot_schedule_resume_failed", schema_id=str(schema.id))
+        return
+    if not resumed:
         return
     schema.sync_type_config = update_sync_type_config_keys(
         schema.id, schema.team_id, removes=[_SCHEDULE_RESUME_PENDING_KEY]
     )
 
 
-def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> None:
-    """Rebuild the table's schedule unpaused, and create it if it is missing.
+def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> bool:
+    """Rebuild the table's schedule unpaused, and create it if it is missing. Returns whether it did.
 
     A plain unpause does nothing to a missing schedule. Skipped where the pause is deliberate:
     billing pauses a schema (status Paused) and lifts the pause itself, an admin-triggered run holds
@@ -179,8 +185,9 @@ def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> None:
         or config.get("admin_unpause_schedule_after_run")
         or schema.sync_frequency_interval is None
     ):
-        return
+        return False
     sync_external_data_job_workflow(schema, create=True, should_sync=True, trigger_immediately=trigger)
+    return True
 
 
 def _close_stranded_capture_jobs(

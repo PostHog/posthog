@@ -1045,8 +1045,11 @@ class CDCExtractActivity:
             # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
             # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
             self._pause_cdc_extraction_schedule()
+        terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
         for schema in self.cdc_schemas:
-            if not marked_broken:
+            # Only a terminal failure paints the schema. A later successful attempt never repaints it,
+            # because its status belongs to the scheduled sync that consumes the buffer.
+            if terminal and not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
                 schema.save(update_fields=["status", "latest_error", "updated_at"])
@@ -1067,7 +1070,6 @@ class CDCExtractActivity:
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
-        terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
         # Capture creates no ExternalDataJob of its own, so the Syncs tab would stay empty while the
         # schema reads FAILED. Write a terminal FAILED row per schema so the run is visible — but only
         # once retries are exhausted or the error is non-retryable, otherwise every transient retry

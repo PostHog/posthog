@@ -855,7 +855,6 @@ class TestErrorClassification:
         with pytest.raises(psycopg.OperationalError, match="Connection refused"):
             cdc_extract_activity(inputs)
 
-        assert schema.latest_error == cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
         mock_posthoganalytics.capture.assert_not_called()
 
     @patch(
@@ -1045,6 +1044,7 @@ class TestSlotInvalidationRecovery:
 
         with self._invalidated_slot(source, schema) as capture:
             capture.adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+            capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
             with pytest.raises(RuntimeError, match="cannot recreate slot"):
                 capture.extract()
 
@@ -1223,6 +1223,7 @@ class TestFailureVisibilityJobs:
             mock_activity=mock_activity,
         )
 
+        assert (schema.status == ExternalDataSchema.Status.FAILED) is expect_created
         if not expect_created:
             MockJob.objects.create.assert_not_called()
             return
@@ -1896,6 +1897,7 @@ class TestBufferedIngressCapture:
         with _capture_harness(source, [schema], events) as capture:
             capture.reader.truncated_tables = truncated_tables
             failing_call(capture).side_effect = error
+            capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
             with pytest.raises(type(error), match=str(error)):
                 capture.extract()
 

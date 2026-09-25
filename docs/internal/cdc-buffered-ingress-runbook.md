@@ -145,7 +145,7 @@ Capture converts that state before every read (`cdc/legacy_conversion.py`), so n
   A cancel only asks the workflow to stop, and the loader can still apply batches the sync queued, so the reset waits for a later capture run while either is in progress (`cdc_legacy_snapshot_restart_waiting`).
   Capture leaves the table out until then, because the new snapshot reads the table after the reset.
   Then the table is reset, its buffer emptied, and its schedule rebuilt to start the new snapshot straight away.
-  A failed rebuild keeps `cdc_schedule_resume_pending` on the table, and the next capture run retries it.
+  A failed or skipped rebuild keeps `cdc_schedule_resume_pending` on the table, and the next capture run retries it, so the snapshot starts once a deliberate hold below lifts.
 - **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
 
 A rebuilt schedule is skipped where the pause is deliberate: billing paused the schema (status `Paused`), an admin-triggered run holds it, the schema is halted and waits for Repair CDC, or it has no sync frequency.

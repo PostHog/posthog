@@ -183,19 +183,27 @@ class TestLegacyConversion(BaseTest):
         assert ("cdc_deferred_runs" in schema.sync_type_config) is not restarted
         assert (schema.sync_type_config.get("reset_pipeline") is True) is restarted
 
-    def test_a_failed_schedule_rebuild_after_the_reset_is_retried_by_the_next_run(self):
+    @parameterized.expand([("failed", True), ("skipped_while_held", False)])
+    def test_a_schedule_rebuild_after_the_reset_that_did_not_happen_is_retried_by_the_next_run(
+        self, _name, rebuild_fails
+    ):
         source = self._source(ingest_mode="buffered")
         schema = self._schema(
             source,
             "users",
             sync_type_config={"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "r1"}]},
             initial_sync_complete=False,
+            sync_frequency_interval=dt.timedelta(minutes=5) if rebuild_fails else None,
         )
 
-        self._convert(source, [schema], sync_workflow=MagicMock(side_effect=RuntimeError("temporal down")))
+        failing_rebuild = MagicMock(side_effect=RuntimeError("temporal down")) if rebuild_fails else None
+        self._convert(source, [schema], sync_workflow=failing_rebuild)
         schema.refresh_from_db()
         assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert "cdc_schedule_resume_pending" in schema.sync_type_config
 
+        schema.sync_frequency_interval = dt.timedelta(minutes=5)
+        schema.save(update_fields=["sync_frequency_interval"])
         purge, sync_workflow, _ = self._convert(source, [schema])
 
         purge.assert_not_called()
