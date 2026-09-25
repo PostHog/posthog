@@ -1718,42 +1718,43 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "layout_compaction": layout_compaction,
             }
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+        with transaction.atomic():
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        if use_template:
-            try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
+            if use_template:
+                try:
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
+                except (AttributeError, ValueError) as error:
+                    logger.error(
+                        "dashboard_create.create_from_template_failed",
+                        team_id=team_id,
+                        template=use_template,
+                        error=error,
+                        exc_info=True,
+                    )
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+
+            elif existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
                 )
-            except AttributeError as error:
-                logger.error(
-                    "dashboard_create.create_from_template_failed",
-                    team_id=team_id,
-                    template=use_template,
-                    error=error,
-                    exc_info=True,
-                )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard)
+            # Manual tag creation since this create method doesn't call super()
+            self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,

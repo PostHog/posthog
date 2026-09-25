@@ -1925,6 +1925,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "use_template")
 
+    def test_use_template_rolls_back_partial_creation(self) -> None:
+        template_name = "invalid-agent-context"
+        DashboardTemplate.objects.create(
+            team=self.team,
+            template_name=template_name,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[
+                {"type": "TEXT", "body": "Valid tile", "layouts": {}},
+                {
+                    "type": "TEXT",
+                    "body": "Invalid tile",
+                    "agent_context": "x" * 10_001,
+                    "layouts": {},
+                },
+            ],
+        )
+        dashboard_count = Dashboard.objects.filter(team=self.team).count()
+        text_count = Text.objects.filter(team=self.team).count()
+
+        self.dashboard_api.create_dashboard(
+            {"name": "partial dashboard", "use_template": template_name},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        assert Dashboard.objects.filter(team=self.team).count() == dashboard_count
+        assert Text.objects.filter(team=self.team).count() == text_count
+
     @parameterized.expand(
         [
             ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
