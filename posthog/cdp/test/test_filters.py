@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.hogql.compiler.bytecode import create_bytecode
 
 from posthog.cdp.filters import (
+    RUNTIME_CONTRACT,
     build_behavioral_event_expr,
     cohort_filters_to_expr,
     compile_filters_bytecode,
@@ -328,6 +329,24 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "$virt_is_bot" in response["bytecode_error"]
         assert response["bytecode"] is None
+
+    def test_filters_carry_the_contract_they_compiled_against(self):
+        # The stamp is what lets the runtime tell "compiled against an older runtime" from "saved
+        # before the compiler checked". Only bytecode that actually compiled gets one.
+        compiled = compile_filters_bytecode({"properties": [{"type": "hogql", "key": "event = 'x'"}]}, self.team)
+        assert compiled["bytecode_contract"] == RUNTIME_CONTRACT
+        assert len(RUNTIME_CONTRACT) == 16
+
+        stale = compile_filters_bytecode(
+            {"properties": [{"type": "hogql", "key": "event = 'x'"}], "bytecode_contract": "older"}, self.team
+        )
+        assert stale["bytecode_contract"] == RUNTIME_CONTRACT
+
+        broken = compile_filters_bytecode(
+            {"properties": [{"type": "hogql", "key": "$virt_is_bot = true"}], "bytecode_contract": "older"}, self.team
+        )
+        assert broken["bytecode"] is None
+        assert "bytecode_contract" not in broken
 
     def test_filters_allow_a_global_the_runtime_does_have(self):
         response = compile_filters_bytecode(

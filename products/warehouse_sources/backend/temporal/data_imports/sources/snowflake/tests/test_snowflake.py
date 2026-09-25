@@ -909,6 +909,21 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"MFA-enrollment error should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "MFA with TOTP is required",
+            # The real shape from production: codes + host vary, but the TOTP substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
+        ],
+    )
+    def test_mfa_totp_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"MFA-TOTP-required error should be non-retryable: {error_msg}"
+
     def test_mfa_required_maps_to_a_message_instead_of_the_raw_snowflake_text(self, source):
         # The raw text carries the account host and vendor codes, so the entry must supply its own
         # message rather than letting the failure surface unchanged.
@@ -1282,6 +1297,9 @@ class TestSnowflakeValidateCredentials:
             "Duo Security authentication is denied.",
             "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
             "MFA authentication is required.",
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Failed to authenticate: MFA with TOTP is required. To authenticate, provide both your "
+            "password and a current TOTP passcode.",
         ],
     )
     def test_mfa_enforced_login_returns_friendly_message_without_capture(self, source, raw_message):

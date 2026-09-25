@@ -218,7 +218,7 @@ DRAFT_CONTENT_FIELDS = (
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -232,6 +232,24 @@ def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
         **condition,
         "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
     }
+
+
+def _without_bytecode_contracts(node: Any) -> Any:
+    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
+    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
+    # nobody changed it, so the revision comparison must not count the stamp as content. A stamp only
+    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
+    # content and still versions the flow.
+    if isinstance(node, dict):
+        derived = "bytecode" in node
+        return {
+            key: _without_bytecode_contracts(value)
+            for key, value in node.items()
+            if not (derived and key == "bytecode_contract")
+        }
+    if isinstance(node, list):
+        return [_without_bytecode_contracts(item) for item in node]
+    return node
 
 
 def _wait_condition_already_stored(action: dict, context: dict) -> bool:
@@ -1995,7 +2013,6 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
 
 
 MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
-MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 
 class HogFlowConversionSerializer(serializers.Serializer):
@@ -2023,17 +2040,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         help_text=(
             "How long after entering the workflow a conversion still counts, as a duration string: "
             "'7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, "
-            "and at most '365d'. Omit it to use the default of 90 days. "
-            "Set this or 'window_minutes', not both."
-        ),
-    )
-    window_minutes = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
-            "person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. "
-            "Set this or 'window', not both."
+            "and at most '365d'. Omit it to use the default of 90 days."
         ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
@@ -2055,36 +2062,6 @@ class HogFlowConversionSerializer(serializers.Serializer):
         if minutes > MAX_CONVERSION_WINDOW_MINUTES:
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
         return value
-
-    def _stored_window_minutes(self) -> int | None:
-        # The value this workflow already holds, or None on create. `conversion` is nested only under
-        # HogFlowSerializer, so self.root.instance is the HogFlow being updated.
-        stored = getattr(self.root.instance, "conversion", None)
-        if isinstance(stored, dict):
-            return stored.get("window_minutes")
-        return None
-
-    def validate_window_minutes(self, value: int | None) -> int | None:
-        if value is None:
-            return value
-        # Grandfather an over-ceiling value the row already holds. The builder resends the whole
-        # conversion on every save, so a plain value ceiling would 400 an unrelated edit (a rename or a
-        # step change) on a workflow that predates the ceiling, naming a field the builder cannot show.
-        # Reject the value only when this write introduces or changes it.
-        if value > MAX_LEGACY_WINDOW_MINUTES and value != self._stored_window_minutes():
-            # Almost every value this large is a second count in a field that takes minutes, so name the
-            # unit and show what the number means rather than silently shortening it.
-            raise serializers.ValidationError(
-                f"window_minutes is in minutes, so {value} means {value // 1440} days. "
-                f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
-                f"such as '7d' instead."
-            )
-        return value
-
-    def validate(self, data: dict) -> dict:
-        if data.get("window") is not None and data.get("window_minutes") is not None:
-            raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
-        return data
 
     def to_internal_value(self, data):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
@@ -2940,7 +2917,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
             "events: event-based goals [{filters: {events: [...]}}]; "
             "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
-            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. "
+            "maximum '365d'. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
@@ -4592,8 +4569,8 @@ class HogFlowViewSet(
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
         template_cache: TemplateCache = {}
-        old_content = strip_content_secrets(raw_old, template_cache)
-        new_content = strip_content_secrets(raw_new, template_cache)
+        old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
+        new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1
@@ -6277,11 +6254,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                     # Dispatch outside the transaction so HTTP calls don't hold the row lock.
                     if batch_job_params:
-                        HogFlowBatchJob.objects.create(
-                            **batch_job_params,
-                            status=HogFlowBatchJob.State.QUEUED,
-                        )
-                        processed.append(str(schedule_id))
+                        with transaction.atomic():
+                            # Re-read the status under the flow's lock, so a stop that committed after
+                            # the check above wins, and a stop that lands later sees this job.
+                            still_active = (
+                                HogFlow.objects.select_for_update()
+                                .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
+                                .exists()
+                            )
+                            if still_active:
+                                HogFlowBatchJob.objects.create(
+                                    **batch_job_params,
+                                    status=HogFlowBatchJob.State.QUEUED,
+                                )
+                        if still_active:
+                            processed.append(str(schedule_id))
                     elif schedule_invocation_params:
                         response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
                         response.raise_for_status()
