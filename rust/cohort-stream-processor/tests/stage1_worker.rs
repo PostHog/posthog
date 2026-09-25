@@ -1106,34 +1106,37 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
         cohort(vec![behavioral_leaf(7), person_leaf()]),
     )]);
     let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
-    let alice = person(1);
 
     // Empty-string person_properties is JS-falsy: Node skips the person path but still runs the
-    // behavioral one, so it must not skip the whole event and drop the behavioral match.
-    let ev = CohortStreamEvent {
-        person_properties: Some(String::new()),
-        ..event(alice, 1, 0)
-    };
-    let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
+    // behavioral one, so it must not skip the whole event and drop the behavioral match. The shuffler
+    // forwards null for an event ingested without a person profile, and that event counts the same.
+    for (n, payload) in [(1, None), (2, Some(String::new()))] {
+        let who = person(n);
+        let ev = CohortStreamEvent {
+            person_properties: payload,
+            ..event(who, 1, 0)
+        };
+        let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
 
-    assert_eq!(
-        out.skipped, None,
-        "empty person_properties is not a whole-event skip"
-    );
-    assert_eq!(out.transitions.len(), 1);
-    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
-    assert_eq!(
-        transition_kind(&filters, &out.transitions[0]),
-        "behavioral_entered"
-    );
-    assert!(
-        state_at(&store, behavioral_lsk, alice).is_some(),
-        "behavioral row written"
-    );
-    assert!(
-        person_record_at(&store, alice).is_none(),
-        "empty person_properties → person path inactive, no record",
-    );
+        assert_eq!(
+            out.skipped, None,
+            "empty person_properties is not a whole-event skip"
+        );
+        assert_eq!(out.transitions.len(), 1);
+        assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+        assert_eq!(
+            transition_kind(&filters, &out.transitions[0]),
+            "behavioral_entered"
+        );
+        assert!(
+            state_at(&store, behavioral_lsk, who).is_some(),
+            "behavioral row written"
+        );
+        assert!(
+            person_record_at(&store, who).is_none(),
+            "empty person_properties → person path inactive, no record",
+        );
+    }
 }
 
 #[test]
