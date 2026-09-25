@@ -4440,6 +4440,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.trackedToolInvocations = undefined
                 cache.turnSuggestionLedgerTaskId = null
                 cache.disposables.dispose('turnSuggestionLedgerRetry')
+                cache.disposables.dispose('turnSuggestionLedgerRefresh')
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -4653,6 +4654,25 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
                         cache.turnSuggestionLedgerTaskId = taskId
                         actions.loadTurnSuggestionLedger(taskId)
+                        // Another tab's resolution reaches this one only as a live frame, which can be
+                        // lost, so a returning tab rereads the ledger while it shows a card.
+                        cache.disposables.add(
+                            () => {
+                                const onVisibilityChange = (): void => {
+                                    if (
+                                        document.visibilityState === 'visible' &&
+                                        values.turnSuggestion &&
+                                        values.bootstrappedTaskId === taskId
+                                    ) {
+                                        actions.loadTurnSuggestionLedger(taskId)
+                                    }
+                                }
+                                document.addEventListener('visibilitychange', onVisibilityChange)
+                                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                            },
+                            'turnSuggestionLedgerRefresh',
+                            { pauseOnPageHidden: false }
+                        )
                     }
                     return
                 }
