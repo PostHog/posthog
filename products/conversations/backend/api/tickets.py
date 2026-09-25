@@ -1617,7 +1617,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             with transaction.atomic():
                 return Comment.objects.create(
                     team=self.team,
-                    created_by=request.user,
+                    created_by=cast("User", request.user),
                     scope="conversations_ticket",
                     item_id=str(ticket.id),
                     content=message,
