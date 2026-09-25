@@ -18,7 +18,7 @@ from posthog.models.organization_notification_lock import (
     LOCKABLE_NOTIFICATION_SETTINGS,
     OrganizationMemberNotificationLock,
 )
-from posthog.permissions import OrganizationAdminReadPermissions, PostHogFeatureFlagPermission, PremiumFeaturePermission
+from posthog.permissions import OrganizationAdminReadPermissions, PremiumFeaturePermission
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -27,8 +27,6 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-
-ORG_NOTIFICATION_GOVERNANCE_FLAG = "org-notification-governance"
 
 # Bounds one save. Far above what the page can produce, since it renders one control per member
 # and lockable setting.
@@ -116,9 +114,8 @@ def _notify(user: User, organization: Organization, change_count: int) -> None:
 @extend_schema(extensions={"x-product": "core"})
 class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
-    permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission, PostHogFeatureFlagPermission]
-    premium_feature = AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
-    posthog_feature_flag = ORG_NOTIFICATION_GOVERNANCE_FLAG
+    permission_classes = [OrganizationAdminReadPermissions, PremiumFeaturePermission]
+    premium_feature = AvailableFeature.MEMBER_GOVERNANCE
     pagination_class = None
 
     @extend_schema(

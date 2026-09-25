@@ -675,6 +675,12 @@ def test_table_from_py_list_with_postgres_range(value, expected):
         assert table.schema.field("column").type == pa.string()
         assert table.column("column").to_pylist() == [expected, None]
 
+        # A batch holding no null: numpy reads a multirange as a nested sequence, so a column of
+        # equal length ones flattens into a 2-D array unless the column is built element by element.
+        table = table_from_py_list([{"column": value}], schema)
+
+        assert table.column("column").to_pylist() == [expected]
+
 
 def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
     # A Postgres array of ranges reaches the JSON fallback, which must render each element as

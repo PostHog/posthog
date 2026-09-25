@@ -13,7 +13,7 @@ _CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DrataEndpointConfig:
     name: str
     # Path template; fan-out endpoints carry a `{parent_id}` placeholder.
@@ -24,6 +24,13 @@ class DrataEndpointConfig:
     # Child rows don't carry their parent id natively, and child ids aren't documented as unique
     # beyond their parent, so fan-out primary keys must include this column.
     fan_out_parent_id_column: Optional[str] = None
+    # Path placeholder -> parent row field that fills it. The default binds the single
+    # `{parent_id}` placeholder to the parent's `id`; a child nested two levels deep binds one
+    # placeholder per ancestor id carried on the parent row.
+    fan_out_path_params: dict[str, str] = field(default_factory=lambda: {"parent_id": "id"})
+    # Further parent row fields copied onto each child row -> the column they land under. Used by
+    # deeper fan-outs whose primary key needs a grandparent id too.
+    fan_out_extra_parent_columns: dict[str, str] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation timestamp used for datetime partitioning (never an updated-at style field).
     partition_key: Optional[str] = "createdAt"
@@ -36,6 +43,8 @@ class DrataEndpointConfig:
     sort: str = "createdAt"
     # Results per page; the v2 API allows 1-500 (default 50).
     page_size: int = 250
+    # Extra query params sent on every request to this endpoint.
+    extra_params: dict[str, str] = field(default_factory=dict)
     # False leaves the table deselected by default in the schema picker. Used for the risk tables,
     # which are gated on Drata's Risk Management Pro feature and 403 on accounts without it.
     should_sync_default: bool = True
@@ -52,6 +61,13 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
     "users": DrataEndpointConfig(
         name="users",
         path="/users",
+    ),
+    "user_assigned_policies": DrataEndpointConfig(
+        name="user_assigned_policies",
+        path="/users/{parent_id}/assigned-policies",
+        fan_out_parent="users",
+        fan_out_parent_id_column="userId",
+        primary_keys=["userId", "id"],
     ),
     "personnel": DrataEndpointConfig(
         name="personnel",
@@ -94,6 +110,32 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
         fan_out_parent_id_column="workspaceId",
         primary_keys=["workspaceId", "id"],
     ),
+    "monitoring_test_failures": DrataEndpointConfig(
+        name="monitoring_test_failures",
+        # `{parent_id}` binds the parent's `testId`, not its `id`: Drata documents `id` as an
+        # internal record identifier no public endpoint accepts.
+        path="/workspaces/{workspaceId}/monitoring-tests/{parent_id}/failures",
+        fan_out_parent="monitoring_tests",
+        fan_out_parent_id_column="monitoringTestId",
+        fan_out_path_params={"parent_id": "testId", "workspaceId": "workspaceId"},
+        fan_out_extra_parent_columns={"workspaceId": "workspaceId"},
+        # A failure row is one cloud resource failing one test; `id` is the provider's resource id,
+        # unique only within the test that flagged it.
+        primary_keys=["workspaceId", "monitoringTestId", "id"],
+        # Failure rows carry no timestamp at all, so there is nothing stable to partition on.
+        partition_key=None,
+        # Excluded findings are omitted by default; keep them so the `status` column tells the
+        # whole story instead of the row silently disappearing when someone dismisses it. Tags
+        # only arrive when asked for, and they are what attributes a failing resource to a team.
+        extra_params={"includeExclusions": "true", "expand[]": "tags"},
+    ),
+    "tasks": DrataEndpointConfig(
+        name="tasks",
+        path="/workspaces/{parent_id}/tasks",
+        fan_out_parent="workspaces",
+        fan_out_parent_id_column="workspaceId",
+        primary_keys=["workspaceId", "id"],
+    ),
     "evidence_library": DrataEndpointConfig(
         name="evidence_library",
         path="/workspaces/{parent_id}/evidence-library",
@@ -104,6 +146,13 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
     "frameworks": DrataEndpointConfig(
         name="frameworks",
         path="/workspaces/{parent_id}/frameworks",
+        fan_out_parent="workspaces",
+        fan_out_parent_id_column="workspaceId",
+        primary_keys=["workspaceId", "id"],
+    ),
+    "framework_requirements": DrataEndpointConfig(
+        name="framework_requirements",
+        path="/workspaces/{parent_id}/framework-requirements",
         fan_out_parent="workspaces",
         fan_out_parent_id_column="workspaceId",
         primary_keys=["workspaceId", "id"],

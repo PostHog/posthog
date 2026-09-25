@@ -2104,6 +2104,19 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "(3159, 'Connections using insecure transport are prohibited while --require_secure_transport=ON.')",
+            "OperationalError: (3159, 'Connections using insecure transport are prohibited while "
+            "--require_secure_transport=ON.')",
+        ],
+    )
+    def test_secure_transport_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Secure-transport-required error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "is blocked because of many connection errors",
             # MariaDB phrasing (suggests mariadb-admin) — what we actually observed in the wild.
             "OperationalError: (1129, \"Host '172.31.4.130' is blocked because of many connection "
@@ -2520,6 +2533,24 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Vitess reparent error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(1105, 'unknown: target: v2.-.replica: vttablet: rpc error: code = Canceled "
+            "desc = grpc: the client connection is closing')",
+            "grpc: the client connection is closing",
+        ],
+    )
+    def test_vitess_grpc_client_connection_closing_is_classified_retryable(self, source, error_msg):
+        # Hits mid-stream, when vtgate's gRPC client to the backend vttablet was already closing
+        # (a tablet swap during a failover, reparent, or pool recycle) as the query's RPC was
+        # submitted. Unlike the other Vitess 1105 cases, no in-process retry wraps the streaming
+        # query, so without this classification `_handle_import_error` logs it at `exception` on
+        # every occurrence, flooding error tracking with a self-recovering failover blip.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess gRPC client-connection-closing error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:
