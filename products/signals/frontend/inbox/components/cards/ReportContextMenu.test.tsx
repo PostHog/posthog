@@ -226,12 +226,18 @@ describe('ReportContextMenu', () => {
             })
         })
 
-        // The API refuses an in-progress source with a 409, so the menu must not offer that dead end.
+        // The API refuses an in-progress source, or one with more signals than a merge can move, with a
+        // 409, so the menu must not offer that dead end.
         it.each([
-            { name: 'a ready report', status: SignalReportStatus.READY, offersMerge: true },
-            { name: 'an in-progress report', status: SignalReportStatus.IN_PROGRESS, offersMerge: false },
-        ])('$name offers merge: $offersMerge', ({ status, offersMerge }) => {
-            openMenu(makeReport({ status }))
+            { name: 'a ready report', overrides: { status: SignalReportStatus.READY }, offersMerge: true },
+            {
+                name: 'an in-progress report',
+                overrides: { status: SignalReportStatus.IN_PROGRESS },
+                offersMerge: false,
+            },
+            { name: 'a report past the signal cap', overrides: { signal_count: 5001 }, offersMerge: false },
+        ])('$name offers merge: $offersMerge', ({ overrides, offersMerge }) => {
+            openMenu(makeReport(overrides))
 
             expect(menuRowText().includes('Merge into…')).toBe(offersMerge)
         })
