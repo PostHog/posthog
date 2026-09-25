@@ -19,4 +19,4 @@ export type TerminalWorkerResponse =
     | { type: 'loaded' }
     | { type: 'serial'; port: number; bytes: Uint8Array }
     | { type: '9p'; id: number; bytes: Uint8Array }
-    | { type: 'error'; message: string }
+    | { type: 'error'; message: string; cause: { name: string; message: string; stack?: string } }

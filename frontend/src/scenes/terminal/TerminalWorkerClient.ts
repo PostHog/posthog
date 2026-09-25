@@ -1,3 +1,5 @@
+import posthog, { type Properties } from 'posthog-js'
+
 import type { NinePServer } from './ninepServer'
 import type { TerminalWorkerBoot, TerminalWorkerRequest, TerminalWorkerResponse } from './terminalWorkerProtocol'
 
@@ -41,13 +43,17 @@ export class TerminalWorkerClient {
                         })
                         break
                     case 'error':
-                        this.fail(data.message)
+                        this.fail(data.message, Object.assign(new Error(data.cause.message), data.cause))
                         break
                 }
             }
             this.worker.onerror = (event): void => {
                 event.preventDefault()
-                this.fail('Terminal worker failed. Restart the terminal.')
+                this.fail(
+                    'Terminal worker failed. Restart the terminal.',
+                    new Error(event.message || 'Terminal worker failed without an error message'),
+                    { filename: event.filename, lineno: event.lineno, colno: event.colno }
+                )
             }
             this.worker.onmessageerror = (): void =>
                 this.fail('Terminal worker connection failed. Restart the terminal.')
@@ -55,10 +61,11 @@ export class TerminalWorkerClient {
         })
     }
 
-    private fail(message: string): void {
+    private fail(message: string, cause = new Error(message), properties?: Properties): void {
         if (this.disposed) {
             return
         }
+        posthog.captureException(cause, properties)
         this.rejectLoaded?.(new Error(message))
         this.dispose()
         this.onError(message)

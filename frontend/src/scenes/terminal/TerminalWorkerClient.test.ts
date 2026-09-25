@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { NinePServer } from './ninepServer'
 import { TerminalWorkerClient } from './TerminalWorkerClient'
 
@@ -32,6 +34,7 @@ describe('terminal worker connection', () => {
     afterEach(() => {
         globalThis.Worker = originalWorker
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     it('matches concurrent filesystem replies and ignores late replies after stopping', async () => {
@@ -58,6 +61,44 @@ describe('terminal worker connection', () => {
         expect(worker.postMessage).toHaveBeenCalledTimes(3)
         expect(server.handle).toHaveBeenCalledTimes(3)
         expect(worker.terminate).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        {
+            source: 'worker exception',
+            trigger: (worker: TestWorker): void =>
+                worker.onmessage!({
+                    data: {
+                        type: 'error',
+                        message: 'Terminal worker stopped unexpectedly. Restart the terminal.',
+                        cause: { name: 'RangeError', message: 'Invalid array length', stack: 'RangeError: at receive' },
+                    },
+                } as MessageEvent),
+            exception: { name: 'RangeError', message: 'Invalid array length', stack: 'RangeError: at receive' },
+            properties: undefined,
+        },
+        {
+            source: 'worker error event',
+            trigger: (worker: TestWorker): void =>
+                worker.onerror!(
+                    new ErrorEvent('error', {
+                        message: 'Uncaught RuntimeError: unreachable',
+                        filename: 'https://example.com/static/terminalWorker.js',
+                        lineno: 10,
+                        colno: 5,
+                    })
+                ),
+            exception: { message: 'Uncaught RuntimeError: unreachable' },
+            properties: { filename: 'https://example.com/static/terminalWorker.js', lineno: 10, colno: 5 },
+        },
+    ])('reports the cause of a $source to error tracking', async ({ trigger, exception, properties }) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const onError = jest.fn()
+        const client = new TerminalWorkerClient(boot, {} as NinePServer, onError)
+        trigger(TestWorker.instance)
+        await expect(client.loaded).rejects.toBeInstanceOf(Error)
+        expect(captureException).toHaveBeenCalledWith(expect.objectContaining(exception), properties)
+        expect(onError).toHaveBeenCalledWith(expect.stringContaining('Restart the terminal.'))
     })
 
     it.each(['error', 'messageerror', 'timeout', 'stop'])(

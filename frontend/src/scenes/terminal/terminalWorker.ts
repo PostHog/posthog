@@ -27,6 +27,14 @@ function send(message: TerminalWorkerResponse, transfer: Transferable[] = []): v
     postMessage(message, { transfer })
 }
 
+function fail(message: string, error: unknown): void {
+    const cause =
+        error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { name: 'Error', message: String(error) }
+    send({ type: 'error', message, cause })
+}
+
 let emulator: WorkerV86 | undefined
 let visible = false
 let nextRequest = 0
@@ -166,10 +174,10 @@ function receive(message: TerminalWorkerRequest): void {
 self.onmessage = (event: MessageEvent<TerminalWorkerRequest>): void => {
     try {
         receive(event.data)
-    } catch {
-        send({ type: 'error', message: 'Terminal worker stopped unexpectedly. Restart the terminal.' })
+    } catch (error) {
+        fail('Terminal worker stopped unexpectedly. Restart the terminal.', error)
     }
 }
-self.addEventListener('unhandledrejection', () => {
-    send({ type: 'error', message: 'Terminal worker could not start. Restart the terminal.' })
+self.addEventListener('unhandledrejection', (event) => {
+    fail('Terminal worker could not start. Restart the terminal.', event.reason)
 })
