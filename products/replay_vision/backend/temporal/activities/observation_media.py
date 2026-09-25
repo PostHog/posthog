@@ -31,8 +31,8 @@ from products.replay_vision.backend.temporal.video_clock import VideoClock, vide
 logger = structlog.get_logger(__name__)
 
 _MEDIA_EXPIRY = timedelta(days=90)
-# ffmpeg writes no frame when the seek lands past the end of the video.
-_END_MARGIN_S = 0.5
+# The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
+_EDGE_MARGIN_S = 3.0
 
 
 def _media_key_prefix(team_id: int, observation_id: Any) -> str:
@@ -63,7 +63,9 @@ def _pick_video_time_s(
         picked = (start + end) / 2
     if picked is None:
         picked = duration_s * FALLBACK_THUMBNAIL_FRACTION
-    return max(0.0, min(picked, max(0.0, duration_s - _END_MARGIN_S)))
+    if duration_s <= 2 * _EDGE_MARGIN_S:
+        return duration_s / 2
+    return min(max(picked, _EDGE_MARGIN_S), duration_s - _EDGE_MARGIN_S)
 
 
 @activity.defn

@@ -3,6 +3,8 @@ import os
 import json
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 import structlog
 from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
@@ -181,7 +183,7 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
-    "posthog.middleware.CSPMiddleware",
+    "posthog.csp_middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
     # resolution so the /api/environments → /api/projects rewrite is in place before the
@@ -634,6 +636,8 @@ SPECTACULAR_SETTINGS = {
             # class would cross a product boundary, so the entry names the set centrally.
             "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
             "RunEnvironmentEnum": ["local", "cloud"],
+            # claude_model_access and codex_model_access carry the same pair.
+            "ModelAccessEnum": ["posthog-gateway", "own-subscription"],
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
@@ -818,6 +822,7 @@ SPECTACULAR_SETTINGS = {
             "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
             "SurveyResultsWidgetTypeEnum": ["survey_results"],
             "LogsListWidgetTypeEnum": ["logs_list"],
+            "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         }
     ),
@@ -1055,6 +1060,13 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
 HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
+# Persons per page when the batch resolver enumerates a workflow audience. Each page is a separate
+# ClickHouse query, so a bigger page means fewer scans per run; the resolver inserts a page as one
+# Postgres transaction, which is why this is not unbounded.
+WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 5000))
+if WORKFLOWS_PERSON_BATCH_SIZE < 1:
+    # An empty page reports has_more, so the resolver would refetch it forever.
+    raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
