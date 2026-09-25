@@ -318,7 +318,8 @@ async def run_investigation(
                 else:
                     try:
                         content = await handler(args)
-                        report_args_history.clear()
+                        if not isinstance(content, str) or not content.startswith("Error:"):
+                            report_args_history.clear()
                     except Exception as err:
                         logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
                         content = f"Tool {name} failed: {err}"
