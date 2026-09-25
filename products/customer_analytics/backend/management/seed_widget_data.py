@@ -27,7 +27,6 @@ from products.customer_analytics.backend.models.account_channel_summary import S
 from products.customer_analytics.backend.models.meeting import MeetingResponseStatus, MeetingStatus
 from products.product_analytics.backend.facade import api as product_analytics
 from products.product_analytics.backend.facade.enums import InsightVariableType
-from products.product_analytics.backend.facade.models import Insight
 
 WIDGET_ACCOUNT_COUNT = 5
 
@@ -207,18 +206,14 @@ def _seed_billing_insights(*, team: Team, creator: User | None, accounts: list[A
         ),
     ]
     for short_id, name, description, query in insight_specs:
-        Insight.objects_including_soft_deleted.get_or_create(
-            team=team,
+        product_analytics.get_or_create_saved_insight(
+            team_id=team.id,
+            user_id=creator.id if creator else None,
             short_id=short_id,
-            defaults={
-                "name": name,
-                "description": description,
-                "query": query,
-                "saved": True,
-                "deleted": False,
-                "created_by": creator,
-                "last_modified_by": creator,
-            },
+            name=name,
+            description=description,
+            query=query,
+            revive_deleted=False,
         )
 
 
