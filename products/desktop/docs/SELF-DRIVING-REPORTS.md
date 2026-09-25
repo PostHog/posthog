@@ -7,7 +7,8 @@ Priority and reviewer scope remain in the report list. Evidence counts remain in
 
 Chat opens the report conversation beside the document, including an existing implementation session when one is available.
 When a discussion reveals a correction, preference, missing context, or verified fact worth keeping, Ask AI offers to save a short scout note or report work-log entry.
-The agent asks for agreement on the text and destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
+When both destinations are available and the chat token has the required scopes, the agent offers both choices.
+The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
 Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
 Select text in either report view to ask about that passage.
 Reports with a PR show Open in GitHub as the first header button, followed by Chat.

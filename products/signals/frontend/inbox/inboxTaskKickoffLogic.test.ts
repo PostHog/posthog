@@ -537,6 +537,9 @@ describe('inboxTaskKickoffLogic', () => {
         ])('offers consent-first feedback saving for an %s report', (_label, report) => {
             const prompt = buildDiscussReportPrompt(report, url, 'Why did this happen?')
             expect(prompt).toContain('a correction, a preference, context the report missed, or a fact you verified')
+            expect(prompt).toContain(
+                'When both destinations are available and the chat token has signal_scout:write and llm_skill:write, present both choices and let the user select a destination before confirming the text.'
+            )
             expect(prompt).toContain('scout-notes-create')
             expect(prompt).toContain('inbox-report-artefacts-create')
             expect(prompt).toContain('Confirm the proposed text and destination with the user before writing')
