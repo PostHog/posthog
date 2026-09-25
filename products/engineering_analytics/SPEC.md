@@ -100,7 +100,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 
 Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.
 One gate for the three per-job views: a team gets them only when a GitHub source has **both** `workflow_runs` and `workflow_jobs` synced, so they appear together or not at all.
-They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load, so a builder change reaches active teams within one sync cycle.
+They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load and every Depot job-attempts load, so a builder change reaches active teams within one sync cycle.
 The per-PR friction view is the exception, below: it also needs the `pull_requests` snapshot, and it is materialized.
 
 #### `engineering_analytics_job_costs`
@@ -190,6 +190,10 @@ Warehouse tables (GitHub source):
 - `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
 - `github_reviews`: submitted pull request reviews (approvals, change requests, comments), fanned out per PR with `pr_number` injected. Backs the approval split and the review states on the author page. Optional at the source, so reads must degrade gracefully when unsynced.
 - `github_issue_events`: immutable issue/PR state transitions, landed raw with every event type kept (a source-side filter would pin the desc-walk watermark). The draft/ready transitions in them back `ready_to_merge_seconds` and the lifecycle timeline. Team review requests (`review_requested` events that carry `requested_team`) pick the team an author's delivery comparison uses: the repository's owner resolution asks the teams that own the changed files, so the teams an author's pull requests ask most often are the teams the author works for. GitHub adds that column only for a team request, so a repository where no pull request asked a team has no such column, and the source resolver checks for it before the read uses it. GitHub caps the endpoint's history walk, so rows cover a bounded recent window growing forward from the first sync; optional, and reads must degrade gracefully when unsynced.
+
+Warehouse table (Depot source):
+
+- `depot_job_attempts`: one row per Depot CI job attempt, for the repository the Depot source names. Reads keep only that repository's rows, because a source moved to another repository keeps what it synced before. Depot CI is its own engine, so these runs never reach the GitHub tables. `logic/views/depot_ci.py` reshapes the attempts into rows of the GitHub runs and jobs contracts and unions them onto those tables, so every builder reads both engines. Each Depot workflow is one runs row. A run with one workflow decodes its id to the integer `GITHUB_RUN_ID` Depot CI gives its jobs, which joins them to the CI test spans; a run with several workflows keys each by its own decoded workflow id, so no join fans out. The PR number comes from the run's `refs/pull/<n>/merge` ref, and the run's branch from that PR's snapshot; job rows carry no branch, because every branch filter reads the run's. Depot's API reports no `runs-on`, so every attempt is costed as the default `depot-ubuntu-24.04` sandbox. Optional, and reads degrade to GitHub-only CI when unsynced.
 
 Other products read as sources:
 
