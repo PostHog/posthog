@@ -9,7 +9,7 @@ from posthog.migration_helpers import CreateIndexConcurrently, DropIndexConcurre
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [("product_analytics", "0012_insight_viewed_dashboard_index")]
+    dependencies = [("product_analytics", "0011_insight_viewed_context_fields")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

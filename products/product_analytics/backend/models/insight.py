@@ -458,7 +458,7 @@ class InsightViewed(models.Model):
     # Empty source identifies legacy/unattributed history, not a standalone view.
     source = models.CharField(max_length=64, default="", db_default="", blank=True)
     dashboard = models.ForeignKey(
-        "dashboards.Dashboard", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False, db_index=False
+        "dashboards.Dashboard", on_delete=models.DO_NOTHING, null=True, blank=True, db_constraint=False, db_index=False
     )
 
     class Meta:
@@ -473,9 +473,6 @@ class InsightViewed(models.Model):
             )
         ]
         indexes = [
-            models.Index(
-                fields=["dashboard"], condition=models.Q(dashboard__isnull=False), name="insightviewed_dashboard_idx"
-            ),
             models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
             models.Index(fields=["insight_id", "-last_viewed_at"], name="insightviewed_insight_lva_idx"),
         ]
