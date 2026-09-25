@@ -6,7 +6,7 @@ import { MessageChannels } from './Channels/MessageChannels'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
-import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
+import { ReputationTab } from './Workflows/Reputation/ReputationTab'
 
 // pinned: URL path segments under /workflows and /broadcasts - renaming breaks bookmarks
 export const MESSAGING_NAV_TAB_KEYS = ['library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
@@ -17,7 +17,7 @@ export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
     channels: <MessageChannels />,
     'opt-outs': <OptOutScene />,
     suppression: <SuppressionScene />,
-    reputation: <WorkflowsReputation />,
+    reputation: <ReputationTab />,
 }
 
 /**

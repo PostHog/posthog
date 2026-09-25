@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { endWithPunctation, humanList } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -9,12 +11,13 @@ import type {
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { TRIGGER_NODE_ID } from '../workflowLogic'
 import {
-    CONFIGURE_CHANNELS_DOCS_URL,
+    CHANNEL_SETUP_DOCS_URL,
+    LOWER_RATES_DOCS_URL,
     OTHER_ISP,
     RATE_KINDS,
     RATE_THRESHOLDS,
-    REPUTATION_DOCS_URL,
     RateKind,
     RateLevel,
     classifyRate,
@@ -36,20 +39,33 @@ type ReputationActionKind =
     | 'workflow-rate'
     | 'provider-rate'
 
-interface ReputationActionLink {
+export type ReputationBreakdownTab = 'workflows' | 'providers'
+
+/**
+ * The row's one button: a page in PostHog where the fix happens, the in-app support form, or a
+ * breakdown tab lower on this page.
+ */
+export type ReputationActionCta =
+    | { label: string; to: string }
+    | { label: string; supportMessage: string }
+    | { label: string; breakdownTab: ReputationBreakdownTab }
+
+export interface ReputationDocsLink {
     label: string
     to: string
-    external?: boolean
 }
 
 export interface ReputationAction {
     key: string
     kind: ReputationActionKind
     severity: ReputationActionSeverity
+    /** True when no email goes out until the user acts. Only these items use the danger color. */
+    blocksSending: boolean
     title: string
     description: string
-    primary: ReputationActionLink
-    secondary?: ReputationActionLink
+    /** Missing when no page in PostHog helps with the item. */
+    cta?: ReputationActionCta
+    docsLink?: ReputationDocsLink
 }
 
 export type ReputationSetupTab = 'channels' | 'opt-outs'
@@ -99,16 +115,28 @@ interface RankedAction extends ReputationAction {
     magnitude: number
 }
 
-function guideLink(label = 'How to fix it'): ReputationActionLink {
-    return { label, to: REPUTATION_DOCS_URL, external: true }
+const LOWER_RATES_DOCS: ReputationDocsLink = { label: 'How to lower your rates', to: LOWER_RATES_DOCS_URL }
+
+function contactSupport(supportMessage: string): ReputationActionCta {
+    return { label: 'Contact support', supportMessage }
 }
 
-function openWorkflow(workflow: WorkflowEmailSendingRatesApi): ReputationActionLink {
-    return { label: 'Open workflow', to: urls.workflow(workflow.hog_flow_id, 'workflow') }
+// Items that name no workflow still ask the user to find the ones with high rates, and the
+// workflow table below the list shows every workflow's rates.
+const VIEW_WORKFLOWS: ReputationActionCta = { label: 'View workflows', breakdownTab: 'workflows' }
+
+// Every item that names a workflow asks the user to check its audience, and the trigger step
+// holds the audience. The workflow editor reads `node` from the URL and selects that step. The
+// reputation rows carry no origin, so a broadcast opens in the workflow editor too.
+function openWorkflow(workflow: WorkflowEmailSendingRatesApi): ReputationActionCta {
+    return {
+        label: 'Open workflow',
+        to: combineUrl(urls.workflow(workflow.hog_flow_id, 'workflow'), { node: TRIGGER_NODE_ID }).url,
+    }
 }
 
-function optOutsLink(inputs: ReputationActionInputs): ReputationActionLink {
-    return { label: 'Opt-outs', to: inputs.tabUrl('opt-outs') }
+function optOutsLink(inputs: ReputationActionInputs): ReputationActionCta {
+    return { label: 'Manage opt-outs', to: inputs.tabUrl('opt-outs') }
 }
 
 function formatShare(share: number): string {
@@ -189,12 +217,15 @@ function sendingStoppedActions(inputs: ReputationActionInputs): RankedAction[] {
             key: 'project-suspended',
             kind: 'project-suspended',
             severity: 'high',
+            blocksSending: true,
             group: GROUP_ORDER.sendingStopped,
             magnitude: 0,
             title: 'PostHog suspended email sending for this project',
             description:
-                'No workflow email goes out until the suspension ends. Fix the other items here, then contact support.',
-            primary: guideLink('Read the guide'),
+                'No workflow email goes out until the suspension ends. Fix the other items here, then contact support to lift it.',
+            cta: contactSupport(
+                'Email sending is suspended for this project. Please review it and lift the suspension. What I changed: '
+            ),
         })
     }
     const aws = inputs.aws
@@ -207,6 +238,7 @@ function sendingStoppedActions(inputs: ReputationActionInputs): RankedAction[] {
                 key: 'provider-status',
                 kind: 'provider-status',
                 severity: stopped || aws.health === 'critical' ? 'high' : 'medium',
+                blocksSending: stopped,
                 group: stopped ? GROUP_ORDER.sendingStopped : GROUP_ORDER.providerVerdict,
                 magnitude: 0,
                 title: stopped
@@ -215,25 +247,33 @@ function sendingStoppedActions(inputs: ReputationActionInputs): RankedAction[] {
                 description: stopped
                     ? 'Lower your bounce and spam complaint rates, then contact support to get sending re-enabled.'
                     : 'It has not named a cause yet. Check your workflows for high bounce or spam complaint rates.',
-                primary: guideLink(),
+                cta: stopped
+                    ? contactSupport(
+                          'Our email provider paused sending for this project. Please review it and re-enable sending. What I changed to lower our bounce and spam complaint rates: '
+                      )
+                    : VIEW_WORKFLOWS,
+                docsLink: LOWER_RATES_DOCS,
             })
         }
     }
     return actions
 }
 
+// The workflow page opens with the pause banner. It has a resume button, a disabled reason for a
+// viewer, or a contact support button when only support can resume the workflow.
 function pausedWorkflowAction(workflow: WorkflowEmailSendingRatesApi): RankedAction {
     const reason = workflow.email_sending_paused_reason || 'Its email is paused.'
     return {
         key: `paused:${workflow.hog_flow_id}`,
         kind: 'paused-workflow',
         severity: 'high',
+        blocksSending: true,
         group: GROUP_ORDER.pausedWorkflow,
         magnitude: 0,
         title: `${workflowName(workflow)} is paused`,
-        description: `${reason} Check where its audience comes from before you resume sending from the workflow. If you can't resume it, contact support.`,
-        primary: openWorkflow(workflow),
-        secondary: guideLink(),
+        description: `${reason} Check where its audience comes from, then resume sending from the workflow page. If only support can resume it, contact support from there.`,
+        cta: openWorkflow(workflow),
+        docsLink: LOWER_RATES_DOCS,
     }
 }
 
@@ -247,6 +287,7 @@ function findingAction(
         key: `finding:${type}`,
         kind: 'finding' as const,
         severity: (finding.impact === 'HIGH' ? 'high' : 'medium') as ReputationActionSeverity,
+        blocksSending: false,
         group: finding.impact === 'HIGH' ? GROUP_ORDER.highFinding : GROUP_ORDER.lowFinding,
         magnitude: 0,
     }
@@ -269,8 +310,12 @@ function findingAction(
                     : offender
                       ? `${share} Send it only to people who opted in, and make unsubscribing easy.`
                       : 'Your email provider sees too many spam complaints for this project. Send only to people who opted in, and make unsubscribing easy.',
-            primary: offender ? openWorkflow(offender.workflow) : guideLink(),
-            secondary: offender ? (kind === 'bounce' ? guideLink() : optOutsLink(inputs)) : undefined,
+            cta: offender
+                ? openWorkflow(offender.workflow)
+                : kind === 'complaint'
+                  ? optOutsLink(inputs)
+                  : VIEW_WORKFLOWS,
+            docsLink: LOWER_RATES_DOCS,
         }
     }
     if (DNS_FINDINGS.has(type)) {
@@ -278,9 +323,9 @@ function findingAction(
             ...base,
             group: finding.impact === 'HIGH' ? GROUP_ORDER.highFinding : GROUP_ORDER.lowDnsFinding,
             title: `Fix your ${type} record`,
-            description: `Your sending domain is missing a valid ${type} record.${providerSays(finding)} Check the DNS records your email channel shows, then verify the domain again.`,
-            primary: { label: 'Open channels', to: inputs.tabUrl('channels') },
-            secondary: { label: 'Setup guide', to: CONFIGURE_CHANNELS_DOCS_URL, external: true },
+            description: `Your sending domain is missing a valid ${type} record.${providerSays(finding)} In Channels, expand each email domain and click Configure next to a sender to see the records to add at your DNS host, then click Re-check DNS records.`,
+            cta: { label: 'Open channels', to: inputs.tabUrl('channels') },
+            docsLink: { label: 'Channel setup guide', to: CHANNEL_SETUP_DOCS_URL },
         }
     }
     if (type === 'BIMI') {
@@ -289,8 +334,7 @@ function findingAction(
             severity: 'low',
             group: GROUP_ORDER.optionalSetup,
             title: 'Set up BIMI to show your logo in inboxes',
-            description: `BIMI is optional. It needs a DMARC policy that quarantines or rejects, a logo file, and for some mailbox providers a certificate.${providerSays(finding)}`,
-            primary: guideLink('Read the guide'),
+            description: `BIMI is optional and is set up at your DNS host, not in PostHog. It needs a DMARC policy that quarantines or rejects, a logo file, and for some mailbox providers a certificate.${providerSays(finding)}`,
         }
     }
     const titles: Record<string, string> = {
@@ -301,7 +345,8 @@ function findingAction(
         ...base,
         title: titles[type] ?? 'Your email provider flagged a problem',
         description: `${providerSays(finding).trim() || 'Your email provider flagged a problem with email from this project.'} This usually follows high bounce or spam complaint rates, so check your workflows for those first.`,
-        primary: guideLink(),
+        cta: VIEW_WORKFLOWS,
+        docsLink: LOWER_RATES_DOCS,
     }
 }
 
@@ -334,13 +379,14 @@ function workflowRateActions(
             key: `workflow-${kind}:${workflow.hog_flow_id}`,
             kind: 'workflow-rate',
             severity: level === 'high' ? 'medium' : 'low',
+            blocksSending: false,
             group: GROUP_ORDER.workflowRate,
             rateKind: kind,
             magnitude: rate / RATE_THRESHOLDS[kind].elevated,
             title: `${workflowName(workflow)} has a ${formatRate(rate)} ${RATE_KINDS[kind].event} rate`,
             description: rateAdvice(kind, level),
-            primary: openWorkflow(workflow),
-            secondary: kind === 'bounce' ? guideLink() : optOutsLink(inputs),
+            cta: openWorkflow(workflow),
+            docsLink: LOWER_RATES_DOCS,
         })
     }
     return actions
@@ -361,6 +407,7 @@ function projectRateAction(inputs: ReputationActionInputs, kind: RateKind): Rank
         key: `project-${kind}`,
         kind: 'project-rate',
         severity: level === 'high' ? 'high' : 'medium',
+        blocksSending: false,
         group: GROUP_ORDER.projectRate,
         rateKind: kind,
         magnitude: rate / RATE_THRESHOLDS[kind].elevated,
@@ -369,8 +416,8 @@ function projectRateAction(inputs: ReputationActionInputs, kind: RateKind): Rank
             kind === 'bounce'
                 ? 'No single workflow stands out, so the bounces come from many smaller sends. Check where your audiences come from, and stop sending to imported or purchased lists.'
                 : 'No single workflow stands out, so the complaints come from many smaller sends. Send only to people who opted in, and make unsubscribing easy.',
-        primary: guideLink(),
-        secondary: kind === 'complaint' ? optOutsLink(inputs) : undefined,
+        cta: kind === 'complaint' ? optOutsLink(inputs) : VIEW_WORKFLOWS,
+        docsLink: LOWER_RATES_DOCS,
     }
 }
 
@@ -393,12 +440,14 @@ function providerRateActions(inputs: ReputationActionInputs): RankedAction[] {
             key: `provider-bounce:${isp.isp}`,
             kind: 'provider-rate',
             severity: level === 'high' ? 'medium' : 'low',
+            blocksSending: false,
             group: GROUP_ORDER.providerRate,
             rateKind: 'bounce',
             magnitude: isp.bounce_rate / RATE_THRESHOLDS.bounce.elevated,
             title: `${formatRate(isp.bounce_rate)} of email to ${provider} bounces`,
-            description: `A high bounce rate at one provider can mean it rejects your email, or that many of your addresses there no longer exist. Compare its delivery rate under By mailbox provider.${sharedNote}`,
-            primary: guideLink(),
+            description: `A high bounce rate at one provider can mean it rejects your email, or that many of your addresses there no longer exist. Compare its delivery rate with the other providers.${sharedNote}`,
+            cta: { label: 'View providers', breakdownTab: 'providers' },
+            docsLink: LOWER_RATES_DOCS,
         })
     }
     return actions

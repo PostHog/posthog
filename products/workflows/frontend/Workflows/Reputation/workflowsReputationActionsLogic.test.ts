@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import type { TeamEmailReputationResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { workflowRates as workflow } from './reputationFixtures'
-import { workflowsReputationLogic } from './workflowsReputationLogic'
+import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 // The newsletter causes the most bounces in absolute terms but only because it sends the most:
 // its rate matches the project's. The import bounces far more than its volume predicts.
@@ -107,8 +107,8 @@ const NEEDS_WORK: TeamEmailReputationResponseApi = {
     ],
 }
 
-describe('workflowsReputationLogic', () => {
-    let logic: ReturnType<typeof workflowsReputationLogic.build>
+describe('workflowsReputationActionsLogic', () => {
+    let logic: ReturnType<typeof workflowsReputationActionsLogic.build>
 
     function reputationMocks(response: TeamEmailReputationResponseApi): Parameters<typeof useMocks>[0] {
         return {
@@ -136,7 +136,7 @@ describe('workflowsReputationLogic', () => {
         if (path) {
             router.actions.push(path)
         }
-        logic = workflowsReputationLogic()
+        logic = workflowsReputationActionsLogic()
         logic.mount()
     }
 
@@ -160,22 +160,22 @@ describe('workflowsReputationLogic', () => {
             partial({
                 key: 'paused:wf-win-back',
                 severity: 'high',
-                primary: partial({ to: urls.workflow('wf-win-back', 'workflow') }),
+                cta: partial({ to: `${urls.workflow('wf-win-back', 'workflow')}?node=trigger_node` }),
             }),
             partial({
                 key: 'finding:BOUNCE',
                 severity: 'high',
-                primary: partial({ to: urls.workflow('wf-import', 'workflow') }),
+                cta: partial({ to: `${urls.workflow('wf-import', 'workflow')}?node=trigger_node` }),
             }),
             partial({
                 key: 'finding:DMARC',
                 severity: 'medium',
-                primary: partial({ to: urls.workflows('channels') }),
+                cta: partial({ to: urls.workflows('channels') }),
             }),
             partial({
                 key: 'workflow-bounce:wf-onboarding',
                 severity: 'low',
-                primary: partial({ to: urls.workflow('wf-onboarding', 'workflow') }),
+                cta: partial({ to: `${urls.workflow('wf-onboarding', 'workflow')}?node=trigger_node` }),
             }),
             partial({
                 key: 'provider-bounce:Yahoo',
@@ -193,19 +193,28 @@ describe('workflowsReputationLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadReputationSuccess'])
 
-        expect(logic.values.reputationActions.find((item) => item.key === 'finding:DMARC')?.primary.to).toEqual(
-            channelsUrl
-        )
+        expect(logic.values.reputationActions.find((item) => item.key === 'finding:DMARC')?.cta).toEqual({
+            label: 'Open channels',
+            to: channelsUrl,
+        })
     })
 
     it.each([
-        ['every signal is healthy', HEALTHY, true],
+        ['every signal is healthy', HEALTHY, true, true],
+        [
+            // One bounce in 8 sends would read as 12.5%, so the all-clear must not vouch for it.
+            'the only provider sent too little to judge',
+            { ...HEALTHY, isps: [{ ...HEALTHY.isps[0], emails_sent: 8, bounce_rate: 0 }] },
+            true,
+            false,
+        ],
         [
             'there is no email at all',
             { ...HEALTHY, reputation: null, workflows: [], isps: [] } as TeamEmailReputationResponseApi,
             false,
+            false,
         ],
-    ])('has nothing to fix when %s', async (_, response, hasSendingData) => {
+    ])('has nothing to fix when %s', async (_, response, hasSendingData, hasJudgedProviders) => {
         useMocks(reputationMocks(response))
         mountLogic()
 
@@ -213,6 +222,7 @@ describe('workflowsReputationLogic', () => {
 
         expect(logic.values.reputationActions).toEqual([])
         expect(logic.values.hasSendingData).toBe(hasSendingData)
+        expect(logic.values.hasJudgedProviders).toBe(hasJudgedProviders)
     })
 
     it.each([

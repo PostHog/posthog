@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -17,8 +18,11 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
         resumeEmailSendingPending,
         hasUnsavedChanges,
         workflowUserAccessLevel,
+        workflow,
+        originalWorkflow,
     } = useValues(workflowLogic)
     const { resumeEmailSending } = useActions(workflowLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     // The resume endpoint needs editor access, so a viewer gets a disabled button with the reason
     // instead of a confirm dialog that can only end in an error.
@@ -34,7 +38,19 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
 
     if (emailSendingPauseRequiresSupport) {
         return (
-            <LemonBanner type="error" data-attr="workflow-email-paused-banner">
+            <LemonBanner
+                type="error"
+                data-attr="workflow-email-paused-banner"
+                action={{
+                    children: 'Contact support',
+                    onClick: () =>
+                        openSupportForm({
+                            kind: 'support',
+                            message: `Email sending is paused for the workflow "${originalWorkflow?.name || 'Unnamed workflow'}" (${workflow.id}), and only support can resume it. Please review it and re-enable sending. What I changed in its audience: `,
+                        }),
+                    'data-attr': 'workflow-email-paused-contact-support',
+                }}
+            >
                 {emailSendingPausedByStaff
                     ? 'PostHog staff paused email sending for this workflow to protect delivery for everyone.'
                     : 'Email sending for this workflow was paused again soon after it was resumed.'}{' '}
