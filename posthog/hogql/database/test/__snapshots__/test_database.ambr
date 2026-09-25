@@ -7142,6 +7142,26 @@
                   "table": null,
                   "type": "datetime"
               },
+              "active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active",
+                  "id": null,
+                  "name": "active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "deleted": {
                   "chain": null,
                   "fields": null,
@@ -19068,6 +19088,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "active": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "active",
+                  "id": null,
+                  "name": "active",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived",
+                  "id": null,
+                  "name": "archived",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "deleted": {
                   "chain": null,
