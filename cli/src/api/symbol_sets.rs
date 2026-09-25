@@ -121,7 +121,45 @@ struct StartUploadResponseData {
     /// Standard-endpoint presigned POST, sent when `presigned_url` targets the
     /// S3 transfer-acceleration endpoint. Absent on older servers.
     fallback_presigned_url: Option<PresignedUrl>,
+    /// Presigned PUT, signed for exactly the `content_length` we declared. Preferred over the
+    /// POST form: presigned POST is an AWS S3 extension, and S3-compatible stores that lack it
+    /// (Cloudflare R2 answers `501 NotImplemented`) can accept an upload no other way.
+    /// Absent on servers that predate it.
+    #[serde(default)]
+    presigned_put_url: Option<String>,
+    /// Standard-endpoint presigned PUT, sent when `presigned_put_url` targets the
+    /// S3 transfer-acceleration endpoint.
+    #[serde(default)]
+    fallback_presigned_put_url: Option<String>,
     symbol_set_id: String,
+}
+
+/// One place an attempt can send the chunk to.
+#[derive(Debug, Clone, Copy)]
+enum UploadTarget<'a> {
+    /// Raw bytes to the object key, with a `Content-Length` the signature covers.
+    Put(&'a str),
+    /// A `multipart/form-data` POST policy to the bucket root. AWS S3 only.
+    Post(&'a PresignedUrl),
+}
+
+impl StartUploadResponseData {
+    /// The primary target and its fallback. A server that sent a PUT gets the PUT, because it
+    /// works on every store; the POST form stays for servers that did not.
+    fn upload_targets(&self) -> (UploadTarget<'_>, Option<UploadTarget<'_>>) {
+        match self.presigned_put_url.as_deref() {
+            Some(put_url) => (
+                UploadTarget::Put(put_url),
+                self.fallback_presigned_put_url
+                    .as_deref()
+                    .map(UploadTarget::Put),
+            ),
+            None => (
+                UploadTarget::Post(&self.presigned_url),
+                self.fallback_presigned_url.as_ref().map(UploadTarget::Post),
+            ),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -367,12 +405,8 @@ fn upload_inner(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
-                    upload_to_s3(
-                        transport,
-                        &data.presigned_url,
-                        data.fallback_presigned_url.as_ref(),
-                        &hashed.upload.data,
-                    )?;
+                    let (target, fallback_target) = data.upload_targets();
+                    upload_to_s3(transport, target, fallback_target, &hashed.upload.data)?;
                     Ok((data.symbol_set_id, hashed.content_hash.to_string()))
                 })
                 .collect()
@@ -448,6 +482,7 @@ fn bulk_upload_request(
                 chunk_id: hashed.upload.chunk_id.clone(),
                 release_id: hashed.upload.release_id.clone(),
                 content_hash: hashed.content_hash.to_string(),
+                content_length: hashed.upload.data.len() as u64,
             })
             .collect(),
         force,
@@ -587,8 +622,8 @@ impl EndpointRouter {
 
 fn upload_to_s3(
     transport: &UploadTransport,
-    presigned_url: &PresignedUrl,
-    fallback_presigned_url: Option<&PresignedUrl>,
+    presigned_url: UploadTarget<'_>,
+    fallback_presigned_url: Option<UploadTarget<'_>>,
     data: &[u8],
 ) -> Result<()> {
     let mut router = EndpointRouter::default();
@@ -606,19 +641,27 @@ fn upload_to_s3(
         let use_fallback = target_fallback.is_some();
         let target = target_fallback.unwrap_or(presigned_url);
 
-        let mut form = Form::new();
-        for (key, value) in &target.fields {
-            form = form.text(key.clone(), value.clone());
-        }
-        // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
-        // only treat a multipart part as a file upload when Content-Disposition
-        // carries a filename. Without it the part is parsed as a form field, which
-        // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
-        // AWS S3 accepts both forms.
-        let part = Part::bytes(data.to_vec()).file_name("file");
-        form = form.part("file", part);
+        let request = match target {
+            // The body length must match the signed `Content-Length` exactly, so the whole
+            // chunk goes in one owned buffer rather than a stream of unknown length.
+            UploadTarget::Put(url) => transport.client.put(url).body(data.to_vec()),
+            UploadTarget::Post(post) => {
+                let mut form = Form::new();
+                for (key, value) in &post.fields {
+                    form = form.text(key.clone(), value.clone());
+                }
+                // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
+                // only treat a multipart part as a file upload when Content-Disposition
+                // carries a filename. Without it the part is parsed as a form field, which
+                // is memory-capped, so uploads over a few MB fail with MalformedPOSTRequest.
+                // AWS S3 accepts both forms.
+                let part = Part::bytes(data.to_vec()).file_name("file");
+                form = form.part("file", part);
+                transport.client.post(&post.url).multipart(form)
+            }
+        };
 
-        let response = match transport.client.post(&target.url).multipart(form).send() {
+        let response = match request.send() {
             Ok(response) => response,
             Err(e) => {
                 router.record_transport_error(use_fallback);
@@ -754,6 +797,10 @@ struct CreateSymbolSetRequest {
     chunk_id: String,
     release_id: Option<String>,
     content_hash: String,
+    /// Byte count of the chunk this client will send. The server signs it into a presigned PUT,
+    /// which replaces the presigned POST policy's `content-length-range` condition. Servers that
+    /// predate the field ignore it and answer with a presigned POST only.
+    content_length: u64,
 }
 
 fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterator<Item = Duration> {
@@ -1019,6 +1066,62 @@ mod tests {
         let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
         let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
         assert!(parsed.id_map["chunk"].fallback_presigned_url.is_none());
+    }
+
+    #[test]
+    fn start_upload_response_parses_without_presigned_put_url() {
+        // A server that predates the PUT sends the POST form only, and the client must still
+        // upload rather than fail to parse the response.
+        let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+        let data = &parsed.id_map["chunk"];
+        assert!(data.presigned_put_url.is_none());
+
+        let (target, fallback) = data.upload_targets();
+        assert!(matches!(target, UploadTarget::Post(_)));
+        assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn upload_prefers_the_presigned_put_when_the_server_sends_one() {
+        // Presigned POST is an AWS extension; stores such as Cloudflare R2 refuse it. So the
+        // PUT wins whenever it is offered, and its own fallback comes with it.
+        let json = r#"{"id_map":{"chunk":{
+            "presigned_url":{"url":"https://post.example.com/","fields":{}},
+            "fallback_presigned_url":{"url":"https://post-fallback.example.com/","fields":{}},
+            "presigned_put_url":"https://put.example.com/key",
+            "fallback_presigned_put_url":"https://put-fallback.example.com/key",
+            "symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+
+        let (target, fallback) = parsed.id_map["chunk"].upload_targets();
+        assert!(matches!(
+            target,
+            UploadTarget::Put("https://put.example.com/key")
+        ));
+        assert!(matches!(
+            fallback,
+            Some(UploadTarget::Put("https://put-fallback.example.com/key"))
+        ));
+    }
+
+    #[test]
+    fn start_request_declares_the_chunk_length() {
+        // The server signs this number into the presigned PUT, so it must be the exact body size.
+        let upload = SymbolSetUpload {
+            chunk_id: "chunk".to_string(),
+            release_id: None,
+            data: vec![7; 321],
+            content_hash: None,
+        };
+        let hashed = HashedUpload {
+            upload: &upload,
+            content_hash: "hash",
+        };
+
+        let request = bulk_upload_request(&[hashed], false, false);
+
+        assert_eq!(request.symbol_sets[0].content_length, 321);
     }
 
     #[test]
