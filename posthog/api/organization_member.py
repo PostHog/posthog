@@ -129,18 +129,24 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
         raise_errors_on_nested_writes("update", self, validated_data)
-        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            organization=updated_membership.organization,
-            user=self.context["request"].user,
-        )
-        # `validate_update` locks the organization's owner transitions when an owner steps down,
-        # so the check and the new level have to sit in one transaction.
         with transaction.atomic():
+            if "level" in validated_data:
+                # Every level rule compares the two memberships' levels, and this request read
+                # them before it held the lock. Re-read them under it, locking before any row read
+                # so every owner transition takes its locks in one order. `instance` stays the
+                # write and response object, carrying the annotations and prefetches of the view.
+                OrganizationMembership.lock_owner_transitions(updated_membership.organization_id)
+                membership_being_updated = OrganizationMembership.objects.select_for_update().get(
+                    pk=updated_membership.pk
+                )
+                requesting_membership = OrganizationMembership.objects.select_for_update().get(
+                    organization_id=membership_being_updated.organization_id,
+                    user=self.context["request"].user,
+                )
+                requesting_membership.validate_update(
+                    membership_being_updated, cast(OrganizationMembership.Level, validated_data["level"])
+                )
             for attr, value in validated_data.items():
-                if attr == "level":
-                    requesting_membership.validate_update(
-                        updated_membership, cast(OrganizationMembership.Level | None, value)
-                    )
                 setattr(updated_membership, attr, value)
             updated_membership.save()
         return updated_membership

@@ -8,9 +8,11 @@ from django.utils import timezone
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
+from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 
+from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
@@ -629,6 +631,30 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "You can't change your own access level.")
+
+    def test_cannot_demote_a_member_promoted_to_owner_after_this_request_loaded_them(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        membership = OrganizationMembership.objects.get(user=other, organization=self.organization)
+        # Stands in for a concurrent promotion landing after the view loaded `membership`
+        OrganizationMembership.objects.filter(pk=membership.pk).update(level=OrganizationMembership.Level.OWNER)
+
+        request = APIRequestFactory().patch("/")
+        request.user = self.user
+        serializer = OrganizationMemberSerializer(
+            membership,
+            data={"level": OrganizationMembership.Level.MEMBER},
+            partial=True,
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid())
+
+        with self.assertRaises(exceptions.PermissionDenied):
+            serializer.save()
+
+        membership.refresh_from_db()
+        self.assertEqual(membership.level, OrganizationMembership.Level.OWNER)
 
     def test_list_organization_members_filter_by_email(self):
         # Create additional users

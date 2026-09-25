@@ -785,6 +785,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         rather than a row lock on `Organization`, because `FOR UPDATE` on that row makes every
         unrelated child-row write wait behind this transaction. The caller must hold the same
         transaction as the write, since the lock lives until that transaction ends.
+
+        Take this lock before locking any membership row. A caller that locks rows first can
+        hold the two rows of a transfer in the opposite order to another caller and deadlock;
+        taking this one first leaves only one caller in the row-locking section at a time.
         """
         with connection.cursor() as cursor:
             cursor.execute(
