@@ -54,6 +54,7 @@ class UpdateTaskRunStatusInput:
     end_of_turn_received: Optional[bool] = None
     last_agent_heartbeat_at: Optional[str] = None
     seconds_since_last_agent_heartbeat: Optional[float] = None
+    sandbox_backend: Optional[str] = None
 
 
 @activity.defn
@@ -264,6 +265,11 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
                     **relay_state,
+                    **(
+                        {"sandbox_backend": input.sandbox_backend}
+                        if input.sandbox_backend in ("modal", "hogland")
+                        else task_run.failure_sandbox_backend_properties()
+                    ),
                 },
             )
 
