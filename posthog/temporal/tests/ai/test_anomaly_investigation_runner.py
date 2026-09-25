@@ -407,8 +407,24 @@ _VALID_REPORT_ARGS = {
             [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
             "true_positive",
             2,
-            "result",
+            "Error: no insight bound to this investigation.",
             id="salvage_report_after_tool_error_result",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            "Error fetching series: query failed",
+            id="salvage_report_after_series_error_result",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "simulate_detector", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            "Error running simulation: query failed",
+            id="salvage_report_after_simulation_error_result",
         ),
         pytest.param(
             _UNRECOVERABLE_REPORT_ARGS,
@@ -443,10 +459,13 @@ async def test_loop_failure_keeps_best_report_and_tool_count(
         patch(
             "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.fetch_metric_series",
             new_callable=AsyncMock,
-            return_value="Error: no insight bound to this investigation."
-            if tool_error == "result"
-            else "New metric evidence",
+            return_value=tool_error if isinstance(tool_error, str) else "New metric evidence",
             side_effect=RuntimeError("tool failed") if tool_error is True else None,
+        ),
+        patch(
+            "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.simulate_detector",
+            new_callable=AsyncMock,
+            return_value=tool_error if isinstance(tool_error, str) else "New metric evidence",
         ),
     ):
         mock_module.default_client = None
