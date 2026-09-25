@@ -13,7 +13,7 @@
              (SELECT e.`$group_0` AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1)), 6, 'US/Pacific')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime64(toDateTime('2020-01-19 23:59:59', 'US/Pacific'), 6, 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING greater(count(), 0))
@@ -64,7 +64,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), 6, 'US/Pacific')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime64(toDateTime('2020-01-19 23:59:59', 'US/Pacific'), 6, 'US/Pacific'))), equals(e.event, '$pageview'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING greater(count(), 0))
@@ -92,7 +92,7 @@
                                                                                                                               WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                               GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                               HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                                                                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
+                                                                                                                           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), 6, 'US/Pacific')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime64(toDateTime('2020-01-19 23:59:59', 'US/Pacific'), 6, 'US/Pacific'))), equals(e.event, '$pageview'))
                                                                                                                            GROUP BY aggregation_target, start_of_interval
                                                                                                                            HAVING greater(count(), 0))
                                                                                                                         GROUP BY aggregation_target)

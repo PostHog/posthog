@@ -11,7 +11,7 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events_json AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime64(toDateTime('2023-01-07 23:59:59', 'UTC'), 6, 'UTC'))), equals(e.event, '$pageview'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -66,7 +66,7 @@
           (SELECT posthog_test_test_table_1.id AS id,
                   posthog_test_test_table_1.prop_1 AS e__posthog_test_test_table_1___prop_1
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__posthog_test_test_table_1 ON equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), e__posthog_test_test_table_1.e__posthog_test_test_table_1___prop_1)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), equals(e__posthog_test_test_table_1.id, 'false'))
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime64(toDateTime('2023-01-07 23:59:59', 'UTC'), 6, 'UTC'))), equals(e.event, '$pageview'), equals(e__posthog_test_test_table_1.id, 'false'))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
