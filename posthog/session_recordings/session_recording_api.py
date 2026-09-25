@@ -77,6 +77,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
+from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.utils import hash_key_value
 from posthog.otel_metrics import OtelInstrumentFactory
@@ -1891,8 +1892,7 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        with personhog_caller_tag("replay/recordings-persons"):
-            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        distinct_id_to_person = _load_persons_for_recordings(team, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:
@@ -1908,6 +1908,20 @@ def list_recordings_from_query(
         timings_header=timer.to_header_string(hogql_timings),
         next_cursor=next_cursor,
     )
+
+
+def _load_persons_for_recordings(team: Team, distinct_ids: list[str]) -> dict[str, Person]:
+    """Map distinct_id to person, or an empty mapping when the person lookup fails.
+
+    The recordings are already loaded at this point, so a person-service blip must not throw the
+    page away. Each row still renders from its distinct_id when the person is absent.
+    """
+    try:
+        with personhog_caller_tag("replay/recordings-persons"):
+            return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+    except Exception as e:
+        capture_exception(e, additional_properties={"replay_feature": "listing_recordings_persons"})
+        return {}
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
