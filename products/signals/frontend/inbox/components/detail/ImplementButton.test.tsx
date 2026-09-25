@@ -257,7 +257,7 @@ describe('ImplementButton', () => {
                 const call = toast.mock.calls.find(([message]) =>
                     String(message).includes('already in progress for this report')
                 )
-                expect(call).toBeDefined()
+                expect(call).not.toBeUndefined()
                 return call!
             })
             expect(capToast[1]?.button?.label).toBe('Open run')
