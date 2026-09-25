@@ -623,7 +623,7 @@ class TestCountTriggeredReportChecks(BaseTest):
         report = self._create_report(daily_run_cap=1)
         EvaluationReportRun.objects.create(
             report=report,
-            content={"generation_status": "metrics_unavailable"},
+            generation_status="metrics_unavailable",
             period_start=now - dt.timedelta(hours=1),
             period_end=now,
         )

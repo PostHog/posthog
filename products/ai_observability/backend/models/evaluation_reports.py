@@ -209,6 +209,7 @@ class EvaluationReportRun(UUIDTModel):
         ordering = ["-created_at", "id"]
         indexes = [
             models.Index(fields=["report", "-created_at"]),
+            models.Index(fields=["report", "-period_end"], name="llma_report_run_period_idx"),
         ]
 
     report = models.ForeignKey(
@@ -218,6 +219,14 @@ class EvaluationReportRun(UUIDTModel):
     )
     content = models.JSONField(default=dict)
     metadata = models.JSONField(default=dict)
+    # Copies of content keys. `content` holds every section and citation, so Postgres stores it
+    # out of line and reads the whole blob to answer even one key. Listing past runs needs only
+    # these three, so they live in their own columns and leave `content` on disk.
+    # `db_default` keeps the Postgres default in place, so a worker still on the previous release
+    # can insert a row between the migration and its own rollout.
+    title = models.TextField(blank=True, default="", db_default="")
+    evaluation_target = models.CharField(max_length=32, blank=True, default="", db_default="")
+    generation_status = models.CharField(max_length=32, blank=True, default="", db_default="")
     period_start = models.DateTimeField()
     period_end = models.DateTimeField()
     delivery_status = models.CharField(

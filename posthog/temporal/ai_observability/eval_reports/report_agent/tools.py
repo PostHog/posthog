@@ -175,16 +175,11 @@ def _resolve_report_run_handle(state: dict, handle: str) -> str | None:
 
 
 def _report_run_target_filter(evaluation_target: str) -> Q:
-    target = resolve_evaluation_target(evaluation_target)
-    if target == GENERATION_TARGET:
-        # Generation reports predate the field, so rows written before it existed are theirs.
-        return Q(content__evaluation_target=GENERATION_TARGET) | Q(content__evaluation_target__isnull=True)
-    return Q(content__evaluation_target=target)
+    return Q(evaluation_target=resolve_evaluation_target(evaluation_target))
 
 
 def _completed_report_run_filter() -> Q:
-    unavailable = EvalReportGenerationStatus.METRICS_UNAVAILABLE.value
-    return Q(content__generation_status__isnull=True) | ~Q(content__generation_status=unavailable)
+    return ~Q(generation_status=EvalReportGenerationStatus.METRICS_UNAVAILABLE.value)
 
 
 def _ch_ts(iso_str: str) -> datetime:
@@ -1382,23 +1377,22 @@ def list_recent_report_runs(
     )
     runs = runs.filter(_report_run_target_filter(evaluation_target))
     runs = runs.filter(_completed_report_run_filter())
-    runs = runs.order_by("-period_end")[:limit]
+    # Keep `content` out of the projection. Reading one key of it costs the whole blob.
+    runs = runs.order_by("-period_end").only(
+        "id", "period_start", "period_end", "title", "metadata", "delivery_status"
+    )[:limit]
 
     result = []
     for run in runs:
-        content = run.content if isinstance(run.content, dict) else {}
+        # `metadata` mirrors `content.metrics`, so the index never reads `content`.
         metadata = run.metadata if isinstance(run.metadata, dict) else {}
-        # Metrics live in `content.metrics` per the agent output contract; a parallel
-        # `metadata` mirror is maintained in the store activity for legacy consumers.
-        # Prefer content so this tool stays correct even if the mirror is removed.
-        metrics = content.get("metrics", {}) if isinstance(content.get("metrics"), dict) else {}
-        normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
+        normalized_metrics = normalize_metrics_payload(metadata)
         output_type = normalized_metrics["output_type"]
         entry = {
             "run_id": _report_run_handle(state, str(run.id)),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
-            "title": content.get("title", ""),
+            "title": run.title,
             "output_type": output_type,
             "total_runs": normalized_metrics["total_runs"],
             "delivery_status": run.delivery_status,

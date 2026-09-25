@@ -1,8 +1,10 @@
 import datetime as dt
+import importlib
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
 from django.utils import timezone
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -250,3 +252,83 @@ class TestEvaluationReportRunModel(BaseTest):
         self.assertEqual(run.delivery_status, "pending")
         self.assertEqual(run.delivery_errors, [])
         self.assertEqual(run.report, report)
+
+
+class TestBackfillReportRunIndexColumns(BaseTest):
+    def _run_backfill(self) -> None:
+        # The migration module name starts with a digit, so it can only be imported dynamically.
+        module = importlib.import_module(
+            "products.ai_observability.backend.migrations.0059_backfill_report_run_index_columns"
+        )
+        module.backfill_report_run_index_columns(connection)
+
+    def test_backfill_derives_index_columns_and_repairs_the_metrics_mirror(self):
+        now = timezone.now()
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+        legacy = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Legacy", "metrics": {"total_runs": 4}},
+            metadata={},
+            period_start=now - dt.timedelta(days=2),
+            period_end=now - dt.timedelta(days=1),
+        )
+        tagged = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Tagged", "evaluation_target": "trace", "generation_status": "metrics_unavailable"},
+            metadata={"total_runs": 7},
+            period_start=now - dt.timedelta(hours=2),
+            period_end=now - dt.timedelta(hours=1),
+        )
+        # A mirror that predates `content.metrics` and holds keys the content does not.
+        partial = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Partial", "metrics": {"total_runs": 9}},
+            metadata={"total_runs": 2, "legacy_key": "kept"},
+            period_start=now - dt.timedelta(days=4),
+            period_end=now - dt.timedelta(days=3),
+        )
+
+        # `metadata` is an unconstrained JSON field, so a non-object value must survive untouched.
+        scalar_mirror = EvaluationReportRun.objects.create(
+            report=report,
+            content={"title": "Scalar mirror", "metrics": {"total_runs": 3}},
+            metadata=5,
+            period_start=now - dt.timedelta(days=6),
+            period_end=now - dt.timedelta(days=5),
+        )
+
+        self._run_backfill()
+        legacy.refresh_from_db()
+        tagged.refresh_from_db()
+        partial.refresh_from_db()
+        scalar_mirror.refresh_from_db()
+
+        self.assertEqual(
+            (legacy.title, legacy.evaluation_target, legacy.generation_status), ("Legacy", "generation", "completed")
+        )
+        self.assertEqual(legacy.metadata, {"total_runs": 4})
+        self.assertEqual(
+            (tagged.title, tagged.evaluation_target, tagged.generation_status),
+            ("Tagged", "trace", "metrics_unavailable"),
+        )
+        self.assertEqual(tagged.metadata, {"total_runs": 7})
+        self.assertEqual(partial.metadata, {"total_runs": 9, "legacy_key": "kept"})
+        self.assertEqual(scalar_mirror.metadata, 5)
+        self.assertEqual(scalar_mirror.evaluation_target, "generation")
