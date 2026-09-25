@@ -193,8 +193,6 @@ describe('cssPrelude', () => {
         })
     })
 
-    // Pins the no-top-level-await invariant directly on the source, so it still holds if runPrelude
-    // above ever moves to an async harness (an await would then no longer throw synchronously).
     it('never emits a top-level await', () => {
         expect(cssPrelude(SPECIFIER, ['lazy-a'], new Map([['lazy-a', 0]]))).not.toMatch(/\bawait\b/)
     })
