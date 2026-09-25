@@ -10,9 +10,10 @@ describe('scoutWriteScopes', () => {
                 'llm_skill:write',
                 'dashboard:write',
                 'replay_scanner:write',
+                'ticket:write',
                 'cohort:write',
             ])
-        ).toEqual(['Dashboards', 'Insights', 'Skills', 'Replay vision scanners'])
+        ).toEqual(['Dashboards', 'Insights', 'Skills', 'Replay vision scanners', 'Support tickets'])
     })
 
     it('drops a stored scope the picker has no row for', () => {
