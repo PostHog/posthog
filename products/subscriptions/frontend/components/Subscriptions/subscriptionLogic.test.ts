@@ -889,7 +889,7 @@ describe('subscriptionLogic', () => {
         // Without target_type on the create event, Teams adoption is invisible in analytics.
         expect(posthog.capture).toHaveBeenCalledWith(
             'subscription created',
-            expect.objectContaining({ target_type: 'teams', subscription_id: 44 })
+            expect.objectContaining({ target_type: 'teams', subscription_id: 44, summary_enabled: false })
         )
     })
 
