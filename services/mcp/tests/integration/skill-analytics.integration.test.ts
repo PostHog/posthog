@@ -114,6 +114,7 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
                 isClaudeUiHost: () => false,
                 isInlineExecUiHost: () => false,
                 isClaudeChatHost: () => false,
+                isAnthropicConnector: () => false,
             },
             requestContext: {
                 authMethod: 'personal_api_key',

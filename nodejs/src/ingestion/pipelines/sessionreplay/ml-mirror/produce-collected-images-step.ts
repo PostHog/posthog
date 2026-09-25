@@ -51,8 +51,7 @@ export function createProduceCollectedImagesStep<
             return Promise.resolve(ok(input))
         }
 
-        const cacheRef = (ref: string): string => (key ? `${key.identity.sessionId}:${ref}` : ref)
-        const fresh = images.filter((image) => !producedRefs.has(cacheRef(image.ref)))
+        const fresh = images.filter((image) => !producedRefs.has(image.ref))
         MlMirrorMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
@@ -60,7 +59,7 @@ export function createProduceCollectedImagesStep<
 
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.add(cacheRef(image.ref))
+            producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
         MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
@@ -74,7 +73,7 @@ export function createProduceCollectedImagesStep<
         // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
         // slices synchronously — a closure holding `fresh` would pin the full packed buffer per
         // in-flight produce, unbounded by the producer queue's byte accounting.
-        const refs = fresh.map((image) => cacheRef(image.ref))
+        const refs = fresh.map((image) => image.ref)
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,

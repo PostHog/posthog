@@ -8836,14 +8836,6 @@ snapshots:
         hash: v1.k794b7964.61b7bc8c69675fb3b698a3c84d58d842e66935f311141b859434481e2ed5d484.m41tEjgHnrLNnL7Rvqn4b_aeEY4j0E3iuSaYcTB-bo0
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.2a0b4cdb7cd73cd6d9d498fc8bef89ecea5f3446480af3dd965f30bf1c7c31b1.SlaUlFMuzOUBAhejoICke8deIuko7Nnx_OMsTXiOke0
-    scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
-        hash: v1.k794b7964.6503cdfd33ae5f9d525d14dc8d43b047e8469beca7e5e489534347904efe1dec.2CtGz-wQvIwr_SQDthwlGJI5bVcJ7bFpetJricY-Lps
-    scenes-app-experiments--experiment-with-legacy-funnels-query--light:
-        hash: v1.k794b7964.90eb6e86ccabbca83076708acceb7370c5d2981927097a498d952e7c4de46d08.ll4GkGnimLwqqcMyiISsfWian6bSONcAuvzyfXyufgg
-    scenes-app-experiments--experiment-with-legacy-trends-query--dark:
-        hash: v1.k794b7964.03d4ee126b173c15e89b9c392d324782a429004c648a8bc39b1c38a6d574e108.BdtD3YlFV6RZsqF6JJgwkp0J6TN3JJGL35l47EOwtOU
-    scenes-app-experiments--experiment-with-legacy-trends-query--light:
-        hash: v1.k794b7964.42c2f3656a5c989d4b1ee34296ca4bb59e186241920a5f8ca21f319069cc6825.6R2u2nPGBnbJYFX2aAn-ZEDtNpa4m1bQA-1aYg8Y7sM
     scenes-app-experiments--experiment-with-long-flag-key--dark:
         hash: v1.k794b7964.f5a6ab372ff04218344a517d95bac950cfa282cd146b8f2a186043e38006e312.xxUSS05wyUXmz3h8A6HOTZLxKMKIDV2_eazzzRJ5yBA
     scenes-app-experiments--experiment-with-long-flag-key--light:
@@ -10157,9 +10149,9 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--light:
         hash: v1.k794b7964.61e09c9e87341bff85e48a5a849c60271b9343f68156fdbd8254d867efcbe362.8mesQHKUwOThl6lkM5fvaR5z5Iwc2JSF4pZ0iB0Ho34
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-unmapped--dark:
-        hash: v1.k794b7964.8e4c8745ddfeb9e39c12c1de6440ffefbab10c6fdfcbaf2917ec6eeb30c21a3c.bJYM40EyMJDb-CNlZ6VS6F0_q7RzB27y88wyo_vS_pk
+        hash: v1.k794b7964.f5266399f092411bbe18d8b35f72dee1a8bfbe3df16728f5b20e23a8b2fac41a.MIsGe8h0CayTSbg-lsCoTeDRZRVNU-fGrmTzksvi9io
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-unmapped--light:
-        hash: v1.k794b7964.0e25052e261eb633f06f625f042febd96eb40e52650c5b22d41f2594f04d466f.gWGwrfXDOGghOGomTQr7hL7f0slkZGUwWbI2NcbjrrE
+        hash: v1.k794b7964.3d75928c8d9413c248f3ae2341ca2775ba62b62e093d6d6bf84f7e15a731905d.KYdvSw7hLTVNJSf0NjYoh2k1xJFearMFckiokWOoqbc
     scenes-app-marketing-analytics-cell-actions--source-cell-action-custom-mapped--dark:
         hash: v1.k794b7964.b54f7b4f93126a339b8d1f2c3052e33195ece30a69558784cf5e3500d1fdff2d.z26YCBpYH_GJ8cTy_m2zptpKY3Y7-ExoHfa-vjsJXuU
     scenes-app-marketing-analytics-cell-actions--source-cell-action-custom-mapped--light:
@@ -10173,9 +10165,9 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--source-cell-action-integration-disabled--light:
         hash: v1.k794b7964.a47387317b5359abf524ddee66c0191f13aa20068299426fd2ba02a2a2b484de.8vAAZrir9sb1KgnInnG0LSGU1ejxmdo9L27tV9HuLPM
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--dark:
-        hash: v1.k794b7964.cf10adeda245ccff69e13bd0549d2b1579f5173b93a0b6090dce2b51db242384.oM_0pR3iPTmwIT5GCc7rRMRcHVCZVVRL1_LIjQFT3Ag
+        hash: v1.k794b7964.6b2d3d0ea747d89cd5d8003ad5652110defff20c6d72b2281cc379e2c6fddff1.j1PVCswW5wNUlN4r73b1E763-Y_1x3in29kKrVPHeGs
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
-        hash: v1.k794b7964.82fdca17171ef49bdce7d6a769c88cde001e17f402f1b19e2a3778f0aa274b82.YW7pM5jU-MhVYp1FgIC0MA7wJEWz4eaooeYj6WFpucM
+        hash: v1.k794b7964.5370c38c333a9ed59c62f0a38f5289e1b184db5528ab590fd5188bf4a49e3554.eRp0bm6akYSB-PVs0946LcXqze_inC4rRfq_OpRdkww
     scenes-app-marketing-analytics-dashboard-change-value-cell--bounce-rate--dark:
         hash: v1.k794b7964.077ba380688f01ece0aa53fbdd827aa0b79a58e6f952315fe51af26bc835b64a.PRdHzGD2h3pbMEhUAGi2JC6w2vr8_XebNg_iPCpM9bg
     scenes-app-marketing-analytics-dashboard-change-value-cell--bounce-rate--light:
@@ -11521,9 +11513,9 @@ snapshots:
     scenes-app-settings-user--settings-user-navigation--light:
         hash: v1.k794b7964.f472a9611f74c5cc61bde2b328bf70f507c3e7ab810f7fff84d5a7ad073add91.GUKjxOkcQwzja8QiApxYwXyyHFHtaXO6fZboZ7PvFQ0
     scenes-app-settings-user--settings-user-notifications--dark:
-        hash: v1.k794b7964.2204e0a2e6d5fadb35dbbe13c68b9af2fe4052473a34e9562299bddfb7687eb1.xG738ieu2EfqR-FhuyuG916gXJawaPw_aCHVcVvWGbc
+        hash: v1.k794b7964.1fc4163c567f18057b929328e07459c13277805442523070136233c17d5e633a.Tbp1Kb6RmIhrzsmp7CWml5LEnFyy9iY9-A-lTK-h76c
     scenes-app-settings-user--settings-user-notifications--light:
-        hash: v1.k794b7964.6dc077d049e7b4c5ce8c3a623b281a7d02f43647a2f3edcb7c624555296246eb.XJPMz9qmz5R2ocrf49XL8yyGAF2bRbZfPe9VTyyzK4w
+        hash: v1.k794b7964.1d238eb22fba4c223038a8a9be5d13ca4a7eb944f0ce07ed5402d270249923d9.HNm6rvMowebOKIqjSZORE_6aLQAHiqSd6DMw-Su8dYI
     scenes-app-settings-user--settings-user-profile--dark:
         hash: v1.k794b7964.5f1d9971d5da44a5868c6f1cfc633fa5e2f90d0f31e9ed651783f949512350ab.3b41GlzDKrj_9lsTioV2GDzEZDpVY2GAiAEmGjKdA9c
     scenes-app-settings-user--settings-user-profile--light:

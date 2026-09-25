@@ -62647,6 +62647,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -62662,6 +62663,7 @@ export namespace Schemas {
 
 
     export const SettingEnum = {
+      DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
       DiscussionsMentioned: 'discussions_mentioned',
       ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
       ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -62677,6 +62679,7 @@ export namespace Schemas {
     export interface OrganizationNotificationLock {
       /** Notification setting this rule enforces.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -62699,6 +62702,7 @@ export namespace Schemas {
       user_id: number;
       /** Notification setting to lock or unlock.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
