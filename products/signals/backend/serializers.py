@@ -151,8 +151,6 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "team's preferences are kept. "
     "Other sources store these keys without reading them yet; future pipeline stages will consume "
     "the same steering text. "
-    "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
-    "session analysis. "
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
@@ -161,9 +159,9 @@ _SOURCE_CONFIG_HELP_TEXT = (
 
 
 # Declared as an open object WITHOUT typed `properties`: Orval turns properties into a
-# key-stripping `zod.object`, which would silently drop source-specific keys (e.g. session
-# replay's `recording_filters`) from MCP tool calls. The open shape generates a passthrough
-# `zod.record`, and the steering keys are documented in the description instead.
+# key-stripping `zod.object`, which would silently drop a source-specific key from an MCP tool
+# call. The open shape generates a passthrough `zod.record`, and the steering keys are documented
+# in the description instead.
 @extend_schema_field({"type": "object", "additionalProperties": True, "description": _SOURCE_CONFIG_HELP_TEXT})
 class _SourceConfigField(serializers.JSONField):
     """`config` blob typed as an open JSON object in the OpenAPI schema. Runtime behavior is

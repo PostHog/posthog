@@ -631,7 +631,6 @@ Per-team configuration for which signal sources are enabled.
 **Behavioral notes:**
 
 - `llm_analytics` signals go through the standard enabled-row check like every other source. `evaluation_report` is the only type AI observability emits, gated by its own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle). The per-result workflow and activity remain registered only so existing Temporal histories can finish replaying.
-- For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations), and to the direct-emitting sources listed in `DIRECT_STEERABLE_SOURCES` (error tracking and health checks), which `emit_signal` runs through the gate in `backend/emission/direct_gate.py` before queueing the signal.
   A direct source is judged only when the team has written steering, and only against that text: the canonical prompt there states no criteria of its own, so a first rule filters what it describes and nothing else.
   Sources outside both sets persist the keys unread, and future consumers (report research, the autostart gate) are expected to read the same text.
@@ -1084,7 +1083,6 @@ Generated MCP tool names:
 
 - **`SignalSourceConfigSerializer`**
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
-  - Validates that `recording_filters` in config is a JSON object for `session_replay`
   - Computes `status` from external data import state for data-import-backed sources
 - **`SignalTeamConfigSerializer`**
   - ModelSerializer for `SignalTeamConfig`

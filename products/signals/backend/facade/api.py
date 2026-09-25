@@ -378,7 +378,12 @@ def has_enabled_source(team_id: int) -> bool:
 
     Replay Vision is checked separately because it has no config row to find: each scanner's own
     `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
-    if SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists():
+    # A row written for a source type before that type was retired outlives the retirement, and
+    # nothing emits it, so counting one would finish onboarding on a source that sends nothing.
+    # Matching the current choices covers every retired type without naming one.
+    if SignalSourceConfig.objects.filter(
+        team_id=team_id, enabled=True, source_type__in=SignalSourceConfig.SourceType.values
+    ).exists():
         return True
     return _has_emitting_replay_scanner(team_id)
 

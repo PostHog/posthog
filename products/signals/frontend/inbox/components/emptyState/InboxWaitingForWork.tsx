@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType, isConfigurableSourceType } from '../../types'
 import { InstallingFlowRow } from './InstallingFlowRow'
 import { ScoutFlowRow } from './ScoutFlowRow'
 import { SignalSourceFlowRow } from './SignalSourceFlowRow'
@@ -20,6 +20,7 @@ function uniqueEnabledSources(sourceConfigs: SignalSourceConfig[] | null): Signa
     return (sourceConfigs ?? []).filter((source) => {
         if (
             !source.enabled ||
+            !isConfigurableSourceType(source.source_type) ||
             (source.source_product === SignalSourceProduct.SignalsScout &&
                 source.source_type === SignalSourceType.CrossSourceIssue) ||
             seenProducts.has(source.source_product)

@@ -29,7 +29,7 @@ import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/fronte
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
-import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams } from './types'
+import { SOURCE_STEERING_KEY, SignalSourceConfig, ToggleSignalSourceParams, isConfigurableSourceType } from './types'
 
 /** product_enablement recipe names for tools that back a signal source. */
 export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -988,20 +988,15 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
             // setup card as done with a phantom "1 watching". Replay Vision has no config row at
             // all, so it is counted separately, once, however many of its scanners emit.
-            // Evaluation configs can survive from the retired per-result path, but eval reports are
-            // the only AI observability source that emits signals.
             (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null): number => {
                 const configured =
                     sourceConfigs?.filter(
                         (c) =>
                             c.enabled &&
+                            isConfigurableSourceType(c.source_type) &&
                             !(
                                 c.source_product === SignalSourceProduct.SignalsScout &&
                                 c.source_type === SignalSourceType.CrossSourceIssue
-                            ) &&
-                            !(
-                                c.source_product === SignalSourceProduct.LlmAnalytics &&
-                                c.source_type === SignalSourceType.Evaluation
                             )
                     ).length ?? 0
                 return configured + (hasEmittingScanner ? 1 : 0)

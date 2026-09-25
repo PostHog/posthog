@@ -2,12 +2,9 @@ from django.db import migrations
 
 
 def delete_session_analysis_configs(apps, schema_editor):
-    # 0094 cleared these rows while `session_analysis_cluster` was still a valid config choice, so a
-    # team could write a fresh one back through the API afterwards. This release takes the choice
-    # away, and the counting paths stop excluding the pair by name, so sweep whatever landed in
-    # between. Filtered on the type alone: the API checked `source_product` and `source_type`
-    # separately, so a write could pair the retired type with any product, and the counts read every
-    # such row as a live source. Expected to match nothing: one filtered delete is enough.
+    # No emitter produces `session_analysis_cluster`, so a config row for it can only make a team
+    # read as watching a source that sends nothing. The type is retired under every product, so the
+    # product is not part of the match. Few enough rows match that one delete is safe.
     SignalSourceConfig = apps.get_model("signals", "SignalSourceConfig")
     SignalSourceConfig.objects.filter(source_type="session_analysis_cluster").delete()
 
