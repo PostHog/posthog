@@ -294,6 +294,31 @@ export function WidgetSection(): JSX.Element {
                                 )}
                             </LemonCard>
                         </SceneSection>
+                        <SceneSection title="Ticket recovery" className="mt-8" titleSize="sm">
+                            <LemonCard hoverEffect={false} className="px-4 py-3">
+                                <div className="flex items-center gap-4 py-2 justify-between">
+                                    <div>
+                                        <label className="w-40 shrink-0 font-medium">Recover past conversations</label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            Let users ask for an email link that brings their past conversations back in
+                                            a new browser. Users verified with identity verification do not see the
+                                            link.
+                                        </p>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={currentTeam?.conversations_settings?.widget_restore_enabled !== false}
+                                        onChange={(checked) => {
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_restore_enabled: checked,
+                                                },
+                                            })
+                                        }}
+                                    />
+                                </div>
+                            </LemonCard>
+                        </SceneSection>
                         <div className="pt-8">
                             <div className="flex items-center gap-4 py-2 justify-between">
                                 <div>
