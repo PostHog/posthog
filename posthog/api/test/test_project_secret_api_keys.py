@@ -558,6 +558,12 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
                 ["account:read"],
             ),
             ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], ["loop:write"]),
+            (
+                "lacks_several_listed_sorted",
+                ["project:write"],
+                ["loop:write", "account:read"],
+                ["account:read", "loop:write"],
+            ),
             ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
             ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
             ("wildcard", ["*"], ["account:read", "loop:write"], []),
@@ -590,6 +596,13 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
                 ["project:write", "endpoint:read"],
                 ["endpoint:read", "account:read"],
                 403,
+            ),
+            (
+                "adds_held_scope_and_keeps_unheld_scope",
+                ["account:read"],
+                ["project:write", "endpoint:read"],
+                ["account:read", "endpoint:read"],
+                200,
             ),
             (
                 "keeps_and_removes_unheld_scopes",
