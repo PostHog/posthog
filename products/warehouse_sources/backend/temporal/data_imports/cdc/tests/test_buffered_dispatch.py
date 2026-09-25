@@ -74,7 +74,7 @@ def _dispatch(
     ):
         objects.select_related.return_value.get.return_value = schema
         job_objects.filter.return_value.first.return_value = job
-        return PostgresSource().source_for_pipeline(MagicMock(), inputs)
+        return PostgresSource().source_for_pipeline(MagicMock(), MagicMock(), inputs)
 
 
 class TestBufferedDispatch:

@@ -928,7 +928,13 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             is_resumable_source = False
             if source_type is not None:
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-                is_resumable_source = isinstance(source, ResumableSource)
+                # The class can resume, and its mechanism covers a run of this shape. Both halves
+                # matter: a class whose resume is narrower than itself would otherwise hand the
+                # resumable allowance to every one of its runs, including the ones that restart from
+                # row 0 on each of those extra attempts.
+                is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
+                    incremental_or_append=incremental_or_append
+                )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES

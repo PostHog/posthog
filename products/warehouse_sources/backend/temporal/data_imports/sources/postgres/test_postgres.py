@@ -324,7 +324,7 @@ class TestPostgresSourceMetadataConnectionErrors:
         ):
             mock_schema_model.objects.select_related.return_value.get.side_effect = original_error
             with pytest.raises(DjangoOperationalError) as exc_info:
-                source.source_for_pipeline(config, inputs)
+                source.source_for_pipeline(config, MagicMock(), inputs)
 
         assert exc_info.value is original_error
 
@@ -372,7 +372,7 @@ class TestPostgresSourceForeignServerConnectionError:
         ):
             objects_mock.select_related.return_value.get.return_value = schema_model
             with pytest.raises(ForeignServerUnreachableError) as exc_info:
-                source.source_for_pipeline(config, inputs)
+                source.source_for_pipeline(config, MagicMock(), inputs)
 
         error_msg = str(exc_info.value)
         non_retryable = source.get_non_retryable_errors()
@@ -4257,19 +4257,23 @@ class TestChunkedRereadAfterRecoveryConflict:
         has_duplicate_pks: bool = False,
         is_xmin: bool = False,
         activity_attempt: int = 1,
+        resumable_source_manager: Any = None,
+        pages_to_take: int | None = None,
+        arrow_schema: pa.Schema | None = None,
+        column_type: str = "integer",
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
             yield ("localhost", 5432)
 
         fake_table = mock.Mock()
-        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.to_arrow_schema.return_value = arrow_schema or pa.schema([pa.field("id", pa.int64())])
         fake_table.type = "table"
         # `nullable` is annotated `bool`, but `_get_table` really does pass the
         # information_schema "YES"/"NO" string for a table. That mismatch is the bug under test,
         # so the fake has to reproduce it rather than respect the annotation.
         fake_table.columns = [
-            PostgreSQLColumn(name="id", data_type="integer", nullable=nullable_value)  # type: ignore[arg-type]
+            PostgreSQLColumn(name="id", data_type=column_type, nullable=nullable_value)  # type: ignore[arg-type]
         ]
         fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
@@ -4313,8 +4317,20 @@ class TestChunkedRereadAfterRecoveryConflict:
                 is_xmin=is_xmin,
                 xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
                 activity_attempt=activity_attempt,
+                resumable_source_manager=resumable_source_manager,
             )
-            return [row["id"] for table in cast(Iterable[Any], response.items()) for row in table.to_pylist()]
+            self.last_response = response
+            pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
+            ids: list[int] = []
+            taken = 0
+            for table in pages:
+                ids.extend(row["id"] for row in table.to_pylist())
+                taken += 1
+                if pages_to_take is not None and taken >= pages_to_take:
+                    # Abandon the walk the way a draining worker does, at the yield.
+                    pages.close()  # type: ignore[attr-defined]
+                    break
+            return ids
 
     @pytest.mark.parametrize(
         "should_use_incremental_field,rows_before_conflict,nullable_value,primary_keys,has_id_column",
@@ -4410,6 +4426,104 @@ class TestChunkedRereadAfterRecoveryConflict:
         message = str(exc_info.value)
         assert "no key that can resume a canceled read" in message
         assert any(fragment in message for fragment in PostgresSource().get_non_retryable_errors())
+        # The response is built before the read runs, so it exists even though draining raised. A
+        # table with no seekable key has no position to hand another pod.
+        assert self.last_response.supports_resume is False
+
+    def test_an_abandoned_walk_does_not_checkpoint_the_page_it_parked_on(self):
+        # The ordering rule, and the reason the checkpoint sits after the yield rather than next to
+        # the `last_key` advance. A draining worker stops pulling mid-table, so the source parks at a
+        # yield holding a page the consumer never took. Publishing that page's key would have the
+        # next attempt seek past rows nothing wrote — and a resume appends rather than re-reading, so
+        # those rows are gone for good.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=2,
+            resumable_source_manager=manager,
+            pages_to_take=1,
+        )
+
+        assert manager.save_state.call_count == 0
+        # The walk never reached the end, so the next pod must still resume rather than start over.
+        manager.clear_state.assert_not_called()
+
+    def test_a_completed_walk_checkpoints_each_taken_page_then_clears(self):
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=2,
+            resumable_source_manager=manager,
+        )
+
+        assert manager.save_state.call_count > 0
+        # The table is fully read, so the next scheduled sync starts at the top, not mid-table.
+        manager.clear_state.assert_called_once()
+
+    def test_a_seeking_run_reports_that_it_can_resume(self):
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=2,
+            resumable_source_manager=manager,
+        )
+
+        assert self.last_response.supports_resume is True
+
+    @pytest.mark.parametrize(
+        "kwargs,reason",
+        [
+            ({"should_use_incremental_field": True, "primary_keys": ["id"]}, "incremental_sync"),
+            ({"should_use_incremental_field": False, "is_xmin": True, "primary_keys": ["id"]}, "xmin_sync"),
+        ],
+        ids=["incremental", "xmin"],
+    )
+    def test_a_run_that_cannot_seek_never_reports_resume(self, kwargs, reason):
+        # `supports_resume` defaults to True on SourceResponse, so every one of these has to be set
+        # down explicitly or the pipeline treats the run as resumable and suppresses its table reset.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            rows_before_conflict=0,
+            activity_attempt=2,
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+
+        assert self.last_response.supports_resume is False
+
+    def test_a_text_primary_key_seeks_but_never_checkpoints(self):
+        # The collation decision. Ordering a text key is stable within one process, so the in-process
+        # seek keeps working, but a checkpoint would have that ordering assumption hold across a
+        # deploy instead of across minutes.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=2,
+            resumable_source_manager=manager,
+            arrow_schema=pa.schema([pa.field("id", pa.string())]),
+            column_type="text",
+        )
+
+        assert self.last_response.supports_resume is False
+        assert manager.save_state.call_count == 0
 
 
 class TestSafeCloseConnection:
@@ -4505,7 +4619,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
             objects_mock.select_related.return_value.get.return_value = schema_model
             postgres_source_mock.return_value = mock.MagicMock()
 
-            source.source_for_pipeline(config, inputs)
+            source.source_for_pipeline(config, MagicMock(), inputs)
 
             assert postgres_source_mock.called, "postgres_source was not invoked"
             kwargs = postgres_source_mock.call_args.kwargs
@@ -4513,6 +4627,43 @@ class TestPostgresSourceForPipelineSchemaResolution:
             assert kwargs["table_names"] == ["example_table"], (
                 f"expected table_names=['example_table'], got {kwargs['table_names']!r}"
             )
+
+    @pytest.mark.parametrize(
+        "reset_pipeline,delta_revive_required,cleared",
+        [(False, None, False), (True, None, True), (False, "corrupt-log", True)],
+        ids=["steady_state_keeps_it", "reset_clears_it", "delta_revive_clears_it"],
+    )
+    def test_a_rebuild_of_the_table_clears_the_checkpoint(self, source, reset_pipeline, delta_revive_required, cleared):
+        # Both rebuilds empty the Delta table, and the pipeline skips its own reset whenever it can
+        # resume. A checkpoint surviving either one has the read restart mid-table and append into an
+        # empty table, losing every row below the checkpoint with no error. The revive case has no
+        # MySQL equivalent, which only clears on a reset.
+        schema_model = self._make_schema_model("public.example_table")
+        schema_model.delta_revive_required = delta_revive_required
+        inputs = self._make_inputs("public.example_table")
+        inputs.reset_pipeline = reset_pipeline
+        config = self._make_config(schema=None)
+        manager = MagicMock()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+            ) as postgres_source_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, manager, inputs)
+
+        assert manager.clear_state.called is cleared
 
     def test_schema_metadata_wins_over_dotted_name_inference(self, source):
         # Metadata is the source of truth — explicit pin always beats name-splitting.
@@ -4539,7 +4690,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
             objects_mock.select_related.return_value.get.return_value = schema_model
             postgres_source_mock.return_value = mock.MagicMock()
 
-            source.source_for_pipeline(config, inputs)
+            source.source_for_pipeline(config, MagicMock(), inputs)
             kwargs = postgres_source_mock.call_args.kwargs
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
@@ -4577,7 +4728,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
             objects_mock.select_related.return_value.get.return_value = schema_model
             postgres_source_mock.return_value = response
 
-            source.source_for_pipeline(config, inputs)
+            source.source_for_pipeline(config, MagicMock(), inputs)
 
             assert response.name == NamingConvention.normalize_identifier("example_table"), (
                 f"response.name must derive from s3_folder_name to keep Delta writes anchored to the "
@@ -4614,7 +4765,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
             objects_mock.select_related.return_value.get.return_value = schema_model
             postgres_source_mock.return_value = response
 
-            source.source_for_pipeline(config, inputs)
+            source.source_for_pipeline(config, MagicMock(), inputs)
 
             assert response.name == NamingConvention.normalize_identifier("poblic.new_table")
 
@@ -4640,7 +4791,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
             objects_mock.select_related.return_value.get.return_value = schema_model
             postgres_source_mock.return_value = mock.MagicMock()
 
-            source.source_for_pipeline(config, inputs)
+            source.source_for_pipeline(config, MagicMock(), inputs)
             kwargs = postgres_source_mock.call_args.kwargs
             assert kwargs["schema"] == "public"
             assert kwargs["table_names"] == ["example_table"]

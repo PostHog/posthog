@@ -487,6 +487,20 @@ class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
+    def resume_covers_run(self, *, incremental_or_append: bool) -> bool:
+        """Whether this source's resume mechanism covers a run of this shape.
+
+        Only the retry budget reads this. A run it covers gets the resumable allowance, which is much
+        larger than the incremental one and far larger than the full-load one, on the grounds that
+        each attempt continues rather than restarting. A run it does not cover falls through to the
+        ordinary budgets, because extra attempts would each redo the whole read.
+
+        Default True: a REST source paginates the same way whichever sync type it runs. A source
+        whose mechanism is narrower than its class — keyset seeking is a full-load path, and a seek
+        gated behind a retry fallback covers almost nothing — narrows it here.
+        """
+        return True
+
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> SourceResponse:
