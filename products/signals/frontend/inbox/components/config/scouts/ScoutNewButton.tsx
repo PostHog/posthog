@@ -41,7 +41,7 @@ export function ScoutNewButton({
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const chatDisabledReason =
-        aiConsentDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : null) ?? undefined
+        aiConsentDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : undefined)
 
     const openChat = (): void => {
         captureScoutCreatePathChosen({ path: 'chat', surface })
