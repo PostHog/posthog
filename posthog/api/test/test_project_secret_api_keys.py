@@ -568,16 +568,21 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("lacks_scope", ["project:write"], ["endpoint:read"], 403),
-            ("lacks_one_of_several", ["project:write", "endpoint:read"], ["endpoint:read", "account:read"], 403),
-            ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], 403),
-            ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], 201),
-            ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], 201),
-            ("wildcard", ["*"], ["account:read", "loop:write"], 201),
+            ("lacks_scope", ["project:write"], ["endpoint:read"], ["endpoint:read"]),
+            (
+                "lacks_one_of_several",
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                ["account:read"],
+            ),
+            ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], ["loop:write"]),
+            ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
+            ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
+            ("wildcard", ["*"], ["account:read", "loop:write"], []),
         ]
     )
     def test_create_requires_caller_to_hold_requested_scopes(
-        self, _name, caller_scopes, requested_scopes, expected_status
+        self, _name, caller_scopes, requested_scopes, missing_scopes
     ):
         token = self._token_with_scopes(caller_scopes)
 
@@ -588,8 +593,12 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
-        assert response.status_code == expected_status, response.content
-        assert ProjectSecretAPIKey.objects.filter(team=self.team, label="minted").exists() == (expected_status == 201)
+        if missing_scopes:
+            assert response.status_code == 403, response.content
+            assert response.json()["detail"].endswith(f": {', '.join(missing_scopes)}."), response.content
+        else:
+            assert response.status_code == 201, response.content
+        assert ProjectSecretAPIKey.objects.filter(team=self.team, label="minted").exists() == (not missing_scopes)
 
     @parameterized.expand(
         [
@@ -641,10 +650,11 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
             scopes=["endpoint:read", "account:read"],
             created_by=self.user,
         )
+        token = self._token_with_scopes(["project:write", "endpoint:read"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll/",
-            **self._auth(),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
         assert response.status_code == 403, response.content
