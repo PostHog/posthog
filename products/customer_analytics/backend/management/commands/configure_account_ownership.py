@@ -1,8 +1,9 @@
 """Choose which relationship definitions customer analytics may control and which warehouse view of
 external decisions fills each of them. Taking control of a definition enrolls no account at once.
-From then on, a person's change to a controlled relationship on a linked account enrolls that
-account under every controlled definition. ``adopt_account_ownership`` enrolls accounts in reviewed
-batches. No path unenrolls an account, so control cannot end after the first enrollment.
+From then on, a person's change to a controlled relationship on a linked account, or an accepted
+Salesforce claim on it, enrolls that account under every controlled definition.
+``adopt_account_ownership`` enrolls accounts in reviewed batches. No path unenrolls an account, so
+control cannot end after the first enrollment.
 
 Binding a claim view pins its SQL, switches its claims off and prints the SHA-256 of that text.
 Enable claims in a separate call, after checking that the digest matches the SQL you reviewed, for
@@ -41,8 +42,9 @@ class Command(BaseCommand):
             metavar="DEFINITION_ID",
             help=(
                 "Let customer analytics take control of this single-holder definition per account. A person's "
-                "change to a controlled relationship on a linked account then enrolls that account under every "
-                "controlled definition. --uncontrol is refused once any account is enrolled. Repeatable."
+                "change to a controlled relationship on a linked account, or an accepted Salesforce claim on it, "
+                "then enrolls that account under every controlled definition. --uncontrol is refused once any "
+                "account is enrolled. Repeatable."
             ),
         )
         parser.add_argument(

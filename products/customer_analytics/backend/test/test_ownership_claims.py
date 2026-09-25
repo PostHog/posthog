@@ -30,7 +30,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 
 from products.customer_analytics.backend.facade import contracts
-from products.customer_analytics.backend.logic import ownership_claims, relationships
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
+from products.customer_analytics.backend.logic import ownership, ownership_claims, relationships
 from products.customer_analytics.backend.logic.ownership_claims import DECISION_COLUMNS
 from products.customer_analytics.backend.models import (
     AccountRelationship,
@@ -51,6 +52,7 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
 )
 from products.customer_analytics.backend.test.factories import (
     create_account,
+    create_account_relationship_definition,
     create_saved_query,
     enroll_account,
     saved_query_columns,
@@ -58,6 +60,7 @@ from products.customer_analytics.backend.test.factories import (
 
 FENCE = datetime(2026, 1, 1, tzinfo=UTC)
 TASK = "example-salesforce-task-17"
+WORKFLOW = relationships.Actor(source=AccountRelationshipSource.WORKFLOW, workflow_id="example-workflow")
 
 
 class TestOwnershipClaims(BaseTest):
@@ -133,6 +136,13 @@ class TestOwnershipClaims(BaseTest):
             .first()
         )
 
+    def _controls(self) -> dict[str, datetime]:
+        return dict(
+            AccountRelationshipControl.objects.for_team(self.team.id)
+            .filter(account=self.account)
+            .values_list("definition__name", "controlled_at")
+        )
+
     def _assign_by_human(self, user: User) -> AccountRelationship:
         return relationships.assign(
             team_id=self.team.id, account=self.account, definition=self.ae_definition, user=user, actor=self.human
@@ -176,16 +186,22 @@ class TestOwnershipClaims(BaseTest):
             ("allocated_within_the_skew_allowance", "rejected", "stale_allocation"),
             ("allocated_before_a_human_clear", "rejected", "stale_allocation"),
             ("allocated_in_the_future", "rejected", "future_allocation"),
-            ("role_not_managed", "blocked", "role_not_managed"),
             ("unknown_organization", "blocked", "account_not_found"),
-            ("region_mismatch", "blocked", "identity_mismatch"),
+            ("unknown_region", "blocked", "identity_mismatch"),
             ("two_accounts_differ_only_by_case", "blocked", "identity_mismatch"),
             ("assignee_not_a_member", "blocked", "assignee_not_member"),
             ("different_case_is_the_same_identity", "accepted", None),
+            ("the_other_cloud_region", "accepted", None),
+            ("unenrolled_and_occupied", "rejected", "role_occupied"),
+            ("unenrolled_and_allocated_in_the_future", "rejected", "future_allocation"),
+            ("unenrolled_and_allocated_before_a_clear_made_while_unlinked", "rejected", "stale_allocation"),
         ]
     )
     def test_claim_decision_outcome(self, case, outcome, reason):
         overrides: dict[str, Any] = {}
+        if case.startswith("unenrolled"):
+            self.control.delete()
+            create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
         if case == "occupied_by_another_user":
             self._assign_by_human(self._create_user("other@posthog.com"))
         elif case == "occupied_by_the_same_user":
@@ -194,23 +210,38 @@ class TestOwnershipClaims(BaseTest):
             overrides["allocated_at"] = datetime(2026, 1, 1, 0, 4, 59, tzinfo=UTC)
         elif case == "allocated_before_a_human_clear":
             self._clear_by_human()
-        elif case == "allocated_in_the_future":
+        elif case == "unenrolled_and_occupied":
+            relationships.assign(
+                team_id=self.team.id,
+                account=self.account,
+                definition=self.ae_definition,
+                user=self._create_user("other@posthog.com"),
+                actor=WORKFLOW,
+            )
+        elif case == "unenrolled_and_allocated_before_a_clear_made_while_unlinked":
+            self.account.external_id = None
+            self.account.save(update_fields=["external_id"])
+            self._assign_by_human(self._create_user("other@posthog.com"))
+            self._clear_by_human()
+            self.account.external_id = "org-1"
+            self.account.save(update_fields=["external_id"])
+        elif case in ("allocated_in_the_future", "unenrolled_and_allocated_in_the_future"):
             overrides["allocated_at"] = timezone.now() + timedelta(days=1)
-        elif case == "role_not_managed":
-            self.control.delete()
         elif case == "unknown_organization":
             overrides["organization_id"] = "org-2"
         elif case == "two_accounts_differ_only_by_case":
             shadow = create_account(team_id=self.team.id, name="Shadow", external_id="ORG-1")
             enroll_account(shadow, self.ae_definition, controlled_at=FENCE)
-        elif case == "region_mismatch":
+        elif case == "unknown_region":
+            overrides["region"] = "apac"
+        elif case == "the_other_cloud_region":
             overrides["region"] = "eu"
         elif case == "assignee_not_a_member":
             overrides["assignee_user_id"] = User.objects.create_user("outsider@example.com", None, "").id
         elif case == "different_case_is_the_same_identity":
             overrides["organization_id"] = "ORG-1"
         holder_before = self._active_ae()
-        fence_before = self._fence()
+        controls_before = self._controls()
 
         with override_settings(CLOUD_DEPLOYMENT="US"):
             result = self._claim(**overrides)
@@ -219,8 +250,74 @@ class TestOwnershipClaims(BaseTest):
         if outcome == "accepted":
             return
         assert self._active_ae() == holder_before
-        assert self._fence() == fence_before
+        assert self._controls() == controls_before
+        assert not ActivityLog.objects.filter(team_id=self.team.id, activity="role_enrolled").exists()
         assert not AccountRelationship.objects.for_team(self.team.id).filter(source="salesforce_claim").exists()
+
+    @parameterized.expand([("unenrolled", {"Account executive", "CSM"}), ("enrolled_under_ae_only", {"CSM"})])
+    def test_an_accepted_claim_enrolls_every_controlled_definition_the_account_lacks(
+        self, case: str, newly_enrolled: set[str]
+    ) -> None:
+        if case == "unenrolled":
+            self.control.delete()
+        csm_definition = create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+        create_account_relationship_definition(team_id=self.team.id, name="Buddy")
+        csm = self._create_user("csm@posthog.com")
+        relationships.assign(
+            team_id=self.team.id, account=self.account, definition=csm_definition, user=csm, actor=WORKFLOW
+        )
+
+        result = self._claim()
+
+        assert result.outcome == "accepted"
+        controls = self._controls()
+        csm_row = AccountRelationship.objects.for_team(self.team.id).get(
+            account=self.account, definition=csm_definition
+        )
+        assert controls == {
+            "Account executive": FENCE if case == "enrolled_under_ae_only" else self._decision().allocated_at,
+            "CSM": csm_row.started_at,
+        }
+        assert result.controlled_at == controls["Account executive"]
+        rows = ActivityLog.objects.filter(team_id=self.team.id, activity__in=["role_enrolled", "role_claimed"])
+        contexts = {
+            (row.activity, row.detail["context"]["definition_name"]): (row.user_id, row.detail["context"])
+            for row in rows
+            if row.detail
+        }
+        assert set(contexts) == {("role_enrolled", name) for name in newly_enrolled} | {
+            ("role_claimed", "Account executive")
+        }
+        assert {(user_id, context["source"]) for user_id, context in contexts.values()} == {(None, "salesforce_claim")}
+        claimed = contexts[("role_claimed", "Account executive")][1]
+        assert datetime.fromisoformat(claimed["controlled_at"]) == controls["Account executive"]
+        roles = {
+            role.definition_name: (role.state, role.holder.user_id if role.holder else None)
+            for role in ownership.ownership_for_account(self.account).roles
+        }
+        assert roles == {"Account executive": ("assigned", self.user.id), "CSM": ("assigned", csm.id)}
+
+    def test_a_task_allocated_before_the_sweep_claims_an_unenrolled_account_after_an_earlier_release(self) -> None:
+        self.control.delete()
+        first = self._claim()
+        self._release_claim()
+
+        second = self._claim(source_ref="example-salesforce-task-18", allocated_at=datetime(2026, 1, 2, 1, tzinfo=UTC))
+
+        assert (first.outcome, second.outcome) == ("accepted", "accepted")
+        holder = self._active_ae()
+        assert holder is not None and holder.source_ref == "example-salesforce-task-18"
+
+    def test_a_sibling_task_allocated_before_an_enrolling_claim_still_claims_the_sibling(self) -> None:
+        self.control.delete()
+        csm_definition, _ = self._claim_bound_definition("CSM", "csm_decisions")
+
+        ae = self._claim(allocated_at=datetime(2026, 1, 2, 1, tzinfo=UTC))
+        csm = ownership_claims.claim(
+            team=self.team, definition=csm_definition, decision=self._decision(source_ref="example-salesforce-task-18")
+        )
+
+        assert (ae.outcome, csm.outcome) == ("accepted", "accepted")
 
     def test_release_ends_only_the_relationship_the_task_claimed(self):
         claimed = self._claim()
