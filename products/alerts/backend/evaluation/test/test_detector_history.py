@@ -3,6 +3,9 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -43,11 +46,27 @@ class _Warehouse:
     def run(self, query_override: dict | None = None) -> tuple[list, list[str] | None]:
         self.overrides.append(query_override)
         buckets = self._buckets(query_override)
-        if buckets is None:
-            rows = [[bucket, value] for bucket, value in sorted(self.series.items())]
-        else:
-            rows = [[bucket, value] for bucket, value in sorted(self.series.items()) if bucket in buckets]
+        window = self._window(query_override)
+        rows = [
+            [bucket, value]
+            for bucket, value in sorted(self.series.items())
+            if (buckets is None or bucket in buckets) and (window is None or window[0] <= bucket < window[1])
+        ]
         return rows, ["bucket", "value"]
+
+    @staticmethod
+    def _window(query_override: dict | None) -> tuple[datetime, datetime] | None:
+        """Honor the query's own pinned window, like the real SQL does. The pinned clock is the
+        one mid-hour epoch; the INTERVAL is the query's own bound."""
+        if query_override is None:
+            return None
+        sql = query_override["query"]
+        pinned = [int(e) for e in re.findall(r"fromUnixTimestamp\((\d+)\)", sql) if int(e) % 3600]
+        hours = re.findall(r"toIntervalHour\((\d+)\)", sql)
+        if not pinned or not hours:
+            return None
+        floor = datetime.fromtimestamp(pinned[0] - pinned[0] % 3600, UTC)
+        return floor - timedelta(hours=int(hours[0])), floor
 
     @staticmethod
     def _buckets(query_override: dict | None) -> set[datetime] | None:
@@ -77,37 +96,48 @@ class _Warehouse:
         return self._buckets(override) is None
 
 
+def _make_alert(team) -> AlertConfiguration:
+    insight = Insight.objects.create(team=team, query={"kind": "HogQLQuery", "query": SQL})
+    return AlertConfiguration.objects.create(
+        team=team,
+        insight=insight,
+        name="hourly count anomaly",
+        condition={"type": "absolute_value"},
+        detector_config={"type": "zscore", "window": 4},
+        config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+        calculation_interval="hourly",
+    )
+
+
+def _flagged_check(
+    alert: AlertConfiguration, config: HogQLAlertConfig, warehouse: _Warehouse, probe: list | Exception | None = None
+) -> tuple[list, list[str]] | None:
+    """Run a flagged check. ``probe`` is what the events_recent probe reports: changed buckets,
+    an exception, or the default quiet result."""
+    side_effect: Exception | None = probe if isinstance(probe, Exception) else None
+    return_value = [] if probe is None or isinstance(probe, Exception) else [(bucket,) for bucket in probe]
+    with (
+        patch(FLAG_PATH, return_value=True),
+        patch(PROBE_PATH, side_effect=side_effect, return_value=return_value),
+    ):
+        return detector_rows_from_history(
+            alert=alert,
+            insight=alert.insight,
+            config=config,
+            min_samples=MIN_SAMPLES,
+            run_query=warehouse.run,
+        )
+
+
 class TestDetectorHistory(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": SQL})
-        self.alert = AlertConfiguration.objects.create(
-            team=self.team,
-            insight=self.insight,
-            name="hourly count anomaly",
-            condition={"type": "absolute_value"},
-            detector_config={"type": "zscore", "window": 4},
-            config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
-            calculation_interval="hourly",
-        )
+        self.alert = _make_alert(self.team)
+        self.insight = self.alert.insight
         self.config = HogQLAlertConfig.model_validate(self.alert.config)
 
     def _check(self, warehouse: _Warehouse, probe: list | Exception | None = None) -> tuple[list, list[str]] | None:
-        """Run a flagged check. ``probe`` is what the events_recent probe reports: changed
-        buckets, an exception, or the default quiet result."""
-        side_effect: Exception | None = probe if isinstance(probe, Exception) else None
-        return_value = [] if probe is None or isinstance(probe, Exception) else [(bucket,) for bucket in probe]
-        with (
-            patch(FLAG_PATH, return_value=True),
-            patch(PROBE_PATH, side_effect=side_effect, return_value=return_value),
-        ):
-            return detector_rows_from_history(
-                alert=self.alert,
-                insight=self.alert.insight,
-                config=self.config,
-                min_samples=MIN_SAMPLES,
-                run_query=warehouse.run,
-            )
+        return _flagged_check(self.alert, self.config, warehouse, probe)
 
     @staticmethod
     def _dense(count: int, *, start_hours_ago: int = 1) -> dict[datetime, float]:
@@ -397,3 +427,50 @@ class TestDetectorHistory(BaseTest):
         assert result is None
         assert warehouse.overrides == []
         assert not self._cached_buckets()
+
+
+class TestDetectorHistorySpec(HypothesisDjangoTestCase, BaseTest):
+    """The cache's executable contract, searched by hypothesis rather than enumerated."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.alert = _make_alert(self.team)
+        self.config = HogQLAlertConfig.model_validate(self.alert.config)
+
+    @given(
+        offsets=st.dictionaries(
+            st.integers(1, 47),
+            st.floats(0, 1e6, allow_nan=False, allow_infinity=False),
+            min_size=MIN_SAMPLES + 1,
+            max_size=40,
+        ),
+        late=st.lists(
+            st.tuples(st.integers(0, 4), st.integers(1, 47), st.floats(0, 1e6, allow_nan=False, allow_infinity=False)),
+            max_size=6,
+        ),
+        gaps=st.lists(st.integers(1, 30), min_size=2, max_size=5),
+    )
+    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    def test_the_cache_always_equals_the_full_scan(
+        self, offsets: dict[int, float], late: list[tuple[int, int, float]], gaps: list[int]
+    ) -> None:
+        """For any history, any late-arrival pattern, and any check schedule (missed checks,
+        reseed crossings), the served series equals what the full scan returns at that instant.
+        Hypothesis shrinks any counterexample to its minimal form."""
+        warehouse = _Warehouse({CURRENT_HOUR - timedelta(hours=h): v for h, v in offsets.items()})
+        t = datetime(2026, 9, 22, 12, 30, tzinfo=UTC)
+        for index, gap in enumerate(gaps):
+            t += timedelta(hours=gap)
+            anchor = t.replace(minute=0, second=0, microsecond=0)
+            arrivals = [(anchor - timedelta(hours=h), v) for (i, h, v) in late if i == index]
+            for bucket, value in arrivals:
+                warehouse.series[bucket] = value
+            with time_machine.travel(t, tick=False):
+                result = _flagged_check(self.alert, self.config, warehouse, probe=[b for b, _ in arrivals])
+            assert result is not None
+            expected = [
+                [bucket, warehouse.series[bucket]]
+                for bucket in sorted(warehouse.series)
+                if anchor - timedelta(hours=48) <= bucket < anchor
+            ][-48:]
+            assert result[0] == expected
