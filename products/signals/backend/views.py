@@ -605,7 +605,8 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 # RESOLVED itself, which makes archive-then-resolve idempotent. FAILED is included because the model
 # resolves it directly, so the archive grants it nothing it could not do on its own — and a report
 # that failed in processing can only be reached through the archive, because a dismissal is the only
-# verdict the inbox offered it.
+# verdict the inbox offered it. POTENTIAL is left out on purpose: the model resolves it only when it
+# has been researched, and this list cannot see that, so the archive must not grant the edge.
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
@@ -629,7 +630,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
             "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
-            "or from a suppressed report that previously held one of those statuses or resolved. "
+            "from a snoozed report that was researched, or from a suppressed report that previously "
+            "held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
         ),

@@ -441,6 +441,16 @@ class SignalReport(UUIDModel):
             return self.signals_researched
         return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
 
+    @property
+    def has_been_researched(self) -> bool:
+        """Whether a research pass has ever produced content for this report.
+
+        A report that reached the inbox carries `first_visible_at`, which every creation and
+        transition path stamps. `run_count` covers the rest: a report researched before that stamp
+        existed, and a report a judge sent back to POTENTIAL before it surfaced.
+        """
+        return self.first_visible_at is not None or self.run_count > 0
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -571,6 +581,13 @@ class SignalReport(UUIDModel):
             # dismissal, which used to make the report a sink for every later recurrence.
             case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
                 # Just pass through to status setting
+                pass
+
+            # A snoozed report resolves too. A snooze returns a researched report to POTENTIAL, so
+            # without this edge a merged implementation pull request cannot close the report it
+            # shipped for: the completion rule is refused and the finished work stays in the inbox
+            # as unresolved. An unresearched report has no content to resolve and keeps the refusal.
+            case (S.POTENTIAL, S.RESOLVED) if self.has_been_researched:
                 pass
 
             case _:
