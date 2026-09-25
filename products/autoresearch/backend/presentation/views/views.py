@@ -37,10 +37,12 @@ from products.autoresearch.backend.facade.contracts import (
     ArtifactStorageUnavailable,
     AutoresearchConflict,
     InvalidArtifactPath,
+    InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
     TrainingRunNotFound,
 )
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
     ArtifactContentSerializer,
@@ -71,7 +73,7 @@ from .serializers import (
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
-    require_action_scope,
+    has_action_scope,
     resolve_target,
     validate_event_target,
 )
@@ -398,7 +400,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                     "or the pipeline's target or creator is no longer valid."
                 )
             ),
+            403: OpenApiResponse(description="The caller has no PostHog Desktop access, which cloud runs need."),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
         description=(
@@ -417,18 +422,24 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
         try:
-            # Training labels on the action's steps, so an action target needs the same scope it took to set.
-            if api.get_pipeline(self.team_id, self.kwargs["pk"]).target_definition.get("type") == "action":
-                require_action_scope(request)
             training_run = api.start_training(
                 self.team_id,
                 self.kwargs["pk"],
                 iteration_budget=request.validated_data.get("iteration_budget"),
                 user_id=cast(User, request.user).id,
+                # Training labels on the action's steps, so an action target needs the same scope it took to set.
+                allow_action_target=has_action_scope(request),
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
@@ -449,7 +460,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             "In production this is triggered by the daily Temporal inference workflow."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="score", required_scopes=["autoresearch:write", "query:read"])
+    # Scoring sets the pipeline's output property on every scored person, so it needs person:write too.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="score",
+        required_scopes=["autoresearch:write", "query:read", "person:write"],
+    )
     def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             run = api.score_pipeline(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
@@ -530,7 +547,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Pause a pipeline",
-        description="Pause daily scoring and training on a running pipeline. The pipeline can be resumed later.",
+        description=(
+            "Pause daily scoring and training on a running pipeline. The pipeline can be resumed later. "
+            "A training run already in progress finishes and can promote a new champion, "
+            "but the pipeline stays paused and scores nobody until it is resumed."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="pause")
     def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:

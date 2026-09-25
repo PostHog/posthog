@@ -1,5 +1,6 @@
 import uuid
 import base64
+import dataclasses
 from typing import Any
 
 import pytest
@@ -12,6 +13,7 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
@@ -19,6 +21,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
+from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -63,6 +66,9 @@ MOCK_VALIDATION_ERROR = ValidationResult(
 )
 
 
+_VIEWS = "products.autoresearch.backend.presentation.views.views"
+
+
 class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -73,6 +79,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
+        for gate in ("code_access_required_response", "usage_limit_response"):
+            gate_patcher = patch(f"{_VIEWS}.{gate}", return_value=None)
+            gate_patcher.start()
+            self.addCleanup(gate_patcher.stop)
 
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
         defaults = {
@@ -374,12 +384,15 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("score", ["autoresearch:write"], ["query:read"]),
-            ("validate_online", ["autoresearch:write"], ["query:read"]),
-            ("train", ["autoresearch:write", "query:read"], ["insight:read"]),
+            ("score_query", "score", ["autoresearch:write", "person:write"], ["query:read"]),
+            ("score_person", "score", ["autoresearch:write", "query:read"], ["person:write"]),
+            ("validate_online", "validate_online", ["autoresearch:write"], ["query:read"]),
+            ("train", "train", ["autoresearch:write", "query:read"], ["insight:read"]),
         ]
     )
-    def test_data_reading_actions_need_the_read_scopes(self, path: str, partial: list[str], rest: list[str]):
+    def test_data_reading_actions_need_the_read_scopes(
+        self, _name: str, path: str, partial: list[str], rest: list[str]
+    ):
         missing = f"{self.base_url}/{uuid.uuid4()}/{path}/"
         self.client.logout()
         without = self.create_personal_api_key_with_scopes(partial)
@@ -419,7 +432,17 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self.client.logout()
         without = self.create_personal_api_key_with_scopes(scopes)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
-        with patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
+        real_get_pipeline = api.get_pipeline
+        # An unlocked read that still sees the old event target must not decide the scope check.
+        with (
+            patch(
+                "products.autoresearch.backend.facade.api.get_pipeline",
+                side_effect=lambda *a, **kw: dataclasses.replace(
+                    real_get_pipeline(*a, **kw), target_definition={"type": "event"}
+                ),
+            ),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert resp.json()["attr"] == "target_definition"
@@ -434,6 +457,22 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             ),
         ):
             assert self.client.post(f"{self.base_url}/{pipeline.id}/train/").status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("code_access_required_response", status.HTTP_403_FORBIDDEN),
+            ("usage_limit_response", status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    def test_start_training_is_refused_by_the_tasks_gates(self, gate: str, gate_status: int):
+        pipeline = self._make_pipeline()
+        with (
+            patch(f"{_VIEWS}.{gate}", return_value=Response({"code": "blocked"}, status=gate_status)),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == gate_status
+        mock_run_training.assert_not_called()
 
     def test_start_training_with_a_deleted_target_action_returns_400(self):
         action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
@@ -523,13 +562,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"target_event": "$pageview"}, format="json")
         assert resp.status_code == status.HTTP_200_OK, resp.json()
 
-    @parameterized.expand([("archived",), ("unknown",)])
+    @parameterized.expand([("archived",), ("unknown",), ("deleted_mid_update",)])
     def test_update_of_missing_pipeline_returns_404(self, case: str):
         if case == "archived":
             pipeline_id = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED).id
+        elif case == "deleted_mid_update":
+            pipeline_id = self._make_pipeline().id
         else:
             pipeline_id = uuid.uuid4()
-        resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
+        with patch.object(
+            AutoresearchPipeline,
+            "refresh_from_db",
+            side_effect=AutoresearchPipeline.DoesNotExist if case == "deleted_mid_update" else None,
+            autospec=True,
+        ):
+            resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     def test_target_editable_before_any_model_is_trained(self):

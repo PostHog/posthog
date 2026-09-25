@@ -754,7 +754,7 @@ export const getAutoresearchPauseCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Pause daily scoring and training on a running pipeline. The pipeline can be resumed later.
+ * Pause daily scoring and training on a running pipeline. The pipeline can be resumed later. A training run already in progress finishes and can promote a new champion, but the pipeline stays paused and scores nobody until it is resumed.
  * @summary Pause a pipeline
  */
 export const autoresearchPauseCreate = async (

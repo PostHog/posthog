@@ -348,7 +348,11 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
         setattr(row, key, value)
     # Only the request's fields, so a stale read cannot write back a status a lifecycle action changed.
     row.save(update_fields=[*fields, "updated_at"])
-    row.refresh_from_db()
+    try:
+        row.refresh_from_db()
+    except AutoresearchPipeline.DoesNotExist:
+        # A concurrent delete landed between the save and the reload.
+        raise PipelineNotFound("Pipeline not found.")
     return _pipeline_with_champion(row)
 
 
@@ -708,13 +712,23 @@ def _claim_pipeline_for_training(team_id: int, pipeline_id: str | UUID) -> Autor
     return pipeline
 
 
-def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None, user_id: int) -> TrainingRun:
+def start_training(
+    team_id: int,
+    pipeline_id: str | UUID,
+    *,
+    iteration_budget: int | None,
+    user_id: int,
+    allow_action_target: bool = True,
+) -> TrainingRun:
     """Start an asynchronous training run in a sandbox.
 
     Mirrors the scheduled coordinator's kickoff guard: the pipeline row is locked so a
     concurrent manual and scheduled start serialize, and a second live run is refused.
     ``run_training`` stays inside the lock so the new run row commits before a waiting
     request re-checks.
+
+    ``allow_action_target=False`` refuses an action target with ``InvalidTarget``. The check
+    reads the locked row, so a concurrent edit of the target cannot slip past it.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
@@ -722,6 +736,8 @@ def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: i
 
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
+        if not allow_action_target and pipeline.target_definition.get("type") == "action":
+            raise InvalidTarget("An action target needs the action:read scope.")
         budget = iteration_budget or pipeline.iteration_budget
         try:
             training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)

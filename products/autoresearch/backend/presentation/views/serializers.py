@@ -80,9 +80,13 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
-def require_action_scope(request: Request | None) -> None:
+def has_action_scope(request: Request | None) -> bool:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+    return scopes is None or any(scope in scopes for scope in _ACTION_READ_SCOPES)
+
+
+def require_action_scope(request: Request | None) -> None:
+    if not has_action_scope(request):
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
