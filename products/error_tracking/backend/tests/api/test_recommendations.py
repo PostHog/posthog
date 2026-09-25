@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.utils import uuid7
@@ -335,22 +336,30 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([i["name"] for i in meta["issues"]], [f"Quiet {i:02d}" for i in range(5)])
         self.assertEqual(meta["total"], 8)
 
-    def test_quiet_keeps_the_count_and_the_sample_when_rows_are_stale(self):
-        # ClickHouse limits per team before Postgres hydration runs, and a deleted issue still
-        # has fingerprint state, so a stale row must not eat a slot or zero the count.
-        for i in range(6):
+    @parameterized.expand(
+        [
+            ("some_candidates_live", 6, 3, ["Live 0", "Live 1", "Live 2"], 9),
+            ("every_candidate_stale", 6, 0, [], 6),
+        ]
+    )
+    def test_quiet_count_survives_stale_rows(self, _name, stale_count, live_count, expected_names, expected_total):
+        # ClickHouse limits per team before Postgres hydration runs, and an issue deleted from
+        # Postgres still has fingerprint state, so a stale row must not eat a sample slot, zero
+        # the count, or file the card as done while quiet issues remain.
+        for i in range(stale_count):
             stale = self._create_issue(created_at=timezone.now() - timedelta(days=200 + i), name=f"Stale {i}")
             self._create_exception(stale.id, _days_ago(90))
             ErrorTrackingIssue.objects.filter(id=stale.id).delete()
-        for i in range(3):
+        for i in range(live_count):
             live = self._create_issue(created_at=timezone.now() - timedelta(days=120 - i), name=f"Live {i}")
             self._create_exception(live.id, _days_ago(90))
         flush_persons_and_events()
 
         meta = QuietIssuesRecommendation().compute(self.team)
 
-        self.assertEqual([i["name"] for i in meta["issues"]], ["Live 0", "Live 1", "Live 2"])
-        self.assertEqual(meta["total"], 9)
+        self.assertEqual([i["name"] for i in meta["issues"]], expected_names)
+        self.assertEqual(meta["total"], expected_total)
+        self.assertFalse(QuietIssuesRecommendation().is_completed(meta))
 
     def test_quiet_ignores_other_teams_issues(self):
         other_issue_id = str(uuid4())
@@ -370,9 +379,12 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.RESOLVED)
 
-    def test_quiet_is_completed_when_no_issues(self):
-        self.assertTrue(QuietIssuesRecommendation().is_completed({"issues": []}))
-        self.assertFalse(QuietIssuesRecommendation().is_completed({"issues": [{"id": "x"}]}))
+    def test_quiet_completion_follows_the_count_not_the_sample(self):
+        recommendation = QuietIssuesRecommendation()
+        self.assertTrue(recommendation.is_completed({"total": 0, "issues": []}))
+        self.assertFalse(recommendation.is_completed({"total": 3, "issues": [{"id": "x"}]}))
+        # A sample emptied by deleted issues must not report the cleanup as done.
+        self.assertFalse(recommendation.is_completed({"total": 3, "issues": []}))
 
     def test_alerts_is_completed_when_all_enabled(self):
         self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))

@@ -105,3 +105,8 @@ class QuietIssuesRecommendation(IssueListRecommendation):
                 }
             )
         return metas
+
+    def is_completed(self, meta: dict[str, Any]) -> bool:
+        # The count covers the whole quiet set, while `issues` holds a hydrated sample that an
+        # issue deleted from Postgres can shorten, so only the count can say the work is done.
+        return not meta.get("total")

@@ -39,7 +39,11 @@ export function QuietIssuesRecommendationCard({
     if (issues.length === 0) {
         return (
             <RecommendationCard recommendationId={recommendation.id} title={TITLE} dismissed={dismissed}>
-                <div className="text-sm text-secondary">Every active issue is still firing. Nothing to clear out.</div>
+                <div className="text-sm text-secondary">
+                    {total > 0
+                        ? `${humanFriendlyLargeNumber(total)} issues have gone quiet, but no examples could be loaded. Refresh to try again.`
+                        : 'Every active issue is still firing. Nothing to clear out.'}
+                </div>
             </RecommendationCard>
         )
     }
