@@ -306,11 +306,11 @@ def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
     because this one needs an explicit timeout. ``CACHES`` sets no ``SOCKET_TIMEOUT``, so a cache
     call waits on a stalled Redis for as long as it takes, and the ack budget does not allow that.
     """
-    client = get_client(
-        socket_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
-        socket_connect_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
-    )
     try:
+        client = get_client(
+            socket_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=_INVITE_REDIS_TIMEOUT_SECONDS,
+        )
         claimed = client.set(
             f"slack_app:unfurl_invite:v1:{slack_team_id}:{channel}",
             "1",

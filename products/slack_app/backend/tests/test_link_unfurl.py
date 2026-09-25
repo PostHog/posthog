@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
@@ -385,6 +386,23 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         self._unfurl_links([url], channel="C2")
         assert len(self._invite_blocks(mock_client)) == 1
+
+    @patch("products.slack_app.backend.slack_link_unfurl.get_client")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_still_sent_when_redis_is_unreachable(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock, mock_get_client: MagicMock
+    ) -> None:
+        self._make_bot_ready()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        mock_get_client.side_effect = ImproperlyConfigured("Redis not configured!")
+
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+
+        assert len(mock_client.chat_unfurl.call_args.kwargs["unfurls"]) == 1
+        assert self._invite_blocks(mock_client) == []
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
