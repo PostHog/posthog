@@ -4,6 +4,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.organization import Organization
 
 from ..facade import api
@@ -52,10 +53,7 @@ class CreateLegalDocumentSerializer(serializers.Serializer):
         organization: Organization = self.context["view"].organization
 
         if document_type == DocumentType.BAA:
-            # The override flag is evaluated for the same person posthog-js uses in the app.
-            user = self.context["request"].user
-            distinct_id = str(user.distinct_id or organization.id)
-            block_reason = api.get_baa_block_reason(organization, distinct_id)
+            block_reason = api.get_baa_block_reason(organization, is_impersonated(self.context.get("request")))
             if block_reason is not None:
                 raise PermissionDenied(
                     BAA_BLOCK_MESSAGES.get(block_reason, BAA_BLOCK_MESSAGES[BaaBlockReason.NO_QUALIFYING_ADDON])

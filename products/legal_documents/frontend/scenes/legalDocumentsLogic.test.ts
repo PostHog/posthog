@@ -1,8 +1,9 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
@@ -38,28 +39,19 @@ describe('legalDocumentsLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
+        userLogic.mount()
         billingLogic.mount()
     })
 
     it.each([
         ['Startup', StartupProgramLabel.Startup, true, false, 'startup_program'],
-        ['Startup with the override flag', StartupProgramLabel.Startup, true, true, null],
-        [
-            'Startup with the override flag but no add-on',
-            StartupProgramLabel.Startup,
-            false,
-            true,
-            'no_qualifying_addon',
-        ],
+        ['Startup while impersonated', StartupProgramLabel.Startup, true, true, null],
+        ['Startup while impersonated but no add-on', StartupProgramLabel.Startup, false, true, 'no_qualifying_addon'],
         ['YC', StartupProgramLabel.YC, true, false, null],
         ['no program', null, true, false, null],
         ['no program without an add-on', null, false, false, 'no_qualifying_addon'],
-    ])('resolves baaBlockReason for a %s org', async (_name, label, boostSubscribed, overrideEnabled, expected) => {
-        featureFlagLogic.actions.setFeatureFlags(
-            overrideEnabled ? [FEATURE_FLAGS.LEGAL_DOCUMENTS_BAA_STARTUP_OVERRIDE] : [],
-            overrideEnabled ? { [FEATURE_FLAGS.LEGAL_DOCUMENTS_BAA_STARTUP_OVERRIDE]: true } : {}
-        )
+    ])('resolves baaBlockReason for a %s org', async (_name, label, boostSubscribed, impersonated, expected) => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_impersonated: impersonated })
         billingLogic.actions.loadBillingSuccess(billingFor(label, boostSubscribed))
         const logic = legalDocumentsLogic()
         logic.mount()

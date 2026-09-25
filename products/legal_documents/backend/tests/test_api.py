@@ -89,32 +89,32 @@ class TestLegalDocumentAPI(APIBaseTest):
             ("startup_with_boost", "Startup", {"boost"}, False, status.HTTP_403_FORBIDDEN, "startup program credits"),
             ("startup_without_addon", "Startup", set(), False, status.HTTP_403_FORBIDDEN, "startup program credits"),
             (
-                "startup_with_override_without_addon",
+                "startup_impersonated_without_addon",
                 "Startup",
                 set(),
                 True,
                 status.HTTP_403_FORBIDDEN,
                 "Boost, Scale, or Enterprise",
             ),
-            ("startup_with_override_flag", "Startup", {"boost"}, True, status.HTTP_201_CREATED, None),
+            ("startup_impersonated", "Startup", {"boost"}, True, status.HTTP_201_CREATED, None),
             ("yc", "YC", {"boost"}, False, status.HTTP_201_CREATED, None),
         ]
     )
-    @patch("products.legal_documents.backend.logic.get_feature_flag_or_none")
+    @patch("products.legal_documents.backend.presentation.serializers.is_impersonated")
     @patch("products.legal_documents.backend.logic.BillingManager")
     def test_create_baa_respects_startup_program(
         self,
         _name: str,
         startup_program_label: str | None,
         addons: set[str],
-        override_enabled: bool,
+        impersonated: bool,
         expected_status: int,
         expected_error: str | None,
         mock_manager_cls: MagicMock,
-        mock_flag: MagicMock,
+        mock_is_impersonated: MagicMock,
     ) -> None:
         mock_manager_cls.return_value.get_billing.return_value = _billing_with_addons(addons, startup_program_label)
-        mock_flag.return_value = True if override_enabled else None
+        mock_is_impersonated.return_value = impersonated
 
         response = self.client.post(self.url, BAA_PAYLOAD, format="json")
 

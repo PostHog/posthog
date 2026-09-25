@@ -84,8 +84,8 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
     return logic.get_signed_pdf_presigned_url(document)
 
 
-def get_baa_block_reason(organization: Organization, distinct_id: str) -> BaaBlockReason | None:
-    return logic.get_baa_block_reason(organization, distinct_id)
+def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaBlockReason | None:
+    return logic.get_baa_block_reason(organization, impersonated)
 
 
 def has_signed_baa(organization_id: UUID) -> bool:
