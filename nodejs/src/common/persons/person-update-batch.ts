@@ -27,6 +27,11 @@ export interface PersonUpdate {
     force_update?: boolean
 }
 
+/** A merge's write to the survivor; `properties` holds only the keys to set. */
+export type MergePersonUpdate = Partial<InternalPerson> & { properties_to_unset?: string[] }
+
+export type PendingPersonChanges = { toSet: Properties; toUnset: string[]; createdAt: DateTime }
+
 export interface PersonPropertyUpdate {
     updated: boolean
     properties: Properties

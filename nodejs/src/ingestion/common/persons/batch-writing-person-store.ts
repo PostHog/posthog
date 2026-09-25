@@ -21,7 +21,13 @@ import {
     totalPersonUpdateLatencyPerBatchHistogram,
 } from '~/common/persons/metrics'
 import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
-import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
+import {
+    MergePersonUpdate,
+    PendingPersonChanges,
+    PersonUpdate,
+    fromInternalPerson,
+    toInternalPerson,
+} from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
@@ -69,6 +75,7 @@ type MethodName =
     | 'claimLifecycleMarks'
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
+    | 'readMergeRows'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -467,9 +474,9 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
+        // Pending holds only this pod's sets, never the fetched row.
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
-            ...person.properties,
             ...person.properties_to_set,
         }
         for (const key of person.properties_to_unset) {
@@ -1368,20 +1375,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchIdOrTx?: number | PersonRepositoryTransaction,
         _tx?: PersonRepositoryTransaction
@@ -1495,10 +1502,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const response = await (tx || this.personRepository).deletePerson(personToDelete)
         observeLatencyByVersion(person, start, 'deletePerson')
-
-        // Clear ALL caches related to this person id
-        this.clearAllCachesForPersonId(person.team_id, person.id)
-
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1526,6 +1530,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
         this.incrementDatabaseOperation('isPersonLive', distinctId)
         return await (tx || this.personRepository).isPersonLive(person)
+    }
+
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson[]> {
+        this.incrementDatabaseOperation('readMergeRows', distinctId)
+        return await tx.readMergeRows(teamId, targetId, sourceIds)
+    }
+
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
+        const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
+        return cached
+            ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
+            : null
     }
 
     async fetchPersonsForUpdateByDistinctIds(
@@ -1572,11 +1594,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (persons.length > 0) {
             observeLatencyByVersion(persons[0], start, 'deletePersons')
         }
-
-        for (const person of persons) {
-            this.clearAllCachesForPersonId(person.team_id, person.id)
-        }
-
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1610,9 +1628,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
-        // Clear the cache for the source person id to ensure deleted person isn't cached
-        this.clearAllCachesForPersonId(source.team_id, source.id)
-
         // Update cache for the target person for the current distinct ID
         // Check if we already have cached data for the target person that includes merged properties
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
@@ -1628,6 +1643,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person is the source; drop it so the next check reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1647,10 +1664,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const response = await tx.moveDistinctIdsFromPersons(sources, target)
         observeLatencyByVersion(target, start, 'moveDistinctIdsFromPersons')
 
-        for (const source of sources) {
-            this.clearAllCachesForPersonId(source.team_id, source.id)
-        }
-
         // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
         if (existingTargetCache) {
@@ -1662,6 +1675,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person is the source; drop it so the next check reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1922,7 +1937,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     private addPersonUpdateToBatch(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number
     ): [InternalPerson, PersonMessage[], boolean] {
@@ -1952,7 +1967,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      */
     private mergeUpdateIntoPersonUpdate(
         personUpdate: PersonUpdate,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         allowCreatedAtUpdate: boolean = false
     ): PersonUpdate {
         // For properties, we track them in the fine-grained properties_to_set/unset
@@ -1968,8 +1983,16 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
         }
 
+        // An unset wins over a set the batch already queued for the same key.
+        for (const key of update.properties_to_unset ?? []) {
+            delete personUpdate.properties_to_set[key]
+            if (!personUpdate.properties_to_unset.includes(key)) {
+                personUpdate.properties_to_unset.push(key)
+            }
+        }
+
         // Apply other updates (excluding properties which we handled above)
-        const fieldsToExclude = ['properties', 'is_identified']
+        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified']
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }
@@ -2064,31 +2087,23 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return [toInternalPerson(personUpdate), []]
     }
 
+    /** One row through the batch statement; a missing row throws for withMergeRetry. */
     private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
         const operation = 'updatePersonNoAssert'
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
-        // Convert PersonUpdate back to InternalPerson for database call
-        const person = toInternalPerson(personUpdate)
-        // Always pass all mutable fields for consistent query plans
-        const updateFields = {
-            properties: person.properties,
-            properties_last_updated_at: person.properties_last_updated_at,
-            properties_last_operation: person.properties_last_operation,
-            is_identified: person.is_identified,
-            created_at: person.created_at,
-            last_seen_at: person.last_seen_at,
-        }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
 
-        const [_, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
+        const result = (await this.personRepository.updatePersonsBatch([personUpdate])).get(personUpdate.uuid)
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
-        observeLatencyByVersion(person, start, 'updatePersonNoAssert')
+        observeLatencyByVersion(toInternalPerson(personUpdate), start, 'updatePersonNoAssert')
 
-        // updatePersonNoAssert always succeeds (no version conflicts)
-        return { success: true, messages }
+        if (!result?.success) {
+            throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
+        }
+        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
     }
 
     /**
@@ -2307,7 +2322,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties: currentPerson.properties,
             properties_last_updated_at: personUpdate.properties_last_updated_at,
             properties_last_operation: personUpdate.properties_last_operation,
-            created_at: currentPerson.created_at,
+            created_at: DateTime.min(currentPerson.created_at, personUpdate.created_at),
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,

@@ -74,6 +74,14 @@ export interface RawPostgresPersonRepository {
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
 
+    /** The sources are row-locked; the target is read unlocked. */
+    readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        tx?: TransactionClient
+    ): Promise<InternalPerson[]>
+
     addDistinctId(
         person: InternalPerson,
         distinctId: string,
