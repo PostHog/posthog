@@ -76,7 +76,7 @@ symbol_set_backfill_last_used_job = dagster.define_asset_job(
 
 @dagster.schedule(
     job=symbol_set_backfill_last_used_job,
-    cron_schedule="0 * * * *",
+    cron_schedule="41 * * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
