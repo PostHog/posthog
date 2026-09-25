@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
@@ -70,11 +71,11 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
         """
         minimum, maximum = self.query.minTouchpoints, self.query.maxTouchpoints
         if minimum is not None and minimum < 1:
-            raise ValueError("minTouchpoints must be at least 1")
+            raise QueryError("minTouchpoints must be at least 1")
         if maximum is not None and maximum < 1:
-            raise ValueError("maxTouchpoints must be at least 1")
+            raise QueryError("maxTouchpoints must be at least 1")
         if minimum is not None and maximum is not None and minimum > maximum:
-            raise ValueError("minTouchpoints can't exceed maxTouchpoints")
+            raise QueryError("minTouchpoints can't exceed maxTouchpoints")
         return minimum, maximum
 
     # ------------------------------------------------------------------ CTEs

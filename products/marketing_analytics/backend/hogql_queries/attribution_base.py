@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
@@ -73,7 +74,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         for goal in goals:
             if goal.conversion_goal_id == self.query.conversionGoalId:
                 if goal.kind == "DataWarehouseNode":
-                    raise ValueError(
+                    raise QueryError(
                         f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
                         "which attribution doesn't support yet. Pick an event or action goal."
                     )
@@ -86,9 +87,9 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             reason = next(
                 (s.message for s in skipped_goals if s.conversion_goal_id == self.query.conversionGoalId), None
             )
-            raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
+            raise QueryError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
 
-        raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
+        raise QueryError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
 
     @cached_property
     def conversion_condition(self) -> ast.Expr:
@@ -105,7 +106,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         if condition is None:
             # Validation already rejected the goals with nothing to match on, so what's left is an
             # action-based goal whose action was deleted.
-            raise ValueError(
+            raise QueryError(
                 f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
                 "Update the goal in marketing analytics settings, or pick another goal."
             )
@@ -141,7 +142,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         if override is None:
             return self.config.attribution_window_days
         if override < MIN_ATTRIBUTION_WINDOW_DAYS or override > MAX_ATTRIBUTION_WINDOW_DAYS:
-            raise ValueError(
+            raise QueryError(
                 f"The attribution window must be between {MIN_ATTRIBUTION_WINDOW_DAYS} and "
                 f"{MAX_ATTRIBUTION_WINDOW_DAYS} days."
             )
