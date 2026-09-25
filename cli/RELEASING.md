@@ -71,6 +71,16 @@ A prerelease does not move the formula, because Homebrew has no notion of one.
 Users install with `brew install posthog/tap/posthog-cli`.
 A Homebrew install is managed by Homebrew, so `brew upgrade` is how it updates.
 
+### Updating an install
+
+`posthog-cli update` reads `posthog-cli/stable/dist-manifest.json` from the release bucket, so updating never touches the GitHub API.
+
+It updates in place only for installs made by `install.sh` or `install.ps1`, and only when the install receipt's `install_prefix` contains the running binary.
+Every other install belongs to a package manager, so the command prints what that manager expects rather than overwriting its files.
+
+cargo-dist's standalone updater is not shipped: `install-updater = false`.
+It resolved versions by walking the GitHub releases API, which stops at 1000 items unauthenticated while this repo holds more than that, so it never reached a CLI release.
+
 ### Where installers download from
 
 `simple-download-url` in `dist-workspace.toml` points the generated installers at the bucket.

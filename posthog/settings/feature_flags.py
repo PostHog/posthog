@@ -2,6 +2,8 @@ import os
 import json
 from contextlib import suppress
 
+from django.core.exceptions import ImproperlyConfigured
+
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
@@ -171,6 +173,20 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Bounds one rule's opaque metadata object in an admitted config version 2 write (admission itself
+# is by internal feature flag, see facade/config_writes.py). The default is sized for the pilot's documents;
+# revisit it before users can author v2 documents through the editor or the wider API.
+FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES: int = get_from_env(
+    "FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES", 2048, type_cast=int
+)
+
+# Both feed the v2 validator's limits, which reject a non-positive value. Fail the deploy rather than
+# the first v2 write, which may be the incident disable.
+if MAX_FEATURE_FLAG_FILTER_SIZE_BYTES <= 0 or FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES <= 0:
+    raise ImproperlyConfigured(
+        "MAX_FEATURE_FLAG_FILTER_SIZE_BYTES and FEATURE_FLAG_RULES_V2_MAX_METADATA_BYTES must be positive integers"
+    )
 
 # Staged rollout for feature flag filters validation (#50084). Rule ids to reject on, comma
 # separated, matching the ids in the violation metrics and in the `code` of each error this

@@ -19,6 +19,16 @@
             "minLength": 1,
             "type": "string"
         },
+        "model": {
+            "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "reasoning_effort": {
+            "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+            "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
+            "type": "string"
+        },
         "repository": {
             "anyOf": [
                 {
@@ -29,6 +39,18 @@
                 }
             ],
             "description": "Repository in organization/repo format."
+        },
+        "scheduled_at": {
+            "anyOf": [
+                {
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately."
         },
         "title": {
             "maxLength": 255,

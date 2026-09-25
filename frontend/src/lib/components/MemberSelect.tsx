@@ -8,11 +8,16 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
 
-import { MemberSelectRow } from './MemberSelectRow'
+import { MemberSelectOptions } from './MemberSelectOptions'
 
 export type MemberSelectProps = {
     defaultLabel?: string
     allowNone?: boolean
+    extraOptions?: { label: string; onClick: () => void }[]
+    options?: { uuid: string; name: string; email: string; trailing?: string | number }[]
+    optionsLoading?: boolean
+    onSearch?: (query: string) => void
+    onSelectOption?: (uuid: string, name: string) => void
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: string | number | null
     excludedMembers?: (string | number)[]
@@ -23,6 +28,11 @@ export type MemberSelectProps = {
 export function MemberSelect({
     defaultLabel = 'Any user',
     allowNone = true,
+    extraOptions = [],
+    options,
+    optionsLoading,
+    onSearch,
+    onSelectOption,
     value,
     excludedMembers = [],
     onChange,
@@ -32,6 +42,17 @@ export function MemberSelect({
     const { me, selectableMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
+    const [optionSearch, setOptionSearch] = useState('')
+    const searchValue = options ? optionSearch : search
+
+    const changeSearch = (query: string): void => {
+        if (options) {
+            setOptionSearch(query)
+            onSearch?.(query)
+        } else {
+            setSearch(query)
+        }
+    }
 
     const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
 
@@ -44,21 +65,27 @@ export function MemberSelect({
 
     const handleVisibilityChange = (visible: boolean): void => {
         setShowPopover(visible)
-        if (search) {
-            setSearch('')
+        if (searchValue && !options) {
+            changeSearch('')
         }
-        if (visible) {
+        if (visible && !options) {
             ensureAllMembersLoaded()
         }
     }
 
-    const _onChange = (value: UserBasicType | null): void => {
+    const closeAfterSelection = (): void => {
+        if (options && searchValue) {
+            changeSearch('')
+        }
         handleVisibilityChange(false)
+    }
+
+    const _onChange = (value: UserBasicType | null): void => {
+        closeAfterSelection()
         onChange(value)
     }
 
-    const members = showPopover ? selectableMembers(excludedMembers, propToCompare) : []
-
+    const members = showPopover && !options ? selectableMembers(excludedMembers, propToCompare) : []
     return (
         <LemonDropdown
             closeOnClickInside={false}
@@ -74,36 +101,24 @@ export function MemberSelect({
                             type="search"
                             placeholder="Search"
                             autoFocus
-                            value={search}
-                            onChange={setSearch}
+                            value={searchValue}
+                            onChange={changeSearch}
                             fullWidth
                         />
-                        <ul className="deprecated-space-y-px">
-                            {allowNone && (
-                                <li>
-                                    <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
-                                        {defaultLabel}
-                                    </LemonButton>
-                                </li>
-                            )}
-
-                            {members.map((member) => (
-                                <MemberSelectRow
-                                    key={member.user.uuid}
-                                    member={member}
-                                    isYou={member.user.uuid === me?.user.uuid}
-                                    onClick={() => _onChange(member.user)}
-                                />
-                            ))}
-
-                            {membersLoading ? (
-                                <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                            ) : members.length === 0 ? (
-                                <div className="p-2 text-secondary italic truncate border-t">
-                                    {search ? <span>No matches</span> : <span>No users</span>}
-                                </div>
-                            ) : null}
-                        </ul>
+                        <MemberSelectOptions
+                            extraOptions={extraOptions}
+                            allowNone={allowNone}
+                            defaultLabel={defaultLabel}
+                            members={members}
+                            currentUserUuid={me?.user.uuid}
+                            options={options}
+                            optionsLoading={optionsLoading}
+                            membersLoading={membersLoading}
+                            searchValue={searchValue}
+                            onChange={_onChange}
+                            onSelectOption={onSelectOption}
+                            onClose={closeAfterSelection}
+                        />
                     </div>
                 ) : null
             }

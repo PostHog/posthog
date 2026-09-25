@@ -235,6 +235,7 @@ class TestAIObservabilityModuleIntegrity:
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",
+            "check_ai_data_processing_consent_activity",
             "fetch_all_clustering_filters_activity",
             "fetch_all_clustering_jobs_activity",
             "perform_clustering_compute_activity",
@@ -271,6 +272,7 @@ class TestAIObservabilityModuleIntegrity:
             "prepare_evaluation_backfill_tick_activity",
             "find_evaluation_backfill_candidates_activity",
             "advance_evaluation_backfill_cursor_activity",
+            "measure_evaluation_backfill_remainder_activity",
             "fail_evaluation_backfill_activity",
         ]
         actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]

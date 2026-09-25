@@ -7,6 +7,12 @@ Three assets on the same daily partition as the dataset dag, each writing under 
     inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
     inbox_ranking_unseen_scores/v1/dt=D/              the day's models on the reports born that day
 
+A fifth asset publishes what the scoring sweep serves. The dataset bucket holds the training
+history and the Temporal workers cannot reach it, so `inbox_ranking_serving_manifest` copies the
+models the sweep needs into the deployment's own object store and writes a manifest naming them
+(`serving/manifest.json`, `serving/models/<key>/`). The manifest is the dag's serving decision:
+which models a pass scores, and which of them the inbox would order on.
+
 Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
 reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
@@ -47,6 +53,8 @@ import pyarrow.compute as pc
 from botocore.exceptions import ClientError
 
 from posthog import settings
+from posthog.dataclasses import frozen
+from posthog.storage import object_storage
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
@@ -57,6 +65,7 @@ from products.signals.backend.ranking.features import (
     Extras,
     FeatureSet,
 )
+from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     PARQUET_PART_NAME,
@@ -94,6 +103,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     HeadExampleCounts,
     candidate_events,
@@ -101,6 +111,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     examples_events,
     holdout_calibration_events,
     promotion_event,
+    serving_manifest_event,
     unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
@@ -491,6 +502,9 @@ def candidate_metadata(
         "model_name": model_name,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
+        # The learner a model store loads the booster with. Every family is per-head XGBoost today;
+        # the field exists so the serving manifest reads it from the source rather than assuming it.
+        "model_kind": DEFAULT_MODEL_KIND,
         # The feature universe this model was fit on. The grader checks the model against this set
         # rather than against one global contract, so a second family is not rejected for reading
         # different features.
@@ -786,6 +800,143 @@ def _decide_champion(
     }
 
 
+SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
+
+
+@dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
+def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> None:
+    """Publish the models the scoring sweep serves, and the manifest naming them.
+
+    The training history stays in the dataset bucket, which the Temporal workers cannot reach. What
+    the sweep needs is copied into the deployment's own object store instead, so the serving path
+    needs no credential for the dataset bucket. A model version is immutable, so a version already
+    at the target is left alone, and the manifest is written last: a failed copy leaves the previous
+    manifest, and the models it names, serving.
+    """
+    if skip_unconfigured(context):
+        return
+    context.add_output_metadata(_publish_manifest(context, context.partition_key, context.run.run_id))
+
+
+def _publish_manifest(
+    context: dagster.AssetExecutionContext, partition_key: str, run_id: str
+) -> dict[str, dagster.MetadataValue]:
+    bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
+    served_family = settings.INBOX_RANKING_SERVED_FAMILY
+
+    families = [
+        FamilyModels(
+            name=family.name,
+            candidate=_read_json_if_exists(
+                client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
+            ),
+            champion=_read_json_if_exists(client, bucket, champion_object_key(prefix, family.name)),
+        )
+        for family in MODEL_FAMILIES
+    ]
+    decision = compose_manifest(
+        families, served_family=served_family, prefix=prefix, now=datetime.datetime.now(datetime.UTC)
+    )
+    if decision.manifest is None:
+        context.log.warning(f"no serving manifest for dt={partition_key}: {decision.reason}")
+        capture_training_events(
+            context,
+            partition_key,
+            [
+                serving_manifest_event(
+                    partition_key=partition_key,
+                    run_id=run_id,
+                    served_family=served_family,
+                    manifest=None,
+                    reason=decision.reason,
+                )
+            ],
+        )
+        return {"published": dagster.MetadataValue.bool(False)}
+
+    manifest = decision.manifest
+    manifest_key = serving_manifest_key(prefix)
+    publication = publish_serving_models(context, client, bucket, prefix, manifest)
+    object_storage.write(
+        manifest_key,
+        manifest.model_dump_json(indent=2),
+        extras={"ContentType": "application/json"},
+    )
+    context.log.info(f"published serving manifest {manifest.manifest_version} serving {manifest.served.key}")
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            serving_manifest_event(
+                partition_key=partition_key,
+                run_id=run_id,
+                served_family=served_family,
+                manifest=manifest,
+                reason=decision.reason,
+                copied_keys=publication.copied,
+                present_keys=publication.present,
+                bytes_copied=publication.bytes_copied,
+            )
+        ],
+    )
+    return {
+        "published": dagster.MetadataValue.bool(True),
+        "manifest_key": dagster.MetadataValue.text(manifest_key),
+        "manifest_version": dagster.MetadataValue.text(manifest.manifest_version),
+        "served_key": dagster.MetadataValue.text(manifest.served.key),
+        "models": dagster.MetadataValue.json(
+            [{"key": entry.key, "roles": entry.roles, "heads": entry.heads} for entry in manifest.models]
+        ),
+        "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
+        "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
+        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+    }
+
+
+@frozen
+class _ModelPublication:
+    copied: list[str]
+    present: list[str]
+    bytes_copied: int
+
+
+def publish_serving_models(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    manifest: ServingManifest,
+) -> _ModelPublication:
+    """Copy every model the manifest names from the dataset bucket into the app object store.
+
+    Returns the keys copied, the keys already there, and the bytes moved. A missing source object
+    fails the asset before the manifest is written, so the manifest can never name a model the
+    sweep cannot load.
+    """
+    copied: list[str] = []
+    present: list[str] = []
+    bytes_copied = 0
+    for entry in manifest.models:
+        target_metadata = f"{entry.prefix}/{METADATA_FILE}"
+        # A version is immutable, so its metadata record standing in for the whole prefix is safe
+        # and saves re-reading a 1536-column booster every day.
+        if object_storage.head_object(target_metadata) is not None:
+            present.append(entry.key)
+            continue
+        # Metadata marks a complete copy, so write it after every booster to make retries safe.
+        for name in (*(f"{head}.ubj" for head in entry.heads), METADATA_FILE):
+            body = _read_bytes_if_exists(
+                client, bucket, model_object_key(prefix, entry.model_name, entry.model_version, name)
+            )
+            if body is None:
+                raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
+            object_storage.write(f"{entry.prefix}/{name}", body)
+            bytes_copied += len(body)
+        copied.append(entry.key)
+        context.log.info(f"copied {entry.key} to {entry.prefix}")
+    return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
+
+
 # dt=D grades the scores written on D - horizon_days, so the mapping reaches back as far as the
 # longest head horizon. Partitions before the scores asset existed have no upstream to map to.
 _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
@@ -1068,6 +1219,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
         EXAMPLES_TABLE,
         "inbox_ranking_model_candidate",
         "inbox_ranking_model_champion",
+        SERVING_MANIFEST_ASSET,
         UNSEEN_SCORES_TABLE,
         "inbox_ranking_unseen_graded",
     ],
