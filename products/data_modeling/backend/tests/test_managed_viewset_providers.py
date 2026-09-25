@@ -136,7 +136,9 @@ class TestManagedViewSetProviders(BaseTest):
         ]
     )
     @patch(SCHEDULE_MATERIALIZATION)
-    def test_synced_view_field_types_read_back(self, _name, field_class: type[DatabaseField], _):
+    def test_synced_view_field_types_read_back(
+        self, _name: str, field_class: type[DatabaseField], _mock_schedule: Mock
+    ) -> None:
         fake_view = ProvidedView(
             name="fake_provider_view",
             query="SELECT 1 AS id, 1 AS value",

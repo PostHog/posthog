@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringDatabaseField,
 )
 
@@ -357,6 +358,12 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         #     viewset.sync_views()
         # ```
 
+        # ClickHouse rejects Nullable() around Array and Map, so these return before the nullable wrap.
+        if isinstance(field, FloatArrayDatabaseField):
+            return "Array(Float64)"
+        if isinstance(field, MapStringDatabaseField):
+            return "Map(String, String)"
+
         if isinstance(field, StringDatabaseField):
             type = "String"
         elif isinstance(field, IntegerDatabaseField):
@@ -371,8 +378,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             type = "Boolean"
         elif isinstance(field, DateDatabaseField):
             type = "Date"
-        elif isinstance(field, FloatArrayDatabaseField):
-            type = "Array(Float64)"
         else:
             type = "String"
 
