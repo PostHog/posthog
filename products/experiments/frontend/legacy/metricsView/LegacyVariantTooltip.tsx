@@ -92,7 +92,7 @@ export function LegacyVariantTooltip({
                             <span className="text-secondary font-semibold">Mean:</span>
                             <span className="font-semibold">
                                 {(() => {
-                                    const variant = result.variants.find(
+                                    const variant = result.variants?.find(
                                         (v: TrendExperimentVariant) => v.key === tooltipData.variant
                                     )
                                     return variant?.count && variant?.absolute_exposure
