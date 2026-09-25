@@ -19,6 +19,7 @@ from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODEL, j
 from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     TurnSuggestionResolution,
     claim_turn,
+    note_turn,
     read_ledger,
     record_offer,
     resolve_offer,
@@ -72,6 +73,16 @@ def _turn_suggestions_enabled(task_run: TaskRun, user: "User") -> bool:
         group_properties={"organization": {"id": organization_id}},
         send_feature_flag_events=False,
     )
+
+
+def _history_is_whole(task_run: TaskRun) -> bool:
+    """Whether the resume chain the history reads reaches the conversation's first run.
+
+    The chain walk stops after a fixed depth, and the thread reads the same chain. Past that depth
+    turn indexes slide with every new run, so they no longer name one turn in the ledger.
+    """
+    oldest = task_run.get_resume_chain()[0]
+    return not (oldest.state or {}).get("resume_from_run_id")
 
 
 def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
@@ -173,6 +184,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     early_refusal = read_ledger(task.id, task_run.team_id).refusal()
     if early_refusal is not None:
         return _skipped(early_refusal.value)
+    if not _history_is_whole(task_run):
+        return _skipped("history_truncated")
 
     transcript = _load_transcript(task_run)
     if transcript is None:
@@ -180,13 +193,17 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not transcript.human_messages:
         return _skipped("no_user_message")
     turn_index = len(transcript.human_messages) - 1
+    if not transcript.assistant_text and not transcript.tool_calls:
+        # A follow-up sent during the settle wait shows here as an empty latest turn. Its own
+        # completion classifies it, so it is only noted: a card still drafting for the previous
+        # turn must not land under it.
+        note_turn(task.id, task_run.team_id, turn_index)
+        return _skipped("empty_turn")
     # Claimed before the turn can bail out, so a card still drafting for the previous turn sees
     # that the thread moved past it even when this turn offers nothing.
     refusal = claim_turn(task.id, task_run.team_id, turn_index)
     if refusal is not None:
         return _skipped(refusal.value)
-    if not transcript.assistant_text and not transcript.tool_calls:
-        return _skipped("empty_turn")
     available = available_offers(
         transcript, scouts_available=scout_creation_available(team_id=task_run.team_id, user_id=user.id)
     )
@@ -212,10 +229,11 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         _capture_classified(task_run, user, verdict, emitted=False, turn_index=turn_index)
         return _skipped(record_refusal.value)
     # Publishing also appends to the run's S3 log, a rewrite of the whole log; the offer ledger is
-    # what keeps that to a couple of times per conversation.
+    # what keeps that to a couple of times per conversation. Only a card in the log counts, because
+    # the log is what a reload replays it from.
     emitted = publish_task_run_stream_notification(
         task_run.id, task_run.task_id, task_run.team_id, TURN_SUGGESTION_METHOD, params
-    ).delivered
+    ).persisted
     _capture_classified(task_run, user, verdict, emitted=emitted, turn_index=turn_index)
     if not emitted:
         withdraw_offer(task.id, task_run.team_id, turn_index=turn_index)

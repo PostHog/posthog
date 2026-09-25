@@ -17,6 +17,8 @@ from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX, nor
 from products.posthog_ai.backend.wire_types import NotificationFrame, is_user_message_params, parse_log_entry
 
 POSTHOG_EXEC_TOOL_RE = re.compile(r"^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$")
+# The PostHog MCP server puts a tool's handler payload here; its text content is a lossy rendering.
+MCP_APP_DATA_META_KEY = "com.posthog.mcp/app_data"
 
 # The send path prefixes user text with context blocks the user never sees. The legacy
 # ``<posthog_context>`` wrapper still appears in older histories.
@@ -163,8 +165,25 @@ def _args_preview(raw_input: Any) -> str:
         return ""
 
 
+def _posthog_meta_tool_name(meta: Any) -> str | None:
+    """The tool identity an adapter stamps on ``_meta.posthog``, the way the thread's tool resolver reads it."""
+    posthog_meta = meta.get("posthog") if isinstance(meta, dict) else None
+    if not isinstance(posthog_meta, dict):
+        return None
+    mcp = posthog_meta.get("mcp")
+    if isinstance(mcp, dict):
+        server, tool = mcp.get("server"), mcp.get("tool")
+        if isinstance(server, str) and server and isinstance(tool, str) and tool:
+            return f"mcp__{server}__{tool}"
+    tool_name = posthog_meta.get("toolName")
+    return tool_name if isinstance(tool_name, str) and tool_name else None
+
+
 def _agent_tool_name(update: dict[str, Any]) -> str:
     meta = update.get("_meta")
+    posthog_tool_name = _posthog_meta_tool_name(meta)
+    if posthog_tool_name:
+        return posthog_tool_name
     claude_meta = meta.get("claudeCode") if isinstance(meta, dict) else None
     tool_name = claude_meta.get("toolName") if isinstance(claude_meta, dict) else None
     if isinstance(tool_name, str) and tool_name:
@@ -359,20 +378,41 @@ def _join_messages(assistant_messages: dict[str, str]) -> str:
     return "\n\n".join(text for text in assistant_messages.values() if text)
 
 
+_MCP_ENVELOPE_KEYS = frozenset({"content", "structuredContent", "isError", "_meta", "__execBuiltPayload"})
+
+
+def _tool_output_record(accumulator: _ToolCallAccumulator) -> dict[str, Any] | None:
+    """The handler payload a tool returned, unwrapped from its MCP envelope the way the thread's widgets read it."""
+    output = accumulator.output
+    if not isinstance(output, dict) or output.get("isError") is True or accumulator.status == "failed":
+        return None
+    meta = output.get("_meta")
+    app_data = meta.get(MCP_APP_DATA_META_KEY) if isinstance(meta, dict) else None
+    if isinstance(app_data, dict):
+        return app_data
+    structured = output.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    return None if output.keys() <= _MCP_ENVELOPE_KEYS else output
+
+
 def _saved_insights(tool_calls: list[_ToolCallAccumulator]) -> list[SavedInsightRef]:
     """Saved insights the turn created or read, from the REST payload the insight tools return."""
     refs: dict[str, SavedInsightRef] = {}
     for accumulator in tool_calls:
-        if accumulator.name not in _INSIGHT_TOOLS or not isinstance(accumulator.output, dict):
+        if accumulator.name not in _INSIGHT_TOOLS:
             continue
-        short_id = accumulator.output.get("short_id")
-        query = accumulator.output.get("query")
+        output = _tool_output_record(accumulator)
+        if output is None:
+            continue
+        short_id = output.get("short_id")
+        query = output.get("query")
         if not isinstance(short_id, str) or not short_id or not isinstance(query, dict):
             continue
         source = query.get("source") if isinstance(query.get("source"), dict) else query
         kind = source.get("kind") if isinstance(source, dict) else None
-        insight_id = accumulator.output.get("id")
-        name = accumulator.output.get("name")
+        insight_id = output.get("id")
+        name = output.get("name")
         refs[short_id] = SavedInsightRef(
             short_id=short_id,
             insight_id=insight_id if isinstance(insight_id, int) else None,
@@ -386,10 +426,13 @@ def _error_issues(tool_calls: list[_ToolCallAccumulator]) -> list[ErrorIssueRef]
     """Error tracking issues the turn looked at, from the list and detail tool payloads."""
     refs: dict[str, ErrorIssueRef] = {}
     for accumulator in tool_calls:
-        if accumulator.name not in _ERROR_ISSUE_TOOLS or not isinstance(accumulator.output, dict):
+        if accumulator.name not in _ERROR_ISSUE_TOOLS:
             continue
-        results = accumulator.output.get("results")
-        candidates = results if isinstance(results, list) else [accumulator.output]
+        output = _tool_output_record(accumulator)
+        if output is None:
+            continue
+        results = output.get("results")
+        candidates = results if isinstance(results, list) else [output]
         for candidate in candidates:
             if not isinstance(candidate, dict):
                 continue

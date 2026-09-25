@@ -202,8 +202,13 @@ def judge_configured() -> bool:
     return bool(settings.TYPESAFE_API_KEY)
 
 
+# A turn that lists issues can collect hundreds, past what one choice question takes. The state, the
+# questions and the answer lookup all number refs through `_numbered`, so the cap keeps them in step.
+MAX_REF_OPTIONS = 20
+
+
 def _numbered[T](prefix: str, refs: Sequence[T]) -> dict[str, T]:
-    return {f"{prefix}_{index}": ref for index, ref in enumerate(refs, start=1)}
+    return {f"{prefix}_{index}": ref for index, ref in enumerate(refs[:MAX_REF_OPTIONS], start=1)}
 
 
 def _insight_options(transcript: TurnTranscript) -> dict[str, SavedInsightRef]:

@@ -67,6 +67,8 @@ class OfferRecord:
 class OfferLedger:
     offers: tuple[OfferRecord, ...] = ()
     last_classified_turn: int = -1
+    # The newest turn the conversation reached, classified or still running.
+    latest_turn: int = -1
 
     @property
     def muted(self) -> bool:
@@ -92,15 +94,18 @@ class OfferLedger:
         parsed = (OfferRecord.from_json(entry) for entry in raw_offers) if isinstance(raw_offers, list) else ()
         offers = tuple(offer for offer in parsed if offer is not None)
         last_classified_turn = raw.get("last_classified_turn")
+        latest_turn = raw.get("latest_turn")
         return cls(
             offers=offers,
             last_classified_turn=last_classified_turn if isinstance(last_classified_turn, int) else -1,
+            latest_turn=latest_turn if isinstance(latest_turn, int) else -1,
         )
 
     def to_json(self) -> dict[str, Any]:
         return {
             "offers": [offer.to_json() for offer in self.offers],
             "last_classified_turn": self.last_classified_turn,
+            "latest_turn": self.latest_turn,
         }
 
     def refusal(self, turn_index: int | None = None) -> ClaimRefusal | None:
@@ -160,9 +165,21 @@ def claim_turn(task_id: UUID | str, team_id: int, turn_index: int) -> ClaimRefus
         refusal = ledger.refusal(turn_index)
         if refusal is not None:
             return refusal
-        return replace(ledger, last_classified_turn=turn_index)
+        return replace(ledger, last_classified_turn=turn_index, latest_turn=max(ledger.latest_turn, turn_index))
 
     return _claim(task_id, team_id, claim)
+
+
+def note_turn(task_id: UUID | str, team_id: int, turn_index: int) -> None:
+    """Record that the conversation reached ``turn_index`` without claiming it, so a card still
+    drafting for an earlier turn does not land under it. The turn stays open for classification."""
+
+    def note(ledger: OfferLedger) -> tuple[OfferLedger | None, None]:
+        if ledger.latest_turn >= turn_index:
+            return None, None
+        return replace(ledger, latest_turn=turn_index), None
+
+    _update_ledger(task_id, team_id, note)
 
 
 def record_offer(
@@ -179,7 +196,7 @@ def record_offer(
     offer = OfferRecord(turn_index=turn_index, run_id=str(run_id), kind=kind, status=OfferStatus.OFFERED)
 
     def append(ledger: OfferLedger) -> OfferLedger | ClaimRefusal:
-        if ledger.last_classified_turn != turn_index:
+        if ledger.last_classified_turn != turn_index or ledger.latest_turn > turn_index:
             return ClaimRefusal.SUPERSEDED
         refusal = ledger.refusal()
         if refusal is not None:

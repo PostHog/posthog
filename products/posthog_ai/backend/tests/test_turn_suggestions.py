@@ -27,6 +27,7 @@ from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, ca
 from products.posthog_ai.backend.turn_suggestions.dispatch import TURN_SETTLE_SECONDS, enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
 from products.posthog_ai.backend.turn_suggestions.judgment import (
+    MAX_REF_OPTIONS,
     TurnJudgment,
     build_judge_questions,
     build_judge_state,
@@ -48,6 +49,7 @@ from products.posthog_ai.backend.turn_suggestions.service import (
     generate_turn_suggestion,
 )
 from products.posthog_ai.backend.turn_suggestions.transcript import (
+    MCP_APP_DATA_META_KEY,
     ErrorIssueRef,
     SavedInsightRef,
     build_turn_transcript,
@@ -332,10 +334,51 @@ class TestBuildTurnTranscript(SimpleTestCase):
             )
         ]
 
-    def test_saved_insights_and_error_issues_come_from_the_tool_payloads(self):
-        assert build_turn_transcript(_saved_insight_turn()).saved_insights == (SAVED_INSIGHT,)
-        assert build_turn_transcript(_error_turn()).error_issues == (ERROR_ISSUE,)
+    @parameterized.expand(
+        [
+            ("handler_payload", lambda payload: payload),
+            (
+                "mcp_app_data",
+                lambda payload: {
+                    "content": [{"type": "text", "text": "Saved."}],
+                    "_meta": {MCP_APP_DATA_META_KEY: payload},
+                },
+            ),
+            ("mcp_structured_content", lambda payload: {"structuredContent": payload, "isError": False}),
+        ]
+    )
+    def test_saved_insights_and_error_issues_come_from_the_tool_payloads(self, _name: str, wrap):
+        insight_turn = _saved_insight_turn()
+        insight_turn[1]["notification"]["params"]["update"]["rawOutput"] = wrap(
+            insight_turn[1]["notification"]["params"]["update"]["rawOutput"]
+        )
+        error_turn = _error_turn()
+        error_turn[1]["notification"]["params"]["update"]["rawOutput"] = wrap(
+            error_turn[1]["notification"]["params"]["update"]["rawOutput"]
+        )
+
+        assert build_turn_transcript(insight_turn).saved_insights == (SAVED_INSIGHT,)
+        assert build_turn_transcript(error_turn).error_issues == (ERROR_ISSUE,)
         assert build_turn_transcript(_metric_turn()).saved_insights == ()
+
+    def test_a_failed_insight_call_yields_no_reference(self):
+        insight_turn = _saved_insight_turn()
+        update = insight_turn[1]["notification"]["params"]["update"]
+        update["rawOutput"] = {"_meta": {MCP_APP_DATA_META_KEY: update["rawOutput"]}, "isError": True}
+
+        assert build_turn_transcript(insight_turn).saved_insights == ()
+
+    def test_resolves_exec_identified_by_posthog_adapter_metadata(self):
+        entries = _saved_insight_turn()
+        update = entries[1]["notification"]["params"]["update"]
+        del update["serverName"], update["toolName"]
+        update["title"] = "exec"
+        update["_meta"] = {"posthog": {"toolName": "mcp__posthog__exec", "mcp": {"server": "posthog", "tool": "exec"}}}
+
+        transcript = build_turn_transcript(entries)
+
+        assert [call.name for call in transcript.tool_calls] == ["insight-create"]
+        assert transcript.saved_insights == (SAVED_INSIGHT,)
 
     @parameterized.expand(
         [
@@ -501,6 +544,19 @@ class TestJudgeTurn(SimpleTestCase):
 
         assert "offer" not in build_judge_questions(transcript, only_scout)
         assert judgment is not None and judgment.offer == OfferKind.SCOUT
+
+    def test_a_turn_with_more_issues_than_a_choice_takes_is_still_judged(self):
+        issues = [{"id": f"issue-{index}", "name": f"Error {index}"} for index in range(300)]
+        entries = [
+            _user_message("Which errors are new this week?"),
+            _exec_tool_call("t1", "call query-error-tracking-issues-list {}", "completed", {"results": issues}),
+            _agent_text("Here are the new errors."),
+        ]
+        transcript = build_turn_transcript(entries)
+
+        question = build_judge_questions(transcript, ALL_OFFERS)["error_issue"]
+
+        assert isinstance(question, ChoiceQuestion) and len(question.criteria) == MAX_REF_OPTIONS + 1
 
     def test_option_keys_map_back_to_the_refs_they_stand_for(self):
         answers = _answers(
@@ -724,6 +780,18 @@ class TestEnqueueTurnSuggestion(BaseTest):
 
         apply_async.assert_called_once()
 
+    def test_a_failed_enqueue_leaves_the_turn_for_the_next_report(self):
+        task_run = self._run(Task.OriginProduct.POSTHOG_AI)
+
+        with patch(
+            "products.posthog_ai.backend.tasks.generate_turn_suggestion_task.apply_async",
+            side_effect=[ConnectionError("broker down"), None],
+        ) as apply_async:
+            assert enqueue_turn_suggestion(task_run) is False
+            assert enqueue_turn_suggestion(task_run) is True
+
+        assert apply_async.call_count == 2
+
     def test_the_task_runs_on_the_posthog_ai_queue(self):
         assert generate_turn_suggestion_task.queue == CeleryQueue.POSTHOG_AI.value
 
@@ -911,6 +979,7 @@ class TestGenerateTurnSuggestion(BaseTest):
         [
             ("next_turn_claims", "superseded"),
             ("next_turn_offers_nothing", "superseded"),
+            ("follow_up_still_running", "superseded"),
             ("earlier_card_dismissed", "dismissed"),
         ]
     )
@@ -937,6 +1006,9 @@ class TestGenerateTurnSuggestion(BaseTest):
                 ]
                 self.mocks["scouts"].return_value = False
                 assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="no_offers_available")
+            elif interruption == "follow_up_still_running":
+                self.mocks["history"].return_value = [*self.mocks["history"].return_value, _user_message("Thanks")]
+                assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="empty_turn")
             else:
                 resolution = TurnSuggestionResolution.DISMISSED
                 assert resolve_offer(self.task_run.task_id, self.team.id, turn_index=0, resolution=resolution)
@@ -949,6 +1021,33 @@ class TestGenerateTurnSuggestion(BaseTest):
         assert outcome == TurnSuggestionOutcome(status="skipped", reason=reason)
         self.mocks["publish"].assert_not_called()
         assert [offer.turn_index for offer in read_ledger(self.task_run.task_id, self.team.id).offers] == [0]
+
+    def test_a_follow_up_still_running_at_the_read_is_classified_when_it_completes(self):
+        follow_up = [*_metric_turn(), _user_message("Break that down by country")]
+        self.mocks["history"].return_value = follow_up
+
+        assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="empty_turn")
+
+        self.mocks["history"].return_value = [*follow_up, _agent_text("Most signups came from the US.")]
+        outcome = self._generate()
+
+        assert outcome == TurnSuggestionOutcome(status="emitted", reason="scout")
+        assert self._published_params()["turnIndex"] == 1
+
+    def test_a_card_only_the_live_stream_got_spends_no_offer(self):
+        self.mocks["publish"].return_value = StreamNotificationDelivery(live=True, persisted=False)
+
+        assert self._generate() == TurnSuggestionOutcome(status="failed", reason="publish_failed")
+        assert read_ledger(self.task_run.task_id, self.team.id).offers == ()
+
+    def test_a_conversation_past_the_resume_chain_depth_gets_no_card(self):
+        run = self.task_run
+        for _ in range(11):
+            run = run.task.create_run(mode="interactive", extra_state={"resume_from_run_id": str(run.id)})
+        self.task_run = run
+
+        assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="history_truncated")
+        self.mocks["history"].assert_not_called()
 
     @parameterized.expand(
         [
