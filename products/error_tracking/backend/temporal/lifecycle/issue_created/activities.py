@@ -129,6 +129,8 @@ def _prepare_issue_created_embedding(inputs: IssueCreatedWorkflowInputs) -> Issu
                 model_name=EMBEDDING_MODEL,
                 embedding=response.embedding,
                 source_issue_id=inputs.issue_id,
+                event_uuid=inputs.event_uuid,
+                event_timestamp=inputs.event_timestamp,
             ),
             content=content,
         ),

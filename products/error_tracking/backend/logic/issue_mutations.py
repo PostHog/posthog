@@ -19,6 +19,7 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from products.access_control.backend.facade.api import role_belongs_to_organization
 from products.cohorts.backend.facade.api import cohort_exists_for_team
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
+from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
     ISSUE_MERGED_EVENT,
@@ -26,7 +27,6 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
     PendingLifecycleEvent,
-    assignee_property,
     prepare_issue_lifecycle_event,
     produce_issue_lifecycle_event_on_commit,
     produce_issue_lifecycle_events_on_commit,
@@ -175,10 +175,15 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    result, merged_issue_ids = issue.merge(issue_ids=ids)
+    # One transaction around the merge and everything it reports: the activity entries and the
+    # lifecycle events must be registered in the same commit that moves the fingerprints, since
+    # a retry finds the sources gone, sees no transition and emits nothing.
+    with transaction.atomic():
+        outcome = issue.merge(issue_ids=ids)
+        if outcome.result != ErrorTrackingIssueMergeResult.MERGED:
+            return outcome.result
 
-    if result == ErrorTrackingIssueMergeResult.MERGED:
-        merged_id_strings = [str(merged_issue_id) for merged_issue_id in merged_issue_ids]
+        merged_id_strings = [str(merged_issue_id) for merged_issue_id in outcome.merged_issue_ids]
         log_activity(
             organization_id=issue.team.organization_id,
             team_id=team_id,
@@ -203,7 +208,36 @@ def merge_issues(
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
 
-    return result
+        if outcome.reopened and outcome.previous_status is not None:
+            log_activity(
+                organization_id=issue.team.organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(issue.id),
+                scope="ErrorTrackingIssue",
+                activity="updated",
+                detail=Detail(
+                    name=issue.name,
+                    changes=[
+                        Change(
+                            type="ErrorTrackingIssue",
+                            field="status",
+                            before=outcome.previous_status,
+                            after=issue.status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+            produce_issue_lifecycle_event_on_commit(
+                event=STATUS_CHANGE_EVENTS[issue.status],
+                issue=issue,
+                user=user,
+                extra_properties={"previous_status": status_label(outcome.previous_status)},
+            )
+
+    return outcome.result
 
 
 def split_issue(

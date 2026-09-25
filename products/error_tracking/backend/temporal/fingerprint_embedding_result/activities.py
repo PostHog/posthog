@@ -1,4 +1,5 @@
 import time
+import uuid
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -16,18 +17,23 @@ from posthog.ph_client import ph_background_capture
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.error_tracking.backend.logic.assignees import current_assignee_property
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueMergeResult,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    AutoMergeOutcome,
+    AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
 )
+from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
+NIL_UUID = "00000000-0000-0000-0000-000000000000"
 
 CLOSEST_FINGERPRINTS_QUERY_BY_MODEL = {
     "text-embedding-3-large-3072": """
@@ -190,21 +196,55 @@ def _report_closest_fingerprint_metrics(
     )
 
 
+def _event_reference(inputs: FingerprintEmbeddingResultInputs) -> str:
+    """Name the exception that caused the reopen, for the notification id.
+
+    A nil event uuid is truthy but names nothing, so it falls back to the exception's own
+    timestamp. `timestamp` is the issue's creation time, so it is the last resort only.
+    """
+    if inputs.event_uuid and inputs.event_uuid != NIL_UUID:
+        return inputs.event_uuid
+    return inputs.event_timestamp or inputs.timestamp
+
+
+def _reopened_target(
+    issue: ErrorTrackingIssue,
+    *,
+    event_reference: str,
+) -> AutoMergeReopenedTarget:
+    # Same key shape cymbal uses for a reopen it detects during linking, so the two paths
+    # cannot deliver two notifications for one exception.
+    notification_id = uuid.uuid5(uuid.NAMESPACE_OID, f"issue_reopened:{issue.team_id}:{issue.id}:{event_reference}")
+    return AutoMergeReopenedTarget(
+        notification_id=str(notification_id),
+        issue_id=str(issue.id),
+        issue=LifecycleIssueSnapshot(
+            name=issue.name,
+            description=issue.description,
+            status=issue.status,
+            created_at=issue.created_at.isoformat(),
+            severity=issue.severity,
+        ),
+        assignee=current_assignee_property(issue),
+    )
+
+
 def _merge_fingerprint_into_closest_issue(
     team: Team,
     fingerprint: str,
     closest_fingerprints: list[SimilarFingerprintDistance],
     expected_source_issue_id: str | None = None,
-) -> int:
+    event_reference: str = "",
+) -> AutoMergeOutcome:
     team_id = team.id
     if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED:
-        return 0
+        return AutoMergeOutcome()
 
     eligible_fingerprints = [
         candidate for candidate in closest_fingerprints if candidate.distance < AUTO_MERGE_DISTANCE_THRESHOLD
     ]
     if not eligible_fingerprints:
-        return 0
+        return AutoMergeOutcome()
 
     fingerprints_by_value = {
         row.fingerprint: row
@@ -224,10 +264,10 @@ def _merge_fingerprint_into_closest_issue(
         if not source_issue_exists:
             # The merge committed but its activity completion may have been lost. Treat a deleted
             # source issue as merged so an activity retry cannot emit a duplicate issue-created alert.
-            return 1
+            return AutoMergeOutcome(merged_count=1)
         # A split or reassignment moved the fingerprint without deleting the issue. No merge
         # completed, so allow the issue-created side effects instead of exhausting activity retries.
-        return 0
+        return AutoMergeOutcome()
 
     for candidate in eligible_fingerprints:
         target_fingerprint = fingerprints_by_value.get(candidate.fingerprint)
@@ -236,16 +276,17 @@ def _merge_fingerprint_into_closest_issue(
 
         source_issue_id = source_fingerprint.issue_id
         target_issue_id = target_fingerprint.issue_id
-        merge_result, _merged_issue_ids = target_fingerprint.issue.merge(
+        target_issue = target_fingerprint.issue
+        merge_outcome = target_issue.merge(
             issue_ids=[source_issue_id],
             expected_fingerprint_issue_ids={
                 fingerprint: source_issue_id,
                 candidate.fingerprint: target_issue_id,
             },
         )
-        if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
-            return 0
-        if merge_result != ErrorTrackingIssueMergeResult.MERGED:
+        if merge_outcome.result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+            return AutoMergeOutcome()
+        if merge_outcome.result != ErrorTrackingIssueMergeResult.MERGED:
             raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
 
         capture = ph_background_capture()
@@ -262,9 +303,12 @@ def _merge_fingerprint_into_closest_issue(
                 "distance": candidate.distance,
             },
         )
-        return 1
+        reopened_target = (
+            _reopened_target(target_issue, event_reference=event_reference) if merge_outcome.reopened else None
+        )
+        return AutoMergeOutcome(merged_count=1, reopened_target=reopened_target)
 
-    return 0
+    return AutoMergeOutcome()
 
 
 def merge_similar_fingerprints(
@@ -287,17 +331,19 @@ def merge_similar_fingerprints(
 
         # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
         _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, inputs.model_name, query_duration_ms)
-        merged_count = _merge_fingerprint_into_closest_issue(
+        merge_outcome = _merge_fingerprint_into_closest_issue(
             team,
             inputs.fingerprint,
             closest_fingerprints,
             inputs.source_issue_id,
+            event_reference=_event_reference(inputs),
         )
 
         return FingerprintEmbeddingMergeResult(
-            merged_count=merged_count,
+            merged_count=merge_outcome.merged_count,
             query_duration_ms=query_duration_ms,
             closest_fingerprints=closest_fingerprints,
+            reopened_target=merge_outcome.reopened_target,
         )
     except Exception as err:
         # A drained worker raises a cancellation straight into this thread, usually while the

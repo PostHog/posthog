@@ -17,6 +17,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
+    AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
@@ -36,7 +37,9 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueEmbeddingPreparationResult,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
+from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 
 def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
@@ -199,6 +202,21 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     event_issue_ids: list[str] = []
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
+    reopened_alerts: list[IssueReopenedWorkflowInputs] = []
+    reopened_events: list[IssueReopenedWorkflowInputs] = []
+    reopened_signals: list[IssueReopenedWorkflowInputs] = []
+    reopened_target = AutoMergeReopenedTarget(
+        notification_id=str(uuid.uuid4()),
+        issue_id=str(uuid.uuid4()),
+        issue=LifecycleIssueSnapshot(
+            name="TypeError",
+            description="Something failed",
+            status="active",
+            created_at="2026-07-01T12:00:00Z",
+            severity="high",
+        ),
+        assignee='{"type":"user","id":7}',
+    )
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
@@ -229,7 +247,9 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
 
     @activity.defn(name="merge_issue_created_fingerprint_activity")
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
+        if inputs.fingerprint == "merged-into-resolved":
+            return FingerprintEmbeddingMergeResult(merged_count=1, reopened_target=reopened_target)
+        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint.startswith("merged")))
 
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -238,6 +258,18 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="emit_issue_created_internal_event_activity")
     async def emit_event(inputs: IssueCreatedWorkflowInputs) -> None:
         event_issue_ids.append(inputs.issue_id)
+
+    @activity.defn(name="dispatch_issue_reopened_alert_activity")
+    async def dispatch_reopened_alert(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_alerts.append(inputs)
+
+    @activity.defn(name="emit_issue_reopened_internal_event_activity")
+    async def emit_reopened_event(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_events.append(inputs)
+
+    @activity.defn(name="emit_issue_reopened_signal_activity")
+    async def emit_reopened_signal(inputs: IssueReopenedWorkflowInputs) -> None:
+        reopened_signals.append(inputs)
 
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -252,12 +284,23 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, persist, merge, dispatch_alert, emit_event, emit_signal],
+            activities=[
+                generate,
+                persist,
+                merge,
+                dispatch_alert,
+                emit_event,
+                emit_signal,
+                dispatch_reopened_alert,
+                emit_reopened_event,
+                emit_reopened_signal,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
             embedding_unavailable_inputs = _inputs("embedding-unavailable")
+            reopened_inputs = _inputs("merged-into-resolved")
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 merged_inputs,
@@ -276,6 +319,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            reopened_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                reopened_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
 
     assert merged_result == IssueCreatedWorkflowResult(merged=True)
     assert unmerged_result == IssueCreatedWorkflowResult(notified=True)
@@ -290,3 +339,20 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         unmerged_inputs.issue_id: 2,
         embedding_unavailable_inputs.issue_id: 2,
     }
+
+    # A merge onto a dormant issue notifies about the reopen, not about the source issue
+    # that auto-merge just deleted.
+    assert reopened_result == IssueCreatedWorkflowResult(merged=True, notified=True)
+    expected_reopened = IssueReopenedWorkflowInputs(
+        notification_id=reopened_target.notification_id,
+        team_id=reopened_inputs.team_id,
+        issue_id=reopened_target.issue_id,
+        issue=reopened_target.issue,
+        fingerprint=reopened_inputs.fingerprint,
+        event_uuid=reopened_inputs.event_uuid,
+        event_timestamp=reopened_inputs.event_timestamp,
+        assignee=reopened_target.assignee,
+    )
+    assert reopened_alerts == [expected_reopened]
+    assert reopened_events == [expected_reopened]
+    assert reopened_signals == [expected_reopened]
