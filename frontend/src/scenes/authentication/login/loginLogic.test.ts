@@ -251,6 +251,54 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('password rejected because SSO is enforced', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let precheckHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            precheckHandler = jest.fn(() => [
+                200,
+                { saml_available: false, sso_enforcement: 'google-oauth2', password_login_available: false },
+            ])
+            useMocks({
+                post: {
+                    '/api/login/precheck': precheckHandler,
+                    '/api/login': () => [
+                        400,
+                        { type: 'validation_error', code: 'sso_enforced', detail: 'SSO only (google-oauth2).' },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('runs the skipped precheck so the form can name the provider, and drops it for another email', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure', 'precheckSuccess'])
+
+            expect(precheckHandler).toHaveBeenCalledTimes(1)
+            expect(logic.values.precheckResponse.sso_enforcement).toEqual('google-oauth2')
+            expect(logic.values.ssoEnforcedErrorProvider).toEqual('google-oauth2')
+
+            logic.actions.setLoginValue('email', 'other@example.com')
+            expect(logic.values.ssoEnforcement).toBe(null)
+            expect(logic.values.isPasswordLoginUnavailable).toBe(false)
+            expect(logic.values.ssoEnforcedErrorProvider).toBe(null)
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock
@@ -327,6 +375,7 @@ describe('loginLogic', () => {
 
         async function precheck(response: Record<string, any>): Promise<void> {
             precheckResponse = response
+            logic.actions.setLoginValue('email', 'user@example.com')
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
         }
@@ -413,6 +462,7 @@ describe('loginLogic', () => {
 
         it('falls back to password login when precheck fails, so a 429 cannot lock the form', async () => {
             useMocks({ post: { '/api/login/precheck': () => [429, { detail: 'Request was throttled.' }] } })
+            logic.actions.setLoginValue('email', 'user@example.com')
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
 
