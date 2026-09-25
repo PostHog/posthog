@@ -59,15 +59,13 @@ DELETION_SUMMARY_COUNT_CAP = 100
 
 DELETION_REASON_FIELD = "deletion_reason"
 
-# Support tools link to the user search as `?q=<email>&ticket=<ticket url>`, and change_form.html
-# prefills the "Log in as user" reason from it.
+# Support tools (Hogdesk) link to the user search as `?q=<email>&ticket=<ticket url>`, and
+# change_form.html prefills the "Log in as user" reason from it.
 TICKET_PARAM = "ticket"
 
 
 class UserChangeList(ChangeList):
-    # Django reads every unknown query param as a field lookup, and User has no `ticket` field, so
-    # the search would fail and redirect to `?e=1`. Dropped from the filters only: it stays in the
-    # query string, which is what the row links, sort links and search form carry forward.
+    # Django reads unknown query params as field lookups, and a `ticket` lookup on User redirects to `?e=1`.
     def get_filters_params(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         lookup_params = super().get_filters_params(params)
         lookup_params.pop(TICKET_PARAM, None)
@@ -200,18 +198,15 @@ class UserAdmin(DjangoUserAdmin):
     def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
         response = super().changelist_view(request, extra_context)
         ticket = request.GET.get(TICKET_PARAM)
-        # A support link whose address matches exactly one user was meant for that user, so skip the
-        # list and land where "Log in as user" is. Exact, not just the only result: the search matches
-        # substrings, and a near miss has to stay on the list where the engineer can see it. (A bad
-        # lookup has already redirected to `?e=1`, which is not a TemplateResponse.)
         if ticket and isinstance(response, TemplateResponse):
             changelist = (response.context_data or {}).get("cl")
             if changelist is not None and changelist.result_count == 1:
                 user = changelist.result_list[0]
+                # Exact email only, not any single result: the search matches substrings, and a near
+                # miss has to stay on the list where the engineer can see it.
                 if EmailNormalizer.normalize(user.email) != EmailNormalizer.normalize(changelist.query.strip()):
                     return response
-                # Top-level only: Save and Close return to the list's own query, and with the ticket
-                # still in it they would bounce straight back to this user.
+                # Save and Close return to `_changelist_filters`, so `ticket` in it would bounce them back here.
                 filters = request.GET.copy()
                 del filters[TICKET_PARAM]
                 query = urlencode({TICKET_PARAM: ticket, "_changelist_filters": filters.urlencode()})

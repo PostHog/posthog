@@ -105,9 +105,6 @@ class TestUserAdminPasswordReset(BaseTest):
 
 
 class TestUserAdminTicketParam(BaseTest):
-    # Support tools link to the user search as `?q=<email>&ticket=<ticket url>`, and change_form.html
-    # prefills the "Log in as user" reason from `ticket`. Django reads every unknown query param as a
-    # field lookup, so the search has to leave `ticket` out of its filters or it fails with `?e=1`.
     ticket = "https://hogdesk.example.com/tickets/74947"
 
     def setUp(self):
@@ -169,13 +166,9 @@ class TestUserAdminTicketParam(BaseTest):
         self.assertEqual(location.path, reverse("admin:posthog_user_change", args=[target.pk]))
         query = parse_qs(location.query)
         self.assertEqual(query["ticket"], [self.ticket])
-        # The list's own query rides along without the ticket: Save and Close return to it, and with
-        # the ticket in it they would bounce straight back to this user.
         self.assertEqual(parse_qs(query["_changelist_filters"][0]), {"q": [search]})
 
     def test_a_single_partial_match_still_shows_the_list(self):
-        # The search matches substrings, so one result is not proof it is the right account: only an
-        # exact address skips the list, where the engineer sees who they are about to open.
         self._make_user("only-match@example.community")
 
         response = self.client.get(self.changelist, {"q": "only-match@example.com", "ticket": self.ticket})
@@ -184,7 +177,6 @@ class TestUserAdminTicketParam(BaseTest):
         self.assertEqual(response.context["cl"].result_count, 1)
 
     def test_no_match_shows_the_empty_list(self):
-        # A ticket from someone with no account is an ordinary case, not an error.
         response = self.client.get(self.changelist, {"q": "nobody@example.com", "ticket": self.ticket})
 
         self.assertEqual(response.status_code, 200)
