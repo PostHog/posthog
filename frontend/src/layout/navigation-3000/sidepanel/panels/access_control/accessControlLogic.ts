@@ -859,6 +859,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             {
                 loadAccessControls: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const response = await api.get<AccessControlResponseType>(values.endpoint)
                         return response
                     } catch {
@@ -879,6 +880,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 },
 
                 updateAccessControlDefault: async ({ level, source }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                         access_level: level,
                     })
@@ -895,6 +897,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlRoles: async ({ accessControls, source }) => {
                     for (const { role, level } of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
                             access_level: level,
@@ -916,6 +919,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlMembers: async ({ accessControls, source }) => {
                     for (const { member, level } of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
                             access_level: level,

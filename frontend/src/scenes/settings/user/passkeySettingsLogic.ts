@@ -278,15 +278,18 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
             [] as PasskeyCredential[],
             {
                 loadPasskeys: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<PasskeyCredential[]>('api/webauthn/credentials/')
                     return response
                 },
                 deletePasskey: async ({ id }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.delete(`api/webauthn/credentials/${id}/`)
                     lemonToast.success('Passkey deleted')
                     return values.passkeys.filter((p: PasskeyCredential) => p.id !== id)
                 },
                 renamePasskey: async ({ id, label }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const updated = await api.update<PasskeyCredential>(`api/webauthn/credentials/${id}/`, { label })
                     lemonToast.success('Passkey renamed')
                     return values.passkeys.map((p: PasskeyCredential) => (p.id === id ? updated : p))
@@ -294,6 +297,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                 verifyPasskey: async ({ id }) => {
                     try {
                         // Step 1: Begin verification
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const verifyResponse = await api.create<VerificationBeginResponse>(
                             `api/webauthn/credentials/${id}/verify`
                         )
@@ -310,6 +314,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 3: Complete verification
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const updated = await api.create<PasskeyCredential>(
                             `api/webauthn/credentials/${id}/verify_complete`,
                             assertion
@@ -330,6 +335,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                 beginRegistration: async ({ label }) => {
                     try {
                         // Step 1: Get registration options
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const beginResponse = await api.create<RegistrationBeginResponse>('api/webauthn/register/begin')
 
                         // Step 2: Create credential with authenticator
@@ -348,6 +354,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 3: Send attestation to server
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const { credential_id: credentialId } = await api.create<RegistrationCompleteResponse>(
                             'api/webauthn/register/complete',
                             {
@@ -362,6 +369,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         // Step 4: Begin verification
                         actions.setRegistrationStep('verifying')
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const verifyResponse = await api.create<VerificationBeginResponse>(
                             `api/webauthn/credentials/${credentialId}/verify`
                         )
@@ -378,6 +386,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 6: Complete verification
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create(`api/webauthn/credentials/${credentialId}/verify_complete`, assertion)
 
                         actions.setRegistrationStep('complete')

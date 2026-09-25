@@ -62,7 +62,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
                     │  {prefix}:{key}:{e} │
                     │                     │
                     │  e = epoch number   │
-                    │ dies 1 epoch later  │
+                    │ dies 1-2 epochs on  │
                     └─────────────────────┘
 ```
 
@@ -241,10 +241,12 @@ but are written to Redis on the next tick — the under-count is negligible (<0.
 ```text
 Key:   {prefix}:{entity_key}:{epoch_number}
 Value: integer counter (INCRBY)
-Dies:  (epoch + 2) × window_interval, an absolute instant fixed by the epoch
+Dies:  (epoch + 2) × window_interval + a per-key offset inside one window
 ```
 
-Only 2 keys per entity exist at any time (current + previous epoch).
+Up to 3 keys per entity exist at any time. Reads consult 2 (current + previous
+epoch); the offset that spreads expiry can hold the generation before those
+alive for up to one more window.
 
 **Two deployments that share a key prefix must agree on `window_interval`.**
 The epoch number is `floor(unix / window_interval)`, so a mismatch splits the
@@ -402,6 +404,26 @@ When multiple Redis instances are configured, work is partitioned by consistent 
   Each partition executes its pipeline independently and in parallel.
   Single-instance mode (common case) skips partitioning entirely.
 ```
+
+### Before raising the instance count
+
+Partitioning is dormant at one instance: `select_redis_client` returns early and
+never hashes. Two things to know before that changes.
+
+1. **Salt any new per-key derivation.** `select_redis_client` and
+   `epoch_expire_at` both hash the entity key. If they share a hash, a shard
+   count that shares a factor with the window leaves each shard only a fraction
+   of the expiry offsets and the expiry burst returns per shard. See
+   `EXPIRY_HASH_DOMAIN`. Jitter itself does not need a stable hash, because a
+   disagreement only moves a deadline inside its bounded window. Shard
+   selection does, and uses SipHash-1-3 for that reason.
+2. **Changing the instance count splits counters while the rollout is in
+   flight.** Pods on the old count and the new one route the same key to
+   different instances, so each sees part of its traffic. This under-counts and
+   therefore fails open, never over-enforces, and it clears once every pod
+   agrees and the current epoch keys expire. Modulo sharding moves nearly every
+   key on a count change; a consistent-hashing scheme would move about 1/N of
+   them and shrink this window, but it cannot remove it.
 
 ## Metrics
 

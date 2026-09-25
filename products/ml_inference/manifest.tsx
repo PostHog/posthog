@@ -12,11 +12,13 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/ml-inference/decisions': ['DecisionPlayground', 'decisionPlayground'],
+        '/ml-inference/playground': ['DecisionPlayground', 'decisionPlayground'],
     },
-    redirects: {},
+    redirects: {
+        '/ml-inference/decisions': '/ml-inference/playground',
+    },
     urls: {
-        decisionPlayground: (): string => '/ml-inference/decisions',
+        decisionPlayground: (): string => '/ml-inference/playground',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

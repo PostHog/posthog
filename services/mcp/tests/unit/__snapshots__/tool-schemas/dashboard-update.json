@@ -263,6 +263,35 @@
                                 "anyOf": [
                                     {
                                         "properties": {
+                                            "notebookShortId": {
+                                                "anyOf": [
+                                                    {
+                                                        "maxLength": 128,
+                                                        "minLength": 1,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Source notebook short ID."
+                                            },
+                                            "snapshotId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
                                             "dateRange": {
                                                 "anyOf": [
                                                     {
@@ -1249,7 +1278,7 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
                                     "conversations_recent_tickets",
@@ -1257,6 +1286,7 @@
                                     "experiment_results",
                                     "experiments_list",
                                     "logs_list",
+                                    "notebook_widget",
                                     "session_replay_list",
                                     "survey_results"
                                 ],

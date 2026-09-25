@@ -40,6 +40,36 @@ class ScheduleDueAlertChecksWorkflowInputs:
     max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
 
 
+@frozen
+class AdmitEvaluationsInputs:
+    alert_ids: list[str]
+    # Chosen by the workflow so every attempt of one admission writes, and later releases, the same expiry.
+    expires_at: float
+
+
+@frozen
+class AdmittedEvaluations:
+    alert_ids: list[str]
+
+
+@frozen
+class ReleaseEvaluationSlotsInputs:
+    alert_ids: list[str]
+    held_until: float
+
+
+@frozen
+class UnstartedChecks:
+    """Alerts a scheduler batch admitted without starting a new check for them."""
+
+    failed_ids: list[str]
+    already_running_ids: list[str]
+
+    @property
+    def alert_ids(self) -> list[str]:
+        return self.failed_ids + self.already_running_ids
+
+
 @dataclasses.dataclass(frozen=True)
 class CheckAlertWorkflowInputs:
     alert_id: str
@@ -68,6 +98,7 @@ class PrepareAlertResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+    calculation_interval: str | None = None
     uses_llm_detector: bool = False
     # Scopes the evaluation lookup. None on a workflow that started before this field existed.
     team_id: int | None = None

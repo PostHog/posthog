@@ -662,6 +662,45 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+    submission_id: zod.uuid().describe('Client-generated identifier that makes request submission idempotent.'),
+})
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+})
+
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -1417,6 +1456,29 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
+})
+
+/**
+ * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
+ * @summary Connect a ChatGPT account for Codex cloud tasks
+ */
+export const UsersIntegrationsCodexCreateBody = /* @__PURE__ */ zod.object({
+    tokens: zod
+        .object({
+            access_token: zod
+                .string()
+                .describe('The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`.'),
+            refresh_token: zod.string().describe('The single-use ChatGPT refresh token from the same `tokens` object.'),
+            id_token: zod
+                .string()
+                .nullish()
+                .describe(
+                    'The OpenID id token from the same `tokens` object, when present. Used to read the account email.'
+                ),
+        })
+        .describe(
+            'The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on.'
         ),
 })
 
