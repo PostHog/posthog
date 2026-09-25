@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -69,6 +69,107 @@ class TestInsightQueryDemandSchema(BaseTest):
         assert not demand.objects.filter(insight_id=insight_id).exists()
 
 
+class TestConcurrentInsightQueryDemand(NonAtomicBaseTest):
+    def test_concurrent_first_requests_create_one_context(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        from django.db import connections
+
+        from products.product_analytics.backend.facade.api import record_insight_query_demand
+
+        insight = Insight.objects.create(team=self.team)
+        team_id, insight_id = self.team.pk, insight.pk
+        barrier = Barrier(2)
+
+        def request() -> None:
+            try:
+                barrier.wait(timeout=10)
+                record_insight_query_demand(team_id=team_id, insight_ids=[insight_id])
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first, second = executor.submit(request), executor.submit(request)
+            first.result(timeout=20)
+            second.result(timeout=20)
+        assert apps.get_model("product_analytics", "InsightQueryDemand").objects.filter(insight=insight).count() == 1
+
+
+class TestInsightQueryDemandRecording(BaseTest):
+    def test_demand_is_shared_across_callers_and_monotonic(self) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_query_demand
+
+        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        insight = Insight.objects.create(team=self.team)
+        first = now()
+        with time_machine.travel(first, tick=False):
+            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        with time_machine.travel(first + timedelta(seconds=30), tick=False):
+            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_requested_at == first
+        with time_machine.travel(first + timedelta(minutes=2), tick=False):
+            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        with time_machine.travel(first - timedelta(days=1), tick=False):
+            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_requested_at == first + timedelta(minutes=2)
+        assert not InsightViewed.objects.filter(insight=insight).exists()
+
+    def test_dashboard_demand_is_distinct_and_requires_a_live_tile(self) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_query_demand
+
+        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        dashboard = apps.get_model("dashboards", "Dashboard").objects.create(team=self.team)
+        insight = Insight.objects.create(team=self.team)
+        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk)
+        assert not demand.objects.exists()
+        apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
+        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk)
+        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.filter(insight=insight).count() == 2
+        other_team = Team.objects.create(organization=self.organization)
+        record_insight_query_demand(team_id=other_team.pk, insight_ids=[insight.pk])
+        assert not demand.objects.filter(team=other_team).exists()
+        insight.deleted = True
+        insight.save()
+        at = demand.objects.get(insight=insight, dashboard=None).last_requested_at
+        with time_machine.travel(now() + timedelta(days=1), tick=False):
+            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight, dashboard=None).last_requested_at == at
+
+    def test_recent_demand_has_throttle_grace_and_retention_is_team_scoped(self) -> None:
+        from products.product_analytics.backend.facade.api import (
+            prune_insight_query_demand,
+            standalone_insights_with_recent_demand,
+        )
+
+        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        insight = Insight.objects.create(team=self.team)
+        threshold = now() - timedelta(days=7)
+        row = demand.objects.create(
+            team=self.team, insight=insight, last_requested_at=threshold - timedelta(seconds=59)
+        )
+        assert standalone_insights_with_recent_demand(
+            team_id=self.team.pk, insight_ids=[insight.pk], threshold=threshold
+        ) == {insight.pk}
+        row.last_requested_at = threshold - timedelta(seconds=61)
+        row.save()
+        assert (
+            standalone_insights_with_recent_demand(team_id=self.team.pk, insight_ids=[insight.pk], threshold=threshold)
+            == set()
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+        other = demand.objects.create(
+            team=other_team, insight=other_insight, last_requested_at=now() - timedelta(days=31)
+        )
+        row.last_requested_at = now() - timedelta(days=31)
+        row.save()
+        prune_insight_query_demand(team_id=self.team.pk)
+        assert not demand.objects.filter(pk=row.pk).exists()
+        assert demand.objects.filter(pk=other.pk).exists()
+
+
 class TestRecordInsightView(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -93,36 +194,19 @@ class TestRecordInsightView(BaseTest):
         assert InsightViewed.objects.get(insight_id=self.insight.pk).last_viewed_at >= first.last_viewed_at
 
     @parameterized.expand([("single", False), ("bulk", True)])
-    def test_dashboard_views_preserve_standalone_demand(self, _name: str, bulk: bool) -> None:
-        def view(standalone: bool) -> None:
-            if bulk:
-                record_insight_views(
-                    team_id=self.team.pk,
-                    user_id=self.user.pk,
-                    last_viewed_at_by_insight_id={self.insight.pk: now()},
-                    is_standalone=standalone,
-                )
-            else:
-                record_insight_view(
-                    insight_id=self.insight.pk,
-                    team_id=self.team.pk,
-                    user_id=self.user.pk,
-                    is_standalone=standalone,
-                )
-
-        view(False)
-        row = InsightViewed.objects.get(insight=self.insight)
-        assert row.last_standalone_viewed_at is None
-        with time_machine.travel(now() + timedelta(days=1), tick=False):
-            view(True)
-            row.refresh_from_db()
-            standalone_at = row.last_standalone_viewed_at
-            assert standalone_at == row.last_viewed_at
-        with time_machine.travel(now() + timedelta(days=2), tick=False):
-            view(False)
-            row.refresh_from_db()
-            assert row.last_standalone_viewed_at == standalone_at
-            assert row.last_viewed_at > standalone_at
+    def test_history_does_not_claim_query_demand(self, _name: str, bulk: bool) -> None:
+        if bulk:
+            record_insight_views(
+                team_id=self.team.pk,
+                user_id=self.user.pk,
+                last_viewed_at_by_insight_id={self.insight.pk: now()},
+            )
+        else:
+            record_insight_view(insight_id=self.insight.pk, team_id=self.team.pk, user_id=self.user.pk)
+        assert InsightViewed.objects.filter(insight=self.insight).exists()
+        assert (
+            not apps.get_model("product_analytics", "InsightQueryDemand").objects.filter(insight=self.insight).exists()
+        )
 
     def test_an_anonymous_view_does_not_replace_a_users_view(self) -> None:
         InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())

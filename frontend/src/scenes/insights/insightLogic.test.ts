@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -39,6 +40,8 @@ import {
 
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
+import { insightSceneLogic } from './insightSceneLogic'
+import { insightUsageLogic } from './insightUsageLogic'
 import { insightVizDataLogic } from './insightVizDataLogic'
 import { insightsApi } from './utils/api'
 
@@ -280,6 +283,30 @@ describe('insightLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
         insightsModel.mount()
+    })
+
+    it.each([false, true])('attributes only the saved standalone query (modified=%s)', async (modified) => {
+        const viewed = jest.fn((_request: { request: Request }) => [201, null])
+        useMocks({ post: { '/api/environments/:team_id/insights/viewed/': viewed } })
+        const saved = insightModelWith({ query: API_QUERY })
+        const props = { dashboardItemId: Insight42, cachedInsight: saved }
+        const insight = insightLogic(props)
+        insight.mount()
+        const scene = insightSceneLogic()
+        scene.mount()
+        scene.actions.setInsightLogicRef(insight, () => {})
+        const usage = insightUsageLogic(props)
+        usage.mount()
+        await expectLogic(usage).toFinishAllListeners()
+        viewed.mockClear()
+        const source = (saved.query as InsightVizNode).source
+        usage.actions.onQueryChange(modified ? { kind: NodeKind.HogQLQuery, query: 'SELECT 1' } : source)
+        await expectLogic(usage).toFinishAllListeners()
+        await waitFor(() => expect(viewed).toHaveBeenCalled())
+        expect(await viewed.mock.calls[0][0].request.json()).toEqual({
+            insight_ids: [saved.id],
+            ...(modified ? {} : { context: 'standalone' }),
+        })
     })
 
     it('requires props', () => {

@@ -31,7 +31,11 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import variables_override_requested_by_client
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
+    prune_insight_query_demand,
+    standalone_insights_with_recent_demand,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -102,6 +106,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     )
 
     clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    prune_insight_query_demand(team_id=team.pk)
 
     # get all insights currently in the cache for the team
     combos = get_stale_insights(team_id=team.pk, limit=500)
@@ -129,12 +134,15 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        view_field = "last_standalone_viewed_at" if standalone_demand else "last_viewed_at"
-        single_insight_q_filter = Q(
-            team=team,
-            **{f"insightviewed__{view_field}__gte": threshold},
-            pk__in=insight_ids_single,
-        )
+        single_insight_q_filter = Q(team=team, pk__in=insight_ids_single)
+        if standalone_demand:
+            single_insight_q_filter &= Q(
+                pk__in=standalone_insights_with_recent_demand(
+                    team_id=team.pk, insight_ids=[int(pk) for pk in insight_ids_single], threshold=threshold
+                )
+            )
+        else:
+            single_insight_q_filter &= Q(insightviewed__last_viewed_at__gte=threshold)
         if shared_only:
             single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 

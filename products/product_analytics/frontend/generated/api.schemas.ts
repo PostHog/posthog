@@ -8953,9 +8953,28 @@ export interface PaginatedTrendingInsightListApi {
     results: TrendingInsightApi[]
 }
 
+/**
+ * * `standalone` - standalone
+ * * `dashboard` - dashboard
+ */
+export type ContextEnumApi = (typeof ContextEnumApi)[keyof typeof ContextEnumApi]
+
+export const ContextEnumApi = {
+    Standalone: 'standalone',
+    Dashboard: 'dashboard',
+} as const
+
 export interface InsightViewedRequestApi {
-    /** Whether these insights were viewed as dashboard tiles rather than standalone insights. */
-    is_dashboard_view?: boolean
+    /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
+     *
+     * * `standalone` - standalone
+     * * `dashboard` - dashboard */
+    context?: ContextEnumApi
+    /**
+     * Dashboard containing the viewed tiles. Required for dashboard context.
+     * @minimum 1
+     */
+    dashboard_id?: number
     /**
      * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
      * @maxItems 2500

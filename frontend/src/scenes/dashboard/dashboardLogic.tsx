@@ -4595,10 +4595,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         reportInsightsViewed: ({ insights }: { insights: InsightModel[] }) => {
             const insightIds = insights.map((insight: InsightModel) => insight?.id).filter((id): id is number => !!id)
 
-            if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
+            if (insightIds.length > 0 && values.currentTeamId && values.dashboard && !isSharedView()) {
                 void insightsViewedCreate(String(values.currentTeamId), {
                     insight_ids: insightIds,
-                    is_dashboard_view: true,
+                    context: 'dashboard',
+                    dashboard_id: values.dashboard.id,
                 })
             }
         },

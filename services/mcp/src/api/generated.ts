@@ -21950,6 +21950,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `standalone` - standalone
+     * * `dashboard` - dashboard
+     */
+    export type ContextEnum = typeof ContextEnum[keyof typeof ContextEnum];
+
+
+    export const ContextEnum = {
+      Standalone: 'standalone',
+      Dashboard: 'dashboard',
+    } as const;
+
+    /**
      * Response shape for the wiki's current state.
      */
     export interface ContextLayerStatus {
@@ -53411,8 +53423,16 @@ export namespace Schemas {
     }
 
     export interface InsightViewedRequest {
-      /** Whether these insights were viewed as dashboard tiles rather than standalone insights. */
-      is_dashboard_view?: boolean;
+      /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
+       *
+       * * `standalone` - standalone
+       * * `dashboard` - dashboard */
+      context?: ContextEnum;
+      /**
+         * Dashboard containing the viewed tiles. Required for dashboard context.
+         * @minimum 1
+         */
+      dashboard_id?: number;
       /**
          * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
          * @maxItems 2500

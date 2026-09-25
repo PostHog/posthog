@@ -2597,7 +2597,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/viewed",
-            {"insight_ids": [insight.id for insight in insights], "is_dashboard_view": dashboard},
+            {"insight_ids": [insight.id for insight in insights]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2606,13 +2606,70 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_by_insight = {viewed.insight_id: viewed for viewed in InsightViewed.objects.all()}
         self.assertEqual(set(created_by_insight.keys()), {insight.id for insight in insights})
         for viewed in created_by_insight.values():
-            assert viewed.last_standalone_viewed_at == (None if dashboard else viewed.last_viewed_at)
             self.assertEqual(viewed.team, self.team)
             self.assertEqual(viewed.user, self.user)
             self.assertEqual(
                 viewed.last_viewed_at,
                 datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
+
+    @parameterized.expand([("standalone",), ("dashboard",), ("legacy",)])
+    def test_view_context_records_demand_separately_from_history(self, context: str) -> None:
+        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+
+        insight = Insight.objects.create(team=self.team)
+        other_insight = Insight.objects.create(team=self.team)
+        dashboard = Dashboard.objects.create(team=self.team)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        payload: dict[str, Any] = {"insight_ids": [insight.pk, other_insight.pk]}
+        if context != "legacy":
+            payload["context"] = context
+        if context == "dashboard":
+            payload["dashboard_id"] = dashboard.pk
+        response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
+        assert response.status_code == 201
+        assert InsightViewed.objects.filter(insight_id__in=payload["insight_ids"]).count() == 2
+        rows = InsightQueryDemand.objects.filter(team=self.team)
+        if context == "legacy":
+            assert not rows.exists()
+        elif context == "dashboard":
+            assert list(rows.values_list("insight_id", "dashboard_id")) == [(insight.pk, dashboard.pk)]
+        else:
+            assert set(rows.values_list("insight_id", "dashboard_id")) == {(insight.pk, None), (other_insight.pk, None)}
+
+    @parameterized.expand([("insight",), ("dashboard",)])
+    def test_view_context_does_not_record_inaccessible_demand(self, restricted_resource: str) -> None:
+        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = self._create_user("demand-viewer@posthog.com")
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        AccessControl.objects.create(
+            resource=restricted_resource,
+            resource_id=insight.pk if restricted_resource == "insight" else dashboard.pk,
+            team=self.team,
+            access_level="none",
+        )
+        self.client.force_login(viewer)
+        payload: dict[str, Any] = {"insight_ids": [insight.pk], "context": "standalone"}
+        if restricted_resource == "dashboard":
+            payload.update(context="dashboard", dashboard_id=dashboard.pk)
+        response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
+        assert response.status_code == 201
+        assert not InsightQueryDemand.objects.exists()
+
+    def test_metadata_retrieval_does_not_record_query_demand(self) -> None:
+        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery"})
+        response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.pk}/?basic=true")
+        assert response.status_code == 200
+        assert not InsightQueryDemand.objects.exists()
 
     def test_insight_viewed_not_recorded_during_impersonation(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -2678,7 +2735,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("empty_list", {"insight_ids": []}),
             ("not_a_list", {"insight_ids": "abc"}),
             ("non_int_element", {"insight_ids": ["abc", 1]}),
-            ("invalid_context", {"insight_ids": [1], "is_dashboard_view": "maybe"}),
+            ("invalid_context", {"insight_ids": [1], "context": "maybe"}),
+            ("dashboard_without_id", {"insight_ids": [1], "context": "dashboard"}),
+            ("standalone_with_dashboard", {"insight_ids": [1], "context": "standalone", "dashboard_id": 1}),
+            ("id_without_context", {"insight_ids": [1], "dashboard_id": 1}),
             ("over_max_length", {"insight_ids": list(range(1, 2502))}),
         ]
     )

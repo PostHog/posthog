@@ -1796,7 +1796,11 @@ class TestSharedViewDemand(APIBaseTest):
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
         view = insight.insightviewed_set.get()
-        assert view.last_standalone_viewed_at == (None if dashboard_context else view.last_viewed_at)
+        from products.product_analytics.backend.facade.api import standalone_insights_with_recent_demand
+
+        assert standalone_insights_with_recent_demand(
+            team_id=self.team.pk, insight_ids=[insight.pk], threshold=view.last_viewed_at
+        ) == (set() if dashboard_context else {insight.pk})
 
     @mock_exporter_template
     def test_shared_notebook_consumes_standalone_insight_context(self):
@@ -1821,7 +1825,11 @@ class TestSharedViewDemand(APIBaseTest):
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
         view = insight.insightviewed_set.get()
-        assert view.last_standalone_viewed_at == view.last_viewed_at
+        from products.product_analytics.backend.facade.api import standalone_insights_with_recent_demand
+
+        assert standalone_insights_with_recent_demand(
+            team_id=self.team.pk, insight_ids=[insight.pk], threshold=view.last_viewed_at
+        ) == {insight.pk}
 
 
 class TestSharedCohortInlining(APIBaseTest):

@@ -100,7 +100,7 @@ from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
@@ -168,6 +168,7 @@ from products.product_analytics.backend.facade.api import (
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
+    record_insight_query_demand,
     record_insight_view,
     record_insight_views,
     with_last_viewed_at,
@@ -783,7 +784,7 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk, is_standalone=False)
+        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
             for dashboard in placement.create_tiles(insight):
@@ -1553,9 +1554,13 @@ INSIGHT_VIEWED_MAX_IDS = 2500
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
-    is_dashboard_view = serializers.BooleanField(
-        default=False,
-        help_text="Whether these insights were viewed as dashboard tiles rather than standalone insights.",
+    context = serializers.ChoiceField(
+        choices=["standalone", "dashboard"],
+        required=False,
+        help_text="Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.",
+    )
+    dashboard_id = serializers.IntegerField(
+        required=False, min_value=1, help_text="Dashboard containing the viewed tiles. Required for dashboard context."
     )
     insight_ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -1565,6 +1570,11 @@ class InsightViewedRequestSerializer(serializers.Serializer):
             f"Insight IDs that were just viewed by the current user. At most {INSIGHT_VIEWED_MAX_IDS} ids per request."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (attrs.get("context") == "dashboard") != ("dashboard_id" in attrs):
+            raise serializers.ValidationError("dashboard_id must be provided exactly when context is dashboard.")
+        return attrs
 
 
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
@@ -2317,8 +2327,33 @@ When set, the specified dashboard's filters and date range override will be appl
             team_id=self.team.pk,
             user_id=cast(User, request.user).pk,
             last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
-            is_standalone=not request.validated_data["is_dashboard_view"],
         )
+
+        context = request.validated_data.get("context")
+        if context:
+            demand_insights = Insight.objects.filter(pk__in=visible_insight_ids, team_id=self.team.pk, deleted=False)
+            if not is_service_auth(request):
+                demand_insights = self.user_access_control.filter_queryset_by_access_level(
+                    demand_insights, include_all_if_admin=True
+                )
+            dashboard_id = request.validated_data.get("dashboard_id")
+            if context == "dashboard":
+                demand_insights = demand_insights.filter(pk__in=insight_ids_on_dashboard(dashboard_id))
+                first_id = demand_insights.values_list("pk", flat=True).first()
+                tile = (
+                    tile_for_insight_on_dashboard(insight_id=first_id, dashboard_id=dashboard_id) if first_id else None
+                )
+                if tile is None or tile.dashboard.team_id != self.team.pk:
+                    return Response(status=status.HTTP_201_CREATED)
+                if not is_service_auth(request) and not self.user_access_control.check_access_level_for_object(
+                    tile.dashboard, "viewer"
+                ):
+                    return Response(status=status.HTTP_201_CREATED)
+            record_insight_query_demand(
+                team_id=self.team.pk,
+                insight_ids=list(demand_insights.values_list("pk", flat=True)),
+                dashboard_id=dashboard_id,
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

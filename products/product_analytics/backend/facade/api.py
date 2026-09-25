@@ -89,32 +89,46 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
-def record_insight_view(
-    *, insight_id: int, team_id: int | None = None, user_id: int | None = None, is_standalone: bool = True
-) -> None:
+def record_insight_query_demand(*, team_id: int, insight_ids: Collection[int], dashboard_id: int | None = None) -> None:
+    """Record demand for an authorized saved context, never for metadata reads or warming itself."""
+    from products.product_analytics.backend import query_demand
+
+    query_demand.record_insight_query_demand(team_id=team_id, insight_ids=insight_ids, dashboard_id=dashboard_id)
+
+
+def standalone_insights_with_recent_demand(
+    *, team_id: int, insight_ids: Collection[int], threshold: datetime
+) -> set[int]:
+    from products.product_analytics.backend import query_demand
+
+    return query_demand.standalone_insights_with_recent_demand(
+        team_id=team_id, insight_ids=insight_ids, threshold=threshold
+    )
+
+
+def prune_insight_query_demand(*, team_id: int) -> None:
+    from products.product_analytics.backend import query_demand
+
+    query_demand.prune_insight_query_demand(team_id=team_id)
+
+
+def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 
     Shared and embedded renders have no viewer, so ``team_id`` and ``user_id`` are both optional:
     left out, the view is recorded against the anonymous row for the insight.
-    Dashboard renders pass ``is_standalone=False`` to preserve standalone demand.
     """
-    logic.record_insight_view(insight_id=insight_id, team_id=team_id, user_id=user_id, is_standalone=is_standalone)
+    logic.record_insight_view(insight_id=insight_id, team_id=team_id, user_id=user_id)
 
 
-def record_insight_views(
-    *, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime], is_standalone: bool = True
-) -> None:
+def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
     """Record this viewer's view of each insight at the given time, in a single statement.
 
     A viewer who already has a row for one of the insights keeps it and gets the timestamp moved.
-    Dashboard views update history without renewing standalone demand.
     Runs in the caller's transaction.
     """
     logic.record_insight_views(
-        team_id=team_id,
-        user_id=user_id,
-        last_viewed_at_by_insight_id=last_viewed_at_by_insight_id,
-        is_standalone=is_standalone,
+        team_id=team_id, user_id=user_id, last_viewed_at_by_insight_id=last_viewed_at_by_insight_id
     )
 
 
