@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -1700,6 +1701,9 @@ def sync_old_schemas_with_new_schemas(
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
 ) -> SchemaSyncResult:
+    # Call-time import for the reason given in update_should_sync above.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1791,9 +1795,15 @@ def sync_old_schemas_with_new_schemas(
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:
+                was_syncing = s.should_sync
                 s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
+                if was_syncing:
+                    # The sync workflow does not read should_sync, so a schedule left running keeps
+                    # starting billable syncs. Callers can hold the source row lock in a transaction,
+                    # so the Temporal call waits for the commit.
+                    transaction.on_commit(partial(pause_external_data_schedule, str(s.id)))
 
     return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
