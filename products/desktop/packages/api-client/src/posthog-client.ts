@@ -4739,6 +4739,41 @@ export class PostHogAPIClient {
     return normalizeTaskRunResponse(data, { teamId, taskId });
   }
 
+  async getFailedTaskRunMessages(
+    taskId: string,
+    runId: string,
+  ): Promise<{
+    messages: Array<{
+      id: string;
+      content: string;
+      ts: string;
+      truncated: boolean;
+      resendable: boolean;
+    }>;
+  }> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/failed_messages/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch message delivery failures: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as {
+      messages: Array<{
+        id: string;
+        content: string;
+        ts: string;
+        truncated: boolean;
+        resendable: boolean;
+      }>;
+    };
+  }
+
   async createTaskRun(
     taskId: string,
     options?: CreateTaskRunOptions,

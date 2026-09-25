@@ -45337,6 +45337,24 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
+    export interface FailedFollowupMessage {
+      /** Identifier of the message that was not delivered. */
+      id: string;
+      /** Original message content. */
+      content: string;
+      /** Time the original message was submitted. */
+      ts: string;
+      /** Whether the stored message is shorter than the original. */
+      truncated: boolean;
+      /** Whether the original message can be resent without missing files. */
+      resendable: boolean;
+    }
+
+    export interface FailedFollowupMessagesResponse {
+      /** Confirmed failed follow-up messages for this run. */
+      messages: FailedFollowupMessage[];
+    }
+
     /**
      * * `generating_source` - generating_source
      * * `reviewing_source` - reviewing_source

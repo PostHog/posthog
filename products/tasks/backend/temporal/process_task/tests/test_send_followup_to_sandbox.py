@@ -1186,6 +1186,17 @@ class TestSendFollowupTurnTimeout:
         assert exc_info.value.non_retryable is True
         _patches["error"].assert_called_once()
         _patches["turn_complete"].assert_not_called()
+        _patches["task_run"].fail_pending_followup_message.assert_not_called()
+
+    def test_sandbox_rejection_confirms_message_failure(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=404, error="Sandbox returned 404", retryable=False
+        )
+
+        with pytest.raises(ApplicationError, match="send_followup failed"):
+            _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        _patches["task_run"].fail_pending_followup_message.assert_called_once_with("m-1")
 
     def test_duplicate_delivery_skips_markers(self, _patches):
         # A retried attempt whose message the agent-server already accepted

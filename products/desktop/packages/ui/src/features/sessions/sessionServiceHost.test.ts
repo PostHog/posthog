@@ -3253,12 +3253,24 @@ describe("SessionService", () => {
       await vi.waitFor(() => {
         expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
           expect.objectContaining({
+            id: "q-1",
             taskId: "task-123",
             method: "user_message",
-            params: expect.objectContaining({ content: "follow up" }),
+            params: expect.objectContaining({
+              content: "follow up",
+              submitted_at: queuedMessage.queuedAt,
+            }),
           }),
         );
       });
+      expect(mockSessionStoreSetters.appendOptimisticItem).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          content: "follow up",
+          timestamp: queuedMessage.queuedAt,
+        }),
+        "q-1",
+      );
     });
 
     it("flushes queued cloud messages when cloudStatus flips to in_progress on a connected, idle session", async () => {
@@ -7270,7 +7282,7 @@ describe("SessionService", () => {
       expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           method: "user_message",
-          params: { content: "steer me", steer: true },
+          params: expect.objectContaining({ content: "steer me", steer: true }),
         }),
       );
       expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
@@ -7305,7 +7317,7 @@ describe("SessionService", () => {
       expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           method: "user_message",
-          params: { content: "steer me", steer: true },
+          params: expect.objectContaining({ content: "steer me", steer: true }),
         }),
       );
     });
@@ -7670,6 +7682,7 @@ describe("SessionService", () => {
           content: "read this\n\nAttached files: test.txt",
           pinToTop: false,
         }),
+        expect.any(String),
       );
       expect(mockTrpcFs.readFileAsBase64.query).toHaveBeenCalledTimes(1);
       expect(
@@ -7687,10 +7700,10 @@ describe("SessionService", () => {
 
       expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
-          params: {
+          params: expect.objectContaining({
             content: "read this",
             artifact_ids: ["artifact-1"],
-          },
+          }),
         }),
       );
     });
@@ -7782,10 +7795,10 @@ describe("SessionService", () => {
       expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           method: "user_message",
-          params: {
+          params: expect.objectContaining({
             content: "/local-test-skill",
             artifact_ids: ["skill-artifact-1"],
-          },
+          }),
         }),
       );
     });

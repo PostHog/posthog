@@ -22,6 +22,7 @@ import type {
     ConnectionTokenResponseApi,
     DesktopAccessResponseApi,
     DesktopBetaTermsAcceptanceDTOApi,
+    FailedFollowupMessagesResponseApi,
     LegacyDesktopAccessResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
@@ -2143,6 +2144,26 @@ export const tasksRunsConnectionTokenRetrieve = async (
     options?: RequestInit
 ): Promise<ConnectionTokenResponseApi> => {
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsFailedMessagesRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/failed_messages/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Get confirmed failed follow-up messages
+ */
+export const tasksRunsFailedMessagesRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FailedFollowupMessagesResponseApi> => {
+    return apiMutator<FailedFollowupMessagesResponseApi>(getTasksRunsFailedMessagesRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })

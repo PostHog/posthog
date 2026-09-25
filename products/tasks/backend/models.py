@@ -111,6 +111,8 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
 
 
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
+FAILED_FOLLOWUP_MESSAGES_STATE_KEY = "failed_followup_messages"
+DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY = "delivered_followup_message_ids"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
@@ -133,8 +135,8 @@ def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
     return bool(ui.get("hidden")) if isinstance(ui, dict) else False
 
 
-def _session_prompt_texts(entries: list[dict]) -> list[str]:
-    texts: list[str] = []
+def _session_prompt_texts(entries: list[dict]) -> list[tuple[str | None, str]]:
+    texts: list[tuple[str | None, str]] = []
     for entry in entries:
         notification = entry.get("notification")
         if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
@@ -152,7 +154,9 @@ def _session_prompt_texts(entries: list[dict]) -> list[str]:
             and not _is_hidden_prompt_block(block)
         ).strip()
         if visible:
-            texts.append(visible)
+            meta = params.get("_meta") if isinstance(params, dict) else None
+            message_id = meta.get("messageId") if isinstance(meta, dict) else None
+            texts.append((message_id if isinstance(message_id, str) else None, visible))
     return texts
 
 
@@ -2879,17 +2883,57 @@ class TaskRun(models.Model):
         """
         return bool(_read_pending_followup_messages(self.state))
 
-    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+    def record_pending_followup_message(
+        self, message_id: str, content: str, *, accepted_at: datetime, resendable: bool = True
+    ) -> None:
         record = {
             "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
             "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
             "ts": accepted_at.isoformat(),
+            "truncated": len(content) > MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
+            "resendable": resendable,
         }
 
         def _mutator(state: dict[str, Any]) -> None:
+            if record["id"] in state.get(DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY, []):
+                return
+            if any(
+                isinstance(entry, dict) and entry.get("id") == record["id"]
+                for entry in state.get(FAILED_FOLLOWUP_MESSAGES_STATE_KEY, [])
+            ):
+                return
             entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
             entries.append(record)
             state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def remove_pending_followup_message(self, message_id: str) -> None:
+        def _mutator(state: dict[str, Any]) -> None:
+            remaining = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != message_id]
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def fail_pending_followup_message(self, message_id: str) -> None:
+        def _mutator(state: dict[str, Any]) -> None:
+            matches = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") == message_id]
+            if not matches:
+                return
+            remaining = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != message_id]
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+            failed = state.get(FAILED_FOLLOWUP_MESSAGES_STATE_KEY)
+            existing = failed if isinstance(failed, list) else []
+            state[FAILED_FOLLOWUP_MESSAGES_STATE_KEY] = [
+                *[entry for entry in existing if isinstance(entry, dict) and entry.get("id") != message_id],
+                matches[0],
+            ][-MAX_PENDING_FOLLOWUP_MESSAGES:]
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
@@ -2903,20 +2947,33 @@ class TaskRun(models.Model):
         def _mutator(state: dict[str, Any]) -> None:
             unclaimed = list(echoed)
             remaining = []
+            delivered_ids: list[str] = []
             for entry in _read_pending_followup_messages(state):
                 content = entry["content"].strip()
                 claimed = next(
-                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
+                    (
+                        index
+                        for index, (message_id, text) in enumerate(unclaimed)
+                        if (entry.get("id") == message_id if message_id else _followup_matches_prompt(content, text))
+                    ),
                     None,
                 )
                 if claimed is None:
                     remaining.append(entry)
                 else:
                     unclaimed.pop(claimed)
+                    if isinstance(entry.get("id"), str):
+                        delivered_ids.append(entry["id"])
             if remaining:
                 state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
             else:
                 state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+            if delivered_ids:
+                previous_ids = state.get(DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY, [])
+                state[DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY] = [
+                    *[message_id for message_id in previous_ids if isinstance(message_id, str)],
+                    *delivered_ids,
+                ][-100:]
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
