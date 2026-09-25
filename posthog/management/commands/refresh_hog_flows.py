@@ -12,21 +12,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 logger = structlog.get_logger(__name__)
 
 
-def remove_event_filters_from_conditionals(actions):
-    updated_actions = []
-    for action in actions:
-        conditions = action.get("config", {}).get("conditions", [])
-        if conditions:
-            for condition in conditions:
-                filters = condition.get("filters", {})
-                if "events" in filters:
-                    del filters["events"]
-
-        updated_actions.append(action)
-
-    return updated_actions
-
-
 class Command(BaseCommand):
     help = "Refresh HogFlows (all statuses) by re-saving them to trigger reload on workers"
 
@@ -38,6 +23,11 @@ class Command(BaseCommand):
             "--hog-flow-id",
             type=str,
             help="Specific HogFlow ID to refresh (if provided, only this flow is processed)",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Report what would be re-saved, and which flows no longer validate, without saving.",
         )
         parser.add_argument(
             "--page-size",
@@ -55,8 +45,9 @@ class Command(BaseCommand):
         team_id = options.get("team_id")
         hog_flow_id = options.get("hog_flow_id")
         page_size = options.get("page_size", 1000)
+        dry_run: bool = options.get("dry_run", False)
 
-        self.stdout.write("Starting HogFlow refresh...")
+        self.stdout.write("Starting HogFlow refresh..." + (" (dry run, nothing is saved)" if dry_run else ""))
 
         queryset = HogFlow.objects.select_related("team")
 
@@ -115,16 +106,15 @@ class Command(BaseCommand):
                         "variables": hog_flow.variables,
                     }
 
-                    data["actions"] = remove_event_filters_from_conditionals(hog_flow.actions)
-
                     # Process through serializer to regenerate bytecode
                     serializer = HogFlowSerializer(
                         instance=hog_flow, data=data, context=serializer_context, partial=True
                     )
 
                     if serializer.is_valid():
-                        serializer.save()
-                        total_updated += 1
+                        if not dry_run:
+                            serializer.save()
+                            total_updated += 1
                         logger.info(
                             "Successfully refreshed HogFlow",
                             hog_flow_id=str(hog_flow.id),
@@ -134,6 +124,13 @@ class Command(BaseCommand):
                             version=hog_flow.version,
                         )
                     else:
+                        # A workflow that no longer validates cannot be re-saved, so it keeps whatever
+                        # it was last compiled against. Name it: the owner has to fix it or turn it off.
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"Does not validate: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name})"
+                            )
+                        )
                         raise Exception(f"Serializer validation failed: {serializer.errors}")
 
                 except Exception as e:
@@ -153,7 +150,7 @@ class Command(BaseCommand):
         duration = time.time() - start_time
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nRefresh completed in {duration:.2f}s.\n"
+                f"\n{'Dry run' if dry_run else 'Refresh'} completed in {duration:.2f}s.\n"
                 f"Processed: {total_processed}\n"
                 f"Updated: {total_updated}\n"
                 f"Errors: {error_count}"

@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from posthog.management.commands.refresh_hog_flows import remove_event_filters_from_conditionals
+from parameterized import parameterized
+
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.models import Team
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -219,8 +221,7 @@ class TestRefreshHogFlows(BaseTest):
             self.assertIn("Check logs for details on 1 errors encountered", output)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_bytecode_regeneration_on_conditional_branch(self, mock_reload):
-        """Test that bytecode is regenerated when a conditional branch action is missing bytecode."""
+    def test_refuses_a_conditional_branch_carrying_event_filters(self, mock_reload):
 
         # Create a HogFlow with conditional branch that has filters but no bytecode
         actions = [
@@ -297,103 +298,68 @@ class TestRefreshHogFlows(BaseTest):
         # Refresh the flow from database
         test_flow.refresh_from_db()
 
-        # Check that bytecode was generated for the conditional branch
-        updated_actions = test_flow.actions
-        updated_conditional_branch = next(a for a in updated_actions if a["type"] == "conditional_branch")
+        # The validator refuses event filters in a conditional, so the flow cannot be re-saved.
+        branch = next(a for a in test_flow.actions if a["type"] == "conditional_branch")
+        assert branch["config"]["conditions"][0]["filters"]["events"] == [
+            {"id": "$pageview", "name": "$pageview", "type": "events"}
+        ]
 
-        # After save, the bytecode should be generated
-        self.assertIn("bytecode", updated_conditional_branch["config"]["conditions"][0]["filters"])
-        bytecode = updated_conditional_branch["config"]["conditions"][0]["filters"]["bytecode"]
-        self.assertIsInstance(bytecode, list)
-        self.assertGreater(len(bytecode), 0)
-
-        # Verify the command output
         output = out.getvalue()
         self.assertIn("Found 1 HogFlows to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Errors: 0", output)
+        self.assertIn(f"workflow {test_flow.id}", output)
+        self.assertIn("Updated: 0", output)
+        self.assertIn("Errors: 1", output)
 
-    def test_remove_event_filters_from_single_condition(self):
-        actions = [
-            {
-                "id": "action_conditional_branch_test",
-                "name": "Conditional branch",
-                "type": "conditional_branch",
-                "config": {
-                    "conditions": [
-                        {
-                            "filters": {
-                                "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
-                                "source": "events",
-                                "properties": [
-                                    {"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}
-                                ],
-                            }
-                        }
-                    ]
-                },
-            }
+    def _unstamped(self, trigger_filters: dict, conditions: list | None = None) -> HogFlow:
+        trigger_config = {"type": "event", "filters": trigger_filters}
+        actions: list[dict] = [
+            {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
+            {"id": "exit_node", "name": "exit", "type": "exit", "config": {}},
         ]
-        updated = remove_event_filters_from_conditionals(actions)
-        filters = updated[0]["config"]["conditions"][0]["filters"]
-        self.assertNotIn("events", filters)
-        self.assertEqual(filters["source"], "events")
-        self.assertEqual(
-            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
+        if conditions is not None:
+            actions.insert(
+                1,
+                {
+                    "id": "branch",
+                    "name": "branch",
+                    "type": "conditional_branch",
+                    "config": {"conditions": conditions},
+                },
+            )
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Saved before stamping",
+            status="active",
+            trigger=trigger_config,
+            actions=actions,
+            edges=[],
+            exit_condition="exit_only_at_end",
         )
+        return HogFlow.objects.get(pk=flow.pk)
 
-    def test_remove_event_filters_does_not_fail_if_no_events(self):
-        actions = [
-            {
-                "id": "action_conditional_branch_test",
-                "name": "Conditional branch",
-                "type": "conditional_branch",
-                "config": {
-                    "conditions": [
-                        {
-                            "filters": {
-                                "source": "events",
-                                "properties": [
-                                    {"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}
-                                ],
-                            }
-                        }
-                    ]
-                },
-            }
-        ]
-        updated = remove_event_filters_from_conditionals(actions)
-        filters = updated[0]["config"]["conditions"][0]["filters"]
-        self.assertNotIn("events", filters)
-        self.assertEqual(filters["source"], "events")
-        self.assertEqual(
-            filters["properties"], [{"key": "$browser", "type": "event", "value": "is_set", "operator": "is_set"}]
-        )
+    @parameterized.expand([("dry_run", True), ("real_run", False)])
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_stamps_the_trigger_filters_of_a_workflow(self, _name, dry_run, mock_reload):
+        flow = self._unstamped({"events": [{"id": "$pageview", "type": "events"}]})
+        assert "bytecode_contract" not in (flow.trigger or {})["filters"]
 
-    def test_remove_event_filters_multiple_conditions_and_actions(self):
-        actions = [
-            {
-                "id": "action_conditional_branch_test",
-                "name": "Conditional branch",
-                "type": "conditional_branch",
-                "config": {
-                    "conditions": [
-                        {"filters": {"events": [{"id": "a"}], "source": "events"}},
-                        {"filters": {"source": "events"}},
-                    ]
-                },
-            },
-            {
-                "id": "other_action",
-                "name": "Other",
-                "type": "exit",
-                "config": {},
-            },
-        ]
-        updated = remove_event_filters_from_conditionals(actions)
-        cond1 = updated[0]["config"]["conditions"][0]["filters"]
-        cond2 = updated[0]["config"]["conditions"][1]["filters"]
-        self.assertNotIn("events", cond1)
-        self.assertNotIn("events", cond2)
-        self.assertEqual(cond1, {"source": "events"})
-        self.assertEqual(cond2, {"source": "events"})
+        out = StringIO()
+        call_command("refresh_hog_flows", hog_flow_id=str(flow.id), dry_run=dry_run, stdout=out)
+
+        flow.refresh_from_db()
+        stamped = (flow.trigger or {}).get("filters", {}).get("bytecode_contract")
+        assert stamped == (None if dry_run else RUNTIME_CONTRACT)
+        assert ("Dry run" in out.getvalue()) is dry_run
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_names_a_workflow_that_no_longer_validates(self, mock_reload):
+        # A count alone cannot be acted on: the run has to say which workflow to look at.
+        flow = self._unstamped({"properties": [{"type": "hogql", "key": "nosuch.thing"}]})
+
+        out = StringIO()
+        call_command("refresh_hog_flows", hog_flow_id=str(flow.id), stdout=out)
+
+        flow.refresh_from_db()
+        assert "bytecode_contract" not in (flow.trigger or {})["filters"]
+        assert f"workflow {flow.id}" in out.getvalue()
+        assert "Errors: 1" in out.getvalue()
