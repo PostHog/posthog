@@ -1322,6 +1322,93 @@ class TestLLMPromptListQuerySerializerValidationNoDB(SimpleTestCase):
         assert not serializer.is_valid()
         assert "label" in serializer.errors
 
+    @parameterized.expand([("not_json", "support"), ("not_a_list", '"support"'), ("not_strings", "[1]")])
+    def test_rejects_tags_that_are_not_a_json_list_of_strings(self, _name: str, tags: str) -> None:
+        serializer = LLMPromptListQuerySerializer(data={"tags": tags})
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
+
+
+class TestLLMPromptTagsAPI(APIBaseTest):
+    def _create(self, name: str, tags: list[str] | None = None) -> None:
+        data: dict[str, Any] = {"name": name, "prompt": "Prompt content"}
+        if tags is not None:
+            data["tags"] = tags
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/", data=data, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def _set_tags(self, name: str, tags: list[str]):
+        return self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/{name}/tags/", data={"tags": tags}, format="json"
+        )
+
+    def _publish(self, name: str, base_version: int) -> None:
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/{name}/",
+            data={"prompt": f"v{base_version + 1}", "base_version": base_version},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _list_tags(self, query: str = "") -> dict[str, list[str]]:
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?order_by=name{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {entry["name"]: entry["tags"] for entry in response.json()["results"]}
+
+    def test_tags_stay_on_the_prompt_when_a_new_version_is_published(self) -> None:
+        self._create("my-prompt", tags=["Support ", "agent"])
+        self._publish("my-prompt", base_version=1)
+
+        assert self._list_tags() == {"my-prompt": ["agent", "support"]}
+        resolved = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/my-prompt/?version=1")
+        assert resolved.json()["prompt"]["tags"] == ["agent", "support"]
+
+    def test_set_tags_replaces_tags_and_logs_the_change(self) -> None:
+        self._create("my-prompt", tags=["support"])
+
+        response = self._set_tags("my-prompt", [" Onboarding", "onboarding"])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"tags": ["onboarding"]}
+        assert self._list_tags() == {"my-prompt": ["onboarding"]}
+        log = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPrompt", activity="updated").get()
+        assert log.detail["changes"][0]["before"] == ["support"]
+        assert log.detail["changes"][0]["after"] == ["onboarding"]
+
+    def test_set_tags_on_unknown_prompt_returns_404(self) -> None:
+        assert self._set_tags("missing", ["support"]).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_filters_by_any_tag_including_labeled_older_versions(self) -> None:
+        self._create("prompt-a", tags=["support"])
+        self._create("prompt-b", tags=["billing"])
+        self._create("prompt-c")
+        assert (
+            self.client.put(
+                f"/api/environments/{self.team.id}/llm_prompts/name/prompt-a/labels/production/",
+                data={"version": 1},
+                format="json",
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+        self._publish("prompt-a", base_version=1)
+
+        assert self._list_tags('&tags=["support","billing"]') == {"prompt-a": ["support"], "prompt-b": ["billing"]}
+        assert self._list_tags('&tags=["support"]&label=production') == {"prompt-a": ["support"]}
+
+    def test_duplicate_copies_tags_and_archive_drops_them(self) -> None:
+        self._create("my-prompt", tags=["support"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/duplicate/",
+            data={"new_name": "my-copy"},
+            format="json",
+        )
+        assert response.json()["tags"] == ["support"]
+
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+        self._create("my-prompt")
+
+        assert self._list_tags() == {"my-copy": ["support"], "my-prompt": []}
+
 
 class TestLLMPromptLabelsAPI(APIBaseTest):
     def create_prompt_version(

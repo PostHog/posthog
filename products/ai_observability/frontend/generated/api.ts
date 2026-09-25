@@ -52,6 +52,7 @@ import type {
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMPromptSetLabelApi,
+    LLMPromptSetTagsApi,
     LLMProviderKeyApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
@@ -2414,6 +2415,27 @@ export const llmPromptsNameLabelsDestroy = async (
     return apiMutator<void>(getLlmPromptsNameLabelsDestroyUrl(projectId, promptName, labelName), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLlmPromptsNameTagsUpdateUrl = (projectId: string, promptName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/tags/`
+}
+
+/**
+ * Replace the tags on a prompt. Tags group prompts, e.g. by feature or agent, and stay when a new version is published. They are separate from labels, which mark the version to release.
+ */
+export const llmPromptsNameTagsUpdate = async (
+    projectId: string,
+    promptName: string,
+    lLMPromptSetTagsApi: LLMPromptSetTagsApi,
+    options?: RequestInit
+): Promise<LLMPromptSetTagsApi> => {
+    return apiMutator<LLMPromptSetTagsApi>(getLlmPromptsNameTagsUpdateUrl(projectId, promptName), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMPromptSetTagsApi),
     })
 }
 

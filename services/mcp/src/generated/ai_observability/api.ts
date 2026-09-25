@@ -2211,6 +2211,13 @@ export const LlmPromptsListQueryParams = () => zod.object({
             "Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags."
         ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names, e.g. [\"support\", \"onboarding\"]. Returns prompts that carry any of these tags. Tags group prompts and are separate from release labels.'
+        ),
 })
 
 export const LlmPromptsCreateParams = () => zod.object({
@@ -2224,6 +2231,10 @@ export const LlmPromptsCreateParams = () => zod.object({
 export const llmPromptsCreateBodyNameMax = 255
 
 export const llmPromptsCreateBodyVersionDescriptionMax = 400
+
+export const llmPromptsCreateBodyTagsItemMax = 255
+
+export const llmPromptsCreateBodyTagsMax = 100
 
 export const LlmPromptsCreateBody = () => zod.object({
     name: zod
@@ -2242,6 +2253,13 @@ export const LlmPromptsCreateBody = () => zod.object({
         .max(llmPromptsCreateBodyVersionDescriptionMax)
         .nullish()
         .describe('Optional note describing what changed in this version. Set when the version is published.'),
+    tags: zod
+        .array(zod.string().max(llmPromptsCreateBodyTagsItemMax))
+        .max(llmPromptsCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.'
+        ),
 })
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^\/]+$')

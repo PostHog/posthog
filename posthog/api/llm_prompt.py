@@ -32,6 +32,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
     LLMPromptSetLabelSerializer,
+    LLMPromptSetTagsSerializer,
     LLMPromptVersionSummarySerializer,
     validate_prompt_label_name_value,
 )
@@ -49,6 +50,7 @@ from posthog.api.services.llm_prompt import (
     LLMPromptVersionLimitError,
     archive_prompt,
     duplicate_prompt,
+    filter_prompts_by_tags,
     get_active_prompt_queryset,
     get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
@@ -58,6 +60,7 @@ from posthog.api.services.llm_prompt import (
     remove_prompt_label,
     resolve_versions_page,
     set_prompt_label,
+    set_prompt_tags,
 )
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -76,7 +79,12 @@ from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
+from products.ai_observability.backend.models.llm_prompt import (
+    LLMPrompt,
+    LLMPromptLabel,
+    get_prompt_outline,
+    get_prompt_tags_by_name,
+)
 from products.ai_observability.backend.prompt_references import (
     PROMPT_REFERENCE_REGEX,
     PromptReferenceResolutionError,
@@ -379,6 +387,10 @@ class LLMPromptViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        tags = params.get("tags")
+        if tags:
+            queryset = filter_prompts_by_tags(self.team, queryset, tags)
 
         order_by = params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
@@ -684,6 +696,49 @@ class LLMPromptViewSet(
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        request=LLMPromptSetTagsSerializer,
+        responses={200: LLMPromptSetTagsSerializer},
+        description=(
+            "Replace the tags on a prompt. Tags group prompts, e.g. by feature or agent, and stay "
+            "when a new version is published. They are separate from labels, which mark the version to release."
+        ),
+    )
+    @action(
+        methods=["PUT"],
+        detail=False,
+        url_path=r"name/(?P<prompt_name>[^/]+)/tags",
+        required_scopes=["llm_prompt:write"],
+    )
+    @llma_track_latency("llma_prompts_set_tags")
+    @monitor(feature=None, endpoint="llma_prompts_set_tags", method="PUT")
+    def set_tags(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMPromptSetTagsSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            tags = set_prompt_tags(
+                self.team,
+                user=cast(User, request.user),
+                prompt_name=prompt_name,
+                tags=payload.validated_data["tags"],
+            )
+        except LLMPromptNotFoundError:
+            return self._prompt_not_found_response(prompt_name)
+
+        report_user_action(
+            cast(User, request.user),
+            "llma prompt tags set",
+            {"prompt_name": prompt_name, "tag_count": len(tags)},
+            team=self.team,
+            request=request,
+        )
+        return Response({"tags": tags})
+
+    @extend_schema(
         request=LLMPromptSetLabelSerializer,
         responses={
             200: LLMPromptLabelSerializer,
@@ -832,7 +887,9 @@ class LLMPromptViewSet(
         prompts = page if page is not None else list(queryset)
 
         context = self.get_serializer_context()
-        context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
+        prompt_names = [prompt.name for prompt in prompts]
+        context["prompt_labels_by_name"] = self._get_prompt_labels_map(prompt_names)
+        context["prompt_tags_by_name"] = get_prompt_tags_by_name(self.team.id, prompt_names)
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
         params = self._get_list_params(request)

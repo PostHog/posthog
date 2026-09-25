@@ -993,6 +993,9 @@ tools:
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
+    llma-prompt-tags-update:
+        operation: llm_prompts_name_tags_update
+        enabled: false
     llma-prompt-update:
         operation: llm_prompts_name_partial_update
         enabled: true

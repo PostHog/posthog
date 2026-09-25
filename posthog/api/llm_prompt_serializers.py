@@ -8,10 +8,21 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_MAX_TAGS,
+    TAG_NAME_MAX_LENGTH,
+    normalize_tag_names,
+    set_tags_on_object,
+)
 from posthog.llm_prompt import MAX_PROMPT_PAYLOAD_BYTES, normalize_prompt_to_string
 
 from products.ai_observability.backend.activity_logging import prompt_activity_item_id
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
+from products.ai_observability.backend.models.llm_prompt import (
+    LLMPrompt,
+    LLMPromptLabel,
+    get_prompt_outline,
+    get_prompt_tags_by_name,
+)
 from products.ai_observability.backend.prompt_references import record_prompt_references, validate_prompt_references
 
 
@@ -185,6 +196,13 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter prompts by the ID of the user who created them.",
     )
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            'JSON-encoded list of tag names, e.g. ["support", "onboarding"]. '
+            "Returns prompts that carry any of these tags. Tags group prompts and are separate from release labels."
+        ),
+    )
     label = serializers.CharField(  # type: ignore[assignment]
         required=False,
         max_length=PROMPT_LABEL_NAME_MAX_LENGTH,
@@ -217,6 +235,32 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
 
     def validate_label(self, value: str) -> str:
         return validate_prompt_label_name_value(value)
+
+    def validate_tags(self, value: str) -> list[str]:
+        try:
+            tags = json.loads(value)
+        except json.JSONDecodeError:
+            tags = None
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise serializers.ValidationError('Tags must be a JSON list of strings, e.g. ["support"].')
+        return tags
+
+
+def prompt_tags_field(**kwargs: Any) -> serializers.ListField:
+    return serializers.ListField(
+        **kwargs,
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
+        help_text=(
+            "Tags that group this prompt, e.g. by feature or agent. "
+            "Tags belong to the prompt, not to one version, so they stay when a new version is published. "
+            "They are separate from labels, which mark the version to release."
+        ),
+    )
+
+
+class LLMPromptSetTagsSerializer(serializers.Serializer):
+    tags = prompt_tags_field()
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
@@ -335,6 +379,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     first_version_created_at = serializers.SerializerMethodField()
     outline = serializers.SerializerMethodField()
     labels = serializers.SerializerMethodField()
+    tags = prompt_tags_field(required=False)
     activity_item_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -356,6 +401,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "first_version_created_at",
             "outline",
             "labels",
+            "tags",
             "activity_item_id",
         ]
         read_only_fields = [
@@ -423,6 +469,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         if "prompt" in data:
             data["prompt"] = normalize_prompt_to_string(data["prompt"])
+        # Tags belong to the prompt name, so a list passes one map for the whole page.
+        tags_by_name = self.context.get("prompt_tags_by_name")
+        if tags_by_name is None:
+            tags_by_name = get_prompt_tags_by_name(instance.team_id, [instance.name])
+        data["tags"] = tags_by_name.get(instance.name, [])
         return data
 
     def validate_name(self, value: str) -> str:
@@ -471,6 +522,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> LLMPrompt:
         request = self.context["request"]
         team = self.context["get_team"]()
+        tags = validated_data.pop("tags", [])
 
         with transaction.atomic():
             # Validated here rather than in validate() so the reference target
@@ -485,6 +537,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
                 **validated_data,
             )
             record_prompt_references(prompt)
+            set_tags_on_object(list(normalize_tag_names(tags)), prompt)
         return prompt
 
 

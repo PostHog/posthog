@@ -16,6 +16,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -25,10 +26,12 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -227,10 +230,14 @@ export function PromptViewDetails(): JSX.Element {
 // version, freshness, and provenance.
 export function PromptHeaderMeta(): JSX.Element | null {
     const { prompt, promptLabels } = useValues(llmPromptLogic)
+    const { setTags } = useActions(llmPromptLogic)
+    const { tags: tagsAvailable } = useValues(tagsModel)
 
     if (!isPrompt(prompt)) {
         return null
     }
+
+    const tags = prompt.tags ?? []
 
     return (
         <div
@@ -261,6 +268,16 @@ export function PromptHeaderMeta(): JSX.Element | null {
                     “{prompt.version_description}”
                 </span>
             ) : null}
+            {userHasAccess(AccessControlResourceType.LlmAnalytics, AccessControlLevel.Editor) ? (
+                <ObjectTags
+                    tags={tags}
+                    tagsAvailable={tagsAvailable.filter((tag: string) => !tags.includes(tag))}
+                    onChange={setTags}
+                    data-attr="llma-prompt-tags"
+                />
+            ) : (
+                <ObjectTags tags={tags} staticOnly data-attr="llma-prompt-tags" />
+            )}
             <span className="flex items-center gap-1">
                 published {dayjs(prompt.created_at).format('MMM D, YYYY')}
                 {prompt.created_by ? (
