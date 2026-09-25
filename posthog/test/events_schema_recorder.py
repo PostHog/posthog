@@ -144,6 +144,8 @@ class EventsSchemaRecorder:
     def _find_json_table_readers(self) -> set[str]:
         # A view that reads the JSON tables would copy fixture rows into other tables, where the
         # SQL check cannot see them. A recording that lists a reader cannot prove any test independent.
+        # The probe names the JSON tables itself, so no test may take the hit while it runs.
+        nodeid, self._nodeid = self._nodeid, None
         try:
             rows = sync_execute(
                 "SELECT name, dependencies_table FROM system.tables WHERE database = currentDatabase() AND name IN %(tables)s",
@@ -151,6 +153,8 @@ class EventsSchemaRecorder:
             )
         except Exception as error:
             return {f"check failed: {error}"}
+        finally:
+            self._nodeid = nodeid
         return {f"{table} -> {reader}" for table, readers in rows for reader in readers}
 
     def pytest_sessionfinish(self, session: pytest.Session) -> None:

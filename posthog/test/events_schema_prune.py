@@ -10,6 +10,7 @@ import sys
 import json
 import hashlib
 import argparse
+import functools
 import subprocess
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
@@ -152,6 +153,7 @@ def stale_entries(
 
 
 def digests_under(root: Path) -> Callable[[str], str | None]:
+    @functools.cache
     def digest_of(path: str) -> str | None:
         source = root / path
         return file_digest(source) if source.is_file() else None
@@ -160,6 +162,7 @@ def digests_under(root: Path) -> Callable[[str], str | None]:
 
 
 def digests_at(revision: str) -> Callable[[str], str | None]:
+    @functools.cache
     def digest_of(path: str) -> str | None:
         shown = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, check=False)
         return content_digest(shown.stdout) if shown.returncode == 0 else None
@@ -196,7 +199,7 @@ def _load_tests(recordings: Iterable[Path]) -> dict[str, Any]:
     for recording in recordings:
         data = json.loads(recording.read_text())
         if not data["events_json_mode"] or data["json_table_readers"] != []:
-            raise SystemExit(f"{recording} cannot prove tests independent: {data['json_table_readers']}")
+            raise ValueError(f"{recording} cannot prove tests independent: {data['json_table_readers']}")
         for nodeid, record in data["tests"].items():
             tests[nodeid] = merge_records(tests[nodeid], record) if nodeid in tests else record
     return tests
@@ -232,8 +235,8 @@ def main(argv: list[str]) -> int:
     check.add_argument("recordings", type=Path, nargs="+")
     args = parser.parse_args(argv)
 
-    tests = _load_tests(args.recordings)
     try:
+        tests = _load_tests(args.recordings)
         if args.command == "build":
             digest_of = digests_at(args.revision) if args.revision else digests_under(Path.cwd())
             files = build_manifest(tests, digest_of, args.min_seconds)
