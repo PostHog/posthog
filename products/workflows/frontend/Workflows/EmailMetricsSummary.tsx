@@ -27,10 +27,12 @@ export function EmailMetricsSummary({
     logicKey,
     onMetricClick,
     compact,
+    showTrends = true,
 }: {
     logicKey: string
     onMetricClick?: (metricKey: EmailMetric) => void
     compact?: boolean
+    showTrends?: boolean
 }): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))
 
@@ -82,11 +84,13 @@ export function EmailMetricsSummary({
                     )
                 })}
             </div>
-            <AppMetricsTrends
-                appMetricsTrends={emailTrends}
-                loading={appMetricsTrendsLoading}
-                seriesColors={METRIC_COLORS}
-            />
+            {showTrends && (
+                <AppMetricsTrends
+                    appMetricsTrends={emailTrends}
+                    loading={appMetricsTrendsLoading}
+                    seriesColors={METRIC_COLORS}
+                />
+            )}
         </>
     )
 }

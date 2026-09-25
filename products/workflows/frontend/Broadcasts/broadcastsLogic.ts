@@ -28,6 +28,8 @@ export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
     /** Null until the run's metrics load, or when they fail to. */
     totals: Record<string, number> | null
+    /** Whether an active schedule has sends still to come. The list doesn't load schedules, so it leaves this unset. */
+    hasPendingSchedule?: boolean
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
@@ -119,7 +121,7 @@ export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product
 }
 
 export function getBroadcastStatus(
-    broadcast: HogFlowMinimalApi,
+    broadcast: { status?: string | null },
     details: BroadcastRowDetails | undefined
 ): BroadcastStatus {
     if (broadcast.status === 'draft') {
@@ -135,6 +137,10 @@ export function getBroadcastStatus(
     if (latestJob) {
         if (['waiting', 'queued', 'active'].includes(latestJob.status ?? '')) {
             return 'sending'
+        }
+        // A recurring broadcast between runs has more to send, whatever its last run did.
+        if (details.hasPendingSchedule) {
+            return 'scheduled'
         }
         if (latestJob.status === 'completed') {
             return 'sent'

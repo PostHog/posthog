@@ -1,14 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconLetter } from '@posthog/icons'
+import { IconArrowLeft, IconChevronDown, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,9 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { broadcastSentLogic } from './broadcastSentLogic'
+import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
@@ -243,8 +247,13 @@ export function BroadcastSummary(): JSX.Element {
         batchJobsLoading,
         canMoveToDraft,
         movingToDraft,
+        canEditContent,
+        duplicating,
+        summaryStatus,
     } = useValues(broadcastWizardLogic)
-    const { moveToDraft } = useActions(broadcastWizardLogic)
+    const { moveToDraft, duplicateBroadcast } = useActions(broadcastWizardLogic)
+    const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
+    const [tab, setTab] = useState<'overview' | 'content' | 'runs'>('overview')
 
     const confirmMoveToDraft = (): void => {
         LemonDialog.open({
@@ -309,68 +318,130 @@ export function BroadcastSummary(): JSX.Element {
     ]
 
     return (
-        <div className="min-h-full w-full shrink-0 bg-bg-light">
-            <div className="mx-auto max-w-4xl space-y-5 px-6 py-6">
-                <div className="flex items-center justify-between gap-2">
-                    <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
-                        Broadcasts
-                    </LemonButton>
-                    {canMoveToDraft ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={confirmMoveToDraft}
-                            loading={movingToDraft}
-                            data-attr="broadcast-move-to-draft"
+        <div className="@container min-h-full w-full shrink-0 bg-bg-light">
+            <div className="mx-auto max-w-6xl space-y-4 px-6 py-6">
+                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
+                    Broadcasts
+                </LemonButton>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <BroadcastStatusTag status={summaryStatus} />
+                        <h1 className="m-0 truncate text-2xl font-semibold">{name}</h1>
+                    </div>
+                    {canMoveToDraft || canEditContent ? (
+                        <LemonMenu
+                            items={[
+                                canMoveToDraft
+                                    ? {
+                                          label: 'Stop and edit',
+                                          onClick: confirmMoveToDraft,
+                                          'data-attr': 'broadcast-move-to-draft',
+                                      }
+                                    : null,
+                                canEditContent
+                                    ? {
+                                          label: 'Send again as a new broadcast',
+                                          onClick: duplicateBroadcast,
+                                          'data-attr': 'broadcast-send-again',
+                                      }
+                                    : null,
+                            ]}
                         >
-                            Stop and edit
-                        </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                sideIcon={<IconChevronDown />}
+                                loading={movingToDraft || duplicating}
+                                data-attr="broadcast-actions"
+                            >
+                                Actions
+                            </LemonButton>
+                        </LemonMenu>
                     ) : null}
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <h1 className="m-0 text-2xl font-semibold">{name}</h1>
-                    <LemonTag type={broadcast?.status === 'active' ? 'success' : 'default'}>
-                        {capitalizeFirstLetter(broadcast?.status ?? 'draft')}
-                    </LemonTag>
-                </div>
-
-                <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-primary p-4">
-                    <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted">Audience</span>
-                        {audienceProperties.length > 0 ? (
-                            <PropertyFiltersDisplay filters={audienceProperties} />
-                        ) : (
-                            <span className="text-muted">Everyone</span>
-                        )}
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted">Schedule</span>
-                        <span>{scheduleSummary}</span>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted">Email subject</span>
-                        <span>{email.subject || 'No subject'}</span>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">
-                        {latestBatchJobId ? 'Performance (latest send)' : 'Performance (last 30 days)'}
-                    </h2>
-                    <EmailMetricsSummary logicKey={logicKey} compact />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">Runs</h2>
-                    <RunsTable
-                        workflowId={broadcastId ?? ''}
-                        batchJobs={batchJobs}
-                        batchJobsLoading={batchJobsLoading}
-                        columns={batchJobColumns}
-                    />
-                </div>
+                <LemonTabs
+                    activeKey={tab}
+                    onChange={setTab}
+                    tabs={[
+                        {
+                            key: 'overview',
+                            label: 'Overview',
+                            content: (
+                                <div className="flex flex-col gap-4">
+                                    <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4 @2xl:grid-cols-3">
+                                        <SummaryRow label="Audience">
+                                            {audienceProperties.length > 0 ? (
+                                                <PropertyFiltersDisplay filters={audienceProperties} />
+                                            ) : (
+                                                <span className="text-muted">Everyone</span>
+                                            )}
+                                        </SummaryRow>
+                                        <SummaryRow label="Schedule">
+                                            {pendingSchedule ? (
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span>{scheduleSummary}</span>
+                                                    {pendingSchedule.next_run_at ? (
+                                                        <span className="text-xs text-muted">
+                                                            Next send <TZLabel time={pendingSchedule.next_run_at} />
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : latestBatchJob ? (
+                                                <span>
+                                                    Sent <TZLabel time={latestBatchJob.created_at} />
+                                                </span>
+                                            ) : (
+                                                <span>{scheduleSummary}</span>
+                                            )}
+                                        </SummaryRow>
+                                        <SummaryRow label="Subject">
+                                            {email.subject || <span className="text-muted">No subject</span>}
+                                        </SummaryRow>
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        <h2 className="m-0 text-base font-semibold">
+                                            {latestBatchJobId
+                                                ? 'Performance (latest send)'
+                                                : 'Performance (last 30 days)'}
+                                        </h2>
+                                        <EmailMetricsSummary logicKey={logicKey} compact showTrends={false} />
+                                    </div>
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'content',
+                            label: 'Content',
+                            content: (
+                                <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
+                            ),
+                        },
+                        {
+                            key: 'runs',
+                            label: 'Runs',
+                            content: (
+                                <RunsTable
+                                    workflowId={broadcastId ?? ''}
+                                    batchJobs={batchJobs}
+                                    batchJobsLoading={batchJobsLoading}
+                                    columns={batchJobColumns}
+                                />
+                            ),
+                        },
+                    ]}
+                />
             </div>
+        </div>
+    )
+}
+
+function SummaryRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</span>
+            {children}
         </div>
     )
 }
