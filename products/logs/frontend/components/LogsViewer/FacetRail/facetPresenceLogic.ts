@@ -76,7 +76,7 @@ export interface facetPresenceLogicMeta {
         presenceWindowSignature: (
             presenceWindow: {
                 date_from: string
-                date_to?: string
+                date_to?: string | undefined
             } | null
         ) => string
         resolvedFacets: (presentResourceKeys: string[]) => FacetConfig[]
