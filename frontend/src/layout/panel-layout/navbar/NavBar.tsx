@@ -103,12 +103,12 @@ export function PanelIndicatorIcon(): JSX.Element | null {
 const SIMPLE_TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Browse', icon: <IconApps /> },
     { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
-    { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
+    { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
 
 const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Browse', icon: <IconApps /> },
-    { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
+    { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
 
 export function NavBar(): JSX.Element {
@@ -273,7 +273,7 @@ export function NavBar(): JSX.Element {
                                         >
                                             <IconChat
                                                 className={cn(
-                                                    'text-secondary group-hover:text-ai',
+                                                    'text-secondary group-hover:text-primary',
                                                     activePanelIdentifier === 'Chat' && 'text-primary'
                                                 )}
                                             />
@@ -326,8 +326,8 @@ export function NavBar(): JSX.Element {
                                         <ButtonPrimitive
                                             {...props}
                                             className={cn(
-                                                'group data-[composite-item-active]:bg-surface-tertiary justify-center',
-                                                isSimpleSidepanelEnabled ? 'flex-1 min-w-0' : 'w-1/2'
+                                                'group gap-1 data-[composite-item-active]:bg-surface-tertiary justify-center',
+                                                isSimpleSidepanelEnabled ? 'flex-auto min-w-0' : 'w-1/2'
                                             )}
                                             iconOnly={isSimpleSidepanelEnabled && isLayoutNavCollapsed}
                                             tooltip={isSimpleSidepanelEnabled ? tab.label : undefined}
