@@ -1,4 +1,4 @@
-"""Scorers for the ml_inference eval suites.
+"""Scorers for the filter picker search intent suite.
 
 The search intent scorers split one number, "is the answer right", into the two ways the picker can hurt
 someone. A missed suggestion leaves the person where they are today. A wrong suggestion sends them to a

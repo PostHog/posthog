@@ -4,7 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_OPTIONS_PER_QUESTION, MAX_QUESTIONS_PER_REQUEST
-from ..facade.enums import DecisionQuestionType, SearchIntentSource
+from ..facade.enums import DecisionQuestionType
 
 MAX_STATE_CHARS = 65_536
 MAX_INSTRUCTIONS_CHARS = 2_000
@@ -123,59 +123,3 @@ class DecideResponseSerializer(serializers.Serializer):
     )
     input_tokens = serializers.IntegerField(help_text="Tokens the model read, which is what the request is billed on.")
     latency_ms = serializers.FloatField(allow_null=True, help_text="Time the model spent answering, if reported.")
-
-
-MAX_SEARCH_QUERY_CHARS = 200
-MAX_GROUP_TYPE_CHARS = 100
-MAX_GROUP_TYPES = 64
-
-
-class SearchIntentRequestSerializer(serializers.Serializer):
-    query = serializers.CharField(
-        max_length=MAX_SEARCH_QUERY_CHARS,
-        allow_blank=True,
-        trim_whitespace=True,
-        help_text="What the person typed into the filter picker search box.",
-    )
-    active_group_type = serializers.CharField(
-        max_length=MAX_GROUP_TYPE_CHARS,
-        help_text="The picker tab that is open, as a taxonomic group type such as event_properties.",
-    )
-    available_group_types = serializers.ListField(
-        child=serializers.CharField(max_length=MAX_GROUP_TYPE_CHARS),
-        max_length=MAX_GROUP_TYPES,
-        help_text="The taxonomic group types the picker shows. The answer is always one of these, or null.",
-    )
-    scene = serializers.RegexField(
-        r"^[A-Za-z0-9_-]{1,64}$",
-        required=False,
-        allow_null=True,
-        help_text="The id of the scene the picker is open in, such as Insight or Replay.",
-    )
-
-
-class SearchIntentResponseSerializer(serializers.Serializer):
-    group_type = serializers.CharField(
-        allow_null=True,
-        help_text="The taxonomic group type the search most likely belongs to, or null if it was not classified.",
-    )
-    confidence = serializers.FloatField(
-        help_text="How far the chosen group stands out from the rest, from 0 (a coin flip) to 1.",
-    )
-    is_confident = serializers.BooleanField(
-        help_text="Whether the confidence is high enough to act on, for example to suggest a different tab.",
-    )
-    suggests_switch = serializers.BooleanField(
-        help_text="Whether the picker should suggest switching from the open tab to group_type.",
-    )
-    method = serializers.ChoiceField(
-        choices=SearchIntentSource.choices,
-        help_text="How the answer was found: a value pattern, the decision model, or not at all.",
-    )
-    prompt_version = serializers.IntegerField(
-        allow_null=True,
-        help_text=(
-            "The version of the managed search intent prompt the model read. Null for a value pattern, "
-            "a skipped search, or the bundled fallback prompt."
-        ),
-    )

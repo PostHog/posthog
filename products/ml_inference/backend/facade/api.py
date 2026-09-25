@@ -6,7 +6,7 @@ The ONLY module other products are allowed to import. Accepts and returns the fr
 
 from __future__ import annotations
 
-from ..logic import decisions, search_intent
+from ..logic import decisions
 from . import contracts
 
 
@@ -39,10 +39,3 @@ def decide_unchecked(
     if timeout_seconds is None:
         return decisions.decide(request)
     return decisions.decide(request, timeout_seconds=timeout_seconds)
-
-
-def classify_search_intent(request: contracts.SearchIntentRequest) -> contracts.SearchIntent:
-    """Guess which filter picker tab a search belongs to, for an enrolled team; raises DecisionsDisabledError otherwise."""
-    if not decisions.decisions_enabled(request.team_id):
-        raise contracts.DecisionsDisabledError(request.team_id)
-    return search_intent.classify_search_intent(request)

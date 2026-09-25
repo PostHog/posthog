@@ -849,7 +849,7 @@ export const EmptyEventsWithStaleToggle: Story = {
 // The decision model answers "person properties" for a search of "email" in every search intent story.
 const searchIntentPersonPropertiesMock = mswDecorator({
     post: {
-        '/api/projects/:team_id/ml_inference/search_intent/classify/': () => [
+        '/api/projects/:team_id/taxonomic_search_intent/classify/': () => [
             200,
             {
                 group_type: 'person_properties',

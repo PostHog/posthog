@@ -13,23 +13,16 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.gateway_client import GatewayNotConfiguredError
-from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from ..facade import api, contracts
 from ..facade.contracts import DecisionGatewayError, DecisionGatewayUnreachableError, DecisionsDisabledError
 from ..facade.enums import DecisionQuestionType
-from .serializers import (
-    DecideRequestSerializer,
-    DecideResponseSerializer,
-    SearchIntentRequestSerializer,
-    SearchIntentResponseSerializer,
-)
+from .serializers import DecideRequestSerializer, DecideResponseSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -88,65 +81,6 @@ class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             logger.warning("ml_inference_decision_gateway_refused", team_id=self.team_id, status_code=error.status_code)
             raise DecisionGatewayRefused() from error
         return Response(DecideResponseSerializer(_wire_result(result)).data)
-
-
-# One search box sends one request per pause in typing, so these rates are far above the AI throttles and
-# are separate from them: a person who filters a lot must not lose their PostHog AI budget.
-class SearchIntentBurstThrottle(UserRateThrottle):
-    scope = "ml_inference_search_intent_burst"
-    rate = "120/minute"
-
-
-class SearchIntentSustainedThrottle(UserRateThrottle):
-    scope = "ml_inference_search_intent_sustained"
-    rate = "3000/day"
-
-
-class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
-    serializer_class = SearchIntentRequestSerializer
-    throttle_classes = [SearchIntentBurstThrottle, SearchIntentSustainedThrottle]
-
-    @validated_request(
-        request_serializer=SearchIntentRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=SearchIntentResponseSerializer, description="The most likely tab."),
-            404: OpenApiResponse(description="Decisions are not enabled for this project."),
-            503: OpenApiResponse(description="The decision model did not answer in time."),
-        },
-        summary="Classify a filter picker search",
-        description="Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.",
-    )
-    @action(detail=False, methods=["POST"])
-    def classify(self, request: Request, **kwargs: Any) -> Response:
-        data = request.validated_data
-        search = contracts.SearchIntentRequest(
-            team_id=self.team_id,
-            query=data["query"],
-            active_group_type=data["active_group_type"],
-            available_group_types=tuple(data["available_group_types"]),
-            scene=data.get("scene"),
-        )
-        try:
-            intent = api.classify_search_intent(search)
-        except DecisionsDisabledError as error:
-            raise NotFound() from error
-        except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
-            # The picker works without an answer, so every model failure is the same "not now" to the caller.
-            logger.warning("ml_inference_search_intent_unavailable", team_id=self.team_id, reason=type(error).__name__)
-            raise DecisionGatewayUnavailable() from error
-        return Response(
-            SearchIntentResponseSerializer(
-                {
-                    "group_type": intent.group_type,
-                    "confidence": intent.confidence,
-                    "is_confident": intent.is_confident,
-                    "suggests_switch": intent.suggests_switch,
-                    "method": intent.source,
-                    "prompt_version": intent.prompt_version,
-                }
-            ).data
-        )
 
 
 def _wire_result(result: contracts.DecisionResult) -> dict[str, Any]:

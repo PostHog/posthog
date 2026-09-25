@@ -9,28 +9,31 @@ import re
 import hashlib
 import dataclasses
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+import posthoganalytics
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import build_system_one_client
 
-from ..facade.contracts import DEFAULT_DECISION_MODEL, SearchIntent, SearchIntentRequest
-from ..facade.enums import SearchIntentSource
-from .search_intent_prompt import SearchIntentPrompt, current_search_intent_prompt
+from .contracts import SearchIntent, SearchIntentRequest, SearchIntentSource
+from .prompt import SearchIntentPrompt, current_search_intent_prompt
 
 logger = structlog.get_logger(__name__)
 
+SEARCH_INTENT_FEATURE_FLAG = "taxonomic-filter-search-intent"
+SEARCH_INTENT_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 MIN_QUERY_CHARS = 2
 MAX_QUERY_CHARS = 64
 # The picker waits for no answer, so a late answer is worth nothing and a short timeout frees the worker.
 SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
-CACHE_KEY_PREFIX = "ml_inference:search_intent:v3"
+CACHE_KEY_PREFIX = "taxonomic_search_intent:v1"
 
 _EMAIL_VALUE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
@@ -45,6 +48,29 @@ _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _QUESTION_ID = "tab"
 # The Django cache pickles what it stores, so the intent goes in as JSON text and comes out schema-validated.
 _CACHED_INTENT = TypeAdapter(SearchIntent)
+
+
+def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
+    """The flag assigns the experiment arms. Every arm asks, so any value other than off enables the endpoint.
+
+    DEBUG bypasses the flag because the analytics SDK is disabled in local development.
+    """
+    if settings.DEBUG:
+        return True
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SEARCH_INTENT_FEATURE_FLAG,
+                distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("taxonomic_search_intent_flag_check_failed")
+        return False
 
 
 def _skipped() -> SearchIntent:
@@ -132,7 +158,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
 
     state = search_intent_state(query, request.active_group_type, request.scene)
     key = _cache_key(
-        request.team_id, DEFAULT_DECISION_MODEL, state, prompt.instructions, options, prompt.confident_threshold
+        request.team_id, SEARCH_INTENT_MODEL, state, prompt.instructions, options, prompt.confident_threshold
     )
     if use_cache:
         cached = _cached_intent(key)
@@ -141,8 +167,8 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
 
     # No TypeSafe fallback: a search is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
-        model=DEFAULT_DECISION_MODEL,
-        ai_product="ml_inference",
+        model=SEARCH_INTENT_MODEL,
+        ai_product="taxonomic_filter",
         distinct_id=team_distinct_id(request.team_id),
         timeout=SEARCH_INTENT_TIMEOUT_SECONDS,
     )
@@ -151,7 +177,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
     )
     answer = result.answers[_QUESTION_ID]
     if not isinstance(answer, ChoiceAnswer) or answer.choice not in options:
-        logger.warning("ml_inference_search_intent_unexpected_answer", team_id=request.team_id)
+        logger.warning("taxonomic_search_intent_unexpected_answer", team_id=request.team_id)
         return _skipped()
     intent = SearchIntent(
         group_type=answer.choice,

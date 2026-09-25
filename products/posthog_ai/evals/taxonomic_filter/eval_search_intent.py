@@ -1,6 +1,6 @@
 """Does the decision model read a filter picker search the way the person meant it?
 
-The unit tests in `backend/tests/test_search_intent.py` feed the classifier canned answers. They cover
+The unit tests in `posthog/taxonomic_search_intent/test_classify.py` feed the classifier canned answers. They cover
 the value patterns, the offered tabs, the cache and the switch rule, and they pass whatever the model
 says. This suite covers the model itself: given a search, the open tab and the tabs the picker shows,
 does it pick a tab that holds what the person typed?
@@ -15,7 +15,7 @@ The cases come from the shapes the picker's own telemetry shows, not from any pe
 `SwitchWhenNeeded` and `NoWrongSwitch` read as the recall and the precision of the banner variant.
 Precision is the number to protect: a wrong suggestion is worse than none. The question, the tab
 meanings and `confident_threshold` live in the managed `taxonomic-filter-search-intent` prompt
-(see `backend/logic/search_intent_prompt.py`). Score a new version here before the `production`
+(see `posthog/taxonomic_search_intent/prompt.py`). Score a new version here before the `production`
 label moves to it, and expect the baseline to step when the prompt or the model change.
 
 Public rather than private: the value is the comparison across runs, and every case is synthetic.
@@ -38,18 +38,20 @@ import asyncio
 import dataclasses
 
 from posthog.llm.system_one_client import system_one_configured
+from posthog.taxonomic_search_intent.classify import SEARCH_INTENT_MODEL, classify_search_intent
+from posthog.taxonomic_search_intent.contracts import SearchIntentRequest
+from posthog.taxonomic_search_intent.prompt import SEARCH_INTENT_PROMPT_LABEL, fetch_search_intent_prompt
 
-from products.ml_inference.backend.facade.contracts import DEFAULT_DECISION_MODEL, SearchIntentRequest
-from products.ml_inference.backend.logic.search_intent import classify_search_intent
-from products.ml_inference.backend.logic.search_intent_prompt import (
-    SEARCH_INTENT_PROMPT_LABEL,
-    fetch_search_intent_prompt,
-)
-from products.ml_inference.evals.scorers import SEARCH_INTENT_KEY, NoWrongSwitch, SearchIntentMatch, SwitchWhenNeeded
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.evals.taxonomic_filter.scorers import (
+    SEARCH_INTENT_KEY,
+    NoWrongSwitch,
+    SearchIntentMatch,
+    SwitchWhenNeeded,
+)
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -335,14 +337,14 @@ async def eval_search_intent(ctx: EvalContext) -> None:
             intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False, prompt=prompt)
         except Exception as error:
             return {
-                "model": DEFAULT_DECISION_MODEL,
+                "model": SEARCH_INTENT_MODEL,
                 "prompt_version": prompt.version,
                 "intent": None,
                 "error": f"{type(error).__name__}: {error}",
             }
         answer = dataclasses.asdict(intent)
         return {
-            "model": DEFAULT_DECISION_MODEL,
+            "model": SEARCH_INTENT_MODEL,
             "prompt_version": prompt.version,
             "intent": answer,
             "latency_ms": round((time.monotonic() - started) * 1000),

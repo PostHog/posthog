@@ -54,7 +54,7 @@ describe('taxonomicSearchIntentLogic', () => {
                 '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
             },
             post: {
-                '/api/projects/:team/ml_inference/search_intent/classify/': async ({ request }) => {
+                '/api/projects/:team/taxonomic_search_intent/classify/': async ({ request }) => {
                     classifyRequests.push((await request.json()) as Record<string, any>)
                     return [200, answer]
                 },
@@ -185,7 +185,7 @@ describe('taxonomicSearchIntentLogic', () => {
         enroll('banner')
         useMocks({
             post: {
-                '/api/projects/:team/ml_inference/search_intent/classify/': async ({ request }) => {
+                '/api/projects/:team/taxonomic_search_intent/classify/': async ({ request }) => {
                     classifyRequests.push((await request.json()) as Record<string, any>)
                     return [404, { detail: 'Not found.' }]
                 },

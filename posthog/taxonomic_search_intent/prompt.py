@@ -89,7 +89,7 @@ def parse_search_intent_prompt(result: PromptResult) -> SearchIntentPrompt:
     threshold = _valid_threshold(config.get("confident_threshold"))
     if options is None or threshold is None:
         logger.warning(
-            "ml_inference_search_intent_prompt_config_invalid",
+            "taxonomic_search_intent_prompt_config_invalid",
             version=result.version,
             options_valid=options is not None,
             threshold_valid=threshold is not None,
@@ -141,7 +141,7 @@ class _PromptRefresher:
         try:
             prompt = fetch_search_intent_prompt(label=SEARCH_INTENT_PROMPT_LABEL)
         except Exception:
-            logger.exception("ml_inference_search_intent_prompt_refresh_failed")
+            logger.exception("taxonomic_search_intent_prompt_refresh_failed")
             prompt = None
         with self._lock:
             if prompt is not None and (prompt.version is not None or self._prompt.version is None):

@@ -6,8 +6,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { mlInferenceSearchIntentClassifyCreate } from 'products/ml_inference/frontend/generated/api'
-import type { SearchIntentResponseApi } from 'products/ml_inference/frontend/generated/api.schemas'
+import { taxonomicSearchIntentClassifyCreate } from '~/generated/core/api'
+import type { SearchIntentResponseApi } from '~/generated/core/api.schemas'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -18,7 +18,7 @@ export type SearchIntentVariant = 'control' | 'banner' | 'promote'
 
 const SEARCH_INTENT_VARIANTS: SearchIntentVariant[] = ['control', 'banner', 'promote']
 
-// Mirrors MIN_QUERY_CHARS and MAX_QUERY_CHARS in products/ml_inference/backend/logic/search_intent.py.
+// Mirrors MIN_QUERY_CHARS and MAX_QUERY_CHARS in posthog/taxonomic_search_intent/classify.py.
 const MIN_QUERY_LENGTH = 2
 const MAX_QUERY_LENGTH = 64
 // Longer than a keystroke gap, so a person who types a word asks once and not once per letter.
@@ -192,7 +192,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             const activeTab = values.activeTab
             let response: SearchIntentResponseApi
             try {
-                response = await mlInferenceSearchIntentClassifyCreate(String(projectId), {
+                response = await taxonomicSearchIntentClassifyCreate(String(projectId), {
                     query,
                     active_group_type: activeTab,
                     available_group_types: values.taxonomicGroupTypes,
