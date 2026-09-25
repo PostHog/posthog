@@ -16,7 +16,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -28,6 +28,7 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
@@ -400,7 +401,12 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                     "or the pipeline's target or creator is no longer valid."
                 )
             ),
-            403: OpenApiResponse(description="The caller has no PostHog Desktop access, which cloud runs need."),
+            403: OpenApiResponse(
+                description=(
+                    "The caller has no PostHog Desktop access, which cloud runs need, "
+                    "or the request comes from inside a sandbox."
+                )
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
             429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
@@ -422,6 +428,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # A sandbox agent must not launch more sandboxes, the same rule Tasks applies to its own launches.
+        if is_sandbox_origin_request(request):
+            raise PermissionDenied("Training runs cannot be started from inside a sandbox.")
         # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
         if access_response := code_access_required_response(request, self.organization):
             return access_response
@@ -450,7 +459,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchRunSerializer,
                 description="The created inference run. Check rows_scored and status.",
             ),
-            400: OpenApiResponse(description="The pipeline has no champion model."),
+            400: OpenApiResponse(description="The pipeline has no champion model, or it is paused."),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Run inference (score users)",
@@ -486,6 +495,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                     "Empty list when no prediction dates have matured yet."
                 ),
             ),
+            400: OpenApiResponse(description="An action target needs the action:read scope."),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Run online validation",
@@ -509,9 +519,17 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            runs = api.validate_pipeline_online(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
+            runs = api.validate_pipeline_online(
+                self.team_id,
+                self.kwargs["pk"],
+                user=cast(User, request.user),
+                # Realized labels come from the action's steps, so an action target needs the action scope.
+                allow_action_target=has_action_scope(request),
+            )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
@@ -716,7 +734,12 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 response=AutoresearchTrainingRunSerializer,
                 description="The opened training run. Record iterations against its id, then call complete.",
             ),
-            400: OpenApiResponse(description="Pipeline is archived."),
+            400: OpenApiResponse(
+                description=(
+                    "The pipeline is archived or paused, a run is already in progress, "
+                    "or an action target needs the action:read scope."
+                )
+            ),
         },
         summary="Open a training run",
         description=(
@@ -731,9 +754,12 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 self.team_id,
                 _require_parent_pipeline_id(self),
                 iteration_budget=request.validated_data.get("iteration_budget"),
+                allow_action_target=has_action_scope(request),
             )
         except PipelineNotFound as exc:
             raise NotFound(str(exc)) from exc
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data, status=201)

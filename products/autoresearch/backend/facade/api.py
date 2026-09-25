@@ -344,16 +344,12 @@ def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) ->
 
 def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
     row = _pipeline_row(team_id, pipeline_id, live_only=True)
-    for key, value in fields.items():
-        setattr(row, key, value)
     # Only the request's fields, so a stale read cannot write back a status a lifecycle action changed.
-    row.save(update_fields=[*fields, "updated_at"])
-    try:
-        row.refresh_from_db()
-    except AutoresearchPipeline.DoesNotExist:
-        # A concurrent delete landed between the save and the reload.
-        raise PipelineNotFound("Pipeline not found.")
-    return _pipeline_with_champion(row)
+    # A conditional update: after a concurrent delete or archive it matches no row, and the reload 404s.
+    AutoresearchPipeline.objects.for_team(team_id).filter(pk=row.pk).exclude(
+        status=AutoresearchPipeline.Status.ARCHIVED
+    ).update(**fields, updated_at=django_timezone.now())
+    return get_pipeline(team_id, row.pk)
 
 
 def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
@@ -643,6 +639,8 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User) -> Run:
     from ..inference.scoring import run_inference_for_pipeline  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
+    if pipeline.status == AutoresearchPipeline.Status.PAUSED:
+        raise AutoresearchConflict("The pipeline is paused. Resume it before scoring.")
     champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -654,12 +652,21 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User) -> Run:
     return _run_to_contract(run_inference_for_pipeline(pipeline=pipeline, model=champion, user=user))
 
 
-def validate_pipeline_online(team_id: int, pipeline_id: str | UUID, *, user: User) -> list[Run]:
-    """Score matured prediction dates against realized outcomes."""
+def validate_pipeline_online(
+    team_id: int, pipeline_id: str | UUID, *, user: User, allow_action_target: bool = True
+) -> list[Run]:
+    """Score matured prediction dates against realized outcomes.
+
+    ``allow_action_target=False`` refuses an action target with ``InvalidTarget``, because the
+    realized labels come from the action's steps. The target is frozen once a model exists, so
+    this read needs no lock.
+    """
     # Online validation loads the inference sandbox, which imports pandas and pyarrow.
     from ..evaluation.online_validation import run_online_validation_for_pipeline  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
+    if not allow_action_target and pipeline.target_definition.get("type") == "action":
+        raise InvalidTarget("An action target needs the action:read scope.")
     return [_run_to_contract(run) for run in run_online_validation_for_pipeline(pipeline=pipeline, user=user)]
 
 
@@ -749,13 +756,21 @@ def start_training(
     return _training_run_to_contract(training_run)
 
 
-def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None) -> TrainingRun:
-    """Open a run an external agent will record iterations against."""
+def open_training_run(
+    team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None, allow_action_target: bool = True
+) -> TrainingRun:
+    """Open a run an external agent will record iterations against.
+
+    ``allow_action_target`` works as in ``start_training``: materializing features on the run
+    labels on the action's steps, so the scope check reads the locked row.
+    """
     pipeline = _pipeline_row(team_id, pipeline_id)
     if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
         raise AutoresearchConflict("Cannot open a training run on an archived pipeline.")
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline.pk)
+        if not allow_action_target and pipeline.target_definition.get("type") == "action":
+            raise InvalidTarget("An action target needs the action:read scope.")
         row = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
