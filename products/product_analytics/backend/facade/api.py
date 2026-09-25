@@ -31,6 +31,8 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.product_analytics.backend.models.insight import InsightViewed
+
 
 def _to_variable_definition(variable: InsightVariable) -> InsightVariableDefinition:
     return InsightVariableDefinition(
@@ -89,27 +91,22 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
-def record_insight_query_demand(*, team_id: int, insight_ids: Collection[int], dashboard_id: int | None = None) -> None:
-    """Record demand for an authorized saved context, never for metadata reads or warming itself."""
-    from products.product_analytics.backend import query_demand
+def record_insight_view_context(
+    *, team_id: int, insight_ids: Collection[int], user_id: int | None, source: str, dashboard_id: int | None = None
+) -> None:
+    """Record an authorized saved-context access independently of warming eligibility."""
+    from products.product_analytics.backend import view_context
 
-    query_demand.record_insight_query_demand(team_id=team_id, insight_ids=insight_ids, dashboard_id=dashboard_id)
-
-
-def standalone_insights_with_recent_demand(
-    *, team_id: int, insight_ids: Collection[int], threshold: datetime
-) -> set[int]:
-    from products.product_analytics.backend import query_demand
-
-    return query_demand.standalone_insights_with_recent_demand(
-        team_id=team_id, insight_ids=insight_ids, threshold=threshold
+    view_context.record_insight_view_context(
+        team_id=team_id, insight_ids=insight_ids, user_id=user_id, source=source, dashboard_id=dashboard_id
     )
 
 
-def prune_insight_query_demand(*, team_id: int) -> None:
-    from products.product_analytics.backend import query_demand
+def insight_view_contexts(*, team_id: int, insight_ids: Collection[int]) -> QuerySet["InsightViewed"]:
+    """Return access facts; consumers own source, viewer, context and recency policy."""
+    from products.product_analytics.backend import view_context
 
-    query_demand.prune_insight_query_demand(team_id=team_id)
+    return view_context.insight_view_contexts(team_id=team_id, insight_ids=insight_ids)
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:

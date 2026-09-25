@@ -2613,9 +2613,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
 
-    @parameterized.expand([("standalone",), ("dashboard",), ("legacy",)])
-    def test_view_context_records_demand_separately_from_history(self, context: str) -> None:
-        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+    @parameterized.expand([("standalone", "web"), ("standalone", "mcp"), ("dashboard", "web"), ("legacy", "web")])
+    def test_view_context_records_demand_separately_from_history(self, context: str, source: str) -> None:
+        from products.product_analytics.backend.models.insight import InsightViewed
 
         insight = Insight.objects.create(team=self.team)
         other_insight = Insight.objects.create(team=self.team)
@@ -2626,10 +2626,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             payload["query_context"] = context
         if context == "dashboard":
             payload["dashboard_id"] = dashboard.pk
-        response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/viewed/",
+            payload,
+            **({"HTTP_X_POSTHOG_CLIENT": "mcp"} if source == "mcp" else {}),
+        )
         assert response.status_code == 201
-        assert InsightViewed.objects.filter(insight_id__in=payload["insight_ids"]).count() == 2
-        rows = InsightQueryDemand.objects.filter(team=self.team)
+        assert InsightViewed.objects.filter(insight_id__in=payload["insight_ids"], source="").count() == 2
+        rows = InsightViewed.objects.filter(team=self.team).exclude(source="")
+        assert not rows.exclude(user=self.user, source=source).exists()
         if context == "legacy":
             assert not rows.exists()
         elif context == "dashboard":
@@ -2639,7 +2644,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand([("insight",), ("dashboard",)])
     def test_view_context_does_not_record_inaccessible_demand(self, restricted_resource: str) -> None:
-        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+        from products.product_analytics.backend.models.insight import InsightViewed
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -2661,15 +2666,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             payload.update(query_context="dashboard", dashboard_id=dashboard.pk)
         response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
         assert response.status_code == 201
-        assert not InsightQueryDemand.objects.exists()
+        assert not InsightViewed.objects.exclude(source="").exists()
 
-    def test_metadata_retrieval_does_not_record_query_demand(self) -> None:
-        from products.product_analytics.backend.models.insight_query_demand import InsightQueryDemand
+    def test_metadata_retrieval_does_not_record_view_context(self) -> None:
+        from products.product_analytics.backend.models.insight import InsightViewed
 
         insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery"})
         response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.pk}/?basic=true")
         assert response.status_code == 200
-        assert not InsightQueryDemand.objects.exists()
+        assert not InsightViewed.objects.exclude(source="").exists()
 
     def test_insight_viewed_not_recorded_during_impersonation(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -2959,6 +2964,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team, user=other_user, insight_id=two_views_id, defaults={"last_viewed_at": viewed_at}
         )
 
+        InsightViewed.objects.create(
+            team=self.team, user=self.user, insight_id=two_views_id, source="mcp", last_viewed_at=viewed_at
+        )
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trending")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()

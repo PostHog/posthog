@@ -1795,12 +1795,17 @@ class TestSharedViewDemand(APIBaseTest):
         )
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
-        view = insight.insightviewed_set.get()
-        from products.product_analytics.backend.facade.api import standalone_insights_with_recent_demand
+        view = insight.insightviewed_set.get(source="")
+        from products.product_analytics.backend.facade.api import insight_view_contexts
 
-        assert standalone_insights_with_recent_demand(
-            team_id=self.team.pk, insight_ids=[insight.pk], threshold=view.last_viewed_at
-        ) == (set() if dashboard_context else {insight.pk})
+        rows = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="")
+        if dashboard_context:
+            # No live tile exists in this fixture, so no context is attributed.
+            assert not rows.exists()
+        else:
+            row = rows.get()
+            assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
+            assert row.last_viewed_at >= view.last_viewed_at
 
     @mock_exporter_template
     def test_shared_notebook_consumes_standalone_insight_context(self):
@@ -1824,12 +1829,12 @@ class TestSharedViewDemand(APIBaseTest):
         config = SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
-        view = insight.insightviewed_set.get()
-        from products.product_analytics.backend.facade.api import standalone_insights_with_recent_demand
+        view = insight.insightviewed_set.get(source="")
+        from products.product_analytics.backend.facade.api import insight_view_contexts
 
-        assert standalone_insights_with_recent_demand(
-            team_id=self.team.pk, insight_ids=[insight.pk], threshold=view.last_viewed_at
-        ) == {insight.pk}
+        row = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="").get()
+        assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
+        assert row.last_viewed_at >= view.last_viewed_at
 
 
 class TestSharedCohortInlining(APIBaseTest):

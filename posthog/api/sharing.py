@@ -89,8 +89,8 @@ from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
-    record_insight_query_demand,
     record_insight_view,
+    record_insight_view_context,
 )
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
@@ -1168,7 +1168,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.insight.name or resource.insight.derived_name
             asset_description = resource.insight.description or ""
             record_insight_view(insight_id=resource.insight.pk)
-            record_insight_query_demand(
+            record_insight_view_context(
+                user_id=None,
+                source="shared",
                 team_id=resource.insight.team_id,
                 insight_ids=[resource.insight.pk],
                 dashboard_id=resource.dashboard.pk if resource.dashboard else None,
@@ -1198,7 +1200,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 for tile in resource.dashboard.tiles.select_related("insight").filter(insight__deleted=False)
                 if tile.insight is not None
             ]
-            record_insight_query_demand(
+            record_insight_view_context(
+                user_id=None,
+                source="shared",
                 team_id=resource.dashboard.team_id,
                 insight_ids=[insight.pk for insight in dashboard_insights],
                 dashboard_id=resource.dashboard.pk,
@@ -1446,7 +1450,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Saved notebook insights consume the standalone query without dashboard overrides.
                 for insight in referenced_insights:
                     record_insight_view(insight_id=insight.pk)
-                    record_insight_query_demand(team_id=insight.team_id, insight_ids=[insight.pk])
+                    record_insight_view_context(
+                        team_id=insight.team_id, insight_ids=[insight.pk], user_id=None, source="shared"
+                    )
             exported_data.update({"insights": insights_by_short_id})
             # Pre-compute every inline (non-saved-insight) `ph-query` node so the shared viewer
             # can seed `cachedResults` on them too — same reason as above (no `/query/` POST).

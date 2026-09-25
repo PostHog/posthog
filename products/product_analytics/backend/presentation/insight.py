@@ -168,8 +168,8 @@ from products.product_analytics.backend.facade.api import (
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
-    record_insight_query_demand,
     record_insight_view,
+    record_insight_view_context,
     record_insight_views,
     with_last_viewed_at,
 )
@@ -2351,9 +2351,11 @@ When set, the specified dashboard's filters and date range override will be appl
                     tile.dashboard, "viewer"
                 ):
                     return Response(status=status.HTTP_201_CREATED)
-            record_insight_query_demand(
+            record_insight_view_context(
                 team_id=self.team.pk,
                 insight_ids=list(demand_insights.values_list("pk", flat=True)),
+                user_id=cast(User, request.user).pk,
+                source=get_event_source(request),
                 dashboard_id=dashboard_id,
             )
 

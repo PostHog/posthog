@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.db import connection, transaction
 from django.utils.timezone import now
 
@@ -100,7 +101,9 @@ class TestInsightViewedCompatibility(BaseTest):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
-                cursor.execute("ALTER TABLE posthog_insightviewed DROP CONSTRAINT posthog_unique_insightviewed")
+                cursor.execute(
+                    "ALTER TABLE posthog_insightviewed DROP CONSTRAINT IF EXISTS posthog_unique_insightviewed"
+                )
                 cursor.execute(
                     "CREATE UNIQUE INDEX test_insightviewed_context_unique ON posthog_insightviewed (COALESCE(team_id, 0), COALESCE(user_id, 0), insight_id, source, COALESCE(dashboard_id, 0))"
                 )
@@ -236,14 +239,14 @@ class TestRunCachedTrendsQuery(BaseTest):
             assert session_org_kwargs["is_api"] is False
 
 
-class TestConcurrentInsightQueryDemand(NonAtomicBaseTest):
+class TestConcurrentInsightViewed(NonAtomicBaseTest):
     def test_concurrent_first_requests_create_one_context(self) -> None:
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier
 
         from django.db import connections
 
-        from products.product_analytics.backend.facade.api import record_insight_query_demand
+        from products.product_analytics.backend.facade.api import record_insight_view_context
 
         insight = Insight.objects.create(team=self.team)
         team_id, insight_id = self.team.pk, insight.pk
@@ -252,7 +255,7 @@ class TestConcurrentInsightQueryDemand(NonAtomicBaseTest):
         def request() -> None:
             try:
                 barrier.wait(timeout=10)
-                record_insight_query_demand(team_id=team_id, insight_ids=[insight_id])
+                record_insight_view_context(user_id=None, source="web", team_id=team_id, insight_ids=[insight_id])
             finally:
                 connections.close_all()
 
@@ -260,80 +263,96 @@ class TestConcurrentInsightQueryDemand(NonAtomicBaseTest):
             first, second = executor.submit(request), executor.submit(request)
             first.result(timeout=20)
             second.result(timeout=20)
-        assert apps.get_model("product_analytics", "InsightQueryDemand").objects.filter(insight=insight).count() == 1
+        assert apps.get_model("product_analytics", "InsightViewed").objects.filter(insight=insight).count() == 1
 
 
-class TestInsightQueryDemandRecording(BaseTest):
-    def test_demand_is_shared_across_callers_and_monotonic(self) -> None:
-        from products.product_analytics.backend.facade.api import record_insight_query_demand
+class TestInsightViewedRecording(BaseTest):
+    @parameterized.expand(
+        [
+            ("anonymous_standalone", False, False),
+            ("user_standalone", True, False),
+            ("anonymous_dashboard", False, True),
+            ("user_dashboard", True, True),
+        ]
+    )
+    def test_context_access_is_monotonic_per_viewer_and_source(
+        self, _name: str, identified: bool, on_dashboard: bool
+    ) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_view_context
 
-        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        demand = apps.get_model("product_analytics", "InsightViewed")
         insight = Insight.objects.create(team=self.team)
+        dashboard = apps.get_model("dashboards", "Dashboard").objects.create(team=self.team) if on_dashboard else None
+        if dashboard:
+            apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
+        viewer_id = self.user.pk if identified else None
+        context = {"user_id": viewer_id, "source": "web", "dashboard_id": dashboard.pk if dashboard else None}
         first = now()
         with time_machine.travel(first, tick=False):
-            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
         with time_machine.travel(first + timedelta(seconds=30), tick=False):
-            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
-        assert demand.objects.get(insight=insight).last_requested_at == first
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_viewed_at == first
         with time_machine.travel(first + timedelta(minutes=2), tick=False):
-            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
         with time_machine.travel(first - timedelta(days=1), tick=False):
-            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
-        assert demand.objects.get(insight=insight).last_requested_at == first + timedelta(minutes=2)
-        assert not InsightViewed.objects.filter(insight=insight).exists()
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_viewed_at == first + timedelta(minutes=2)
+        record_insight_view_context(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk],
+            user_id=viewer_id,
+            source="mcp",
+            dashboard_id=dashboard.pk if dashboard else None,
+        )
+        record_insight_view_context(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk],
+            user_id=None if identified else self.user.pk,
+            source="web",
+            dashboard_id=dashboard.pk if dashboard else None,
+        )
+        assert demand.objects.filter(insight=insight).count() == 3
+        assert demand.objects.get(insight=insight, **context).last_viewed_at == first + timedelta(minutes=2)
+        assert not InsightViewed.objects.filter(insight=insight, source="").exists()
 
     def test_dashboard_demand_is_distinct_and_requires_a_live_tile(self) -> None:
-        from products.product_analytics.backend.facade.api import record_insight_query_demand
+        from products.product_analytics.backend.facade.api import record_insight_view_context
 
-        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        demand = apps.get_model("product_analytics", "InsightViewed")
         dashboard = apps.get_model("dashboards", "Dashboard").objects.create(team=self.team)
         insight = Insight.objects.create(team=self.team)
-        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk)
+        record_insight_view_context(
+            user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk
+        )
         assert not demand.objects.exists()
         apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
-        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk)
-        record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
+        record_insight_view_context(
+            user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk
+        )
+        record_insight_view_context(user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk])
         assert demand.objects.filter(insight=insight).count() == 2
         other_team = Team.objects.create(organization=self.organization)
-        record_insight_query_demand(team_id=other_team.pk, insight_ids=[insight.pk])
+        record_insight_view_context(user_id=None, source="web", team_id=other_team.pk, insight_ids=[insight.pk])
         assert not demand.objects.filter(team=other_team).exists()
         insight.deleted = True
         insight.save()
-        at = demand.objects.get(insight=insight, dashboard=None).last_requested_at
+        at = demand.objects.get(insight=insight, dashboard=None).last_viewed_at
         with time_machine.travel(now() + timedelta(days=1), tick=False):
-            record_insight_query_demand(team_id=self.team.pk, insight_ids=[insight.pk])
-        assert demand.objects.get(insight=insight, dashboard=None).last_requested_at == at
+            record_insight_view_context(user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight, dashboard=None).last_viewed_at == at
 
-    def test_recent_demand_has_throttle_grace_and_retention_is_team_scoped(self) -> None:
-        from products.product_analytics.backend.facade.api import (
-            prune_insight_query_demand,
-            standalone_insights_with_recent_demand,
-        )
+    def test_context_reads_are_team_scoped(self) -> None:
+        from products.product_analytics.backend.facade.api import insight_view_contexts
 
-        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        contexts = apps.get_model("product_analytics", "InsightViewed")
         insight = Insight.objects.create(team=self.team)
-        threshold = now() - timedelta(days=7)
-        row = demand.objects.create(
-            team=self.team, insight=insight, last_requested_at=threshold - timedelta(seconds=59)
-        )
-        assert standalone_insights_with_recent_demand(
-            team_id=self.team.pk, insight_ids=[insight.pk], threshold=threshold
-        ) == {insight.pk}
-        row.last_requested_at = threshold - timedelta(seconds=61)
-        row.save()
-        assert (
-            standalone_insights_with_recent_demand(team_id=self.team.pk, insight_ids=[insight.pk], threshold=threshold)
-            == set()
+        row = contexts.objects.create(
+            team=self.team, insight=insight, source="web", last_viewed_at=now() - timedelta(days=31)
         )
         other_team = Team.objects.create(organization=self.organization)
         other_insight = Insight.objects.create(team=other_team)
-        other = demand.objects.create(
-            team=other_team, insight=other_insight, last_requested_at=now() - timedelta(days=31)
+        contexts.objects.create(
+            team=other_team, insight=other_insight, source="web", last_viewed_at=now() - timedelta(days=31)
         )
-        row.last_requested_at = now() - timedelta(days=31)
-        row.save()
-        prune_insight_query_demand(team_id=self.team.pk)
-        assert not demand.objects.filter(pk=row.pk).exists()
-        assert demand.objects.filter(pk=other.pk).exists()
-
-
+        assert list(insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk, other_insight.pk])) == [row]

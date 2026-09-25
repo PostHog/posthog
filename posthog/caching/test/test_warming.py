@@ -1,7 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
@@ -50,6 +53,23 @@ class TestWarming(APIBaseTest):
                 self.insight5.id: datetime.now(UTC) - timedelta(days=1),
             },
         )
+
+    @parameterized.expand([("web", 59, True), ("mcp", 59, True), ("shared", 59, True), ("web", 61, False)])
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["1234:"])
+    def test_warmer_owns_context_recency_across_sources(self, source, seconds, eligible, _stale, _flag):
+        from products.product_analytics.backend.facade.api import record_insight_view_context
+
+        current = datetime.now(UTC)
+        with time_machine.travel(current - timedelta(days=7, seconds=seconds), tick=False):
+            record_insight_view_context(
+                team_id=self.team.pk,
+                insight_ids=[self.insight1.pk],
+                user_id=None if source == "shared" else self.user.pk,
+                source=source,
+            )
+        with time_machine.travel(current, tick=False):
+            assert list(insights_to_keep_fresh(self.team)) == ([(self.insight1.pk, None)] if eligible else [])
 
     @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:", "3456:7890"])
