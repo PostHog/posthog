@@ -71,6 +71,44 @@ const productColumnRenderers: Record<string, QueryContextColumn> = {
     ...sessionColumnRenderers,
 }
 
+const PERSON_LINK_COLUMNS = ['person', 'person_display_name']
+
+// The person cells are the only ones that link to a profile, so a saved view that leaves them out
+// makes every row on a persons list a dead end. The first other column carries the link instead.
+// The id column is skipped because its cell copies to the clipboard on click.
+function personProfileFallbackUrl(
+    key: string,
+    record: Record<string, any> | any[],
+    query: DataTableNode,
+    context?: QueryContext<DataTableNode>
+): string | undefined {
+    if (!isActorsQuery(query.source) || !Array.isArray(record)) {
+        return undefined
+    }
+    const select = query.source.select ?? []
+    const personUuidIndex = select.findIndex((column) => removeExpressionComment(column) === 'id')
+    if (personUuidIndex === -1) {
+        return undefined
+    }
+    // The table drops hidden columns before it renders, so the fallback follows the columns a
+    // person can see rather than everything the query selects.
+    const names = select
+        .filter(
+            (column) =>
+                !query.hiddenColumns?.includes(column) &&
+                !getContextColumn(column, context?.columns).queryContextColumn?.hidden
+        )
+        .map((column) => removeExpressionComment(column))
+    if (names.some((name) => PERSON_LINK_COLUMNS.includes(name))) {
+        return undefined
+    }
+    if (names.find((name) => name !== 'id' && name !== 'person.$delete') !== key) {
+        return undefined
+    }
+    const personUuid = record[personUuidIndex]
+    return personUuid ? urls.personByUUID(String(personUuid)) : undefined
+}
+
 export function getContextColumn(
     key: string,
     columns?: QueryContext<DataTableNode>['columns']
@@ -88,6 +126,26 @@ export function getContextColumn(
 }
 
 export function renderColumn(
+    key: string,
+    value: any,
+    record: Record<string, any> | any[],
+    recordIndex: number,
+    rowCount: number,
+    query: DataTableNode,
+    setQuery?: (query: DataTableNode) => void,
+    context?: QueryContext<DataTableNode>
+): JSX.Element | string {
+    const content = renderColumnContent(key, value, record, recordIndex, rowCount, query, setQuery, context)
+    // A cell that already renders a link of its own, such as a URL property, must not end up
+    // inside a second anchor.
+    if (typeof content !== 'string' && content.type === Link) {
+        return content
+    }
+    const fallbackUrl = personProfileFallbackUrl(removeExpressionComment(key), record, query, context)
+    return fallbackUrl ? <Link to={fallbackUrl}>{content}</Link> : content
+}
+
+function renderColumnContent(
     key: string,
     value: any,
     record: Record<string, any> | any[],

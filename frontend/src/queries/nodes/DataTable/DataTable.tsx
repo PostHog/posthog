@@ -39,6 +39,7 @@ import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import {
+    defaultDataTableColumns,
     extractExpressionComment,
     getDataNodeDefaultColumns,
     orderByForSelectKey,
@@ -896,6 +897,7 @@ export function DataTable({
                 contextKey={String(query.contextKey)}
                 query={query.source as TableViewSupportedQueryType}
                 setQuery={setQuerySource}
+                defaultColumns={query.defaultColumns ?? defaultDataTableColumns(query.source.kind)}
             />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
