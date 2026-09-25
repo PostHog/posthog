@@ -122,8 +122,12 @@ export async function createReplayer(
             ...COMMON_REPLAYER_CONFIG,
             insertStyleRules: [
                 ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                // At high speeds rrweb doesn't speed CSS animations up, so snap them to their end state, as the web
+                // player does. `animation: none` left content that is revealed by a keyframe stuck at opacity: 0.
                 ...(config.playbackSpeed >= 2
-                    ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                    ? [
+                          '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+                      ]
                     : []),
             ],
             mouseTail: config.mouseTail,
