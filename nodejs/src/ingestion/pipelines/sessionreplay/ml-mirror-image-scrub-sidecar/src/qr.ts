@@ -10,6 +10,7 @@ import { createRequire } from 'node:module'
 import { prepareZXingModule, readBarcodes } from 'zxing-wasm/reader'
 
 import { type Box } from './geometry.ts'
+import { rgbToRgba } from './pixel-convert.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 // zxing-wasm's default loader fetches its .wasm from a CDN on first use; hand it the binary that
@@ -36,12 +37,7 @@ export async function detectCodes(src: Src, scale = 1): Promise<Box[]> {
             : await srcSharp(src).resize(width, height, { fit: 'fill' }).raw().toBuffer()
     // zxing takes RGBA ImageData; expand the shared raw RGB in one pass.
     const rgba = new Uint8ClampedArray(width * height * 4)
-    for (let i = 0, o = 0; i < data.length; i += 3, o += 4) {
-        rgba[o] = data[i]
-        rgba[o + 1] = data[i + 1]
-        rgba[o + 2] = data[i + 2]
-        rgba[o + 3] = 255
-    }
+    rgbToRgba(data, rgba)
     // Structural ImageData (zxing dispatches on width/height/data); Node has no ImageData class, so
     // colorSpace only exists to satisfy the DOM type.
     const imageData = { data: rgba, width, height, colorSpace: 'srgb' } as ImageData
