@@ -55,7 +55,12 @@ def resolve_zendesk_oauth_token(integration_id: int, team_id: int) -> str:
     share one integration from spending the same refresh token twice.
     """
     with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(id=integration_id, team_id=team_id, kind="zendesk")
+        try:
+            integration = Integration.objects.select_for_update().get(
+                id=integration_id, team_id=team_id, kind="zendesk"
+            )
+        except Integration.DoesNotExist:
+            raise ValueError("Integration not found")
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
             oauth.refresh_access_token()

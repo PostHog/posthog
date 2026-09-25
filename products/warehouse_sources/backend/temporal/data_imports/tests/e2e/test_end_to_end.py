@@ -1422,11 +1422,7 @@ async def test_non_retryable_error(team, zendesk_brands):
             team=team,
             status="running",
             source_type="Zendesk",
-            job_inputs={
-                "subdomain": "test",
-                "api_key": "test_api_key",
-                "email_address": "test@posthog.com",
-            },
+            job_inputs=_ZENDESK_JOB_INPUTS,
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1534,11 +1530,7 @@ async def test_inconsistent_types_in_data(team):
         team=team,
         status="running",
         source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
+        job_inputs=_ZENDESK_JOB_INPUTS,
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -3362,11 +3354,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             schema_name="brands",
             table_name="zendesk_brands",
             source_type="Zendesk",
-            job_inputs={
-                "subdomain": "test",
-                "api_key": "test_api_key",
-                "email_address": "test@posthog.com",
-            },
+            job_inputs=_ZENDESK_JOB_INPUTS,
             mock_data_response=zendesk_brands["brands"],
             sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
@@ -3566,11 +3554,7 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
             schema_name="brands",
             table_name="zendesk_brands",
             source_type="Zendesk",
-            job_inputs={
-                "subdomain": "test",
-                "api_key": "test_api_key",
-                "email_address": "test@posthog.com",
-            },
+            job_inputs=_ZENDESK_JOB_INPUTS,
             mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
             ignore_assertions=True,
         )

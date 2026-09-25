@@ -33,6 +33,7 @@ export function ZendeskSetupModal({
             footer={
                 <LemonButton
                     type="primary"
+                    // nosemgrep: prefer-codegen-api-namespaced-integrations - the generated authorize URL takes no query params
                     to={api.integrations.authorizeUrl({
                         kind: 'zendesk',
                         next: redirectUrl ?? window.location.pathname,
