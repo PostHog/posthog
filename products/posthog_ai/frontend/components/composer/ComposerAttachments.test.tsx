@@ -20,8 +20,8 @@ function pasteInto(target: HTMLElement, files: File[], text: string): boolean {
     return fireEvent.paste(target, { clipboardData: { files, getData: () => text } })
 }
 
-function dropFiles(target: HTMLElement, files: File[]): void {
-    fireEvent.drop(target, { dataTransfer: { files, types: ['Files'] } })
+function dropFiles(target: HTMLElement, files: File[]): boolean {
+    return fireEvent.drop(target, { dataTransfer: { files, types: ['Files'] } })
 }
 
 describe('ComposerAttachments', () => {
@@ -141,10 +141,12 @@ describe('ComposerAttachments', () => {
         )
 
         expect(document.querySelector('[data-attr="posthog-ai-attach-file"]')).toBeNull()
-        dropFiles(dropTargetRef.current!, [new File(['a'], 'dropped.png')])
+        const notPrevented = dropFiles(dropTargetRef.current!, [new File(['a'], 'dropped.png')])
         pasteInto(document.querySelector('textarea')!, [new File(['a'], 'pasted.png')], '')
 
         expect(logic.values.attachments).toEqual([])
+        // The browser would otherwise open the dropped file and lose the draft.
+        expect(notPrevented).toBe(false)
     })
 
     it('stops listening once unmounted, so a later drop stages nothing', () => {

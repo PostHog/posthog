@@ -122,13 +122,15 @@ export function ComposerAttachments({
 
     const acceptDropped = useCallback(
         (files: File[]) => {
-            if (!addDisabledReason) {
+            if (enabled && !addDisabledReason) {
                 addFiles(files)
             }
         },
-        [addFiles, addDisabledReason]
+        [addFiles, addDisabledReason, enabled]
     )
-    const isOver = useFileDrop(enabled ? dropTargetRef : undefined, acceptDropped)
+    // The drop target keeps its listeners while the flag is off, because they are what stops the browser
+    // from taking the drop and navigating away from the draft. Only the staging above is gated.
+    const isOver = useFileDrop(dropTargetRef, acceptDropped)
 
     if (!enabled) {
         return <></>
