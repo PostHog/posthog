@@ -1,1 +1,1 @@
-0009_llmskill_skill_md_sha256_llmskill_skill_md_size_and_more
+0010_communityskill_kind_communityskill_scout_config
