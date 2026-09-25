@@ -8,9 +8,6 @@ import { IconBell } from '@posthog/icons'
 
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { userLogic } from 'scenes/userLogic'
-
-import { AvailableFeature } from '~/types'
 
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -28,9 +25,7 @@ function SubscribeCountIcon({ dashboardId }: { dashboardId: number }): JSX.Eleme
 }
 
 function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
-
-    if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) || !subscriptionsLogic.isMounted({ dashboardId })) {
+    if (!subscriptionsLogic.isMounted({ dashboardId })) {
         return <IconBell className="DashboardSubscribeBell" fontSize="16" />
     }
 
