@@ -100,7 +100,9 @@ class TestInsightViewedCompatibility(BaseTest):
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
-                cursor.execute("ALTER TABLE posthog_insightviewed DROP CONSTRAINT posthog_unique_insightviewed")
+                cursor.execute(
+                    "ALTER TABLE posthog_insightviewed DROP CONSTRAINT IF EXISTS posthog_unique_insightviewed"
+                )
                 cursor.execute(
                     "CREATE UNIQUE INDEX test_insightviewed_context_unique ON posthog_insightviewed (COALESCE(team_id, 0), COALESCE(user_id, 0), insight_id, source, COALESCE(dashboard_id, 0))"
                 )
