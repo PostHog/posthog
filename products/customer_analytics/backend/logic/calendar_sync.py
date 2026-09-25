@@ -97,9 +97,21 @@ def mark_calendar_sync_retrying(integration_id: int, team_id: int, retry_after: 
     )
 
 
+def mark_calendar_sync_failed(integration_id: int, team_id: int) -> None:
+    update_calendar_sync_config(
+        integration_id,
+        team_id,
+        {SYNC_ATTEMPTED_AT_CONFIG_KEY: timezone.now().isoformat()},
+        (SYNC_STARTED_AT_CONFIG_KEY,),
+    )
+
+
 def mark_calendar_sync_completed(integration_id: int, team_id: int) -> None:
     update_calendar_sync_config(
-        integration_id, team_id, {LAST_SYNCED_AT_CONFIG_KEY: timezone.now().isoformat()}, (SYNC_RETRY_AT_CONFIG_KEY,)
+        integration_id,
+        team_id,
+        {LAST_SYNCED_AT_CONFIG_KEY: timezone.now().isoformat()},
+        (SYNC_RETRY_AT_CONFIG_KEY, SYNC_STARTED_AT_CONFIG_KEY, SYNC_ATTEMPTED_AT_CONFIG_KEY),
     )
 
 
@@ -122,16 +134,20 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     counts = CalendarSyncCounts()
     sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
-        next_sync_token = _sync_events(
-            team, access_token, str(integration.integration_id), sync_token, internal_domain, counts
-        )
-    except SyncTokenExpired:
-        next_sync_token = _sync_events(
-            team, access_token, str(integration.integration_id), None, internal_domain, counts
-        )
+        try:
+            next_sync_token = _sync_events(
+                team, access_token, str(integration.integration_id), sync_token, internal_domain, counts
+            )
+        except SyncTokenExpired:
+            next_sync_token = _sync_events(
+                team, access_token, str(integration.integration_id), None, internal_domain, counts
+            )
 
-    update_calendar_sync_config(integration_id, team_id, {SYNC_TOKEN_CONFIG_KEY: next_sync_token})
-    mark_calendar_sync_completed(integration_id, team_id)
+        update_calendar_sync_config(integration_id, team_id, {SYNC_TOKEN_CONFIG_KEY: next_sync_token})
+        mark_calendar_sync_completed(integration_id, team_id)
+    except Exception:
+        mark_calendar_sync_failed(integration_id, team_id)
+        raise
     return counts
 
 

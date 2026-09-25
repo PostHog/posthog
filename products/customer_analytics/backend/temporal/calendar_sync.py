@@ -117,7 +117,6 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
         get_calendar_sync_interval,
-        update_calendar_sync_config,
     )
 
     now = timezone.now()
@@ -138,11 +137,9 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
         due.append((attempted or datetime.min.replace(tzinfo=now.tzinfo), integration.id, integration.team_id))
 
     due.sort()
-    selected = due[:MAX_SYNCS_PER_RUN]
-    for _, integration_id, team_id in selected:
-        update_calendar_sync_config(integration_id, team_id, {SYNC_ATTEMPTED_AT_CONFIG_KEY: now.isoformat()})
     return [
-        CalendarSyncInput(integration_id=integration_id, team_id=team_id) for _, integration_id, team_id in selected
+        CalendarSyncInput(integration_id=integration_id, team_id=team_id)
+        for _, integration_id, team_id in due[:MAX_SYNCS_PER_RUN]
     ]
 
 
@@ -357,7 +354,7 @@ class GoogleAccountBackfillWorkflow:
 
 @workflow.defn(name=CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME)
 class CalendarSyncCoordinatorWorkflow:
-    """Hourly coordinator: one child per connected calendar.
+    """Scheduled coordinator: one child per connected calendar.
 
     Child ids are deterministic per integration, so overlapping ticks can't sync the
     same calendar concurrently (start fails with WorkflowAlreadyStartedError while a

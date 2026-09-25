@@ -1,12 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
+
+from posthog.models.integration import Integration
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
+from products.customer_analytics.backend.temporal import calendar_sync as temporal_calendar_sync
 
 
 def _event(**overrides) -> dict:
@@ -39,8 +45,6 @@ class TestCalendarSync(BaseTest):
         self.integration = self._create_integration()
 
     def _create_integration(self):
-        from posthog.models.integration import Integration
-
         return Integration.objects.create(
             team=self.team,
             kind="google-calendar",
@@ -139,6 +143,79 @@ class TestCalendarSync(BaseTest):
         assert counts.upserted == 1
         self.integration.refresh_from_db()
         assert self.integration.config["calendar_sync_token"] == "fresh"
+
+    @parameterized.expand([(5,), (15,), (30,), (60,)])
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_honors_configured_cadence_boundary(self, interval_minutes: int) -> None:
+        now = timezone.now()
+        self.integration.config.update(
+            {
+                calendar_sync.SYNC_INTERVAL_CONFIG_KEY: interval_minutes,
+                calendar_sync.LAST_SYNCED_AT_CONFIG_KEY: (
+                    now - timedelta(minutes=interval_minutes) + timedelta(seconds=1)
+                ).isoformat(),
+            }
+        )
+        self.integration.save(update_fields=["config"])
+
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        self.integration.config[calendar_sync.LAST_SYNCED_AT_CONFIG_KEY] = (
+            now - timedelta(minutes=interval_minutes)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+        self.integration.refresh_from_db(fields=["config"])
+        assert calendar_sync.SYNC_ATTEMPTED_AT_CONFIG_KEY not in self.integration.config
+
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_failed_sync_clears_active_marker_and_waits_for_its_cadence(self) -> None:
+        self.integration.config[calendar_sync.SYNC_INTERVAL_CONFIG_KEY] = 5
+        self.integration.save(update_fields=["config"])
+        error_response = MagicMock(status_code=500, text="Google Calendar unavailable")
+
+        with self.assertRaises(calendar_sync.CalendarSyncError):
+            self._sync([error_response])
+
+        self.integration.refresh_from_db(fields=["config"])
+        assert calendar_sync.SYNC_STARTED_AT_CONFIG_KEY not in self.integration.config
+        assert self.integration.config[calendar_sync.SYNC_ATTEMPTED_AT_CONFIG_KEY] == timezone.now().isoformat()
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        with time_machine.travel("2026-09-25T12:05:00Z", tick=False):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_waits_for_retry_window(self) -> None:
+        self.integration.config[calendar_sync.SYNC_RETRY_AT_CONFIG_KEY] = (
+            timezone.now() + timedelta(minutes=5)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
+
+        assert temporal_calendar_sync._collect_calendar_integrations() == []
+
+        with time_machine.travel("2026-09-25T12:05:00Z", tick=False):
+            selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
+    def test_collector_limits_each_run_to_two_hundred_accounts(self) -> None:
+        Integration.objects.bulk_create(
+            [
+                Integration(
+                    team=self.team,
+                    kind="google-calendar",
+                    integration_id=f"google-sub-{index + 2}",
+                )
+                for index in range(temporal_calendar_sync.MAX_SYNCS_PER_RUN)
+            ]
+        )
+
+        assert len(temporal_calendar_sync._collect_calendar_integrations()) == 200
 
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"

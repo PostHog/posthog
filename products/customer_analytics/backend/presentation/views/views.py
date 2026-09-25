@@ -2790,7 +2790,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
         interval_minutes = request.validated_data["sync_interval_minutes"]
         if not api.update_calendar_sync_interval(self.team_id, integration_id, interval_minutes):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response({"integration_id": integration_id, "sync_interval_minutes": interval_minutes})
+        return Response(CalendarSyncIntervalSerializer(instance=request.validated_data).data)
 
     @validated_request(
         request_serializer=CalendarSyncBackfillSerializer,
