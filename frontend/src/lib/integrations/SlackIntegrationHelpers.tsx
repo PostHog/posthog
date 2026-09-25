@@ -23,6 +23,7 @@ import { IntegrationType, SlackChannelType } from '~/types'
 
 import type { SlackUserApi } from 'products/integrations/frontend/generated/api.schemas'
 
+import { integrationsLogic } from './integrationsLogic'
 import { slackChannelId } from './slackChannel'
 import { slackConnectLogic } from './slackConnectLogic'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
@@ -45,6 +46,8 @@ export function SlackNotConfiguredBanner({
     const logic = slackConnectLogic({ connectKey, onConnected })
     const { waitingForSlack, slackIntegrations } = useValues(logic)
     const { connectSlackClicked } = useActions(logic)
+    const { integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
     return (
         <LemonBanner type={type} className={className}>
@@ -56,7 +59,18 @@ export function SlackNotConfiguredBanner({
                     </span>
                     {/* A click before the first load has no workspace list to compare the new one against. */}
                     {slackIntegrations === undefined ? (
-                        <Spinner className="text-lg" />
+                        integrationsLoading ? (
+                            <Spinner className="text-lg" />
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                tooltip="Couldn't load your Slack workspaces"
+                                onClick={() => loadIntegrations()}
+                            >
+                                Try again
+                            </LemonButton>
+                        )
                     ) : (
                         <Link
                             // nosemgrep: prefer-codegen-api-namespaced-integrations - the generated authorize URL takes no query params
