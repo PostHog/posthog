@@ -211,5 +211,8 @@ order by timestamp desc
 TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {PERFORMANCE_EVENT_DATA_TABLE()}"
 
 
-def UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL():
-    return f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"
+def UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(on_cluster=True, weeks="%(weeks)s"):
+    return (
+        f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)} "
+        f"MODIFY TTL toDate(timestamp) + toIntervalWeek({weeks})"
+    )
