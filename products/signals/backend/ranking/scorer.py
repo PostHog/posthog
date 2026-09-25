@@ -27,7 +27,7 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
     ReportEmbeddingsFeatureSet,
 )
-from products.signals.backend.ranking.model_store import LoadedModel, load_serving_set
+from products.signals.backend.ranking.model_store import LoadedModel, ServingSet, load_serving_set
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
@@ -81,6 +81,20 @@ def _served_extra(feature_set: FeatureSet) -> str | None:
         return None
     (extra,) = feature_set.extras_keys
     return extra if extra in RENDERING_BY_EXTRA else None
+
+
+def _served_model_extra(served: LoadedModel) -> str:
+    extra = _served_extra(served.feature_set)
+    if extra is None:
+        raise ScoringError(
+            f"served model {served.entry.key} is on feature set {served.feature_set.name}, not served yet"
+        )
+    return extra
+
+
+def served_rendering(serving: ServingSet) -> str:
+    """The rendering the served model reads, so the vector a served score depends on."""
+    return RENDERING_BY_EXTRA[_served_model_extra(serving.served)]
 
 
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
@@ -168,11 +182,7 @@ def score_reports(
     if not ids:
         return []
     served = serving.served
-    served_extra = _served_extra(served.feature_set)
-    if served_extra is None:
-        raise ScoringError(
-            f"served model {served.entry.key} is on feature set {served.feature_set.name}, not served yet"
-        )
+    served_extra = _served_model_extra(served)
 
     models = [served, *serving.others]
     needed_extras = {extra for model in models if (extra := _served_extra(model.feature_set)) is not None}

@@ -1150,6 +1150,7 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),
@@ -4663,7 +4664,9 @@ class SignalReportArtefactViewSet(
         ).exclude(report__status=SignalReport.Status.DELETED)
 
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self.filter_queryset(self.get_queryset()).exclude(
+            type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
+        )
         # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
         # report's research / implementation runs appear in the log even before the backfill has
         # converted its gate rows. Merged into the materialized log (de-duplicated against the real
