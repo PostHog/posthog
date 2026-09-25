@@ -568,10 +568,17 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
 
 
 def _pregate_context(
-    files: list[dict], *, draft: bool = False, user_type: str = "User", check_runs: list[dict] | None = None
+    files: list[dict],
+    *,
+    draft: bool = False,
+    user_type: str = "User",
+    check_runs: list[dict] | None = None,
+    folder_policies_known: bool = False,
 ) -> dict:
     context = _run_context(files, check_runs)
     context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
+    if folder_policies_known:
+        context["folder_policies_known"] = True
     return context
 
 
@@ -579,53 +586,87 @@ def _lines(filename: str, additions: int) -> dict:
     return {"filename": filename, "additions": additions, "deletions": 0, "status": "modified", "patch": "@@"}
 
 
+_PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", "conclusion": None}]
+
+
 @pytest.mark.parametrize(
-    "context, expect_final, expect_summary",
+    "context, expect_verdict, expect_summary",
     [
-        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), True, True, id="deny-list-and-t2"),
-        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), True, True, id="draft-prerequisite"),
-        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), True, False, id="bot-author"),
+        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), "REFUSED", True, id="deny-list-and-t2"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), "REFUSED", True, id="draft-prerequisite"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), "REFUSED", False, id="bot-author"),
         pytest.param(
-            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]), True, True, id="past-the-file-contract"
+            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]),
+            "REFUSED",
+            True,
+            id="past-the-file-contract",
         ),
         # Between the global ceiling and the delegation contract, a folder AGENT_APPROVALS.md on the PR
         # head can lift the size gate, and the pre-check cannot read one.
-        pytest.param(_pregate_context([_lines("src/big.py", 900)]), False, False, id="size-a-folder-could-lift"),
+        pytest.param(_pregate_context([_lines("src/big.py", 900)]), None, False, id="size-a-folder-could-lift"),
+        pytest.param(
+            _pregate_context([_lines("src/big.py", 900)], folder_policies_known=True),
+            "REFUSED",
+            True,
+            id="size-with-folder-files-known",
+        ),
         # The manifest scripts scan reads git, which the pre-check does not have; running it anyway fails
         # closed and would refuse every manifest edit.
-        pytest.param(_pregate_context([_api_file("frontend/package.json")]), False, False, id="manifest-scan-skipped"),
+        pytest.param(_pregate_context([_api_file("frontend/package.json")]), None, False, id="manifest-scan-skipped"),
         pytest.param(
-            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")]),
+            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")], check_runs=_PENDING_MIGRATION_CHECK),
+            None,
             False,
-            False,
-            id="pending-migration-check-can-wait",
+            id="pending-migration-check-without-folder-files",
         ),
-        pytest.param(_pregate_context([_api_file("src/app.py")]), False, False, id="clean-t1"),
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            "WAIT",
+            False,
+            id="pending-migration-check-waits",
+        ),
+        # A manifest's scripts scan could add a second deny in the sandbox and turn the WAIT into a refusal.
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py"), _api_file("frontend/package.json")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            None,
+            False,
+            id="pending-migration-check-with-a-manifest",
+        ),
+        pytest.param(_pregate_context([_api_file("src/app.py")]), None, False, id="clean-t1"),
     ],
 )
-def test_pregate_fast_denies_only_what_the_full_review_refuses(
-    monkeypatch, context: dict, expect_final: bool, expect_summary: bool
+def test_pregate_is_final_only_where_the_full_review_agrees(
+    monkeypatch, context: dict, expect_verdict: str | None, expect_summary: bool
 ) -> None:
-    # The server posts a final pre-check deny as the verdict and never makes a sandbox, so a final
-    # deny the full review would not also refuse is a wrong refusal nobody gets to overturn.
+    # The server posts a final pre-check result as the verdict and never makes a sandbox, so a final
+    # result the full review would not also reach is a wrong verdict nobody gets to overturn.
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
     monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
 
     outcome = review_local.pregate(context)
 
-    assert outcome["final_deny"] is expect_final
+    assert outcome["final"] is (expect_verdict is not None)
     assert outcome["needs_summary"] is expect_summary
-    if not expect_final:
+    if expect_verdict is None:
         assert outcome["result"] is None
+        assert outcome["not_final_reason"]
         return
-    assert outcome["result"]["final_verdict"] == "REFUSED"
+    assert outcome["result"]["final_verdict"] == expect_verdict
     assert outcome["result"]["review_body"]
 
     def approve(self, pr, classification, gate_context, diff_path=None):
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
     monkeypatch.setattr(reviewer.Reviewer, "review", approve)
-    assert review_local.run(context)["final_verdict"] == "REFUSED"
+    assert review_local.run(context)["final_verdict"] == expect_verdict
 
 
 def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:

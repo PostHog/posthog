@@ -13,6 +13,11 @@ process, inside a temporary tree laid out like the sandbox checkout: the run's t
 under ``.stamphog/``, the engine under ``tools/pr-approval-agent``, the owners resolver beside it.
 The child gets a clean environment with no ``PYTHONPATH``, so the engine resolves its bare imports
 from its own directory and never from the worker's modules.
+
+The sandbox checkout also carries the PR head's AGENT_APPROVALS.md files, which can raise or lower a
+folder's size ceiling. The server reads every one that governs a changed file from GitHub at the
+reviewed head and writes it into the same tree, so the pre-check budgets the size gate like the
+sandbox does.
 """
 
 from __future__ import annotations
@@ -20,12 +25,21 @@ from __future__ import annotations
 import os
 import sys
 import json
+import time
 import tempfile
 import subprocess
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
+from posthog.ownership.github_files import GitHubFilesFetcher
+
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+
+logger = structlog.get_logger(__name__)
 
 # This file is products/stamphog/backend/logic/engine_pregate.py. The engine is a data directory of
 # the product. owners_yaml is a distribution the production venv installs, so it lives under the repo
@@ -38,6 +52,10 @@ OWNERS_PACKAGE_DIR = Path(__file__).resolve().parents[4] / "packages" / "owners-
 _ENGINE_SUBDIR = Path("tools") / "pr-approval-agent"
 _OWNERS_SUBDIR = Path("tools") / "owners" / "owners_yaml"
 
+# Mirrors _FOLDER_POLICY_FILENAME in the engine's policy.py, which the backend cannot import.
+FOLDER_POLICY_FILENAME = "AGENT_APPROVALS.md"
+_FOLDER_POLICY_BUDGET_SECONDS = 10
+
 # A gate-only run imports the engine and evaluates a few regexes. A run that takes longer than this
 # is broken, and the caller then falls through to the sandbox review.
 PREGATE_TIMEOUT_SECONDS = 30
@@ -49,14 +67,16 @@ class EnginePregateError(RuntimeError):
 
 @frozen
 class PregateOutcome:
-    # True only when the full sandbox review would also end REFUSED.
-    final_deny: bool
+    # True only when the full sandbox review would end with the same verdict as ``result``.
+    final: bool
     # True when an LLM summary would improve the refusal text. The bot-author refusal has its own.
     needs_summary: bool
     # The engine's reviewer model, so the summary call uses the model the gateway token allows.
     summary_model: str
     # The engine's to_dict() contract, the same shape the sandbox review prints. None when not final.
     result: dict | None
+    # Why a non-final outcome needs the sandbox, for telemetry. Empty when final.
+    not_final_reason: str = ""
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -76,6 +96,39 @@ def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: s
     if any(file.get("status") in ("renamed", "copied") for file in files):
         return "renamed_files"
     return None
+
+
+def folder_policy_candidates(files: list[dict]) -> list[str]:
+    """Every AGENT_APPROVALS.md path that could govern a changed file: one per ancestor directory.
+
+    The engine walks the same chain from each changed file's directory up to the repo root.
+    """
+    directories = {parent for entry in files for parent in PurePosixPath(entry.get("filename") or "").parents}
+    return sorted((directory / FOLDER_POLICY_FILENAME).as_posix() for directory in directories)
+
+
+def fetch_folder_policy_files(
+    client: StamphogGitHubClient, repo: str, head_sha: str, files: list[dict]
+) -> dict[str, str] | None:
+    """The PR head's AGENT_APPROVALS.md files that govern ``files``, or None when they are unknown.
+
+    None keeps the pre-check on its conservative size rule, so a failure here only makes a fast path
+    less likely. Never raises.
+    """
+    deadline = time.monotonic() + _FOLDER_POLICY_BUDGET_SECONDS
+    try:
+        fetcher = GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=client.installation_id,
+            refresh=client.refresh_installation_token,
+            priority=Priority.NORMAL,
+        )
+        exists = fetcher.files_exist(repo, head_sha, folder_policy_candidates(files), deadline)
+        present = [path for path, found in exists.items() if found]
+        return fetcher.read_files(repo, head_sha, present, deadline) if present else {}
+    except Exception:
+        logger.warning("stamphog_folder_policy_fetch_failed", repo=repo, exc_info=True)
+        return None
 
 
 def engine_source_files() -> dict[str, str]:
@@ -132,10 +185,11 @@ def _parse_outcome(stdout: str) -> PregateOutcome:
         raise EnginePregateError("the engine pre-check result is not an object")
     result = parsed.get("result")
     return PregateOutcome(
-        final_deny=parsed.get("final_deny") is True and isinstance(result, dict),
+        final=parsed.get("final") is True and isinstance(result, dict),
         needs_summary=parsed.get("needs_summary") is True,
         summary_model=str(parsed.get("summary_model") or ""),
         result=result if isinstance(result, dict) else None,
+        not_final_reason=str(parsed.get("not_final_reason") or ""),
     )
 
 
@@ -145,7 +199,7 @@ def run_engine_pregate(
     """Run ``review_local.py --pregate`` on ``context`` under ``policy_files`` and parse its answer.
 
     ``policy_files`` maps repo-relative paths to the effective trusted policy, the same set the
-    sandbox injects. ``environment`` is added to the child's otherwise empty environment: pass the
+    sandbox injects, plus any folder files from ``fetch_folder_policy_files``. ``environment`` is added to the child's otherwise empty environment: pass the
     analytics keys only on the run whose result is posted, so the engine emits its
     ``stamphog_review_completed`` event once.
     """

@@ -63,6 +63,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
     PregateOutcome,
     engine_source_files,
+    fetch_folder_policy_files,
     owners_package_files,
     pregate_skip_reason,
     run_engine_pregate,
@@ -463,6 +464,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         content = client.get_default_branch_file(repo, path)
         if content is not None:
             policy_files[path] = content
+    folder_policy_files = fetch_folder_policy_files(client, repo, run.head_sha, files)
 
     history: ReviewHistory = history_future.result()
 
@@ -485,6 +487,9 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         # Always set, null included, for the same reason: the sandbox checkout holds no history,
         # so the engine must not fall back to `git log` for the provenance trailers.
         "commit_messages": commit_messages,
+        # Read at the PR head, unlike policy_files: the sandbox checkout is the head, and the pre-check
+        # must budget the size gate as the sandbox does. None means unknown.
+        "folder_policy_files": folder_policy_files,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -736,21 +741,32 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
         _release_reviewer_token(gateway, token)
 
 
+def _save_pregate_outcome(run: ReviewRun, pregate_outcome: str) -> None:
+    run.output = {**(run.output or {}), "pregate_outcome": pregate_outcome}
+    run.save(update_fields=["output", "updated_at"])
+
+
 def _refuse_on_pre_gates(run: ReviewRun) -> dict:
     output = run.output or {}
     skip_reason = pregate_skip_reason(output.get("pr") or {}, output.get("files") or [], run.head_sha)
     if skip_reason is not None:
         activity.logger.info(f"Run {run.id}: pre-gates skipped ({skip_reason})")
+        _save_pregate_outcome(run, f"skipped:{skip_reason}")
         return {"refused": False, "skipped": skip_reason}
 
     context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
     # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
     policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
+    folder_policy_files = output.get("folder_policy_files")
+    if isinstance(folder_policy_files, dict):
+        policy_files = {**policy_files, **folder_policy_files}
+        context["folder_policies_known"] = True
     timer = _StepTimer()
     # No analytics env on this first run: it only decides, and the posted run below emits the event.
     with timer.step("pregate"):
         outcome = run_engine_pregate(context, policy_files, environment={})
-    if not outcome.final_deny:
+    if not outcome.final:
+        _save_pregate_outcome(run, f"not_final:{outcome.not_final_reason or 'unknown'}")
         return {"refused": False}
 
     summary = None
@@ -766,7 +782,7 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
     }
     with timer.step("render"):
         final = run_engine_pregate(context, policy_files, environment=_engine_analytics_environment(properties))
-    if not final.final_deny or final.result is None:
+    if not final.final or final.result is None:
         raise RuntimeError("the engine pre-check changed its answer between two runs on the same context")
 
     # The same last-line JSON contract the sandbox prints, so post_verdict parses it unchanged. The
@@ -777,22 +793,25 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         "reviewer_exit_code": 0,
         "timings_ms": timer.timings_ms,
         "fast_path": True,
+        "pregate_outcome": f"final:{final.result.get('final_verdict')}",
     }
     run.save(update_fields=["output", "updated_at"])
-    activity.logger.info(f"Pre-gate refusal for run {run.id}; step timings: {timer.timings_ms}")
+    activity.logger.info(f"Pre-gate verdict for run {run.id}; step timings: {timer.timings_ms}")
     return {"refused": True}
 
 
 @activity.defn
 @asyncify
 def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
-    """Refuse a PR on its deterministic gates alone, before the bot wait and the sandbox.
+    """Settle a PR on its deterministic gates alone, before the bot wait and the sandbox.
 
     Runs the engine's gate-only pre-check on the stored context (see logic/engine_pregate.py). Only a
-    deny the full review would also reach counts, and then the refusal is persisted in the sandbox's
-    output shape, so post_verdict and everything after it work unchanged. Everything else, including
-    any failure here, returns ``refused: False`` and the run takes the full review path, which runs
-    every gate again. This step can therefore only make a refusal faster, never cause one.
+    verdict the full review would also reach counts: a gate refusal, or the WAIT for a pending
+    `Migration risk` check. It is persisted in the sandbox's output shape, so post_verdict and
+    everything after it work unchanged, and ``refused`` is True for both, because the workflow reads
+    that key to skip the sandbox. Everything else, including any failure here, returns
+    ``refused: False`` and the run takes the full review path, which runs every gate again. This step
+    can therefore only make a non-approval faster, never cause one.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
@@ -801,6 +820,7 @@ def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
         return _refuse_on_pre_gates(run)
     except Exception:
         activity.logger.exception(f"Run {run.id}: pre-gates failed; falling through to the full review")
+        _save_pregate_outcome(run, "error")
         return {"refused": False, "skipped": "error"}
 
 

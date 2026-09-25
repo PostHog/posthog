@@ -39,8 +39,8 @@ this script runs, so a PR head cannot substitute its own gate. The reviewer key
 comes from the environment (ANTHROPIC_API_KEY).
 
 `--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
-in a temporary tree that holds only the trusted policy files and this engine, before it waits for
-other bots or makes a sandbox.
+in a temporary tree that holds the trusted policy files, this engine and, when the server could read
+them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
 """
 
 import os
@@ -62,7 +62,7 @@ from familiarity import (
     _select_considered_files,
     familiarity_from_facts,
 )
-from gates import POLICY, assign_tier, substantive_size
+from gates import POLICY, assign_tier, dependency_manifests_without_lockfile, substantive_size
 from gateway import REVIEWER_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
@@ -446,15 +446,20 @@ def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
 _CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "tier"})
 
 
-def _size_denial_is_final(pipeline: Pipeline) -> bool:
+def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     """True when no folder override on the PR head can lift the size gate.
 
-    The pre-check has no checkout, so it reads no AGENT_APPROVALS.md and budgets every file against
-    the global ceilings. A folder file can raise a ceiling up to the policy's delegation contract, and
-    the whole-PR roof is the most generous ceiling in play. A PR past the higher of the global ceiling
+    With ``folder_policies_known``, the server wrote every AGENT_APPROVALS.md that governs a changed
+    file at the PR head into the pre-check tree, so the size gate budgets exactly as in the sandbox.
+
+    Otherwise the pre-check reads no AGENT_APPROVALS.md and budgets every file against the global
+    ceilings. A folder file can raise a ceiling up to the policy's delegation contract, and the
+    whole-PR roof is the most generous ceiling in play. A PR past the higher of the global ceiling
     and the contract ceiling therefore fails the size gate in the sandbox, whatever folder files it
     carries. A PR between the two can pass there, so it is not final here.
     """
+    if folder_policies_known:
+        return True
     lines, files = substantive_size(pipeline.pr.files)
     line_contract = POLICY.overrides.get("size_gate.max_lines")
     file_contract = POLICY.overrides.get("size_gate.max_files")
@@ -463,22 +468,58 @@ def _size_denial_is_final(pipeline: Pipeline) -> bool:
     return lines > line_ceiling or files > file_ceiling
 
 
-def _denial_is_final(pipeline: Pipeline) -> bool:
+def _pending_migration_outcome_is_known(pipeline: Pipeline, folder_policies_known: bool) -> bool:
+    """True when the pre-check reaches the same pending-migration decision as the sandbox.
+
+    That decision reads the whole gate set. Only two inputs of it need a checkout: the folder size
+    grants, which ``folder_policies_known`` supplies, and the manifest scripts scan, which reads git
+    and can add a deny. A PR with a dependency manifest therefore stays undecided.
+    """
+    return folder_policies_known and not dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+
+
+def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     """True when the full sandbox review of this PR must also end REFUSED.
 
     A migrations-only deny with a pending `Migration risk` check ends as WAIT in the sandbox (see
-    _blocked_only_by_pending_migration_check). That outcome depends on the size gate, which the
-    pre-check cannot always settle, so only a failing prerequisite, which both runs see identically,
-    keeps that case final.
+    _blocked_only_by_pending_migration_check). Unless the pre-check can settle that decision, only a
+    failing prerequisite, which both runs see identically, keeps that case final.
     """
     failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
     if (
         pipeline.classification.get("deny_categories") == ["migrations"]
         and migration_check_pending(pipeline.pr.check_runs, pipeline.pr.file_paths)
         and "prerequisites" not in failed
+        and not _pending_migration_outcome_is_known(pipeline, folder_policies_known)
     ):
         return False
-    return bool(failed & _CHECKOUT_FREE_GATES) or ("size" in failed and _size_denial_is_final(pipeline))
+    return bool(failed & _CHECKOUT_FREE_GATES) or (
+        "size" in failed and _size_denial_is_final(pipeline, folder_policies_known)
+    )
+
+
+def _pending_migration_wait() -> dict:
+    """The WAIT the full review returns while the `Migration risk` check has not reported."""
+    return {
+        "verdict": "WAIT",
+        "reasoning": (
+            "The `Migration risk` check has not finished for this commit, so stamphog cannot "
+            "tell a safe migration from a risky one yet. The review runs again on the next "
+            "push, or you can re-request it once the check reports."
+        ),
+        "risk": "unknown",
+        "issues": [],
+    }
+
+
+def _not_final_reason(pipeline: Pipeline) -> str:
+    """Why a pre-check that did not settle the verdict leaves it to the sandbox, for telemetry."""
+    failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
+    if not failed:
+        return "no_failing_gate"
+    if failed == {"size"}:
+        return "size_folder_override"
+    return "pending_migration_check"
 
 
 def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
@@ -493,13 +534,20 @@ def pregate(context: dict) -> dict:
     """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
 
     It drives the same Pipeline steps as run(), on the same context, with no checkout and no LLM.
-    ``final_deny`` is True only when the sandbox review would also end REFUSED. The server then posts
-    ``result`` as the verdict and skips the sandbox. Any other outcome falls through to the full
+    ``final`` is True only when the sandbox review would end with the same verdict as ``result``,
+    which is a gate refusal or a pending-migration WAIT. The server then posts ``result`` as the
+    verdict and skips the sandbox. Any other outcome falls through to the full
     review, which runs every gate again.
+
+    A pending `Migration risk` check that alone blocks the review is final too, as the same WAIT the
+    sandbox would return, when the pre-check can settle it (see _pending_migration_outcome_is_known).
 
     A gate refusal takes its reasoning from ``refusal_reasoning`` in the context, which the server
     fills with a short LLM summary, or else from the gate messages. ``needs_summary`` tells the server
     whether a summary is worth asking for: the bot-author refusal carries its own text.
+
+    ``folder_policies_known`` in the context means the server placed the PR head's AGENT_APPROVALS.md
+    files in the pre-check tree. ``not_final_reason`` names why a non-final outcome needs the sandbox.
     """
     pipeline = Pipeline(
         0,
@@ -514,16 +562,24 @@ def pregate(context: dict) -> dict:
     # repository. Without them, provenance stays null on the fast-path event.
     if "commit_messages" in context:
         pipeline.provenance = _context_provenance(context, pipeline.pr)
-    outcome = {"final_deny": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
+    folder_policies_known = context.get("folder_policies_known") is True
+    outcome = {"final": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
-        return {**outcome, "final_deny": True, "result": pipeline.to_dict()}
+        return {**outcome, "final": True, "result": pipeline.to_dict()}
 
     pipeline._classify()
     _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
-    if not _denial_is_final(pipeline):
-        return outcome
+    if _blocked_only_by_pending_migration_check(pipeline):
+        if not _pending_migration_outcome_is_known(pipeline, folder_policies_known):
+            return {**outcome, "not_final_reason": "pending_migration_check"}
+        pipeline.final_verdict = "WAIT"
+        pipeline.reviewer_output = _pending_migration_wait()
+        pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-MIGRATION-CHECK")
+        return {**outcome, "final": True, "result": pipeline.to_dict()}
+    if not _denial_is_final(pipeline, folder_policies_known):
+        return {**outcome, "not_final_reason": _not_final_reason(pipeline)}
 
     pipeline.final_verdict = "REFUSED"
     pipeline.reviewer_output = {
@@ -533,7 +589,7 @@ def pregate(context: dict) -> dict:
         "issues": [],
     }
     pipeline._capture_review_completed("DENIED", "GATES-ONLY")
-    return {**outcome, "final_deny": True, "needs_summary": True, "result": pipeline.to_dict()}
+    return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
 
 
 def run(context: dict) -> dict:
@@ -571,16 +627,7 @@ def run(context: dict) -> dict:
         # re-request the review that it displaced.
         if _blocked_only_by_pending_migration_check(pipeline):
             pipeline.final_verdict = "WAIT"
-            pipeline.reviewer_output = {
-                "verdict": "WAIT",
-                "reasoning": (
-                    "The `Migration risk` check has not finished for this commit, so stamphog cannot "
-                    "tell a safe migration from a risky one yet. The review runs again on the next "
-                    "push, or you can re-request it once the check reports."
-                ),
-                "risk": "unknown",
-                "issues": [],
-            }
+            pipeline.reviewer_output = _pending_migration_wait()
             pipeline._capture_review_completed(gate_verdict, "PENDING-MIGRATION-CHECK")
             return pipeline.to_dict()
 

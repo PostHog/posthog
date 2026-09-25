@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import threading
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -267,40 +268,83 @@ def _api_file(filename: str) -> dict:
     return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
 
 
+def _big_api_file(filename: str, additions: int) -> dict:
+    return {**_api_file(filename), "additions": additions, "deletions": 0}
+
+
+_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\nTall PRs are normal here.\n"
+
+
 @pytest.mark.parametrize(
-    "files, summary, engine_breaks, expect_fast_path, expect_in_body",
+    "files, summary, engine_breaks, folder_read_fails, expect_pregate_outcome, expect_in_body",
     [
         pytest.param(
-            [_api_file("terraform/main.tf")], FAST_REFUSAL_SUMMARY, False, True, FAST_REFUSAL_SUMMARY, id="deny"
+            [_api_file("terraform/main.tf")],
+            FAST_REFUSAL_SUMMARY,
+            False,
+            False,
+            "final:REFUSED",
+            FAST_REFUSAL_SUMMARY,
+            id="deny",
         ),
         pytest.param(
             [_api_file("terraform/main.tf")],
             None,
             False,
-            True,
+            False,
+            "final:REFUSED",
             "deny-list: matches: infra_cicd",
             id="deny-summary-failed",
         ),
         # A broken pre-check must cost only the shortcut, never the review.
-        pytest.param([_api_file("terraform/main.tf")], None, True, False, None, id="engine-breaks"),
-        # No Migration risk check has reported, so the full review can end WAIT rather than REFUSED.
+        pytest.param([_api_file("terraform/main.tf")], None, True, False, "error", None, id="engine-breaks"),
+        # No Migration risk check has reported, and nothing else could change the answer in the sandbox.
         pytest.param(
-            [_api_file("posthog/migrations/0999_add_col.py")], None, False, False, None, id="pending-migration"
+            [_api_file("posthog/migrations/0999_add_col.py")],
+            None,
+            False,
+            False,
+            "final:WAIT",
+            "Migration risk",
+            id="pending-migration",
         ),
-        pytest.param(_pr_files(), None, False, False, None, id="clean"),
+        pytest.param(
+            [_big_api_file("lib/big.py", 900)], None, False, False, "final:REFUSED", "too large", id="size-folders-read"
+        ),
+        pytest.param(
+            [_big_api_file("lib/big.py", 900)],
+            None,
+            False,
+            True,
+            "not_final:size_folder_override",
+            None,
+            id="size-folders-unknown",
+        ),
+        # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
+        pytest.param(
+            [_big_api_file("src/deep/big.py", 900)],
+            None,
+            False,
+            False,
+            "not_final:no_failing_gate",
+            None,
+            id="size-lifted-by-a-folder-file",
+        ),
+        pytest.param(_pr_files(), None, False, False, "not_final:no_failing_gate", None, id="clean"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_final_gate_deny_is_refused_without_a_sandbox(
+def test_a_final_gate_verdict_is_posted_without_a_sandbox(
     team,
     stamphog_chain: StamphogChain,
     files: list[dict],
     summary: str | None,
     engine_breaks: bool,
-    expect_fast_path: bool,
+    folder_read_fails: bool,
+    expect_pregate_outcome: str,
     expect_in_body: str | None,
 ) -> None:
-    # The engine's own pre-check runs in a real child process here: a deny the full review would
+    # The engine's own pre-check runs in a real child process here: a verdict the full review would
     # also reach skips the bot wait and the sandbox, and anything else still gets the full review.
     repo_config = _repo_config(team.id)
     author, head_sha = "devex-dev", "sha-pregate"
@@ -309,16 +353,22 @@ def test_a_final_gate_deny_is_refused_without_a_sandbox(
         REPO, 101, pr_object, files, commit_messages=("feat: infra\n\nGenerated-By: PostHog Code\nTask-Id: t-1",)
     )
 
+    stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
+
     engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
     with (
         patch("products.stamphog.backend.temporal.activities.summarize_refusal", return_value=summary),
         patch.object(activities, "run_engine_pregate", side_effect=engine_failure, wraps=activities.run_engine_pregate),
+        patch.object(activities, "fetch_folder_policy_files", return_value=None)
+        if folder_read_fails
+        else nullcontext(),
     ):
         assert stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4())) == 202
 
     pull_request = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
-    if not expect_fast_path:
+    assert run.output["pregate_outcome"] == expect_pregate_outcome
+    if expect_in_body is None:
         assert stamphog_chain.sandbox_class.created_configs != []
         assert "fast_path" not in run.output
         return
