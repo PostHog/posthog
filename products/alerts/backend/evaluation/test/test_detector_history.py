@@ -308,6 +308,32 @@ class TestDetectorHistory(BaseTest):
         assert late in warehouse.last_scan_buckets
         assert (late, 77.0) in [(bucket, value) for bucket, value in rows[0]]
 
+    def test_an_assembly_reaching_the_query_limit_reruns_the_full_scan(self) -> None:
+        limited = SQL.replace("ORDER BY bucket ASC", "ORDER BY bucket ASC LIMIT 8")
+        self.insight.query = {"kind": "HogQLQuery", "query": limited}
+        self.insight.save()
+        self.alert.refresh_from_db()
+        warehouse = _Warehouse(self._dense(7, start_hours_ago=4))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            warehouse.series.update(self._dense(2))
+            self._check(warehouse)
+
+        # 7 cached + margin growth reaches the LIMIT of 8; only the full query's completeness
+        # probe can say whether the result is truncated, so the cache must not decide.
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
+
+    def test_a_watermark_older_than_the_probe_horizon_reruns_the_full_scan(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            AlertSeriesState.objects.for_team(self.team.pk).filter(alert_config=self.alert).update(
+                watermark=CURRENT_HOUR - timedelta(days=9), seeded_at=CURRENT_HOUR
+            )
+            self._check(warehouse)
+
+        assert warehouse.is_rebuild(warehouse.overrides[-1])
+
     def test_probed_buckets_outside_the_window_are_ignored(self) -> None:
         warehouse = _Warehouse(self._dense(10))
         too_old = CURRENT_HOUR - timedelta(hours=60)
