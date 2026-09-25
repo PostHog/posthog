@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import (
     CATALOG_ENDPOINTS,
@@ -45,6 +48,9 @@ MAX_VALIDATED_INDICATOR_CODES = 20
 # Codes may be pasted one per line, comma separated, or semicolon separated (the API's own
 # multi-indicator delimiter).
 _CODE_SEPARATORS = re.compile(r"[,;\s]+")
+
+# `WorldBankSource.get_non_retryable_errors` matches this prefix, so the two have to stay in step.
+INDICATOR_CODE_REJECTED_PREFIX = "World Bank rejected the indicator code"
 
 
 @dataclasses.dataclass
@@ -148,7 +154,9 @@ def _rest_config(api_version: str, resource: EndpointResource) -> RESTAPIConfig:
     }
 
 
-def _endpoint_resource(name: str, path: str) -> EndpointResource:
+def _endpoint_resource(
+    name: str, path: str, response_actions: Optional[list[ResponseAction]] = None
+) -> EndpointResource:
     return {
         "name": name,
         "table_name": name,
@@ -161,6 +169,7 @@ def _endpoint_resource(name: str, path: str) -> EndpointResource:
             # recording an empty table.
             "data_selector_required": True,
             "params": {"format": "json", "per_page": PER_PAGE},
+            "response_actions": response_actions,
         },
         "table_format": "delta",
     }
@@ -170,6 +179,17 @@ def _indicator_data_resource(indicator_code: str) -> EndpointResource:
     resource = _endpoint_resource(
         INDICATOR_DATA_ENDPOINT,
         f"/country/all/indicator/{quote(indicator_code, safe='')}",
+        # The path answers 400 for a code it can't resolve, including a code the indicator
+        # catalog lists. The request is identical on every attempt, so name the code rather than
+        # letting a raw HTTPError spend the activity's whole retry budget.
+        response_actions=[
+            {
+                "status_code": 400,
+                "action": "raise",
+                "message": f"{INDICATOR_CODE_REJECTED_PREFIX} {indicator_code}. "
+                "Remove it from this source, or replace it with a code that has observations.",
+            }
+        ],
     )
     resource["data_map"] = flatten_observation
     return resource
@@ -261,21 +281,27 @@ def world_bank_source(
 
 
 def validate_credentials(indicator_codes: list[str], api_version: str) -> tuple[bool, Optional[str]]:
-    """Confirm the API is reachable and every configured indicator code resolves to a series."""
+    """Confirm the API is reachable and every configured indicator code returns observations."""
     codes_error = check_indicator_codes(indicator_codes)
     if codes_error:
         return False, codes_error
 
     base_url = BASE_URL_TEMPLATE.format(api_version=api_version)
     session = make_tracked_session()
-    unknown_codes: list[str] = []
+    unusable_codes: list[str] = []
 
     for indicator_code in indicator_codes[:MAX_VALIDATED_INDICATOR_CODES]:
+        # The observation path, which is what a sync walks. The indicator catalog is a wider set:
+        # a code listed there can still be refused here, so probing the catalog passes a code the
+        # sync then fails on.
         response = session.get(
-            f"{base_url}/indicator/{quote(indicator_code, safe='')}",
+            f"{base_url}/country/all/indicator/{quote(indicator_code, safe='')}",
             params={"format": "json", "per_page": "1"},
         )
-        if response.status_code != 200:
+        # A code the path can't resolve comes back as 400 carrying the same error envelope an
+        # HTTP 200 refusal does, so the row check below names it. Any other status says nothing
+        # about the code, so report it as a reachability problem instead of blaming the list.
+        if response.status_code not in (200, 400):
             return False, "Could not reach the World Bank Indicators API. Please try again."
 
         try:
@@ -283,13 +309,14 @@ def validate_credentials(indicator_codes: list[str], api_version: str) -> tuple[
         except ValueError:
             return False, "The World Bank Indicators API returned an unexpected response. Please try again."
 
-        # A known code returns `[metadata, [series]]`; an unknown one returns a single-element
-        # array carrying an error message.
+        # A usable code returns `[metadata, [observations]]`. The API also answers HTTP 200 with a
+        # single-element error array for some rejected codes, and a code with no observations
+        # leaves the row list empty. A sync fails on both, so the form has to refuse both too.
         rows = body[1] if isinstance(body, list) and len(body) > 1 else None
         if not rows:
-            unknown_codes.append(indicator_code)
+            unusable_codes.append(indicator_code)
 
-    if unknown_codes:
-        return False, f"These indicator codes were not found: {', '.join(unknown_codes)}."
+    if unusable_codes:
+        return False, f"The World Bank Indicators API has no data for these codes: {', '.join(unusable_codes)}."
 
     return True, None
