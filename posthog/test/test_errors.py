@@ -2,6 +2,8 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    CHQueryErrorTooManyRedirects,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -50,6 +52,13 @@ class TestWrapClickhouseQueryError:
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            # 483 carries the bucket URI instead of a row value, but the same rule applies.
+            (
+                483,
+                "TOO_MANY_REDIRECTS",
+                "A data warehouse table can't be read because its storage kept redirecting the request. "
+                "This is usually temporary. Retry the query, and contact support if it keeps happening.",
+            ),
         ]
     )
     def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
@@ -83,3 +92,11 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    def test_too_many_redirects_is_transient(self) -> None:
+        err = ServerException("DB::Exception: Too many redirects while trying to access s3://bucket/path", code=483)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorTooManyRedirects)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

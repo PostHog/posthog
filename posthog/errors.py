@@ -87,6 +87,11 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+STORAGE_TOO_MANY_REDIRECTS_MESSAGE = (
+    "A data warehouse table can't be read because its storage kept redirecting the request. "
+    "This is usually temporary. Retry the query, and contact support if it keeps happening."
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -150,6 +155,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         if "The requested range is not satisfiable" in err.message:
             return _wrap_storage_file_changed_error(err)
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
+    elif name == "TOO_MANY_REDIRECTS":
+        # ClickHouse raises this from the S3 client's request loop, so a warehouse read hits it when
+        # object storage keeps redirecting. The raw message names the bucket URI, hence the fixed text.
+        return CHQueryErrorTooManyRedirects(
+            STORAGE_TOO_MANY_REDIRECTS_MESSAGE, code=err.code, code_name="too_many_redirects"
+        )
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
@@ -251,6 +262,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
+class CHQueryErrorTooManyRedirects(ExposedCHQueryError):
+    """Object storage kept redirecting a read of a warehouse table."""
 
     pass
 
@@ -1063,6 +1080,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTooManyRedirects,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
