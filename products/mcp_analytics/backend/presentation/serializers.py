@@ -338,7 +338,11 @@ class MCPSessionSerializer(serializers.Serializer):
         read_only=True, help_text="Total number of $mcp_tool_call events in the session."
     )
     error_calls = serializers.IntegerField(
-        read_only=True, help_text="How many of the session's $mcp_tool_call events have $mcp_is_error set."
+        read_only=True,
+        help_text=(
+            "Number of the session's $mcp_tool_call events with $mcp_is_error true, "
+            "counted over the same properties / filter_test_accounts matches as tool_calls."
+        ),
     )
     session_start = serializers.DateTimeField(
         read_only=True, help_text="Timestamp of the first $mcp_tool_call event in the session."

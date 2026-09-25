@@ -28,6 +28,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import type { MCPSessionApi } from '../generated/api.schemas'
+import { parseUrlBoolean } from '../mcpAnalyticsFiltersLogic'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
 import { formatDuration, sessionDurationMs } from './utils'
@@ -39,10 +40,10 @@ const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: '-tool_call_count', label: 'Most tool calls' },
 ]
 
-const OUTCOME_OPTIONS: { value: string; label: string; hasErrors: boolean | null }[] = [
-    { value: 'all', label: 'All sessions', hasErrors: null },
-    { value: 'with_errors', label: 'With errors', hasErrors: true },
-    { value: 'without_errors', label: 'Without errors', hasErrors: false },
+const OUTCOME_OPTIONS: { value: 'all' | 'true' | 'false'; label: string }[] = [
+    { value: 'all', label: 'All sessions' },
+    { value: 'true', label: 'With errors' },
+    { value: 'false', label: 'Without errors' },
 ]
 
 function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
@@ -154,7 +155,8 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 
 function SessionsListPanel(): JSX.Element {
     const { setFilters, loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId } = useValues(mcpSessionsLogic)
+    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId, sharedQueryFilters } =
+        useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
@@ -175,12 +177,8 @@ function SessionsListPanel(): JSX.Element {
                             />
                         </InputGroup>
                         <Select
-                            value={OUTCOME_OPTIONS.find((o) => o.hasErrors === filters.hasErrors)?.value}
-                            onValueChange={(value) =>
-                                setFilters({
-                                    hasErrors: OUTCOME_OPTIONS.find((o) => o.value === value)?.hasErrors ?? null,
-                                })
-                            }
+                            value={String(filters.hasErrors ?? 'all')}
+                            onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
                         >
                             <SelectTrigger data-attr="mcp-sessions-outcome">
                                 <SelectValue>
@@ -226,7 +224,7 @@ function SessionsListPanel(): JSX.Element {
                     </div>
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">
-                        {filters.search || filters.hasErrors !== null
+                        {filters.search || filters.hasErrors !== null || sharedQueryFilters.properties.length > 0
                             ? 'No sessions match these filters'
                             : 'No MCP sessions yet'}
                     </div>

@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -9,6 +10,8 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({ copyToClipboard: jest.fn() }))
 
 jest.mock('../generated/api', () => ({
     mcpAnalyticsSessionsList: jest.fn(),
@@ -80,6 +83,30 @@ describe('mcpSessionsLogic', () => {
 
         expect(router.values.searchParams).not.toHaveProperty('has_errors')
         expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
+    })
+
+    it('copies every errored call of the session, past the first page', async () => {
+        listMock.mockResolvedValue({
+            results: [{ session_id: 'A', session_start: '2026-01-01T00:00:00Z', error_calls: 2 }],
+        })
+        toolCallsMock.mockResolvedValue({ results: [], has_next: false })
+        await expectLogic(logic, () => logic.actions.loadSessions()).toDispatchActions(['loadToolCallsSuccess'])
+        toolCallsMock.mockClear()
+        toolCallsMock
+            .mockResolvedValueOnce({ results: [{ ...toolCall('first_page'), is_error: true }], has_next: true })
+            .mockResolvedValueOnce({ results: [{ ...toolCall('second_page'), is_error: true }], has_next: false })
+
+        await expectLogic(logic, () => logic.actions.copySessionErrors()).toFinishAllListeners()
+
+        expect(toolCallsMock.mock.calls.map(([, , params]) => [params.offset, JSON.parse(params.properties)])).toEqual([
+            [0, [expect.objectContaining({ key: '$mcp_is_error', value: ['true'] })]],
+            [1, [expect.objectContaining({ key: '$mcp_is_error', value: ['true'] })]],
+        ])
+        const copied = (copyToClipboard as jest.Mock).mock.calls[0][0]
+        expect(copied.match(/^## MCP tool failure: .*$/gm)).toEqual([
+            '## MCP tool failure: first_page',
+            '## MCP tool failure: second_page',
+        ])
     })
 
     it('ignores a failed request for a previously selected session', async () => {

@@ -7,13 +7,11 @@ import { Button, Spinner } from '@posthog/quill-primitives'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
-import { formatSessionErrorsContext } from '../tool-quality/errorContext'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
 
@@ -29,7 +27,7 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 export function MCPSessionDetail(): JSX.Element {
     const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
         useValues(mcpSessionsLogic)
-    const { generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
+    const { copySessionErrors, generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
@@ -123,18 +121,13 @@ export function MCPSessionDetail(): JSX.Element {
                                     </CopyToClipboardInline>
                                 </span>
                             </Tooltip>
-                            {toolCalls.some((call) => call.is_error) ? (
+                            {selectedSession.error_calls > 0 ? (
                                 <LemonButton
                                     size="xsmall"
                                     type="secondary"
                                     icon={<IconCopy />}
                                     tooltip="Copy this session's errors as context for a coding agent"
-                                    onClick={() =>
-                                        void copyToClipboard(
-                                            formatSessionErrorsContext(selectedSession.session_id, toolCalls),
-                                            'session errors'
-                                        )
-                                    }
+                                    onClick={() => copySessionErrors()}
                                     data-attr="mcp-session-copy-errors"
                                 >
                                     Copy errors for agent

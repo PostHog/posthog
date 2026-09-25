@@ -12,7 +12,7 @@ import { IntegrationType } from '~/types'
 
 import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import { type MCPErrorContext, formatErrorContext } from './errorContext'
+import { type MCPBucketedErrorContext, formatErrorContext } from './errorContext'
 
 // Mirrors error tracking's IssueTasks button: create a task prefilled with the failure
 // context, then immediately start an agent run on it (REST create does not auto-run).
@@ -20,7 +20,7 @@ export function CreateFixTaskButton({
     context,
     size = 'xsmall',
 }: {
-    context: MCPErrorContext
+    context: MCPBucketedErrorContext
     size?: 'xsmall' | 'small' | 'medium'
 }): JSX.Element {
     const { getIntegrationsByKind } = useValues(integrationsLogic)
@@ -43,7 +43,7 @@ export function CreateFixTaskButton({
     )
 }
 
-function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: IntegrationType[]): void {
+function openCreateFixTaskForm(context: MCPBucketedErrorContext, githubIntegrations: IntegrationType[]): void {
     const bucket = context.errorStatus ? `${context.errorType} (HTTP ${context.errorStatus})` : context.errorType
     const defaultIntegration = githubIntegrations[0]
     // The button is disabled without an integration, but guard anyway: this function

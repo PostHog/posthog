@@ -14,6 +14,8 @@ export interface MCPErrorContext {
     sessionId?: string
 }
 
+export type MCPBucketedErrorContext = MCPErrorContext & { errorType: string }
+
 export function mcpSessionUrl(sessionId: string): string {
     return `${urls.mcpAnalyticsSessions()}?search=${encodeURIComponent(sessionId)}`
 }
