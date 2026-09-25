@@ -623,8 +623,10 @@ class ErrorTrackingStackFrame(UUIDTModel):
             # created_at in the index, a 24h window has to visit every frame the team ever stored.
             models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
             # Covers the source maps recommendation's count of recent JavaScript frames. The
-            # predicate holds the language test, so Postgres answers the count from the index
-            # and never detoasts the wide `contents` column.
+            # predicate holds the language test, so Postgres never detoasts the wide `contents`
+            # column to answer it. The scan still visits the heap for every row on a page the
+            # visibility map does not mark all-visible. The table's lowered autovacuum insert
+            # scale factor is what keeps that map covering the recent window.
             models.Index(
                 fields=["team", "created_at"],
                 include=["resolved"],

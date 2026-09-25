@@ -22,6 +22,11 @@ logger = structlog.get_logger(__name__)
 # to have died and re-kick the computation.
 COMPUTING_STUCK_AFTER = timedelta(minutes=5)
 
+# How far past its refresh interval a result must fall before the on-demand path stops
+# waiting for the hourly sweep and computes it itself. The sweep answers a whole batch of
+# teams from one query, so a per-team kick repeats that work for a single team.
+SWEEP_FALLBACK_GRACE = timedelta(hours=3)
+
 
 def _refresh_window(ts: datetime, phase_seconds: float, interval_seconds: float) -> int:
     return int((ts.timestamp() - phase_seconds) // interval_seconds)
@@ -42,6 +47,15 @@ def is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetim
     return _refresh_window(now, phase_seconds, interval_seconds) > _refresh_window(
         obj.computed_at, phase_seconds, interval_seconds
     )
+
+
+def needs_on_demand_compute(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:
+    """Whether the on-demand path should compute this recommendation rather than leave it
+    to the background sweep: no result yet, no interval to sweep against, or a result the
+    sweep has left unrefreshed well past its interval."""
+    if obj.computed_at is None or rec.refresh_interval is None:
+        return True
+    return now - obj.computed_at > rec.refresh_interval + SWEEP_FALLBACK_GRACE
 
 
 def ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackingRecommendation:
@@ -98,6 +112,8 @@ def _refresh_one(rec: Recommendation, team_id: int, now: datetime) -> int:
         obj = ensure_recommendation_row(rec, team_id)
         if not is_stale(rec, obj, now):
             return 0
+        if not needs_on_demand_compute(rec, obj, now):
+            return 0
         if not claim_for_compute(obj.id, team_id, now):
             return 0
         try:
@@ -124,6 +140,9 @@ def refresh_team_recommendations(team_id: int) -> int:
     caller only recomputes the types that have actually gone stale (e.g. source_maps
     and long_running_issues every 6h). Used by the on-demand API path, which
     must not block on compute.
+
+    A stale recommendation is only kicked when ``needs_on_demand_compute`` says the
+    background sweep will not get to it.
 
     Returns the number of recommendations kicked.
     """

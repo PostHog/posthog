@@ -15,6 +15,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
+from products.error_tracking.backend.logic.recommendations.refresh import SWEEP_FALLBACK_GRACE
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -108,7 +109,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running):
+    def test_long_running_is_left_to_the_sweep_until_it_falls_behind(self, mock_alerts, mock_long_running):
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen_time:
             mock_long_running.return_value = {"issues": []}
             self._list()
@@ -118,8 +119,14 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             self._list()
             self.assertEqual(mock_long_running.call_count, 1)
 
-            # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
+            # A full refresh_interval crosses into the next window, but the background sweep
+            # answers a whole batch of teams per query, so the on-demand path stays out of it.
             frozen_time.shift(LongRunningIssuesRecommendation.refresh_interval)
+            self._list()
+            self.assertEqual(mock_long_running.call_count, 1)
+
+            # Past the grace the sweep has clearly not run, so the on-demand path takes over.
+            frozen_time.shift(SWEEP_FALLBACK_GRACE + timedelta(minutes=1))
             self._list()
             self.assertEqual(mock_long_running.call_count, 2)
 
