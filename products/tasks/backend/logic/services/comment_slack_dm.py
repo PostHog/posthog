@@ -98,7 +98,7 @@ def send_comment_slack_dms(
     # the desktop flags get.
     task = (
         Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
-        if task_id is not None
+        if task_id is not None and comment.scope != "desktop_canvas"
         else None
     )
     if task is None and comment.scope != "desktop_canvas":

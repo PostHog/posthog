@@ -1451,7 +1451,7 @@ class TestCanvasComments(CanvasAPIBaseTest):
         Comment.objects.filter(id=comment.id).update(created_at=timezone.now() - timedelta(minutes=60 - minute))
         return comment
 
-    def test_lists_and_retrieves_every_thread_on_the_canvas_with_or_without_a_task(self):
+    def test_lists_and_retrieves_every_thread_on_the_canvas_with_or_without_a_task(self) -> None:
         canvas_id = self._create_canvas()
         other_canvas_id = self._create_canvas(name="Other")
         with team_scope(self.team.id):
@@ -1485,7 +1485,21 @@ class TestCanvasComments(CanvasAPIBaseTest):
             self.client.get(f"/api/projects/{self.team.id}/canvases/{other_canvas_id}/comments/{without_task.id}/")
         ).status_code == status.HTTP_404_NOT_FOUND
 
-    def test_comments_on_a_canvas_in_a_space_you_cannot_see_are_not_found(self):
+    def test_a_truncated_comment_continues_without_losing_a_multibyte_character(self) -> None:
+        canvas_id = self._create_canvas()
+        body = "a" * (64 * 1024 - 1) + "é" + "tail"
+        root = self._comment(canvas_id, body, 1)
+        thread_url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/comments/{root.id}/"
+
+        first = self.client.get(thread_url).json()["comments"][0]
+        rest = self.client.get(
+            f"{thread_url}?comment_id={root.id}&content_offset={first['content_next_offset']}"
+        ).json()["comments"][0]
+
+        assert first["content_truncated"] is True
+        assert first["content"] + rest["content"] == body
+
+    def test_comments_on_a_canvas_in_a_space_you_cannot_see_are_not_found(self) -> None:
         other = self._create_user("canvas-comments-owner@example.com")
         with team_scope(self.team.id):
             personal = Channel.objects.create(

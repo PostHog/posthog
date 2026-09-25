@@ -31,6 +31,8 @@ def _item_context(comment: Comment) -> dict:
 def _content_chunk(content: str, *, limit: int, offset: int = 0) -> tuple[str, int | None]:
     encoded = content.encode("utf-8")
     end = min(len(encoded), offset + limit)
+    while offset < end < len(encoded) and (encoded[end] & 0xC0) == 0x80:
+        end -= 1
     chunk = encoded[offset:end].decode("utf-8", errors="ignore")
     return chunk, end if end < len(encoded) else None
 
