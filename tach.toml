@@ -706,6 +706,7 @@ depends_on = [
     # two sides share one definition. The skills product has no facade, so this matches how
     # review_hog, signals and tasks reach it.
     "products.skills",
+    "products.signals",
     "products.tasks",
 ]
 layer = "modules"

@@ -49,7 +49,11 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-No caller exists on master yet. Each new caller adds itself here with its lane and its feature flag.
+Each new caller adds itself here with its lane and its feature flag.
+
+| Caller                                                                                   | Source                        | Lane    | Feature flag                  |
+| ---------------------------------------------------------------------------------------- | ----------------------------- | ------- | ----------------------------- |
+| PostHog AI turn suggestions (`products/posthog_ai/backend/turn_suggestions/judgment.py`) | `posthog_ai_turn_suggestions` | `BATCH` | `posthog-ai-turn-suggestions` |
 
 ## Rate-limit headers
 

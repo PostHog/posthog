@@ -42,3 +42,4 @@ class CeleryQueue(Enum):
     INTEGRATIONS = "integrations"
     FEATURE_FLAGS = "feature_flags"
     FEATURE_FLAGS_LONG_RUNNING = "feature_flags_long_running"
+    POSTHOG_AI = "posthog_ai"
