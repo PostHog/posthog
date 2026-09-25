@@ -42,13 +42,49 @@ curl -s localhost:8000/pooling -H 'content-type: application/json' -d '{"model":
 
 The answer is under `data.answers`, in Kev's format for either model, with `data.probabilities_raw` alongside for parity checks. JevK5 takes at most 16 options per question and 16,384 tokens per prompt, and refuses more.
 
-Prefix caching is off for both models: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
+The AI gateway states the day counts between the dates in a state when a request sets `date_facts` (PostHog/ai-gateway#505), before any host sees it, so this plugin does no date preprocessing of its own.
+
+### Batching
+
+vLLM's scheduler is the request pool, so this package adds none of its own. Each question becomes its own engine request, and every request waits in the engine's in-memory queue. At each step, the scheduler packs waiting rows from all callers into one forward pass, up to `--max-num-batched-tokens` tokens, and splits a row longer than the remainder across steps (chunked prefill). A row is prefill only: it finishes in the step that computes its last token, and it frees its slot in that step. A burst of requests therefore becomes a few full steps, not one step per request.
+
+- No state persists between requests. vLLM's KV and Mamba caches hold only the rows in flight. Prefix caching is off for both models, because vLLM does not enable it for pooling models on hybrid backbones. So each row computes its state again, including the rows of one request that share it.
+- `JevK5ForDecision` reads the answer from each row's last token only. A chunked row holds no hidden states between steps, and each step's readout is one matmul for all its rows.
+- The token budget does not change throughput. A single row already keeps the GPU's compute busy, so larger steps only make each row wait longer. The entrypoint keeps vLLM's default budget.
+- vLLM's queue has no limit by default. When the queue is longer than the gateway's timeout, every request in it fails. `--max-num-queued-tokens` makes vLLM answer 503 when the prefill backlog is full, so a caller can retry elsewhere without delay. Set it to the prefill throughput multiplied by the longest wait you accept.
+
+### Load test on an L4
+
+Measured 2026-09-24 on one L4 (EC2 gr6.4xlarge), vLLM 0.29.0, JevK5 at revision `27d2d6b8` in bf16. The requests are JevBench's public items: 70% one question on a short state (median 178 tokens), 20% one question on a long state (median 1,313 tokens), and 10% three questions on one short state. Closed-loop saturation:
+
+| Token budget              | Prefill tokens/s | p90 latency at 32 concurrent |
+| ------------------------- | ---------------- | ---------------------------- |
+| 2,048 (vLLM's L4 default) | 6,000 to 6,100   | 2.9 s                        |
+| 8,192                     | 5,700 to 5,800   | 3.6 s                        |
+| 16,384                    | 5,900 to 6,000   | not measured                 |
+
+A request alone gets about 4,600 tokens/s, and short and long rows saturate at the same rate. The GPU runs at its 72 W power cap during saturation. The readout on the last token matches `AllPool`'s to a median 0.0016 (maximum 0.022, which is inside JevK5's own bf16 noise), at the same throughput.
+
+Open loop at a Poisson arrival rate, with a 10 s client timeout as the gateway uses. "OK" is the answers per second that arrive within the timeout:
+
+| Queue limit  | Offered load  | OK     | Rejected with 503 | Timed out | p99 of answers |
+| ------------ | ------------- | ------ | ----------------- | --------- | -------------- |
+| none         | 0.9x capacity | 11.4/s | 0%                | 0%        | 3.0 s          |
+| none         | 1.3x          | 7.8/s  | 0%                | 47%       | 10.0 s         |
+| none         | 2.0x          | 3.3/s  | 0%                | 86%       | 9.9 s          |
+| 5,815 (1 s)  | 0.9x          | 10.5/s | 11%               | 0%        | 1.2 s          |
+| 11,630 (2 s) | 0.9x          | 11.4/s | 4%                | 0%        | 2.0 s          |
+| 23,260 (4 s) | 0.9x          | 11.9/s | 0%                | 0%        | 3.8 s          |
+| 23,260 (4 s) | 1.3x          | 13.1/s | 19%               | 0%        | 4.9 s          |
+| 23,260 (4 s) | 2.0x          | 12.9/s | 49%               | 0%        | 5.2 s          |
+
+Without a limit, overload makes the wait longer than the timeout, and the box answers less than a third of its capacity. With a limit, it keeps answering at capacity and rejects the rest at once. The entrypoint's default on an L4 is about four seconds of its throughput. At that limit, the box rejects nothing below capacity, and the slowest answers under overload arrive in about half the gateway's wait. A T4 serves JevK5 at about 1,270 tokens/s, a fifth of an L4. Kev, on the same backbone, served about 69,000 on an H100. The entrypoint sizes the limit for a T4 as well, and any other GPU needs it set.
 
 ## Container image
 
 `Dockerfile` builds the serving image, which is the whole serving box: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, Caddy for the bearer check, and s5cmd to fetch the weights. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early and push it to GHCR alone, tagged `pr-<number>`.
 
-The entrypoint (`bin/serve.sh`) fetches the checkpoint from `MODEL_URI` into `MODEL_DIR` unless one already matches its manifest there, checks it, runs `vllm serve` on loopback, and runs Caddy on `PORT` in front of it. Caddy answers 401 without `Authorization: Bearer $DECISION_BEARER` and exposes only `/pooling`, `/health` and `/metrics`. If either process exits, the container exits, so a host runs it under a restart policy:
+The entrypoint (`bin/serve.sh`) fetches the checkpoint from `MODEL_URI` into `MODEL_DIR` unless one already matches its manifest there, checks it, runs `vllm serve` on loopback, and runs Caddy on `PORT` in front of it. Caddy answers 401 without `Authorization: Bearer $DECISION_BEARER` and exposes only `/pooling`, `/health` and `/metrics`. If either process exits, the container exits with a failure status, even when the process itself exited cleanly, so a host runs it under a restart policy (`always` or `on-failure`):
 
 ```bash
 docker run -d --restart always --gpus all --network host --shm-size 8g \
@@ -59,8 +95,9 @@ docker run -d --restart always --gpus all --network host --shm-size 8g \
 ```
 
 - The host network lets s5cmd read the instance role's credentials from the metadata service, and Caddy listens on the host's `PORT`. Keep the port closed to the network and reach it over the tailnet.
-- The named volume keeps the weights across container restarts; it starts owned by the serving user (uid 10001). A host directory mounted instead must be writable by that user.
+- The named volume keeps the weights and the compile caches (`/models/cache`, or `CACHE_DIR`) across containers, so only the first container on a host pays the full compile. Docker creates the volume owned by the serving user (uid 10001). A host directory, or a volume created by an image without the cache directory, must be writable by that user. If the cache directory is not writable, the entrypoint says so and keeps the caches in the container.
 - `DTYPE=float16` on GPUs without bf16. `MODEL_NAME` (the served name the gateway asks for, default `jevk5-0.2`), `MAX_MODEL_LEN`, `GPU_MEMORY_UTILIZATION`, `PORT` and `VLLM_PORT` override the defaults; extra arguments go to `vllm serve`.
+- `MAX_NUM_QUEUED_TOKENS` is vLLM's backlog limit. Unset, the entrypoint uses about four seconds of the GPU's measured prefill, which exists for an L4 and a T4 (see [Load test on an L4](#load-test-on-an-l4)). On any other GPU the container refuses to start until it is set.
 - The image sets `GLOO_SOCKET_IFNAME=lo`. vLLM otherwise resolves the host name at start-up and fails with "File name too long" where a VPC's DHCP domain makes it 64 characters.
 
 `kev-vllm-checkpoint verify <dir>` is the manifest check on its own.
@@ -90,6 +127,18 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 | Engine start after weights are on disk                               | 31 s                                                                                                |
 
 MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records.
+
+### JevK5
+
+Measured 2026-09-24 on an L4 (EC2 g6.xlarge), vLLM 0.29.0, JevK5 at revision `27d2d6b8`: 294 questions, being JevBench's public sets, 28 of its hard states cut to about 1,300 tokens, and 35 invented edge cases. The reference is JevK5's own runtime (`jevk5` 0.2.0, transformers 5.17) on the same GPU, with its bf16 backbone and the answer read out again in fp32.
+
+| Compared                                          | Max probability difference | Median | Argmax flips                                  |
+| ------------------------------------------------- | -------------------------- | ------ | --------------------------------------------- |
+| Runtime's fp32 readout vs this image (bf16)       | 0.046                      | 0.0025 | 1, where the top two were 0.019 apart         |
+| Runtime's fp32 readout vs its own default readout | 0.059                      | 0.0036 | 4, where the top two were 0.024 apart or less |
+| Runtime's default readout vs `--quantization fp8` | 0.41                       | 0.014  | at least 5, one with the top two 0.08 apart   |
+
+The image is as close to the runtime's fp32 readout as the runtime's own default output is, so it serves JevK5 within the model's rounding noise. fp8 answers about 30% faster, but it moves answers far past that noise, so the image serves bf16. One short question (about 190 tokens) takes 51 ms at the median when it is alone on the GPU. The throughput under load is in [Load test on an L4](#load-test-on-an-l4).
 
 ## Evals
 

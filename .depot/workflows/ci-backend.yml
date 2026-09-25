@@ -87,6 +87,9 @@
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
+# - WAIT_FOR_DOCKER_REGISTRY_MIRROR makes bin/ci-wait-for-docker launch pull Docker Hub
+#   images from mirror.gcr.io before `compose up`. Token requests to auth.docker.io time out
+#   intermittently from Depot CI sandboxes, and one failed pull leaves the whole stack missing.
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
@@ -158,6 +161,7 @@ env:
     HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
+    WAIT_FOR_DOCKER_REGISTRY_MIRROR: mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     CLICKHOUSE_HOST: 'localhost'
@@ -1056,17 +1060,10 @@ jobs:
                       schema_modes='[false]'
                       echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
-                  # Experiments reads flags from $feature/<key> properties. The native-JSON table keeps
-                  # them in the $feature_flags map, which HogQL does not read yet, so it runs legacy-only.
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
                       | $schema_modes[] as $new_events_schema
-                      | select(
-                          ($new_events_schema | not)
-                          or ([($entry.legs // [{"filters": ($entry.filters // "")}])[].filters]
-                              | any(contains("products-experiments")) | not)
-                        )
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
