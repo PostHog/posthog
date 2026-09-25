@@ -10,11 +10,22 @@ from posthog.models import OrganizationMembership, User
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group
 
-from products.customer_analytics.backend.models.account import Account
+from products.conversations.backend.models import (
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadMessage,
+    EmailThreadParticipant,
+)
+from products.conversations.backend.models.ticket import Ticket
+from products.customer_analytics.backend.management.seed_widget_data import BILLING_INSIGHT_SHORT_IDS
+from products.customer_analytics.backend.models import AccountChannelSummary, Meeting, MeetingParticipant
+from products.customer_analytics.backend.models.account import Account, AccountProperties
+from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 from products.customer_analytics.backend.models.relationship import AccountRelationship
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 pytestmark = pytest.mark.persons_db_direct
 
@@ -86,12 +97,72 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         )
         assert accounts_with_notes == {accounts["acme-id"].id, accounts["globex-id"].id}
 
+        assert set(Insight.objects.filter(team=self.team).values_list("short_id", flat=True)) >= set(
+            BILLING_INSIGHT_SHORT_IDS.values()
+        )
+        assert set(InsightVariable.objects.filter(team=self.team).values_list("code_name", flat=True)) >= {
+            "billing_org_id",
+            "billing_start_date",
+            "billing_end_date",
+        }
+
+        assert Meeting.objects.for_team(self.team.pk).count() == 6
+        assert MeetingParticipant.objects.for_team(self.team.pk).count() == 18
+        assert EmailThread.objects.for_team(self.team.pk).count() == 3
+        assert EmailThreadAccountLink.objects.for_team(self.team.pk).count() == 3
+        assert EmailThreadMessage.objects.for_team(self.team.pk).count() == 6
+        assert EmailThreadParticipant.objects.for_team(self.team.pk).count() == 6
+        assert Ticket.objects.filter(team=self.team).count() == 3
+        assert AccountChannelSummary.objects.for_team(self.team.pk).count() == 3
+        assert all(account.properties.email_domains for account in accounts.values())
+        assert all(account.properties.slack_channel_id for account in accounts.values())
+
     def test_is_idempotent(self):
         self._make_group("acme-id", "Acme")
         self._make_group("globex-id", "Globex")
 
         self._run(users=3, accounts_with_notes=2, notes_per_account=1)
+
+        account = self._accounts()["acme-id"]
+        account.properties = AccountProperties(
+            website_domain="acme.example.com",
+            email_domains=["acme.example.com"],
+            known_emails=["contact@acme.example.com"],
+            slack_channel_id="CUSER0001",
+        )
+        account.slack_summary_cadence = SlackSummaryCadence.MONTHLY
+        account.save(update_fields=["_properties", "slack_summary_cadence", "updated_at"])
+        insight = Insight.objects.get(team=self.team, short_id=BILLING_INSIGHT_SHORT_IDS["usage"])
+        insight.name = "Custom billing usage"
+        insight.query = {"kind": "TrendsQuery", "series": []}
+        insight.save()
+        ticket = Ticket.objects.get(team=self.team, widget_session_id=f"ca-seed-{str(account.id)[:48]}")
+        ticket.status = "resolved"
+        ticket.priority = "high"
+        ticket.save(update_fields=["status", "priority", "updated_at"])
+        meeting = Meeting.objects.get(
+            team=self.team,
+            ical_uid=f"customer-analytics-seed-{account.id}-quarterly-review",
+            recurrence_instance_id="",
+        )
+        meeting.title = "Custom quarterly review"
+        meeting.save(update_fields=["title", "updated_at"])
+
         self._run(users=3, accounts_with_notes=2, notes_per_account=1)
+
+        account.refresh_from_db()
+        insight.refresh_from_db()
+        ticket.refresh_from_db()
+        meeting.refresh_from_db()
+        assert account.properties.website_domain == "acme.example.com"
+        assert account.properties.email_domains == ["acme.example.com"]
+        assert account.properties.known_emails == ["contact@acme.example.com"]
+        assert account.properties.slack_channel_id == "CUSER0001"
+        assert account.slack_summary_cadence == SlackSummaryCadence.MONTHLY
+        assert insight.name == "Custom billing usage"
+        assert insight.query == {"kind": "TrendsQuery", "series": []}
+        assert (ticket.status, ticket.priority) == ("resolved", "high")
+        assert meeting.title == "Custom quarterly review"
 
         assert Account.objects.for_team(self.team.pk).count() == 2
         assert len(self._pool_emails()) == 3
@@ -102,6 +173,38 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
             == 3
         )
         assert ResourceNotebook.objects.filter(account__team_id=self.team.pk).count() == 2
+        assert Insight.objects.filter(team=self.team, short_id__in=BILLING_INSIGHT_SHORT_IDS.values()).count() == 3
+        assert Meeting.objects.for_team(self.team.pk).count() == 4
+        assert MeetingParticipant.objects.for_team(self.team.pk).count() == 12
+        assert EmailThread.objects.for_team(self.team.pk).count() == 2
+        assert EmailThreadAccountLink.objects.for_team(self.team.pk).count() == 2
+        assert EmailThreadMessage.objects.for_team(self.team.pk).count() == 4
+        assert EmailThreadParticipant.objects.for_team(self.team.pk).count() == 4
+        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert AccountChannelSummary.objects.for_team(self.team.pk).count() == 2
+
+    def test_preserves_colliding_soft_deleted_insight(self):
+        self._make_group("acme-id", "Acme")
+        short_id = BILLING_INSIGHT_SHORT_IDS["usage"]
+        insight = Insight.objects_including_soft_deleted.create(
+            team=self.team,
+            short_id=short_id,
+            name="Deleted billing usage",
+            query={"kind": "TrendsQuery", "series": []},
+            deleted=True,
+        )
+
+        self._run(accounts_with_widget_data=0)
+
+        insight.refresh_from_db()
+        assert insight.deleted
+        assert insight.name == "Deleted billing usage"
+        assert insight.query == {"kind": "TrendsQuery", "series": []}
+        assert Insight.objects_including_soft_deleted.filter(team=self.team, short_id=short_id).count() == 1
+
+    def test_rejects_negative_widget_account_count_before_dry_run(self):
+        with self.assertRaisesMessage(CommandError, "--accounts-with-widget-data must be zero or greater."):
+            self._run(dry_run=True, accounts_with_widget_data=-1)
 
     def test_dry_run_writes_nothing(self):
         self._make_group("acme-id", "Acme")
@@ -114,6 +217,10 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         assert not TeamCustomerAnalyticsConfig.objects.filter(
             team=self.team, account_group_type_index__isnull=False
         ).exists()
+        assert not Insight.objects.filter(team=self.team, short_id__in=BILLING_INSIGHT_SHORT_IDS.values()).exists()
+        assert not Meeting.objects.for_team(self.team.pk).exists()
+        assert not EmailThread.objects.for_team(self.team.pk).exists()
+        assert not Ticket.objects.filter(team=self.team).exists()
 
     def test_errors_when_no_groups(self):
         with self.assertRaises(CommandError):
