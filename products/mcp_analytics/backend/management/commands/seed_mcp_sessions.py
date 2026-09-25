@@ -756,9 +756,9 @@ class Command(BaseCommand):
         )
         max_feedback_count = session_count * MAX_FEEDBACK_PER_SESSION
         explicit_feedback: int | None = options["feedback"]
-        feedback_count: int = (
-            explicit_feedback if explicit_feedback is not None else min(DEFAULT_FEEDBACK_COUNT, max_feedback_count)
-        )
+        # A report anchors to one of the session's tool calls, so feedback needs every session to have one.
+        default_feedback_count = min(DEFAULT_FEEDBACK_COUNT, max_feedback_count) if min_calls >= 1 else 0
+        feedback_count: int = explicit_feedback if explicit_feedback is not None else default_feedback_count
         seed: int | None = options["seed"]
         clear: bool = options["clear"]
 
@@ -768,6 +768,8 @@ class Command(BaseCommand):
             raise CommandError("--missing-capabilities must be between 0 and --sessions")
         if feedback_count < 0 or feedback_count > max_feedback_count:
             raise CommandError(f"--feedback must be between 0 and {MAX_FEEDBACK_PER_SESSION} x --sessions")
+        if feedback_count > 0 and min_calls < 1:
+            raise CommandError("--min-calls must be at least 1 when --feedback is above 0")
 
         try:
             team = Team.objects.get(pk=team_id)
@@ -1098,13 +1100,8 @@ class Command(BaseCommand):
         feedback_per_session: dict[str, int] = {}
         for _ in range(feedback_count):
             eligible = [
-                s
-                for s in seeded_sessions
-                if calls_by_session[s.session_id]
-                and feedback_per_session.get(s.session_id, 0) < MAX_FEEDBACK_PER_SESSION
+                s for s in seeded_sessions if feedback_per_session.get(s.session_id, 0) < MAX_FEEDBACK_PER_SESSION
             ]
-            if not eligible:
-                break
             # Agents that hit failures more often have more to report. The rate, not the count,
             # so long sessions do not take every report.
             session = rng.choices(
@@ -1119,16 +1116,10 @@ class Command(BaseCommand):
                 {**session.model_properties, **feedback.event_properties()},
             )
 
-        seeded_feedback_count = sum(feedback_per_session.values())
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {session_count} sessions ({total_events} events, including "
-                f"{missing_capability_count} missing-capability reports and {seeded_feedback_count} feedback reports "
+                f"{missing_capability_count} missing-capability reports and {feedback_count} feedback reports "
                 f"from {len(feedback_per_session)} sessions) for team {team_id}."
             )
         )
-        if seeded_feedback_count < feedback_count:
-            raise CommandError(
-                f"Seeded only {seeded_feedback_count} of {feedback_count} feedback reports: too few sessions "
-                f"have tool calls. Raise --min-calls or --sessions."
-            )
