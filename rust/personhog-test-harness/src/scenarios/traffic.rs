@@ -35,7 +35,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use futures::stream::{StreamExt, TryStreamExt};
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, gauge};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
@@ -45,6 +45,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{interval, MissedTickBehavior};
 use uuid::Uuid;
 
+use crate::bulk_delete::BulkDeleter;
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
 use crate::client::{IdentityClient, LifecycleClient};
@@ -145,8 +146,11 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     }
     let client =
         HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
-    let identity = IdentityClient::connect(&args.identity_url).await?;
-    let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
+    let identity =
+        IdentityClient::connect_with_channels(&args.identity_url, args.router_channels).await?;
+    let lifecycle =
+        LifecycleClient::connect_with_channels(&args.identity_url, args.router_channels).await?;
+    let deleter = BulkDeleter::new(lifecycle, args.delete_chunk_size, args.delete_concurrency)?;
     let pool = PgPool::connect(&args.persons_db_url)
         .await
         .context("connecting to persons DB")?;
@@ -156,14 +160,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // restart loop retries — which also rides out startup races where the
     // leader hasn't claimed partitions yet. One team suffices: the check
     // proves the router/database pairing, not per-team routing.
-    sentinel_round_trip(
-        &client,
-        &lifecycle,
-        &pool,
-        &args.pg_target_table,
-        team_ids[0],
-    )
-    .await?;
+    sentinel_round_trip(&client, &deleter, &pool, &args.pg_target_table, team_ids[0]).await?;
 
     // Hostile targets live for the process lifetime: their documents stay
     // small (fixed keys, no journal growth) and their outcomes are only
@@ -432,7 +429,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         for result in futures::future::join_all(
             lanes
                 .iter()
-                .map(|lane| delete_pool(&lifecycle, lane.team_id, &lane.person_ids)),
+                .map(|lane| delete_pool(&deleter, lane.team_id, &lane.person_ids)),
         )
         .await
         {
@@ -441,7 +438,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
-            delete_pool(&lifecycle, hostile_team_id, &hostile_ids).await?;
+            delete_pool(&deleter, hostile_team_id, &hostile_ids).await?;
             return Ok(());
         }
     }
@@ -596,41 +593,21 @@ async fn hold_and_run(
     }
 }
 
-/// Delete the epoch's pool through the saga and account for every
-/// outcome. `deleted` is the expected answer; `not_found` means the row
-/// was already gone (a replayed saga op, never a second bed — pools are
-/// id-disjoint) and is counted, not fatal;
+/// Delete the epoch's pool through the saga as one chunked job and
+/// account for every outcome. `deleted` is the expected answer;
+/// `not_found` means the row was already gone (a replayed saga op, never
+/// a second bed — pools are id-disjoint) and is counted, not fatal;
 /// `skipped_conflict` means a lifecycle operation is stuck holding a
 /// pool person, which the bed exists to surface, so it fails the run.
-async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i64]) -> Result<()> {
-    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
-
-    // The lifecycle service caps batches at 250 person ids.
-    for chunk in person_ids.chunks(200) {
-        let op_id = uuid::Uuid::new_v4();
-        let started = std::time::Instant::now();
-        let outcomes = lifecycle
-            .delete_persons(team_id, chunk.to_vec(), &op_id)
-            .await?;
-        histogram!("personhog_traffic_pool_delete_duration_ms")
-            .record(started.elapsed().as_secs_f64() * 1000.0);
-        for (person_id, outcome) in outcomes {
-            let label = match outcome {
-                DeletePersonOutcome::Deleted => "deleted",
-                DeletePersonOutcome::NotFound => "not_found",
-                DeletePersonOutcome::SkippedConflict => "skipped_conflict",
-                DeletePersonOutcome::Unspecified => "unspecified",
-            };
-            counter!("personhog_traffic_pool_delete_total", "outcome" => label).increment(1);
-            if matches!(
-                outcome,
-                DeletePersonOutcome::SkippedConflict | DeletePersonOutcome::Unspecified
-            ) {
-                anyhow::bail!(
-                    "pool rotation delete returned {label} for person {person_id} on team {team_id}"
-                );
-            }
-        }
+async fn delete_pool(deleter: &BulkDeleter, team_id: i64, person_ids: &[i64]) -> Result<()> {
+    let report = deleter.delete(team_id, person_ids, Uuid::new_v4()).await?;
+    if let Some(person_id) = report.first_unsettled() {
+        bail!(
+            "pool rotation left person {person_id} on team {team_id} undeleted: \
+             {} held by another op, {} without an outcome",
+            report.skipped_conflict.len(),
+            report.unspecified.len()
+        );
     }
     Ok(())
 }
@@ -737,7 +714,7 @@ fn hostile_payload(counter: u64) -> (&'static str, Value) {
 /// deletes from Postgres directly.
 async fn sentinel_round_trip(
     client: &HarnessClient,
-    lifecycle: &LifecycleClient,
+    deleter: &BulkDeleter,
     pool: &PgPool,
     table: &str,
     team_id: i64,
@@ -779,7 +756,7 @@ async fn sentinel_round_trip(
         );
     }
     tracing::info!("sentinel round-trip verified: router and database agree");
-    delete_pool(lifecycle, team_id, &[person_id])
+    delete_pool(deleter, team_id, &[person_id])
         .await
         .context("retiring the sentinel person through the delete saga")?;
     Ok(())
@@ -805,7 +782,9 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{DEFAULT_KEYS_PER_PERSON, DEFAULT_ROUTER_CHANNELS};
+    use crate::cli::{
+        DEFAULT_DELETE_CONCURRENCY, DEFAULT_KEYS_PER_PERSON, DEFAULT_ROUTER_CHANNELS,
+    };
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -851,6 +830,8 @@ mod tests {
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
             router_channels: DEFAULT_ROUTER_CHANNELS,
+            delete_chunk_size: crate::bulk_delete::MAX_CHUNK_SIZE,
+            delete_concurrency: DEFAULT_DELETE_CONCURRENCY,
             enabled: true,
             team_ids: vec![900_101],
             hostile_team_id: 900_102,
