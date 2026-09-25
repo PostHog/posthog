@@ -192,6 +192,10 @@ def _build_asset(row: tuple) -> MessageAsset:
     )
 
 
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def fetch_message_assets(
     team_id: int,
     function_kind: str,
@@ -235,7 +239,7 @@ def fetch_message_assets(
         kwargs["distinct_id"] = distinct_id
     if search:
         where.append("(recipient ILIKE %(search)s OR subject ILIKE %(search)s)")
-        kwargs["search"] = f"%{search}%"
+        kwargs["search"] = f"%{_escape_like(search)}%"
     if after:
         where.append("sent_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
@@ -243,6 +247,8 @@ def fetch_message_assets(
         where.append("sent_at <= toDateTime64(%(before)s, 6)")
         kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
+    # Sends can share a sent_at down to the millisecond. The (invocation_id, action_id) tiebreak gives
+    # them a stable order, so offset pages neither repeat a send nor skip one at a page boundary.
     query = f"""
         SELECT {_OUTER_COLUMNS}
         FROM (
@@ -252,7 +258,7 @@ def fetch_message_assets(
             GROUP BY invocation_id, action_id
         )
         WHERE latest_is_deleted = 0
-        ORDER BY latest_sent_at DESC
+        ORDER BY latest_sent_at DESC, invocation_id, action_id
         LIMIT %(limit)s OFFSET %(offset)s
     """
 
