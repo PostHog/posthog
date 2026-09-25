@@ -116,19 +116,21 @@ def _redis() -> redis_lib.Redis:
     return get_client(flag_definitions_hypercache.redis_url)
 
 
-def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member: bytes | str) -> None:
+def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member: bytes | str) -> bool:
+    """Return True when the member is no longer queued."""
     # The cooldown can change while another drain finishes, so check and remove atomically.
     try:
         with redis.pipeline() as pipe:
             pipe.watch(cooldown_key)
             if cast(bytes | None, pipe.get(cooldown_key)) == b"inflight":
-                return
+                return False
             pipe.multi()
             pipe.zrem(REBUILD_REQUESTS_ZSET, member)
             pipe.execute()
+            return True
     except WatchError:
         # Leave the member for the owner or the next drain after a concurrent change.
-        return
+        return False
 
 
 def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]:
@@ -147,27 +149,43 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
     stats = {"success": 0, "failure": 0, "skipped_cooldown": 0, "circuit_open": 0}
 
     eligible: list[int] = []
-    for raw in redis.zrange(REBUILD_REQUESTS_ZSET, 0, batch_size - 1):
-        team_id = _parse_team_id(raw)
-        if team_id is None:
-            redis.zrem(REBUILD_REQUESTS_ZSET, raw)
-            continue
+    # A claimed member stays queued until its rebuild ends. A drain that dies keeps its
+    # claims at the head of the queue for COOLDOWN_SECONDS, so the scan pages past every
+    # member that stays queued. `offset` counts those members. The score bound excludes
+    # requests queued after this drain started, so the scan cannot follow teams that SDK
+    # polls enqueue again behind it.
+    offset = 0
+    max_score = now * 1000
+    while len(eligible) < batch_size:
+        page = redis.zrangebyscore(
+            REBUILD_REQUESTS_ZSET, "-inf", max_score, start=offset, num=batch_size - len(eligible)
+        )
+        if not page:
+            break
+        for raw in page:
+            team_id = _parse_team_id(raw)
+            if team_id is None:
+                redis.zrem(REBUILD_REQUESTS_ZSET, raw)
+                continue
 
-        cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
-        if redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None:
-            _discard_unless_rebuilding(redis, cooldown_key, raw)
-            stats["circuit_open"] += 1
-            REBUILD_PROCESSED.labels(result="circuit_open").inc()
-            continue
+            cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
+            if redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None:
+                if not _discard_unless_rebuilding(redis, cooldown_key, raw):
+                    offset += 1
+                stats["circuit_open"] += 1
+                REBUILD_PROCESSED.labels(result="circuit_open").inc()
+                continue
 
-        # Keep the member while rebuilding so SDK polls cannot enqueue it again.
-        if not redis.set(cooldown_key, "inflight", nx=True, ex=COOLDOWN_SECONDS):
-            _discard_unless_rebuilding(redis, cooldown_key, raw)
-            stats["skipped_cooldown"] += 1
-            REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
-            continue
+            # Keep the member while rebuilding so SDK polls cannot enqueue it again.
+            if not redis.set(cooldown_key, "inflight", nx=True, ex=COOLDOWN_SECONDS):
+                if not _discard_unless_rebuilding(redis, cooldown_key, raw):
+                    offset += 1
+                stats["skipped_cooldown"] += 1
+                REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
+                continue
 
-        eligible.append(team_id)
+            offset += 1
+            eligible.append(team_id)
 
     results: dict[int, bool] = {}
     timed_out = False

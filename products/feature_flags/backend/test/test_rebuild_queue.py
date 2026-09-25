@@ -101,6 +101,21 @@ def test_drain_rebuilds_queued_team_and_clears_it(fake_redis):
     set_cache.assert_called_once()
 
 
+def test_claims_left_by_a_dead_drain_do_not_block_later_teams(fake_redis):
+    for score, team_id in enumerate((1, 2, 3)):
+        _enqueue(fake_redis, team_id, score=score)
+    # A drain killed before its finally block leaves its claims queued at the head.
+    for team_id in (1, 2):
+        fake_redis.set(COOLDOWN_KEY.format(team_id=team_id), "inflight", ex=300)
+
+    with _rebuilds() as set_cache:
+        stats = drain_rebuild_requests(batch_size=2)
+
+    assert [call.args[0].id for call in set_cache.call_args_list] == [3]
+    assert stats["success"] == 1 and stats["skipped_cooldown"] == 2
+    assert fake_redis.zrange(REBUILD_REQUESTS_ZSET, 0, -1) == [b"1", b"2"]
+
+
 def test_invalid_member_is_discarded_without_rebuild(fake_redis):
     fake_redis.zadd(REBUILD_REQUESTS_ZSET, {"not-an-int": 0})
     with _rebuilds():
