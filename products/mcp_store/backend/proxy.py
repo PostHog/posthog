@@ -523,6 +523,34 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
+def answer_credential_rejection(installation: MCPServerInstallation, rejection: httpx.Response) -> HttpResponse | None:
+    """Resolve a credential an upstream MCP server refused.
+
+    Returns the response to send back, or None when the credential came back
+    renewed and the caller can retry the request with it.
+    """
+    body = rejection.read()
+    content_type = rejection.headers.get("content-type", "application/json")
+    status_code = rejection.status_code
+    rejection.close()
+
+    outcome = refresh_credential_rejected_upstream(installation)
+    if outcome == "refreshed":
+        return None
+    if outcome == "needs_reauth":
+        logger.warning(
+            "Upstream MCP server rejected a revoked credential",
+            installation_id=str(installation.id),
+            url=installation.url,
+        )
+        return HttpResponse(
+            '{"error": "Installation needs re-authentication"}',
+            content_type="application/json",
+            status=401,
+        )
+    return HttpResponse(body, content_type=content_type, status=status_code)
+
+
 def upstream_rejected_credential(response: httpx.Response) -> bool:
     """True when the upstream server refused the credential itself.
 
@@ -645,30 +673,10 @@ def proxy_mcp_request(
     try:
         upstream_response, upstream_url = send_upstream()
         if installation.auth_type == "oauth" and upstream_rejected_credential(upstream_response):
-            rejection_body = upstream_response.read()
-            rejection_content_type = upstream_response.headers.get("content-type", "application/json")
-            rejection_status = upstream_response.status_code
-            upstream_response.close()
-            outcome = refresh_credential_rejected_upstream(installation)
-            if outcome == "needs_reauth":
+            rejection_response = answer_credential_rejection(installation, upstream_response)
+            if rejection_response is not None:
                 client.close()
-                logger.warning(
-                    "Upstream MCP server rejected a revoked credential",
-                    installation_id=str(installation.id),
-                    url=installation.url,
-                )
-                return HttpResponse(
-                    '{"error": "Installation needs re-authentication"}',
-                    content_type="application/json",
-                    status=401,
-                )
-            if outcome == "refresh_failed":
-                client.close()
-                return HttpResponse(
-                    rejection_body,
-                    content_type=rejection_content_type,
-                    status=rejection_status,
-                )
+                return rejection_response
             headers.update(build_upstream_auth_headers(installation))
             upstream_response, upstream_url = send_upstream()
     except (SSRFBlockedError, httpx.ProxyError):
