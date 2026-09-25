@@ -141,27 +141,25 @@ def app_csp_header_name(request: HttpRequest) -> str:
     return "Content-Security-Policy-Report-Only"
 
 
-# The app policy reports as v=2 through the endpoint above, and the shadow policy below as v=3.
-NARROWED_APP_POLICY_REPORT_VERSION = "3"
-_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com", "wss://*.modal.host/terminal"})
+_WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
+# The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
+# tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
+NARROWED_APP_POLICY_REPORT_VERSION = "4"
 
 
 def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]) -> list[str]:
-    """The app policy's directives named in `replacements`, with their wildcard hosts swapped for
-    the sources given there.
+    """The app policy with the wildcard hosts of each directive named in `replacements` swapped for
+    the sources given there. Every other directive and source passes through unchanged.
 
-    Sent report-only beside the app policy, it reports each load the wildcards admit and the named
-    sources do not, which is the evidence for dropping the wildcards. worker-src comes along because
-    workers fall back to script-src without it. The shadow names no other directive, so nothing else
-    is restricted in it.
+    The wildcards admit every PostHog subdomain. The ingestion hosts among them serve any project's
+    remote config as a script, so an injected tag could load code from a project an attacker owns.
     """
     narrowed = []
     for part in csp_parts:
         name, *sources = part.split()
         if name in replacements:
-            narrowed.append(" ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]]))
-        elif name == "worker-src":
-            narrowed.append(part)
+            part = " ".join([name, *(s for s in sources if s not in _WILDCARD_SOURCES), *replacements[name]])
+        narrowed.append(part)
     return narrowed
 
 
@@ -360,7 +358,7 @@ class CSPMiddleware:
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
                 # The terminal dock survives SPA navigation, so its connections need the document policy.
-                # Modal assigns opaque hosts; restrict the path and measure wildcard use in the shadow policy.
+                # Modal assigns opaque hosts, so the sandbox source restricts the protocol and path instead.
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ wss://*.modal.host/terminal",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
@@ -376,6 +374,44 @@ class CSPMiddleware:
                 # without this origin a staff logout is cancelled with nothing shown to the user.
                 "form-action 'self' https://accounts.google.com",
             ]
+
+            # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
+            # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
+            # listed here therefore fails only in production.
+            narrowed = is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING
+            if narrowed:
+                bundle = [bundle_origin] if bundle_origin else []
+                agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+                agent_proxy = (
+                    [urlsplit(agent_proxy_url)._replace(path="", query="", fragment="").geturl()]
+                    if agent_proxy_url
+                    else []
+                )
+                csp_parts = narrowed_app_policy(
+                    csp_parts,
+                    {
+                        # posthog-js loads its extensions from /static/ and our project's remote config. The
+                        # config path names our token because the same path serves every project's config.
+                        "script-src": [
+                            *bundle,
+                            f"{POSTHOG_JS_CLOUD_HOST}/static/",
+                            f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
+                        ],
+                        # liveEventsHostOrigin() in the frontend streams from live.<region host>.
+                        "connect-src": [
+                            *bundle,
+                            POSTHOG_JS_CLOUD_HOST,
+                            f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                            # publicWebhooksHostOrigin() in the frontend posts source-webhook tests and manual
+                            # workflow triggers to webhooks.<region host>.
+                            f"https://webhooks.{urlsplit(settings.SITE_URL).hostname}",
+                            # The onboarding adblock check probes the region's ingestion host.
+                            f"{get_api_host()}/decide/",
+                            # A task run's live stream, when the server hands out the region's agent-proxy.
+                            *agent_proxy,
+                        ],
+                    },
+                )
 
             # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
@@ -397,44 +433,17 @@ class CSPMiddleware:
             # silently take the whole fleet to unsampled reporting; staff stays bounded.
             sample_rate = "1" if is_staff else "0.1"
 
-            report_uri = csp_report_endpoint(sample_rate=sample_rate)
-            shadow_parts: list[str] = []
-            if report_uri and is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
-                bundle = [bundle_origin] if bundle_origin else []
-                agent_proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
-                agent_proxy = (
-                    [urlsplit(agent_proxy_url)._replace(path="", query="", fragment="").geturl()]
-                    if agent_proxy_url
-                    else []
-                )
-                replacements = {
-                    # posthog-js loads its extensions from /static/ and our project's remote config. The
-                    # config path names our token because the same path serves every project's config.
-                    "script-src": [
-                        *bundle,
-                        f"{POSTHOG_JS_CLOUD_HOST}/static/",
-                        f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
-                    ],
-                    # liveEventsHostOrigin() in the frontend streams from live.<region host>.
-                    "connect-src": [
-                        *bundle,
-                        POSTHOG_JS_CLOUD_HOST,
-                        f"https://live.{urlsplit(settings.SITE_URL).hostname}",
-                        # The onboarding adblock check probes the region's ingestion host.
-                        f"{get_api_host()}/decide/",
-                        # A task run's live stream, when the server hands out the region's agent-proxy.
-                        *agent_proxy,
-                    ],
-                }
-                shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)
-                shadow_parts = [*narrowed_app_policy(csp_parts, replacements), f"report-uri {shadow_uri}"]
+            report_params = {"sample_rate": sample_rate}
+            if narrowed:
+                report_params["v"] = NARROWED_APP_POLICY_REPORT_VERSION
+            report_uri = csp_report_endpoint(**report_params)
             if report_uri:
                 report_endpoint = report_uri
                 if distinct_id:
                     # A report body never names the person, and a crash report arrives after the tab
                     # already died, so only the URL can carry the distinct_id. Without it, the report
                     # endpoint mints a random id for every report.
-                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
+                    report_endpoint = csp_report_endpoint(**report_params, distinct_id=distinct_id)
                 # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
                 # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
                 # send reports only through the Reporting API. That API drops violations raised in
@@ -446,14 +455,6 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
-            if shadow_parts:
-                # One header can carry several policies separated by commas, and the browser checks
-                # each on its own.
-                shadow = "; ".join(shadow_parts)
-                reported = response.headers.get("Content-Security-Policy-Report-Only")
-                response.headers["Content-Security-Policy-Report-Only"] = (
-                    f"{reported}, {shadow}" if reported else shadow
-                )
             if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
