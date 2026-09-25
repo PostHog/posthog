@@ -10,6 +10,7 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -20,6 +21,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -591,6 +593,48 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected == status.HTTP_400_BAD_REQUEST:
             assert "static cohort" in response.json()["detail"]
 
+    def test_a_new_runtime_stamp_alone_is_not_a_content_change(self):
+        # A re-save against a newer runtime rewrites every stamp. That must not version the function.
+        stamped = {
+            "filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1], "bytecode_contract": "new"},
+            "inputs": {"url": {"value": "https://example.com", "bytecode": ["_H", 1], "bytecode_contract": "new"}},
+            "mappings": [
+                {"filters": {"bytecode_contract": "new"}, "inputs": {"k": {"value": 1, "bytecode_contract": "new"}}}
+            ],
+        }
+        unstamped = {
+            "filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1]},
+            "inputs": {"url": {"value": "https://example.com", "bytecode": ["_H", 1]}},
+            "mappings": [{"filters": {}, "inputs": {"k": {"value": 1}}}],
+        }
+        assert comparable_content(stamped) == comparable_content(unstamped)
+
+    def test_kept_bytecode_keeps_the_contract_it_was_compiled_against(self):
+        # When a save cannot recompile the filters, the model keeps the last working bytecode. The
+        # stamp has to stay with that bytecode, or the runtime would read old code as freshly compiled.
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Destination",
+            type="destination",
+            enabled=True,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={"filter_test_accounts": True},
+        )
+        HogFunction.objects.filter(pk=fn.pk).update(filters={**(fn.filters or {}), "bytecode_contract": "older"})
+        fn.refresh_from_db()
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+
+        fn.save()
+
+        fn.refresh_from_db()
+        filters = fn.filters or {}
+        assert filters["bytecode"] is not None
+        assert "$virt_is_bot" in filters["bytecode_error"]
+        assert filters["bytecode_contract"] == "older"
+
     def test_uncompilable_filters_disable_with_string_boolean_value(self):
         # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
         # value before field coercion, so it must coerce rather than rely on truthiness - otherwise
@@ -658,6 +702,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {
                 "source": "events",
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
+                "bytecode_contract": RUNTIME_CONTRACT,
             },
             "icon_url": None,
             "template": None,
@@ -983,6 +1028,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "I AM SECRET",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "value": "I AM SECRET",
                 "order": 0,
             },
@@ -992,7 +1038,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert (
             raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1Uvej4GHsYRbsTN_txcQHNnU7zvLee83DhHIrThEjceoq8i7hbfKrvqjEi7GCGc_k_Gi3V5KFxDOfLKnke4KM4s"
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj"
         )
 
     def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
@@ -1191,6 +1237,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 0,
             },
             "payload": {
@@ -1223,6 +1270,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ],
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
             },
             "method": {"value": "POST", "order": 2},
             "headers": {
@@ -1246,6 +1294,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ]
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 3,
             },
         }
@@ -1331,6 +1380,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 3,
                 2,
             ],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }
 
     def test_saves_masking_config(self, *args):
@@ -2096,6 +2146,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "concat",
                             3,
                         ],
+                        "bytecode_contract": RUNTIME_CONTRACT,
                         "order": 0,
                     }
                 },
@@ -2129,6 +2180,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         3,
                         2,
                     ],
+                    "bytecode_contract": RUNTIME_CONTRACT,
                     "filter_test_accounts": True,
                 },
             }
@@ -2267,6 +2319,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     Operation.STRING,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 0,
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
