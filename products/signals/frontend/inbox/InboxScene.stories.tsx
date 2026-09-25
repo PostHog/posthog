@@ -16,6 +16,7 @@ import {
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
+    mockSourceMetadata,
     mockTask,
     mockTeamConfig,
     pullRequestReports,
@@ -76,6 +77,9 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
+    },
+    post: {
+        '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(allReports),
     },
 })
 
