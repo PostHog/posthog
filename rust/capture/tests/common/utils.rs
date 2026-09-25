@@ -26,7 +26,8 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
-use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaTopicsConfig};
+use capture::config::{CaptureMode, Config, EnvelopeCompression, OutputsConfig};
+use capture::producers::ProducerName;
 use capture::server::serve;
 use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -99,17 +100,30 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     is_mirror_deploy: false,
     log_level: Level::INFO,
     verbose_sample_percent: 0.0_f32,
-    kafka_topics: KafkaTopicsConfig {
-        main: "events_plugin_ingestion".to_string(),
-        overflow: "events_plugin_ingestion_overflow".to_string(),
-        historical: "events_plugin_ingestion_historical".to_string(),
-        client_ingestion_warning: "events_plugin_ingestion".to_string(),
-        error_tracking: "error_tracking_events".to_string(),
-        heatmaps: "events_plugin_ingestion".to_string(),
-        replay_overflow: "session_recording_snapshot_item_overflow".to_string(),
-        dlq: "events_plugin_ingestion_dlq".to_string(),
-        ai_events: "events_plugin_ingestion_ai".to_string(),
-        ai_events_overflow: None,
+    outputs: OutputsConfig {
+        analytics_main_topic: "events_plugin_ingestion".to_string(),
+        analytics_main_producer: ProducerName::Ingestion,
+        analytics_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
+        analytics_overflow_producer: ProducerName::Ingestion,
+        analytics_historical_topic: "events_plugin_ingestion_historical".to_string(),
+        analytics_historical_producer: ProducerName::Ingestion,
+        session_replay_main_topic: "events_plugin_ingestion".to_string(),
+        session_replay_main_producer: ProducerName::Ingestion,
+        session_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+        session_replay_overflow_producer: ProducerName::Ingestion,
+        heatmaps_topic: "events_plugin_ingestion".to_string(),
+        heatmaps_producer: ProducerName::Ingestion,
+        client_warnings_topic: "events_plugin_ingestion".to_string(),
+        client_warnings_producer: ProducerName::Ingestion,
+        error_tracking_topic: "error_tracking_events".to_string(),
+        error_tracking_producer: ProducerName::Ingestion,
+        dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        dlq_producer: ProducerName::Ingestion,
+        ai_main_topic: "events_plugin_ingestion_ai".to_string(),
+        ai_main_producer: ProducerName::Ingestion,
+        ai_overflow_topic: None,
+        ai_overflow_producer: ProducerName::Ingestion,
+        custom_producer: ProducerName::Ingestion,
     },
     replay_envelope_compression: EnvelopeCompression::None,
     outputs_completeness_check_enabled: true,
@@ -190,8 +204,8 @@ pub struct ServerHandle {
 impl ServerHandle {
     pub async fn for_topics(main: &EphemeralTopic, historical: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka_topics.main = main.topic_name().to_string();
-        config.kafka_topics.historical = historical.topic_name().to_string();
+        config.outputs.analytics_main_topic = main.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
     /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
@@ -204,8 +218,8 @@ impl ServerHandle {
         warnings_topic: &EphemeralTopic,
     ) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka_topics.main = main.topic_name().to_string();
-        config.kafka_topics.historical = historical.topic_name().to_string();
+        config.outputs.analytics_main_topic = main.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical.topic_name().to_string();
         config.capture_ingestion_warnings_enabled = true;
         config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
         config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
@@ -214,7 +228,7 @@ impl ServerHandle {
 
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka_topics.main = main.topic_name().to_string();
+        config.outputs.session_replay_main_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
         Self::for_config(config).await
     }
@@ -228,7 +242,7 @@ impl ServerHandle {
         warnings_topic: &EphemeralTopic,
     ) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka_topics.main = main.topic_name().to_string();
+        config.outputs.session_replay_main_topic = main.topic_name().to_string();
         config.capture_mode = CaptureMode::Recordings;
         config.capture_ingestion_warnings_enabled = true;
         config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
@@ -275,7 +289,7 @@ impl ServerHandle {
         config.ai_gateway_signing_secret = Some(secret.to_string());
         // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
-        config.kafka_topics.ai_events = topic.topic_name().to_string();
+        config.outputs.ai_main_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }

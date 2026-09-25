@@ -4,6 +4,7 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
+use crate::producers::ProducerName;
 use crate::v0_request::AiLanePredicate;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -283,7 +284,7 @@ pub struct Config {
     pub historical_rerouting_threshold_days: i64,
 
     #[envconfig(nested = true)]
-    pub kafka_topics: KafkaTopicsConfig,
+    pub outputs: OutputsConfig,
 
     /// Application-level compression of session replay payloads, independent of
     /// broker-level compression. Consumers detect and decompress it.
@@ -291,7 +292,7 @@ pub struct Config {
     pub replay_envelope_compression: EnvelopeCompression,
 
     /// Refuse to boot when a registered output has an empty topic name (see
-    /// `TopicTable::check_complete`). Off by default so that a deployment which
+    /// `OutputTable::check_complete`). Off by default so that a deployment which
     /// blanks a topic it never produces to still boots.
     #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
     pub outputs_completeness_check_enabled: bool,
@@ -452,7 +453,7 @@ pub struct Config {
     // The warnings emitter's own destination. It serves every pipeline that
     // emits (v1 and legacy analytics, both AI endpoints, and replay) but reads
     // only these three vars, never the ingestion producer's settings or
-    // `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`. charts sets all three per env,
+    // `CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //
     // Defaults are inert on purpose: empty hosts or topic makes
@@ -503,52 +504,110 @@ pub struct Config {
     pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
-/// The topic each capture destination produces to. Connection settings live
-/// with the named producers in [`crate::producers`].
+/// Each output capture produces to: a topic and the named producer that
+/// carries it, read from `CAPTURE_OUTPUT_<OUTPUT>_TOPIC` and
+/// `CAPTURE_OUTPUT_<OUTPUT>_PRODUCER` as in Node.js ingestion's outputs.
+///
+/// Topic defaults are the local dev and hobby topics. Those stacks pull
+/// `capture:master` with compose files that can predate these variables.
 #[derive(Envconfig, Clone)]
-pub struct KafkaTopicsConfig {
-    #[envconfig(from = "KAFKA_TOPIC", default = "events_plugin_ingestion")]
-    pub main: String,
+pub struct OutputsConfig {
     #[envconfig(
-        from = "KAFKA_OVERFLOW_TOPIC",
+        from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+        default = "events_plugin_ingestion"
+    )]
+    pub analytics_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_PRODUCER", default = "INGESTION")]
+    pub analytics_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC",
         default = "events_plugin_ingestion_overflow"
     )]
-    pub overflow: String,
+    pub analytics_overflow_topic: String,
     #[envconfig(
-        from = "KAFKA_HISTORICAL_TOPIC",
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub analytics_overflow_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC",
         default = "events_plugin_ingestion_historical"
     )]
-    pub historical: String,
+    pub analytics_historical_topic: String,
     #[envconfig(
-        from = "KAFKA_CLIENT_INGESTION_WARNING_TOPIC",
-        default = "ingestion-clientwarnings-main-1"
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_PRODUCER",
+        default = "INGESTION"
     )]
-    pub client_ingestion_warning: String,
-    #[envconfig(from = "KAFKA_ERROR_TRACKING_TOPIC", default = "error_tracking_events")]
-    pub error_tracking: String,
-    #[envconfig(from = "KAFKA_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
-    pub heatmaps: String,
+    pub analytics_historical_producer: ProducerName,
     #[envconfig(
-        from = "KAFKA_REPLAY_OVERFLOW_TOPIC",
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC",
+        default = "session_recording_snapshot_item_events"
+    )]
+    pub session_replay_main_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC",
         default = "session_recording_snapshot_item_overflow"
     )]
-    pub replay_overflow: String,
-    #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "events_plugin_ingestion_dlq")]
-    pub dlq: String,
+    pub session_replay_overflow_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_overflow_producer: ProducerName,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
+    pub heatmaps_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_PRODUCER", default = "INGESTION")]
+    pub heatmaps_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC",
+        default = "ingestion-clientwarnings-main-1"
+    )]
+    pub client_warnings_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub client_warnings_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC",
+        default = "ingestion-errortracking-main"
+    )]
+    pub error_tracking_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_PRODUCER", default = "INGESTION")]
+    pub error_tracking_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_DLQ_TOPIC",
+        default = "events_plugin_ingestion_dlq"
+    )]
+    pub dlq_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
+    pub dlq_producer: ProducerName,
     /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
     /// capture-ai included. Setup also injects it into every v1 sink config.
     #[envconfig(
-        from = "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC",
+        from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
         default = "events_plugin_ingestion_ai"
     )]
-    pub ai_events: String,
+    pub ai_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
+    pub ai_main_producer: ProducerName,
     /// Unset means AI events never overflow. When set, the AI lane uses the
     /// analytics main lane's overflow limiter and restriction-driven
     /// force_overflow, and reroutes here. Import mode refuses it at boot
     /// because imports must never overflow.
-    #[envconfig(from = "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
-    pub ai_events_overflow: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC")]
+    pub ai_overflow_topic: Option<String>,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
+    pub ai_overflow_producer: ProducerName,
+    /// Carries event-restriction redirects to an admin-supplied topic.
+    #[envconfig(from = "CAPTURE_OUTPUT_CUSTOM_PRODUCER", default = "INGESTION")]
+    pub custom_producer: ProducerName,
 }
 
 #[derive(Envconfig, Clone)]
@@ -619,6 +678,7 @@ pub struct KafkaConfig {
 #[cfg(test)]
 mod tests {
     use super::{CaptureMode, Config};
+    use crate::producers::ProducerName;
     use crate::v0_request::AiLanePredicate;
     use std::collections::HashMap;
     use std::str::FromStr;
@@ -631,24 +691,33 @@ mod tests {
     }
 
     #[test]
-    fn capture_analytics_ai_events_topic_defaults() {
+    fn output_topic_defaults_match_the_local_stack() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.kafka_topics.ai_events, "events_plugin_ingestion_ai");
-        assert_eq!(config.kafka_topics.ai_events_overflow, None);
+        assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
+        assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.session_replay_main_topic,
+            "session_recording_snapshot_item_events"
+        );
+        assert_eq!(
+            config.outputs.error_tracking_topic,
+            "ingestion-errortracking-main"
+        );
     }
 
     #[rstest::rstest]
-    #[case("KAFKA_TOPIC", |c: &Config| c.kafka_topics.main.clone())]
-    #[case("KAFKA_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.overflow.clone())]
-    #[case("KAFKA_HISTORICAL_TOPIC", |c: &Config| c.kafka_topics.historical.clone())]
-    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC", |c: &Config| c.kafka_topics.client_ingestion_warning.clone())]
-    #[case("KAFKA_ERROR_TRACKING_TOPIC", |c: &Config| c.kafka_topics.error_tracking.clone())]
-    #[case("KAFKA_HEATMAPS_TOPIC", |c: &Config| c.kafka_topics.heatmaps.clone())]
-    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.replay_overflow.clone())]
-    #[case("KAFKA_DLQ_TOPIC", |c: &Config| c.kafka_topics.dlq.clone())]
-    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", |c: &Config| c.kafka_topics.ai_events.clone())]
-    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.ai_events_overflow.clone().unwrap_or_default())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC", |c: &Config| c.outputs.analytics_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC", |c: &Config| c.outputs.analytics_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC", |c: &Config| c.outputs.analytics_historical_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC", |c: &Config| c.outputs.session_replay_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.outputs.session_replay_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_HEATMAPS_TOPIC", |c: &Config| c.outputs.heatmaps_topic.clone())]
+    #[case("CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC", |c: &Config| c.outputs.client_warnings_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
+    #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone().unwrap_or_default())]
     fn topic_env_var_binds_to_its_field(
         #[case] env_var: &str,
         #[case] field: fn(&Config) -> String,
@@ -657,6 +726,57 @@ mod tests {
         env.insert(env_var.into(), "configured_topic".into());
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
         assert_eq!(field(&config), "configured_topic");
+    }
+
+    #[rstest::rstest]
+    #[case("KAFKA_TOPIC")]
+    #[case("KAFKA_OVERFLOW_TOPIC")]
+    #[case("KAFKA_HISTORICAL_TOPIC")]
+    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC")]
+    #[case("KAFKA_ERROR_TRACKING_TOPIC")]
+    #[case("KAFKA_HEATMAPS_TOPIC")]
+    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC")]
+    #[case("KAFKA_DLQ_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
+    fn legacy_topic_env_var_is_not_read(#[case] env_var: &str) {
+        let mut env = required_config_env();
+        env.insert(env_var.into(), "legacy_topic".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        let outputs = &config.outputs;
+        let topics = [
+            outputs.analytics_main_topic.as_str(),
+            outputs.analytics_overflow_topic.as_str(),
+            outputs.analytics_historical_topic.as_str(),
+            outputs.session_replay_main_topic.as_str(),
+            outputs.session_replay_overflow_topic.as_str(),
+            outputs.heatmaps_topic.as_str(),
+            outputs.client_warnings_topic.as_str(),
+            outputs.error_tracking_topic.as_str(),
+            outputs.dlq_topic.as_str(),
+            outputs.ai_main_topic.as_str(),
+            outputs.ai_overflow_topic.as_deref().unwrap_or_default(),
+        ];
+        assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
+    }
+
+    #[test]
+    fn output_producers_default_to_ingestion_and_parse_their_env_var() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(
+            config.outputs.analytics_main_producer,
+            ProducerName::Ingestion
+        );
+        assert_eq!(config.outputs.custom_producer, ProducerName::Ingestion);
+
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_OUTPUT_HEATMAPS_PRODUCER".into(),
+            "WARPSTREAM".into(),
+        );
+        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+        assert!(bad.is_err(), "an undeclared producer must fail startup");
     }
 
     #[test]

@@ -17,6 +17,7 @@ use uuid::Uuid;
 
 use crate::api::CaptureError;
 use crate::ordering::OrderingGuarantee;
+use crate::sinks::registry::Destination;
 
 /// A serialized, addressed record ready for a backend: the sink input.
 /// The uuid identifies the source event so per-event results can be
@@ -29,9 +30,9 @@ use crate::ordering::OrderingGuarantee;
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedPayload {
     pub uuid: Uuid,
-    /// Realized namespace within the backend: a Kafka topic, an S3 prefix.
-    /// Namespace realization happens above the sink.
-    pub destination: String,
+    /// The output this record is addressed to. Each sink resolves it to its
+    /// own target, as v1's sinks resolve their `Destination`.
+    pub destination: Destination,
     /// Raw key; whether the sink uses it is decided by `ordering`.
     pub partition_key: String,
     /// The guarantee `partition_key` exists to preserve.
@@ -89,9 +90,6 @@ impl SinkResult {
 #[async_trait]
 pub(crate) trait Sink {
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
-
-    /// Flush any buffered/pending data before shutdown.
-    fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
 /// Collapse per-event results into the v0 whole-request response:

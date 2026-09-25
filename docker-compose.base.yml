@@ -378,7 +378,9 @@ services:
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
+            CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC: 'events_plugin_ingestion'
             KAFKA_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
+            CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
             KAFKA_HOSTS: 'kafka:9092'
             KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
@@ -404,6 +406,7 @@ services:
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'session_recording_snapshot_item_events'
+            CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC: 'session_recording_snapshot_item_events'
             KAFKA_HOSTS: 'kafka:9092'
             KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
@@ -419,6 +422,7 @@ services:
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion_ai'
+            CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC: 'events_plugin_ingestion_ai'
             KAFKA_HOSTS: 'kafka:9092'
             KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'

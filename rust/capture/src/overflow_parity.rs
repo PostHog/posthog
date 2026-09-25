@@ -22,7 +22,7 @@ use std::num::NonZeroU32;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::OutputRegistry;
 use crate::router::HistoricalConfig;
-use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
 use crate::sinks::producer::MockKafkaProducer;
 use crate::v0_request::ProcessingContext;
 use crate::v1::analytics::process::process_batch;
@@ -126,7 +126,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let producer = MockKafkaProducer::new();
     let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
         producer.clone(),
-        test_topics(),
+        test_outputs(),
     )));
     let global = limits.globally_limited.then(|| {
         Arc::new(GlobalRateLimiter::mock_limiting(&[&format!(
@@ -157,11 +157,11 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let records = producer.get_records();
     assert_eq!(records.len(), batch_size, "v0 must produce every event");
     let record = &records[observe];
-    let topics = test_topics();
+    let topics = test_outputs();
     Observed {
-        lane: if record.topic == topics.main {
+        lane: if record.topic == *topics.analytics_main.topic {
             Lane::Main
-        } else if record.topic == topics.overflow {
+        } else if record.topic == *topics.analytics_overflow.topic {
             Lane::Overflow
         } else {
             Lane::Other(record.topic.clone())

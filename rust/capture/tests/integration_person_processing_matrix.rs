@@ -46,7 +46,7 @@ use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::kafka::KafkaSinkBase;
 use capture::sinks::producer::MockKafkaProducer;
-use capture::sinks::registry::TopicTable;
+use capture::sinks::registry::OutputTable;
 use capture::time::TimeSource;
 use capture::v0_request::AiLanePredicate;
 use capture::v1::router::{router as v1_router, RouterConfig as V1RouterConfig};
@@ -228,7 +228,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), TopicTable::from(&cfg.kafka_topics));
+    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::from(&cfg.outputs));
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 

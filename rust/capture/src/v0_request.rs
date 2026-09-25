@@ -185,7 +185,7 @@ pub enum DataType {
     ExceptionErrorTracking,
     SnapshotMain,
     /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
-    /// kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, so every
+    /// kafka sink maps it to `CAPTURE_OUTPUT_AI_MAIN_TOPIC`, so every
     /// deployment that accepts AI traffic must configure that topic. Like
     /// heatmaps and exceptions, AI events never reroute historical.
     AiEvents,

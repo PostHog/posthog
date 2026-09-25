@@ -735,7 +735,7 @@ fn apply_overflow_stamping(
         // overflow (never analytics overflow) and the per-key budgets are
         // isolated between the lanes. The AI lane only participates when its
         // limiter exists — setup builds it exactly when the AI overflow valve
-        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed, so limiter
+        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC) is armed, so limiter
         // presence encodes the valve here.
         let (overflow_destination, lane_limiter) = match event.destination {
             Destination::AnalyticsMain => (Destination::Overflow, analytics_limiter),

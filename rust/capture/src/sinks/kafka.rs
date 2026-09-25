@@ -15,17 +15,17 @@
 //! * `otel::otel_handler` (`/i/v0/ai/otel`, multi-span batch)
 //!
 //! Keeping routing policy out of the sink keeps the clone-per-spawned-task
-//! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
-//! + topics) rather than deep copies of limiter state.
+//! cost in the scatter-gather batch path at one `Arc::clone` call (the output
+//! table) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
-use crate::producers::ProducerHandle;
+use crate::producers::ProducerRegistry;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{Destination, TopicTable};
+use crate::sinks::registry::{Destination, OutputTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
@@ -179,24 +179,22 @@ impl rdkafka::ClientContext for KafkaContext {
 
 /// Generic Kafka sink that can use any producer implementation.
 ///
-/// Holds only the producer handle, the topic config, and the replay envelope
-/// compression setting. No limiter state — overflow and replay-overflow routing
+/// Holds only the output table, each target carrying its producer handle,
+/// and the replay envelope compression setting. No limiter state — overflow and replay-overflow routing
 /// decisions are stamped upstream in the pipeline onto
 /// `ProcessedEventMetadata::overflow_reason` and read here.
-/// Both Arc fields are cheap to clone (two atomic ref-count increments),
+/// The Arc field is cheap to clone (one atomic ref-count increment),
 /// which matters under the scatter-gather batch produce path where the sink
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
-    producer: Arc<P>,
-    topics: Arc<TopicTable>,
+    outputs: Arc<OutputTable<Arc<P>>>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     fn clone(&self) -> Self {
         Self {
-            producer: Arc::clone(&self.producer),
-            topics: Arc::clone(&self.topics),
+            outputs: Arc::clone(&self.outputs),
             replay_envelope_compression: self.replay_envelope_compression,
         }
     }
@@ -243,13 +241,12 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
 impl KafkaSink {
     pub fn new(
-        producer: ProducerHandle,
-        topics: TopicTable,
+        producers: &ProducerRegistry,
+        outputs: OutputTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> KafkaSink {
         KafkaSinkBase {
-            producer,
-            topics: Arc::new(topics),
+            outputs: Arc::new(outputs.map_producers(|name| producers.get(*name))),
             replay_envelope_compression,
         }
     }
@@ -259,23 +256,19 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
-        Self {
-            producer: Arc::new(producer),
-            topics: Arc::new(topics),
-            replay_envelope_compression: EnvelopeCompression::None,
-        }
+    pub fn with_producer(producer: P, outputs: OutputTable) -> Self {
+        Self::with_producer_and_compression(producer, outputs, EnvelopeCompression::None)
     }
 
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: TopicTable,
+        outputs: OutputTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
+        let producer = Arc::new(producer);
         Self {
-            producer: Arc::new(producer),
-            topics: Arc::new(topics),
+            outputs: Arc::new(outputs.map_producers(|_| Arc::clone(&producer))),
             replay_envelope_compression,
         }
     }
@@ -334,12 +327,12 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         }
 
         // The address decision is pure metadata policy, owned by the pipeline
-        // layer; the sink bridges it to an output, resolves that against its
-        // topic config, realizes the key policy against the values it owns,
+        // layer; the sink bridges it to an output, which enqueue resolves to
+        // a topic and producer, realizes the key policy against the values it owns,
         // and applies the address-implied side effects in the same match —
         // the dlq output's contract includes the dlq header set, and both
         // admin redirects count their reroutes.
-        let decision = pipeline::resolve(&metadata, self.topics.ai_events_overflow_armed())?;
+        let decision = pipeline::resolve(&metadata, self.outputs.ai_events_overflow_armed())?;
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
@@ -369,8 +362,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             },
         };
 
-        let destination = self.topics.topic_for(&target).to_string();
-
         let partition_key = match decision.ordering {
             // resolve() rejects replay events without a session id, so the id
             // is present whenever PerSession is decided.
@@ -386,7 +377,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         Ok(PreparedPayload {
             uuid,
-            destination,
+            destination: target,
             partition_key,
             ordering: decision.ordering,
             payload,
@@ -395,14 +386,16 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     }
 
     /// Serial, ordering-preserving enqueue into librdkafka. The one place the
-    /// backend-agnostic payload becomes Kafka-shaped: `destination` is the
-    /// topic, and `ordering` decides whether the record is keyed. Emits the
-    /// per-topic bytes counter and returns the ack future for the caller to
-    /// await. librdkafka preserves on-wire partition order by `send_result`
-    /// call order, so this MUST be called in the original event order within
-    /// a batch.
+    /// backend-agnostic payload becomes Kafka-shaped: `destination` resolves
+    /// to a topic and the producer carrying it, and `ordering` decides
+    /// whether the record is keyed. Emits the per-topic bytes counter and
+    /// returns the ack future for the caller to await. librdkafka preserves
+    /// on-wire partition order by `send_result` call order, so this MUST be
+    /// called in the original event order within a batch.
     fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
-        counter!("capture_kafka_produce_bytes_total", "topic" => payload.destination.clone())
+        let (topic, producer) = self.outputs.resolve(&payload.destination);
+
+        counter!("capture_kafka_produce_bytes_total", "topic" => Arc::clone(&topic))
             .increment(payload.payload.len() as u64);
 
         // No key reaches rdkafka as round-robin; `Some("")` would murmur2-hash
@@ -412,8 +405,8 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             _ => Some(payload.partition_key),
         };
 
-        self.producer.send(ProduceRecord {
-            topic: payload.destination,
+        producer.send(ProduceRecord {
+            topic: topic.to_string(),
             key,
             payload: payload.payload,
             headers: payload.headers,
@@ -602,10 +595,6 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
             }
         }
     }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        self.producer.flush().map_err(|e| anyhow::anyhow!(e))
-    }
 }
 
 #[async_trait]
@@ -624,10 +613,6 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
 
         let payloads = self.prepare_batch(events).await?;
         fold_results(Sink::publish(self, payloads).await)
-    }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        Sink::flush(self)
     }
 }
 
@@ -658,7 +643,7 @@ async fn drain_acks(mut ack_set: JoinSet<Result<(), CaptureError>>) -> Result<()
 }
 
 #[cfg(test)]
-pub(crate) use crate::sinks::registry::test_topics;
+pub(crate) use crate::sinks::registry::test_outputs;
 
 #[cfg(test)]
 mod tests {
@@ -666,7 +651,7 @@ mod tests {
     use crate::config::EnvelopeCompression;
     use crate::outputs::PublishEvents;
     use crate::producers::{self, ProducerName, ProducerRegistry};
-    use crate::sinks::kafka::{test_topics, KafkaSink};
+    use crate::sinks::kafka::{test_outputs, KafkaSink};
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -710,11 +695,7 @@ mod tests {
             HashMap::from([(ProducerName::Ingestion, handle)]),
         )
         .expect("failed to create producer");
-        let sink = KafkaSink::new(
-            producers.get(ProducerName::Ingestion),
-            test_topics(),
-            EnvelopeCompression::None,
-        );
+        let sink = KafkaSink::new(&producers, test_outputs(), EnvelopeCompression::None);
         (cluster, sink)
     }
 
@@ -1015,7 +996,7 @@ mod tests {
     #[cfg(test)]
     mod topic_routing {
         use super::*;
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
         use crate::sinks::sink::{Outcome, Sink};
         use rstest::rstest;
@@ -1143,7 +1124,7 @@ mod tests {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer_and_compression(
                 producer.clone(),
-                test_topics(),
+                test_outputs(),
                 input.compression,
             );
 
@@ -2093,8 +2074,8 @@ mod tests {
 
         // ==================== AiEvents ====================
         // The dedicated $ai_* lane routes to its own topic, keyed on the
-        // event key. test_topics() arms the AI overflow valve
-        // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC), so overflow handling mirrors the
+        // event key. test_outputs() arms the AI overflow valve
+        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC), so overflow handling mirrors the
         // AnalyticsMain arm onto the AI topics; the unarmed tests below
         // override the valve off.
 
@@ -2217,12 +2198,12 @@ mod tests {
 
         #[tokio::test]
         async fn ai_events_unarmed_never_overflows() {
-            // Without CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC the lane keeps today's
+            // Without CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC the lane keeps today's
             // behavior: force_overflow and any stamped reason (which the
             // gated pipeline would not produce anyway) are ignored.
             let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events_overflow = None;
+            let mut topics = test_outputs();
+            topics.ai_overflow = None;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {
@@ -2322,7 +2303,7 @@ mod tests {
             // record key is the event key (token:distinct_id) and the headers
             // are identical to what another dedicated lane produces.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let base = create_test_event(&EventInput::default());
             let mut ai_event = base.clone();
@@ -2685,7 +2666,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn publish_events_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             // 20 events, all sharing the same distinct_id (so they hash to the
             // same partition via murmur2), each with a unique UUID so we can
@@ -2749,7 +2730,7 @@ mod tests {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
         async fn publish_events_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             // Build a batch where event #3 is a SnapshotMain with session_id=None,
             // which causes prepare_record to return MissingSessionId. The other
@@ -2823,7 +2804,7 @@ mod tests {
             const BATCH: usize = 10;
             const FAIL_IDX: usize = 3;
             let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let events = build_batch(BATCH);
             let input_distinct_ids: Vec<String> =
@@ -2869,7 +2850,7 @@ mod tests {
             // One event short-circuits to kafka_send: no prepare_batch, no
             // JoinSet. This is the live path for the single-event endpoints.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let events = build_batch(1);
             sink.publish_events(events)
@@ -2887,7 +2868,7 @@ mod tests {
             // prepare_batch. A one-event guard that grew an off-by-one would
             // swallow the second event here and nowhere else.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             sink.publish_events(build_batch(2))
                 .await
@@ -2938,7 +2919,7 @@ mod tests {
             ] {
                 let samples = histogram_sample_count(name, || {
                     let producer = MockKafkaProducer::new();
-                    let sink = KafkaSinkBase::with_producer(producer, test_topics());
+                    let sink = KafkaSinkBase::with_producer(producer, test_outputs());
                     runtime
                         .block_on(sink.publish_events(build_batch(1)))
                         .expect("publish_events failed");
@@ -2953,7 +2934,7 @@ mod tests {
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let size = SCATTER_GATHER_MIN_BATCH - 1;
             let events = build_batch(size);
@@ -2986,7 +2967,7 @@ mod tests {
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let size = SCATTER_GATHER_MIN_BATCH;
             let events = build_batch(size);
@@ -3022,7 +3003,7 @@ mod tests {
         #[tokio::test]
         async fn publish_reports_uuid_aligned_results() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let payloads = sink
                 .prepare_batch(build_batch(3))
@@ -3043,7 +3024,7 @@ mod tests {
         async fn publish_enqueue_failure_is_batch_uniform() {
             const FAIL_IDX: usize = 1;
             let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let payloads = sink
                 .prepare_batch(build_batch(3))
@@ -3071,7 +3052,7 @@ mod tests {
         async fn publish_ack_failure_is_batch_uniform() {
             const FAIL_IDX: usize = 1;
             let producer = MockKafkaProducer::new_failing_ack_at(FAIL_IDX);
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let payloads = sink
                 .prepare_batch(build_batch(3))
@@ -3102,7 +3083,7 @@ mod tests {
         /// and the scatter-gather path (10 events).
         async fn mixed_datatypes_routing_for_batch(pad_to: usize) {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             // Core 5-event diverse batch.
             let mut events: Vec<ProcessedEvent> = vec![
@@ -3178,7 +3159,7 @@ mod tests {
         #[tokio::test]
         async fn snapshot_payload_uncompressed_by_default() {
             let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
 
             let event = create_test_event(&EventInput {
                 data_type: DataType::SnapshotMain,
@@ -3199,7 +3180,7 @@ mod tests {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer_and_compression(
                 producer.clone(),
-                test_topics(),
+                test_outputs(),
                 EnvelopeCompression::Lz4,
             );
 
@@ -3232,7 +3213,7 @@ mod tests {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer_and_compression(
                 producer.clone(),
-                test_topics(),
+                test_outputs(),
                 EnvelopeCompression::Lz4,
             );
 

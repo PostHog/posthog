@@ -1,10 +1,11 @@
 //! Destination registry — the topic-completeness surface.
 //!
-//! Binds every fixed routing [`Destination`] variant to its configured Kafka topic
-//! and provides a startup completeness check ([`TopicTable::check_complete`])
+//! Binds every fixed routing [`Destination`] variant to its configured output,
+//! a Kafka topic and the named producer that carries it, and provides a
+//! startup completeness check ([`OutputTable::check_complete`])
 //! that refuses to boot when any fixed output resolves to an empty topic. This
 //! is the single place the output→topic wiring lives, so adding an output is a
-//! one-place change: the `topic_for` and `is_required` matches are
+//! one-place change: the `target_for` and `is_required` matches are
 //! compiler-forced exhaustive, a test pins `REGISTERED` to the required set,
 //! and `check_complete` catches an unwired output at boot rather than at
 //! first produce.
@@ -14,14 +15,16 @@
 //! and `AiOverflow` is the opt-in overflow valve — unset means routing never
 //! selects it.
 
-use crate::config::KafkaTopicsConfig;
+use std::sync::Arc;
+
+use crate::config::OutputsConfig;
+use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named **pipeline +
 /// lane** — the vocabulary the refactor converges on (typed per-pipeline
 /// lanes; see the plan doc). The sink resolves each output to a concrete
-/// topic string against the [`TopicTable`]; distinct outputs may share a
-/// topic (analytics main and session-replay main both resolve the
-/// deployment's main topic today). Mirrors v1's `Destination` split — the
+/// topic and producer against the [`OutputTable`]; distinct outputs may
+/// share a topic. Mirrors v1's `Destination` split — the
 /// convergence target when the v1 stack folds onto this registry (see the
 /// plan doc).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,13 +41,14 @@ pub enum Destination {
     Dlq,
     ErrorTrackingMain,
     /// The AI pipeline's main lane — the dedicated `$ai_*` topic
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
+    /// (`CAPTURE_OUTPUT_AI_MAIN_TOPIC`).
     AiMain,
     /// The AI pipeline's overflow lane; only routed to when the AI overflow
-    /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
+    /// valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed.
     AiOverflow,
-    /// Admin-configured custom topic copied from `redirect_to_topic`. Resolved
-    /// inline by the sink; never registered (it carries its own topic).
+    /// Admin-configured custom topic copied from `redirect_to_topic`. Carries
+    /// its own topic and publishes through the custom producer; never
+    /// registered.
     Custom(String),
 }
 
@@ -109,56 +113,108 @@ impl Destination {
     }
 }
 
-/// The one place output→topic wiring lives. Holds the configured topic for every
-/// fixed [`Destination`] variant. Cheap to clone; the sink holds it behind an `Arc`.
+/// `R` is how the target names its producer: a [`ProducerName`] in config,
+/// the producer handle once a sink is built.
 #[derive(Clone, Debug)]
-pub struct TopicTable {
-    pub(crate) main: String,
-    pub(crate) overflow: String,
-    pub(crate) historical: String,
-    pub(crate) client_ingestion_warning: String,
-    pub(crate) heatmaps: String,
-    pub(crate) replay_overflow: String,
-    pub(crate) dlq: String,
-    pub(crate) error_tracking: String,
-    /// Dedicated topic for `Destination::AiMain` (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`,
-    /// required with a default).
-    pub(crate) ai_events: String,
-    /// Overflow topic for the AI lane. Unset means the AI overflow valve is
-    /// unarmed and routing never selects `Destination::AiOverflow`.
-    pub(crate) ai_events_overflow: Option<String>,
+pub struct OutputTarget<R = ProducerName> {
+    // `Arc<str>` so the per-record metric label and lookup never allocate.
+    pub(crate) topic: Arc<str>,
+    pub(crate) producer: R,
 }
 
-impl TopicTable {
+/// The one place output wiring lives. Holds the configured target for every
+/// fixed [`Destination`] variant. Cheap to clone; the sink holds it behind an `Arc`.
+#[derive(Clone, Debug)]
+pub struct OutputTable<R = ProducerName> {
+    pub(crate) analytics_main: OutputTarget<R>,
+    pub(crate) analytics_overflow: OutputTarget<R>,
+    pub(crate) analytics_historical: OutputTarget<R>,
+    pub(crate) session_replay_main: OutputTarget<R>,
+    pub(crate) session_replay_overflow: OutputTarget<R>,
+    pub(crate) client_warnings: OutputTarget<R>,
+    pub(crate) heatmaps: OutputTarget<R>,
+    pub(crate) dlq: OutputTarget<R>,
+    pub(crate) error_tracking: OutputTarget<R>,
+    pub(crate) ai_main: OutputTarget<R>,
+    /// Unset means the AI overflow valve is unarmed and routing never
+    /// selects `Destination::AiOverflow`.
+    pub(crate) ai_overflow: Option<OutputTarget<R>>,
+    pub(crate) custom_producer: R,
+}
+
+impl<R> OutputTable<R> {
+    /// `Custom` has no target: it carries its own topic.
+    fn target_for(&self, output: &Destination) -> Option<&OutputTarget<R>> {
+        match output {
+            Destination::AnalyticsMain => Some(&self.analytics_main),
+            Destination::AnalyticsOverflow => Some(&self.analytics_overflow),
+            Destination::AnalyticsHistorical => Some(&self.analytics_historical),
+            Destination::ClientWarningsMain => Some(&self.client_warnings),
+            Destination::HeatmapsMain => Some(&self.heatmaps),
+            Destination::SessionReplayMain => Some(&self.session_replay_main),
+            Destination::SessionReplayOverflow => Some(&self.session_replay_overflow),
+            Destination::Dlq => Some(&self.dlq),
+            Destination::ErrorTrackingMain => Some(&self.error_tracking),
+            Destination::AiMain => Some(&self.ai_main),
+            Destination::AiOverflow => match &self.ai_overflow {
+                Some(target) if !target.topic.is_empty() => Some(target),
+                // Unreachable: routing only selects this output when the
+                // valve is armed, i.e. exactly when the topic is set.
+                _ => Some(&self.ai_main),
+            },
+            Destination::Custom(_) => None,
+        }
+    }
+
     /// Resolve an output to its topic. Fixed outputs read the registered topic;
     /// `Custom` returns its inline, admin-supplied topic.
     pub fn topic_for<'a>(&'a self, output: &'a Destination) -> &'a str {
-        match output {
-            Destination::AnalyticsMain | Destination::SessionReplayMain => &self.main,
-            Destination::AnalyticsOverflow => &self.overflow,
-            Destination::AnalyticsHistorical => &self.historical,
-            Destination::ClientWarningsMain => &self.client_ingestion_warning,
-            Destination::HeatmapsMain => &self.heatmaps,
-            Destination::SessionReplayOverflow => &self.replay_overflow,
-            Destination::Dlq => &self.dlq,
-            Destination::ErrorTrackingMain => &self.error_tracking,
-            Destination::AiMain => &self.ai_events,
-            Destination::AiOverflow => match self.ai_events_overflow.as_deref() {
-                Some(topic) if !topic.is_empty() => topic,
-                // Unreachable: routing only selects this output when the
-                // valve is armed, i.e. exactly when the topic is set.
-                _ => &self.ai_events,
-            },
-            Destination::Custom(topic) => topic,
+        match (output, self.target_for(output)) {
+            (Destination::Custom(topic), _) => topic,
+            (_, Some(target)) => &target.topic,
+            (_, None) => unreachable!("every fixed output has a target"),
+        }
+    }
+
+    /// Only a `Custom` topic allocates.
+    pub(crate) fn resolve(&self, output: &Destination) -> (Arc<str>, &R) {
+        match (output, self.target_for(output)) {
+            (_, Some(target)) => (Arc::clone(&target.topic), &target.producer),
+            (Destination::Custom(topic), None) => {
+                (Arc::from(topic.as_str()), &self.custom_producer)
+            }
+            (_, None) => unreachable!("every fixed output has a target"),
+        }
+    }
+
+    pub(crate) fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
+        let custom_producer = f(&self.custom_producer);
+        let mut target = |t: &OutputTarget<R>| OutputTarget {
+            topic: Arc::clone(&t.topic),
+            producer: f(&t.producer),
+        };
+        OutputTable {
+            analytics_main: target(&self.analytics_main),
+            analytics_overflow: target(&self.analytics_overflow),
+            analytics_historical: target(&self.analytics_historical),
+            session_replay_main: target(&self.session_replay_main),
+            session_replay_overflow: target(&self.session_replay_overflow),
+            client_warnings: target(&self.client_warnings),
+            heatmaps: target(&self.heatmaps),
+            dlq: target(&self.dlq),
+            error_tracking: target(&self.error_tracking),
+            ai_main: target(&self.ai_main),
+            ai_overflow: self.ai_overflow.as_ref().map(&mut target),
+            custom_producer,
         }
     }
 
     /// Whether the AI overflow valve is armed: the AI overflow topic is wired,
     /// so routing may select `Destination::AiOverflow`.
     pub fn ai_events_overflow_armed(&self) -> bool {
-        self.ai_events_overflow
-            .as_deref()
-            .is_some_and(|t| !t.is_empty())
+        self.ai_overflow
+            .as_ref()
+            .is_some_and(|target| !target.topic.is_empty())
     }
 
     /// Startup completeness check: every registered output must resolve to a
@@ -179,39 +235,69 @@ impl TopicTable {
     }
 }
 
-impl From<&KafkaTopicsConfig> for TopicTable {
-    fn from(config: &KafkaTopicsConfig) -> Self {
+impl From<&OutputsConfig> for OutputTable {
+    fn from(config: &OutputsConfig) -> Self {
+        let target = |topic: &String, producer: ProducerName| OutputTarget {
+            topic: Arc::from(topic.as_str()),
+            producer,
+        };
         Self {
-            main: config.main.clone(),
-            overflow: config.overflow.clone(),
-            historical: config.historical.clone(),
-            client_ingestion_warning: config.client_ingestion_warning.clone(),
-            heatmaps: config.heatmaps.clone(),
-            replay_overflow: config.replay_overflow.clone(),
-            dlq: config.dlq.clone(),
-            error_tracking: config.error_tracking.clone(),
-            ai_events: config.ai_events.clone(),
-            ai_events_overflow: config.ai_events_overflow.clone(),
+            analytics_main: target(&config.analytics_main_topic, config.analytics_main_producer),
+            analytics_overflow: target(
+                &config.analytics_overflow_topic,
+                config.analytics_overflow_producer,
+            ),
+            analytics_historical: target(
+                &config.analytics_historical_topic,
+                config.analytics_historical_producer,
+            ),
+            session_replay_main: target(
+                &config.session_replay_main_topic,
+                config.session_replay_main_producer,
+            ),
+            session_replay_overflow: target(
+                &config.session_replay_overflow_topic,
+                config.session_replay_overflow_producer,
+            ),
+            client_warnings: target(
+                &config.client_warnings_topic,
+                config.client_warnings_producer,
+            ),
+            heatmaps: target(&config.heatmaps_topic, config.heatmaps_producer),
+            dlq: target(&config.dlq_topic, config.dlq_producer),
+            error_tracking: target(&config.error_tracking_topic, config.error_tracking_producer),
+            ai_main: target(&config.ai_main_topic, config.ai_main_producer),
+            ai_overflow: config
+                .ai_overflow_topic
+                .as_ref()
+                .map(|topic| target(topic, config.ai_overflow_producer)),
+            custom_producer: config.custom_producer,
         }
     }
 }
 
-/// Shared `TopicTable` fixture for tests across the capture crate. Used by
+/// Shared `OutputTable` fixture for tests across the capture crate. Used by
 /// sink-side routing tests and pipeline-to-sink E2E tests so every test site
 /// asserts against the same canonical topic names.
 #[cfg(test)]
-pub(crate) fn test_topics() -> TopicTable {
-    TopicTable {
-        main: "events_plugin_ingestion".to_string(),
-        overflow: "events_plugin_ingestion_overflow".to_string(),
-        historical: "events_plugin_ingestion_historical".to_string(),
-        client_ingestion_warning: "client_ingestion_warning".to_string(),
-        heatmaps: "heatmaps".to_string(),
-        replay_overflow: "replay_overflow".to_string(),
-        dlq: "events_plugin_ingestion_dlq".to_string(),
-        error_tracking: "error_tracking_events".to_string(),
-        ai_events: "ai_events".to_string(),
-        ai_events_overflow: Some("ai_events_overflow".to_string()),
+pub(crate) fn test_outputs() -> OutputTable {
+    let target = |topic: &str| OutputTarget {
+        topic: Arc::from(topic),
+        producer: ProducerName::Ingestion,
+    };
+    OutputTable {
+        analytics_main: target("events_plugin_ingestion"),
+        analytics_overflow: target("events_plugin_ingestion_overflow"),
+        analytics_historical: target("events_plugin_ingestion_historical"),
+        session_replay_main: target("events_plugin_ingestion"),
+        session_replay_overflow: target("replay_overflow"),
+        client_warnings: target("client_ingestion_warning"),
+        heatmaps: target("heatmaps"),
+        dlq: target("events_plugin_ingestion_dlq"),
+        error_tracking: target("error_tracking_events"),
+        ai_main: target("ai_events"),
+        ai_overflow: Some(target("ai_events_overflow")),
+        custom_producer: ProducerName::Ingestion,
     }
 }
 
@@ -233,12 +319,12 @@ mod tests {
     #[case(Destination::AiMain, "ai_events")]
     #[case(Destination::AiOverflow, "ai_events_overflow")]
     fn topic_for_resolves_registered_outputs(#[case] output: Destination, #[case] expected: &str) {
-        assert_eq!(test_topics().topic_for(&output), expected);
+        assert_eq!(test_outputs().topic_for(&output), expected);
     }
 
     #[test]
     fn topic_for_custom_returns_inline_topic() {
-        let registry = test_topics();
+        let registry = test_outputs();
         assert_eq!(
             registry.topic_for(&Destination::Custom("admin_topic".to_string())),
             "admin_topic"
@@ -249,16 +335,49 @@ mod tests {
     /// disarms the AI main lane.
     #[test]
     fn unset_ai_overflow_valve_is_unarmed() {
-        let mut registry = test_topics();
-        registry.ai_events_overflow = None;
+        let mut registry = test_outputs();
+        registry.ai_overflow = None;
         assert!(registry.check_complete().is_ok());
         assert!(!registry.ai_events_overflow_armed());
         assert_eq!(registry.topic_for(&Destination::AiMain), "ai_events");
     }
 
     #[test]
+    fn session_replay_main_does_not_share_analytics_main() {
+        let mut registry = test_outputs();
+        registry.session_replay_main.topic = Arc::from("replay_main");
+        assert_eq!(
+            registry.topic_for(&Destination::SessionReplayMain),
+            "replay_main"
+        );
+        assert_eq!(
+            registry.topic_for(&Destination::AnalyticsMain),
+            "events_plugin_ingestion"
+        );
+    }
+
+    #[test]
+    fn each_output_resolves_to_its_own_producer() {
+        let mut next = 0;
+        let table = test_outputs().map_producers(|_| {
+            next += 1;
+            next
+        });
+        let custom = Destination::Custom("admin_topic".to_string());
+        let (topic, _) = table.resolve(&custom);
+        assert_eq!(&*topic, "admin_topic");
+
+        let producers: std::collections::HashSet<i32> = Destination::REGISTERED
+            .iter()
+            .chain([&custom])
+            .map(|output| *table.resolve(output).1)
+            .collect();
+        assert_eq!(producers.len(), Destination::REGISTERED.len() + 1);
+    }
+
+    #[test]
     fn check_complete_accepts_full_registry() {
-        assert!(test_topics().check_complete().is_ok());
+        assert!(test_outputs().check_complete().is_ok());
     }
 
     /// `REGISTERED` is a hand-maintained array while `is_required` is
@@ -295,20 +414,21 @@ mod tests {
     /// Every registered output, blanked one at a time, must fail the check and
     /// the error must name the offending output.
     #[rstest]
-    #[case("analytics-main", |r: &mut TopicTable| r.main.clear())]
-    #[case("analytics-overflow", |r: &mut TopicTable| r.overflow.clear())]
-    #[case("analytics-historical", |r: &mut TopicTable| r.historical.clear())]
-    #[case("clientwarnings-main", |r: &mut TopicTable| r.client_ingestion_warning.clear())]
-    #[case("heatmaps-main", |r: &mut TopicTable| r.heatmaps.clear())]
-    #[case("sessionreplay-overflow", |r: &mut TopicTable| r.replay_overflow.clear())]
-    #[case("dlq", |r: &mut TopicTable| r.dlq.clear())]
-    #[case("errortracking-main", |r: &mut TopicTable| r.error_tracking.clear())]
-    #[case("ai-main", |r: &mut TopicTable| r.ai_events.clear())]
+    #[case("analytics-main", |r: &mut OutputTable| r.analytics_main.topic = Arc::from(""))]
+    #[case("analytics-overflow", |r: &mut OutputTable| r.analytics_overflow.topic = Arc::from(""))]
+    #[case("analytics-historical", |r: &mut OutputTable| r.analytics_historical.topic = Arc::from(""))]
+    #[case("clientwarnings-main", |r: &mut OutputTable| r.client_warnings.topic = Arc::from(""))]
+    #[case("heatmaps-main", |r: &mut OutputTable| r.heatmaps.topic = Arc::from(""))]
+    #[case("sessionreplay-main", |r: &mut OutputTable| r.session_replay_main.topic = Arc::from(""))]
+    #[case("sessionreplay-overflow", |r: &mut OutputTable| r.session_replay_overflow.topic = Arc::from(""))]
+    #[case("dlq", |r: &mut OutputTable| r.dlq.topic = Arc::from(""))]
+    #[case("errortracking-main", |r: &mut OutputTable| r.error_tracking.topic = Arc::from(""))]
+    #[case("ai-main", |r: &mut OutputTable| r.ai_main.topic = Arc::from(""))]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
-        #[case] blank: fn(&mut TopicTable),
+        #[case] blank: fn(&mut OutputTable),
     ) {
-        let mut registry = test_topics();
+        let mut registry = test_outputs();
         blank(&mut registry);
         let err = registry
             .check_complete()
