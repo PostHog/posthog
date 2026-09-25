@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
@@ -33,7 +33,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.ci_views"
 GITHUB_SOURCE_PREFIX = "myprefix"
@@ -382,20 +382,31 @@ class TestExpectedWarehouseViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_on", True, False, True),
-            ("flag_off", False, True, False),
+            ("flag_on", True, None, True),
+            ("flag_off", False, "managed", False),
             # No answer from the flag service keeps what the team has, so an outage never drops the table.
-            ("no_answer_keeps_the_view", None, True, True),
-            ("no_answer_adds_no_view", None, False, False),
+            ("no_answer_keeps_the_view", None, "managed", True),
+            ("no_answer_ignores_a_user_query_of_that_name", None, "user", False),
+            ("no_answer_adds_no_view", None, None, False),
         ]
     )
     def test_friction_view_needs_the_pull_request_snapshot_and_the_flag(
-        self, _name: str, flag: bool | None, view_exists: bool, expected: bool
+        self, _name: str, flag: bool | None, existing_view: str | None, expected: bool
     ) -> None:
         self._qualifying_source(with_pull_requests=True)
-        if view_exists:
+        if existing_view:
+            viewset = (
+                DataWarehouseManagedViewSet.objects.create(
+                    team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
+                )
+                if existing_view == "managed"
+                else None
+            )
             DataWarehouseSavedQuery.objects.create(
-                team=self.team, name=pr_friction.VIEW_NAME, query={"kind": "HogQLQuery", "query": "SELECT 1"}
+                team=self.team,
+                name=pr_friction.VIEW_NAME,
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                managed_viewset=viewset,
             )
         with patch("posthoganalytics.feature_enabled", return_value=flag):
             materialized = {view.name: view.materialized for view in get_expected_warehouse_views(self.team)}

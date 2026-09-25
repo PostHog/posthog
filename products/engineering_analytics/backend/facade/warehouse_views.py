@@ -13,6 +13,7 @@ from posthog.models.team import Team
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import FRICTION_VIEW_FEATURE_FLAG, ExpectedWarehouseView
 from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs, pr_friction
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
@@ -55,7 +56,12 @@ def _friction_view_enabled(team: Team) -> bool:
         # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
         # does not expect, so keep the view the team has rather than drop a materialized table on an outage.
         return (
-            DataWarehouseSavedQuery.objects.filter(team_id=team.id, name=pr_friction.VIEW_NAME)
+            # Only this product's managed view counts: a user's own saved query can carry the same name.
+            DataWarehouseSavedQuery.objects.filter(
+                team_id=team.id,
+                name=pr_friction.VIEW_NAME,
+                managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
+            )
             .exclude(deleted=True)
             .exists()
         )
