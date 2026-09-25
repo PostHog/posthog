@@ -18,6 +18,23 @@ pub struct ReductionConfig {
     pub seen_cache_capacity: usize,
 }
 
+/// First wait after a failed poll, doubled on each further consecutive failure.
+const RECV_BACKOFF_BASE: Duration = Duration::from_millis(100);
+/// Ceiling on the wait after a failed poll. Well under the flush interval, so
+/// backing off never delays a flush by a meaningful amount.
+const RECV_BACKOFF_MAX: Duration = Duration::from_secs(5);
+
+/// Wait before the next poll after `consecutive_errors` failed ones.
+///
+/// A broker outage makes `recv` return an error immediately, so without a wait
+/// the loop spins at full speed and every turn logs. Backing off keeps the
+/// error rate readable and the CPU idle while librdkafka reconnects.
+fn recv_backoff(consecutive_errors: u32) -> Duration {
+    RECV_BACKOFF_BASE
+        .saturating_mul(2u32.saturating_pow(consecutive_errors.saturating_sub(1)))
+        .min(RECV_BACKOFF_MAX)
+}
+
 /// One worker loop. Each pod runs one worker per input topic.
 ///
 /// At-least-once: on each flush we produce non-transactionally, then on
@@ -48,6 +65,8 @@ pub async fn worker_loop<E, P, F>(
     // consumer's stored offset; auto-commit ships it to the broker.
     let mut pending_offsets: HashMap<i32, Offset> = HashMap::new();
 
+    let mut consecutive_recv_errors: u32 = 0;
+
     let mut flush_timer = tokio::time::interval(Duration::from_secs(config.flush_interval_secs));
     flush_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     flush_timer.reset();
@@ -71,6 +90,7 @@ pub async fn worker_loop<E, P, F>(
                 match recv {
                     Ok((event, offset)) => {
                         metrics::counter!(EVENTS_RECEIVED, "worker" => worker).increment(1);
+                        consecutive_recv_errors = 0;
 
                         if config.should_process(event.team_id()) {
                             let tuples = fan_out_fn(&event);
@@ -98,10 +118,17 @@ pub async fn worker_loop<E, P, F>(
                     }
                     Err(RecvErr::Empty) | Err(RecvErr::Serde(_)) => {
                         // SingleTopicConsumer auto-stores poison-pill offsets.
+                        consecutive_recv_errors = 0;
                     }
                     Err(RecvErr::Kafka(e)) => {
                         metrics::counter!(KAFKA_RECV_ERRORS, "worker" => worker).increment(1);
-                        warn!(error = %e, "kafka recv error");
+                        consecutive_recv_errors = consecutive_recv_errors.saturating_add(1);
+                        let backoff = recv_backoff(consecutive_recv_errors);
+                        warn!(error = %e, consecutive = consecutive_recv_errors, backoff_ms = backoff.as_millis() as u64, "kafka recv error");
+                        tokio::select! {
+                            _ = handle.shutdown_recv() => {}
+                            _ = tokio::time::sleep(backoff) => {}
+                        }
                     }
                 }
             }
@@ -291,6 +318,19 @@ mod tests {
     fn populate(agg: &mut Aggregator, count: u64) {
         for i in 0..count {
             agg.add(tuple(2, "k", &format!("v{i}")), 1);
+        }
+    }
+
+    #[test]
+    fn recv_backoff_grows_and_stays_capped() {
+        assert_eq!(recv_backoff(1), RECV_BACKOFF_BASE);
+        assert_eq!(recv_backoff(2), RECV_BACKOFF_BASE * 2);
+        for errors in [10u32, 100, u32::MAX] {
+            assert_eq!(
+                recv_backoff(errors),
+                RECV_BACKOFF_MAX,
+                "a long outage must not push the wait past the cap"
+            );
         }
     }
 
