@@ -136,7 +136,7 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-2. From the root of the repository, activate the environment. (On first activation, you'll be prompted if you'd like the environment to be activated automatically using `direnv`.)
+2. From the root of the repository, activate the environment. (To activate it automatically whenever you `cd` into the repo, see the [one-time setup](./flox-multi-instance-workflow#1-one-time-setup).)
 
    ```bash
    flox activate

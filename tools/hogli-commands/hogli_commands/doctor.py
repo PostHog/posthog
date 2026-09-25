@@ -30,7 +30,7 @@ from . import hints
 
 MAX_SAMPLE_PATHS = 8
 
-# Flox writes a fresh log per shell activation, and direnv re-activates on every
+# Flox writes a fresh log per shell activation, and auto-activation activates on
 # `cd` into the tree (plus every agent/non-interactive shell), so the log dir can
 # reach tens of GB well inside any age window. We bound it two ways: drop anything
 # older than the age cutoff, then trim the oldest survivors past a total-size

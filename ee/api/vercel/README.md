@@ -288,9 +288,6 @@ When you're done testing:
 
 # Stop Django and Vite servers
 # Press Ctrl+C in each terminal
-
-# (Optional) Unset environment variables
-direnv deny
 ```
 
 ## References

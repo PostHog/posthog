@@ -20,15 +20,6 @@ _clean_environment() {
     unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
 }
 
-# Helper function to activate Flox environment
-_activate_flox() {
-    if ! command -v direnv &>/dev/null; then
-        echo "Activating Flox environment via .envrc…"
-        source .envrc
-    fi
-    # If direnv is set up, it will auto-activate via .envrc
-}
-
 # Helper function to switch to worktree directory
 _switch_to_worktree() {
     local worktree_path="$1"
@@ -38,7 +29,6 @@ _switch_to_worktree() {
         echo "Switching to worktree directory…"
         _clean_environment
         cd "$worktree_path"
-        _activate_flox
     else
         error "Worktree directory not found: $worktree_path"
         return 1
