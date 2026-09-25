@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
     record_companion_job,
     retire_orphaned_companions,
 )
@@ -146,6 +147,36 @@ class TestBufferExpiredUnread(BaseTest):
             self._completed_job(schema, days_ago=job[0], snapshot=job[1])
 
         assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is expired
+
+    @parameterized.expand([("running", "Running"), ("failed", "Failed")])
+    def test_a_listing_whose_history_lane_did_not_finish_proves_nothing(
+        self, _name: str, companion_status: str
+    ) -> None:
+        # The buffer's changes landed on one of the `both` table's two lanes only, so the other one
+        # still owes them and the files that held them are about to go.
+        schema = self._schema(synced_days_ago=1)
+        companion = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=companion_status,
+            rows_synced=0,
+            billable=False,
+        )
+        self._completed_job(
+            schema,
+            days_ago=1,
+            snapshot={
+                BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00",
+                COMPANION_JOB_IDS_KEY: [str(companion.id)],
+            },
+        )
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is True
+
+        ExternalDataJob.objects.filter(id=companion.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is False
 
 
 class TestRecordCompanionJob(BaseTest):

@@ -254,6 +254,10 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
     run since then that drained the buffer or re-seeded the table with a snapshot. A stand-down, such as
     the wait for in-flight batches, completes its job without reading the buffer, so neither a completed
     job nor `last_synced_at`, which every completion moves, proves the table read its changes.
+
+    A run counts only once every table it writes finished, the bar `read_completed_listing_proof` sets:
+    a `both` run whose companion job never completed landed the buffer's changes on one of its two
+    tables, and the other still owes them.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
@@ -263,8 +267,9 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
     # Every completion moves it, so nothing has drained since the cutoff either.
     if schema.last_synced_at < cutoff:
         return True
-    # Bounded by `created_at` and on the index, as the proof read is.
-    return not (
+    # Bounded by `created_at` and on the index, as the proof read is. Past the search depth the table
+    # reads as expired: runs that recent with a companion still owing rows are worth re-seeding over.
+    reads = (
         ExternalDataJob.objects.filter(
             team_id=schema.team_id,
             pipeline_id=schema.source_id,
@@ -275,8 +280,10 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
         .filter(
             Q(schema_snapshot__has_key=BUFFER_LISTED_AT_KEY) | Q(schema_snapshot__sync_type_config__cdc_mode="snapshot")
         )
-        .exists()
+        .order_by("-created_at")
+        .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
     )
+    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
 
 
 async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
