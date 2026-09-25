@@ -239,6 +239,45 @@ function usesDirectBedrock(value: string | undefined): boolean {
 }
 
 /**
+ * A Bedrock model reference in any form the CLI takes: a full inference-profile
+ * ARN in any AWS partition, a bare id (`anthropic.claude-…`), or an id behind a cross-region prefix
+ * (`us.`, `eu.`, `apac.`, `au.`, `jp.`, `global.`, and whatever AWS adds next).
+ * The CLI accepts these only on the direct-Bedrock path: the gateway's Anthropic
+ * route serves public Anthropic model names, so one of these reaches the real
+ * Anthropic API and fails with not_found_error. A public name starts with
+ * `claude-`, so it never matches.
+ */
+const BEDROCK_MODEL_ID =
+  /^(?:arn:aws(?:-[a-z0-9-]+)?:bedrock:|(?:[a-z0-9-]+\.)?anthropic\.)/;
+
+/**
+ * Model names the CLI reads from the environment. A box provisioned for direct
+ * Bedrock exports them as Bedrock ids, and the run pins only its main model, so
+ * the default haiku and sonnet ids survive into gateway sessions.
+ */
+const CLI_MODEL_ENV_KEYS = [
+  "ANTHROPIC_MODEL",
+  "ANTHROPIC_SMALL_FAST_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL",
+];
+
+/**
+ * Drop Bedrock model ids a Bedrock-provisioned box left in the environment, so
+ * the CLI falls back to its own public Anthropic defaults. Only Bedrock-shaped
+ * values go: an override that already names a public model still applies.
+ */
+function dropBedrockModelOverrides(env: Record<string, string>): void {
+  for (const key of CLI_MODEL_ENV_KEYS) {
+    const value = env[key];
+    if (value && BEDROCK_MODEL_ID.test(value)) {
+      delete env[key];
+    }
+  }
+}
+
+/**
  * AWS strips any header whose NAME contains "_" before it validates a SigV4
  * signature, but the Claude CLI signs custom headers verbatim — so a signed
  * `x-posthog-property-task_id` makes AWS recompute a different signature and
@@ -313,9 +352,13 @@ function applyGatewayAuth(
   // rejects any underscore-named one (see dropUnderscoreNamedHeaderLines). Strip
   // them there so signing succeeds; every other path keeps them for gateway
   // attribution.
-  env.ANTHROPIC_CUSTOM_HEADERS = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK)
+  const directBedrock = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK);
+  env.ANTHROPIC_CUSTOM_HEADERS = directBedrock
     ? dropUnderscoreNamedHeaderLines(customHeaders)
     : customHeaders;
+  if (!directBedrock) {
+    dropBedrockModelOverrides(env);
+  }
 
   // Explicit gateway values win over whatever happens to be in process.env.
   // This prevents concurrent Agent instances from clobbering each other's
