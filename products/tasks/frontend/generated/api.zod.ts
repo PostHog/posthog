@@ -169,14 +169,21 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -194,14 +201,21 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -219,14 +233,21 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -470,14 +491,21 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -495,14 +523,21 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
@@ -520,14 +555,21 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
                         events: zod
                             .array(
                                 zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
+                                    .enum([
+                                        'run_completed',
+                                        'run_failed',
+                                        'pr_created',
+                                        'pr_merged',
+                                        'pr_closed',
+                                        'needs_attention',
+                                    ])
                                     .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
+                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `pr_merged` - pr_merged\n\* `pr_closed` - pr_closed\n\* `needs_attention` - needs_attention'
                                     )
                             )
                             .optional()
                             .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
+                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention.'
                             ),
                         params: zod
                             .record(zod.string(), zod.unknown())
