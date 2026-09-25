@@ -233,7 +233,7 @@
     let { data, bands } = stacked ? stack(() => true) : { data: raw, bands: [] };
     const restack = u => { const { data, bands } = stack(i => u.series[i + 1].show); u.delBand(null); bands.forEach(b => u.addBand(b)); u.setData([xs, ...data]); };
     // Bars are centered on their bucket, so the first and last would be cut in half without half a bucket of room at each end.
-    const half = xs.length > 1 ? Math.min(...xs.slice(1).map((x, i) => x - xs[i])) / 2 : 0;
+    const half = xs.length > 1 ? xs.slice(1).reduce((min, x, i) => Math.min(min, x - xs[i]), Infinity) / 2 : 0;
     const opts = {
       width: 600, height, bands,
       cursor: { y: false, sync: { key: 'page', setSeries: false }, drag: { x: true, y: false, setScale: false, dist: 4 }, points: { size: 6 }, bind: { dblclick: () => () => zoomOut() } },
