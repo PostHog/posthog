@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
@@ -36,6 +39,55 @@ function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceC
 describe('sourceWizardLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    it.each<{
+        name: SourceConfigResponseApi['name']
+        category: SourceConfigResponseApi['category']
+        marketingIntent: boolean
+    }>([
+        { name: 'AdRoll', category: 'Advertising', marketingIntent: true },
+        { name: 'AppLovin', category: 'Advertising', marketingIntent: true },
+        { name: 'Outbrain', category: 'Advertising', marketingIntent: true },
+        { name: 'Taboola', category: 'Advertising', marketingIntent: true },
+        { name: 'AmazonAds', category: 'Advertising', marketingIntent: true },
+        { name: 'AppleSearchAds', category: 'Advertising', marketingIntent: true },
+        { name: 'OpenAIAds', category: 'Advertising', marketingIntent: true },
+        { name: 'RoktAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: null, marketingIntent: true },
+        { name: 'BigQuery', category: 'Databases', marketingIntent: true },
+        { name: 'Postgres', category: 'Databases', marketingIntent: false },
+        { name: 'Hubspot', category: 'CRM', marketingIntent: false },
+        { name: 'Mailchimp', category: 'Marketing & email', marketingIntent: false },
+    ])('records the expected product intents when selecting $name', async ({ name, category, marketingIntent }) => {
+        const source = buildSourceConfig({ name, category })
+        const updateIntent = jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
+        const logic = sourceWizardLogic({ availableSources: { [name]: source } })
+        const unmount = logic.mount()
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.selectConnector(source)
+            }).toFinishAllListeners()
+
+            expect(updateIntent.mock.calls.map(([intent]) => intent)).toEqual([
+                {
+                    product_type: ProductKey.DATA_WAREHOUSE,
+                    intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+                },
+                ...(marketingIntent
+                    ? [
+                          {
+                              product_type: ProductKey.MARKETING_ANALYTICS,
+                              intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                          },
+                      ]
+                    : []),
+            ])
+        } finally {
+            unmount()
+            updateIntent.mockRestore()
+        }
     })
 
     it('shares a single wizard instance across references with the same props', () => {
