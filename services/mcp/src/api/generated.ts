@@ -377,6 +377,194 @@ export namespace Schemas {
       resources: AccessControlMemberAccessResources;
     }
 
+    /**
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics
+     */
+    export type RuleResourceEnum = typeof RuleResourceEnum[keyof typeof RuleResourceEnum];
+
+
+    export const RuleResourceEnum = {
+      Account: 'account',
+      Action: 'action',
+      ActivityLog: 'activity_log',
+      AiObservabilityClusters: 'ai_observability_clusters',
+      CustomerAnalytics: 'customer_analytics',
+      CustomerJourney: 'customer_journey',
+      CustomerTask: 'customer_task',
+      Dashboard: 'dashboard',
+      DashboardTemplate: 'dashboard_template',
+      DataCatalog: 'data_catalog',
+      DataDeletion: 'data_deletion',
+      Dataset: 'dataset',
+      EarlyAccessFeature: 'early_access_feature',
+      Endpoint: 'endpoint',
+      ErrorTracking: 'error_tracking',
+      Evaluation: 'evaluation',
+      Experiment: 'experiment',
+      ExperimentHoldout: 'experiment_holdout',
+      ExperimentSavedMetric: 'experiment_saved_metric',
+      Export: 'export',
+      ExternalDataSource: 'external_data_source',
+      FeatureFlag: 'feature_flag',
+      Heatmap: 'heatmap',
+      HogFlow: 'hog_flow',
+      Insight: 'insight',
+      LlmAnalytics: 'llm_analytics',
+      LlmPlayground: 'llm_playground',
+      LlmPrompt: 'llm_prompt',
+      LlmProviderKey: 'llm_provider_key',
+      LlmSkill: 'llm_skill',
+      Logs: 'logs',
+      MarketingAnalytics: 'marketing_analytics',
+      McpAnalytics: 'mcp_analytics',
+      Metrics: 'metrics',
+      Notebook: 'notebook',
+      Project: 'project',
+      PropertyDefinition: 'property_definition',
+      ReplayScanner: 'replay_scanner',
+      RevenueAnalytics: 'revenue_analytics',
+      SessionRecording: 'session_recording',
+      SessionRecordingPlaylist: 'session_recording_playlist',
+      SharingConfiguration: 'sharing_configuration',
+      Stamphog: 'stamphog',
+      Survey: 'survey',
+      Tagger: 'tagger',
+      Ticket: 'ticket',
+      Toolbar: 'toolbar',
+      Tracing: 'tracing',
+      VisionAlert: 'vision_alert',
+      WarehouseObjects: 'warehouse_objects',
+      WarehouseTable: 'warehouse_table',
+      WarehouseView: 'warehouse_view',
+      WebAnalytics: 'web_analytics',
+    } as const;
+
+    /**
+     * A rule for one organization member.
+     */
+    export interface AccessControlMemberRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The organization membership id, as `organization_membership_id` in the members endpoint. */
+      member_id: string;
+    }
+
     export interface AccessControlMembersResponse {
       /** The project access levels, lowest first. */
       available_project_levels: string[];
@@ -450,6 +638,80 @@ export namespace Schemas {
       resources: AccessControlRoleAccessResources;
     }
 
+    /**
+     * A rule for every member of one role.
+     */
+    export interface AccessControlRoleRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The role id, as `role_id` in the roles endpoint. */
+      role_id: string;
+    }
+
     export interface AccessControlRolesResponse {
       /** The project access levels, lowest first. */
       available_project_levels: string[];
@@ -459,6 +721,104 @@ export namespace Schemas {
       can_edit: boolean;
       /** One entry per role in the organization. */
       results: AccessControlRoleAccess[];
+    }
+
+    /**
+     * The scope and level of one rule write. On its own it is the default rule, for everyone in the
+     * project without a member or role rule of their own. The subclasses add the subject.
+     */
+    export interface AccessControlRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+    }
+
+    /**
+     * One stored rule, the same shape for object, resource, project and property rules.
+     */
+    export interface AccessControlStoredRule {
+      /** The rule's scope, as sent in the request. */
+      resource: string;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.
+         * @nullable
+         */
+      resource_id: string | null;
+      /** The stored level. */
+      access_level: string;
+      /**
+         * The organization membership the rule is for. Null unless it is a member rule.
+         * @nullable
+         */
+      member_id: string | null;
+      /**
+         * The role the rule is for. Null unless it is a role rule.
+         * @nullable
+         */
+      role_id: string | null;
     }
 
     /**
@@ -31152,10 +31512,10 @@ export namespace Schemas {
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions
      */
-    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
+    export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
 
-    export const ResourceEnum = {
+    export const DatasetConflictResponseResourceEnum = {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
@@ -31189,7 +31549,7 @@ export namespace Schemas {
        * * `datasets` - datasets
        * * `dataset_items` - dataset_items
        * * `dataset_item_versions` - dataset_item_versions */
-      resource?: ResourceEnum;
+      resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
       /** Maximum number of resources allowed. */
@@ -49024,6 +49384,7 @@ export namespace Schemas {
       transpiled?: unknown;
       filter_test_accounts?: boolean;
       bytecode_error?: string;
+      bytecode_contract?: string;
     }
 
     export interface HogFlowConversionEvent {
@@ -49039,17 +49400,12 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
-      /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
-         * @nullable
-         */
-      window_minutes?: number | null;
       /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
       bytecode?: unknown;
     }
@@ -49287,7 +49643,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -49756,7 +50112,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -49829,6 +50185,7 @@ export namespace Schemas {
       value?: unknown;
       templating?: HogFunctionTemplatingEnum;
       readonly bytecode: readonly unknown[];
+      readonly bytecode_contract: string;
       readonly order: number;
       readonly transpiled: unknown;
     }
@@ -73121,7 +73478,7 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *

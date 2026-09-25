@@ -1116,6 +1116,28 @@ class TestListAndGetReportRun(BaseTest):
         # Full content intentionally omitted
         self.assertNotIn("content", result[0])
 
+    @parameterized.expand([(80, False), (40, True), (None, None)])
+    def test_numeric_history_identifies_comparison_rule(self, previous_threshold, matches):
+        config = (
+            {"passing_rule": {"operator": "lte", "threshold": previous_threshold}}
+            if previous_threshold is not None
+            else {}
+        )
+        self.recent_run.metadata = {
+            "output_type": "numeric",
+            "output_config": config,
+            "total_runs": 10,
+            "result_counts": {"pass": 8, "fail": 2, "na": 0},
+        }
+        self.recent_run.save()
+        self.state.update(output_type="numeric", output_config={"passing_rule": {"operator": "lte", "threshold": 40}})
+
+        result = json.loads(_list_recent_report_runs_fn(state=self.state))[0]
+
+        self.assertEqual(result["output_config"], config)
+        self.assertEqual(result["passing_rule_matches_current"], matches)
+        self.assertEqual(result["pass_rate"], 80)
+
     def test_list_hands_out_handles_and_get_resolves_them(self):
         # A run UUID is UUID-shaped but can never be cited, so an agent that repeats one in
         # backticked prose writes a dead identifier. It never sees the UUID to repeat.
