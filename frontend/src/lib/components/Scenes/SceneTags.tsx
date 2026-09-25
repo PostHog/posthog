@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { TypesafeSuggestButton } from 'lib/components/TypesafeSuggest/TypesafeSuggestButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,6 +18,9 @@ type SceneTagsProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        /** Asks TypeSafe which of the team's existing tags apply. Renders a sparkle button in the label. */
+        onSuggest?: () => void
+        suggesting?: boolean
     }
 
 export const SceneTags = ({
@@ -26,6 +30,8 @@ export const SceneTags = ({
     dataAttrKey,
     canEdit = true,
     loading,
+    onSuggest,
+    suggesting = false,
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -49,6 +55,15 @@ export const SceneTags = ({
         <span className="flex items-center gap-1.5">
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
+            {onSuggest && canEdit && onSave ? (
+                <TypesafeSuggestButton
+                    label="Suggest tags with TypeSafe"
+                    onClick={onSuggest}
+                    loading={suggesting}
+                    dataAttr={`${dataAttrKey}-tags-typesafe-suggest`}
+                    size="xsmall"
+                />
+            ) : null}
         </span>
     )
 

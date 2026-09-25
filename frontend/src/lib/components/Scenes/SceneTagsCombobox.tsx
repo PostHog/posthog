@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { TypesafeSuggestButton } from 'lib/components/TypesafeSuggest/TypesafeSuggestButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
@@ -14,6 +15,9 @@ type SceneTagsComboboxProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        /** Asks TypeSafe which of the team's existing tags apply. Renders a sparkle button in the label. */
+        onSuggest?: () => void
+        suggesting?: boolean
     }
 
 /**
@@ -27,6 +31,8 @@ export function SceneTagsCombobox({
     dataAttrKey,
     canEdit = true,
     loading,
+    onSuggest,
+    suggesting = false,
 }: SceneTagsComboboxProps): JSX.Element {
     const { tags: allExistingTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
@@ -34,6 +40,15 @@ export function SceneTagsCombobox({
         <span className="flex items-center gap-1.5">
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
+            {onSuggest && canEdit && onSave ? (
+                <TypesafeSuggestButton
+                    label="Suggest tags with TypeSafe"
+                    onClick={onSuggest}
+                    loading={suggesting}
+                    dataAttr={`${dataAttrKey}-tags-typesafe-suggest`}
+                    size="xsmall"
+                />
+            ) : null}
         </span>
     )
 

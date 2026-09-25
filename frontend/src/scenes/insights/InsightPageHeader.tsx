@@ -52,10 +52,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         // `dashboardItemId` is legacy naming for the insight's own short_id — this is true when the insight is saved, not when it's on a dashboard
         hasDashboardItemId: isSavedInsight,
         insightLoading,
+        typesafeNameSuggestionLoading,
+        typesafeDescriptionSuggestionLoading,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
-        insightLogic(insightLogicProps)
-    )
+    const {
+        setInsightMetadata,
+        setInsightMetadataLocal,
+        saveAs,
+        saveInsight,
+        suggestNameWithTypesafe,
+        suggestDescriptionWithTypesafe,
+    } = useActions(insightLogic(insightLogicProps))
+    const typesafeSuggestionsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS')
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
 
     // A saved insight with its own short_id — the precondition for every view-mode action in this header.
@@ -144,6 +152,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }}
                 onGenerateMetadata={supportsMetadataGeneration(insightQuery) ? generateInsightMetadata : undefined}
                 isGeneratingMetadata={generatedInsightMetadataLoading}
+                onSuggestName={
+                    typesafeSuggestionsEnabled && canEditInsight && supportsMetadataGeneration(insightQuery)
+                        ? suggestNameWithTypesafe
+                        : undefined
+                }
+                isSuggestingName={typesafeNameSuggestionLoading}
+                onSuggestDescription={
+                    typesafeSuggestionsEnabled && canEditInsight && supportsMetadataGeneration(insightQuery)
+                        ? suggestDescriptionWithTypesafe
+                        : undefined
+                }
+                isSuggestingDescription={typesafeDescriptionSuggestionLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
