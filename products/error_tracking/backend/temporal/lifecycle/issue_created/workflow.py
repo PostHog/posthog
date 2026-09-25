@@ -17,24 +17,16 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.policies import (
+    ACTIVITY_RETRY_POLICY,
+    ACTIVITY_START_TO_CLOSE_TIMEOUT,
+    ALERT_DISPATCH_PATCH,
+    ALERT_DISPATCH_RETRY_POLICY,
+    ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+)
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
-ACTIVITY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=15),
-    maximum_attempts=10,
-)
-ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
-ALERT_DISPATCH_PATCH = "error-tracking-alert-dispatch-activity"
-# Unlimited attempts inside the window: the start is cheap and idempotent, and only a
-# Temporal outage longer than this loses the alert.
-ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(minutes=1),
-    maximum_attempts=0,
-)
-ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(hours=1)
 SEVERITY_INFERENCE_PATCH = "error-tracking-severity-inference-activity"
 SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=2),
@@ -175,6 +167,6 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         except ActivityError:
             workflow.logger.warning("Severity inference failed; keeping the ingestion severity")
             return inputs
-        if not result.resolved or result.severity == inputs.issue.severity:
+        if not result.resolved or result.stored_severity == inputs.issue.severity:
             return inputs
-        return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.severity))
+        return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.stored_severity))

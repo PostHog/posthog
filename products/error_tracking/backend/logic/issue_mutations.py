@@ -11,6 +11,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -169,54 +170,59 @@ def update_issue(
     return issue
 
 
-def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> str | None:
-    """Set a model-inferred severity unless the severity changed after ingestion set `expected`.
+@frozen
+class InferredSeverityWrite:
+    inferred_severity: str
+    stored_severity: str | None
 
-    Returns the severity stored on the issue after the attempt.
-    """
-    try:
-        issue = _get_issue(team_id, issue_id, select_related=("team",))
-    except ErrorTrackingIssueNotFoundError:
-        return expected
-    if issue.severity == inferred:
-        # A retry after a failed ClickHouse sync finds the inferred severity already stored.
-        # The sync is idempotent, so run it again rather than leave ClickHouse on the old value.
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
-        return inferred
-    if issue.severity != expected:
-        return issue.severity
+    @property
+    def applied(self) -> bool:
+        return self.stored_severity == self.inferred_severity
 
-    with transaction.atomic():
-        # The conditional update keeps a severity that a person or a rule set while the model ran.
-        updated = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue.id, severity=expected).update(
-            severity=inferred, state_updated_at=timezone.now()
-        )
-        if not updated:
-            return (
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue.id)
-                .values_list("severity", flat=True)
-                .first()
+
+def apply_inferred_severity(
+    team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str
+) -> InferredSeverityWrite:
+    """Set a model-inferred severity unless the severity changed after ingestion set `expected`."""
+    if expected != inferred:
+        with transaction.atomic():
+            # The conditional update keeps a severity that a person or a rule set while the model ran.
+            updated = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id, severity=expected).update(
+                severity=inferred, state_updated_at=timezone.now()
             )
-        log_activity(
-            organization_id=issue.team.organization_id,
-            team_id=team_id,
-            user=None,
-            was_impersonated=False,
-            item_id=str(issue.id),
-            scope="ErrorTrackingIssue",
-            activity="updated",
-            detail=Detail(
-                name=issue.name,
-                changes=[
-                    Change(
-                        type="ErrorTrackingIssue", field="severity", before=expected, after=inferred, action="changed"
-                    )
-                ],
-            ),
-        )
+            if updated:
+                _log_inferred_severity(team_id, issue_id, expected=expected, inferred=inferred)
 
-    sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
-    return inferred
+    write = InferredSeverityWrite(
+        inferred_severity=inferred,
+        stored_severity=ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        .values_list("severity", flat=True)
+        .first(),
+    )
+    if write.applied:
+        # Sync even when this call wrote nothing: a retry after a failed sync finds the severity
+        # already stored, and the sync is idempotent.
+        sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=team_id)
+    return write
+
+
+def _log_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> None:
+    issue = ErrorTrackingIssue.objects.select_related("team").get(team_id=team_id, id=issue_id)
+    log_activity(
+        organization_id=issue.team.organization_id,
+        team_id=team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="updated",
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(type="ErrorTrackingIssue", field="severity", before=expected, after=inferred, action="changed")
+            ],
+        ),
+    )
 
 
 def merge_issues(

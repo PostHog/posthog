@@ -111,9 +111,9 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
     ):
         issue = self._create_issue(fingerprints=["fp_1"], severity=current)
 
-        assert (
-            apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical") == stored_severity
-        )
+        write = apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical")
+
+        assert write.stored_severity == stored_severity
 
         issue.refresh_from_db()
         assert issue.severity == stored_severity

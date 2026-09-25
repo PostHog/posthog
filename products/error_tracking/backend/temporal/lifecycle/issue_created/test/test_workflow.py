@@ -37,6 +37,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowResult,
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
+    SeverityInferenceSkipReason,
+    SeveritySource,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
@@ -181,19 +183,34 @@ def _decision(choice: str) -> DecisionResult:
 @pytest.mark.parametrize(
     "enabled,decide_outcome,expected_result,expected_error_type",
     [
-        (False, _decision("critical"), IssueSeverityInferenceResult(skipped_reason="disabled"), None),
+        (
+            False,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DISABLED),
+            None,
+        ),
         (
             True,
             _decision("critical"),
-            IssueSeverityInferenceResult(resolved=True, severity="critical"),
+            IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
             None,
         ),
-        (True, _decision("catastrophic"), IssueSeverityInferenceResult(skipped_reason="unexpected_answer"), None),
-        (True, DecisionsDisabledError(1), IssueSeverityInferenceResult(skipped_reason="decisions_unavailable"), None),
+        (
+            True,
+            _decision("catastrophic"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER),
+            None,
+        ),
+        (
+            True,
+            DecisionsDisabledError(1),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE),
+            None,
+        ),
         (
             True,
             DecisionGatewayError(422, "bad request"),
-            IssueSeverityInferenceResult(skipped_reason="gateway_rejected"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.GATEWAY_REJECTED),
             None,
         ),
         (True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
@@ -226,8 +243,10 @@ def test_severity_inference_outcomes(
         decide.side_effect = decide_outcome
     else:
         decide.return_value = decide_outcome
-    apply_inferred_severity.side_effect = lambda *args, inferred, **kwargs: inferred
-    inputs = dataclasses.replace(_inputs("fingerprint"), severity_source="heuristic")
+    apply_inferred_severity.side_effect = lambda *args, inferred, **kwargs: SimpleNamespace(
+        stored_severity=inferred, applied=True
+    )
+    inputs = dataclasses.replace(_inputs("fingerprint"), severity_source=SeveritySource.HEURISTIC)
 
     if expected_error_type is None:
         assert infer_issue_created_severity_activity(inputs) == expected_result
@@ -318,8 +337,10 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         if inputs.fingerprint == "inference-unavailable":
             raise ApplicationError("model unavailable", non_retryable=True)
         if inputs.fingerprint == "severity-changed":
-            return IssueSeverityInferenceResult(resolved=True, severity="low", skipped_reason="severity_changed")
-        return IssueSeverityInferenceResult(resolved=True, severity="critical")
+            return IssueSeverityInferenceResult(
+                resolved=True, stored_severity="low", skipped_reason=SeverityInferenceSkipReason.SEVERITY_CHANGED
+            )
+        return IssueSeverityInferenceResult(resolved=True, stored_severity="critical")
 
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -349,12 +370,14 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
             embedding_unavailable_inputs = _inputs("embedding-unavailable")
-            heuristic_inputs = dataclasses.replace(_inputs("heuristic"), severity_source="heuristic")
-            rule_inputs = dataclasses.replace(_inputs("rule"), severity_source="rule")
+            heuristic_inputs = dataclasses.replace(_inputs("heuristic"), severity_source=SeveritySource.HEURISTIC)
+            rule_inputs = dataclasses.replace(_inputs("rule"), severity_source=SeveritySource.RULE)
             inference_unavailable_inputs = dataclasses.replace(
-                _inputs("inference-unavailable"), severity_source="heuristic"
+                _inputs("inference-unavailable"), severity_source=SeveritySource.HEURISTIC
             )
-            severity_changed_inputs = dataclasses.replace(_inputs("severity-changed"), severity_source="heuristic")
+            severity_changed_inputs = dataclasses.replace(
+                _inputs("severity-changed"), severity_source=SeveritySource.HEURISTIC
+            )
             for severity_inputs in (
                 heuristic_inputs,
                 rule_inputs,

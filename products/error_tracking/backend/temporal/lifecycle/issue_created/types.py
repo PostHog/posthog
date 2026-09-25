@@ -1,4 +1,5 @@
 import dataclasses
+from enum import StrEnum
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingResultInputs
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
@@ -8,6 +9,28 @@ SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE = "SeverityInferenceUnavailable"
 
 
 IssueCreatedSnapshot = LifecycleIssueSnapshot
+
+
+class SeveritySource(StrEnum):
+    """How cymbal chose the severity of a new issue. Mirrors `SeveritySource` in cymbal's notification.rs.
+
+    Temporal rejects an input with an unknown value, so add a value here before cymbal sends it.
+    """
+
+    EVENT = "event"
+    RULE = "rule"
+    HEURISTIC = "heuristic"
+
+
+class SeverityInferenceSkipReason(StrEnum):
+    DISABLED = "disabled"
+    TEAM_MISSING = "team_missing"
+    AI_DATA_PROCESSING_NOT_APPROVED = "ai_data_processing_not_approved"
+    NO_EXCEPTION = "no_exception"
+    DECISIONS_UNAVAILABLE = "decisions_unavailable"
+    GATEWAY_REJECTED = "gateway_rejected"
+    UNEXPECTED_ANSWER = "unexpected_answer"
+    SEVERITY_CHANGED = "severity_changed"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -20,8 +43,7 @@ class IssueCreatedWorkflowInputs:
     event_uuid: str
     event_timestamp: str
     assignee: str | None = None
-    # "event", "rule" or "heuristic": how cymbal chose `issue.severity`.
-    severity_source: str | None = None
+    severity_source: SeveritySource | None = None
 
     def severity_is_overridable(self) -> bool:
         """A model may only replace a severity that no person chose: the level/handled heuristic, or none.
@@ -31,7 +53,7 @@ class IssueCreatedWorkflowInputs:
         """
         if self.severity_source is None:
             return self.issue.severity is None
-        return self.severity_source == "heuristic"
+        return self.severity_source == SeveritySource.HEURISTIC
 
 
 @dataclasses.dataclass(frozen=True)
@@ -49,10 +71,10 @@ class IssueEmbeddingPreparationResult:
 
 @dataclasses.dataclass(frozen=True)
 class IssueSeverityInferenceResult:
-    # True when `severity` is the severity stored on the issue, which downstream side effects must carry.
+    # True when inference read the issue row. Downstream side effects must then carry `stored_severity`.
     resolved: bool = False
-    severity: str | None = None
-    skipped_reason: str | None = None
+    stored_severity: str | None = None
+    skipped_reason: SeverityInferenceSkipReason | None = None
 
 
 @dataclasses.dataclass(frozen=True)

@@ -39,6 +39,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowInputs,
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
+    SeverityInferenceSkipReason,
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
@@ -61,6 +62,11 @@ EMBEDDING_MAX_TOKENS = 7000
 EMBEDDING_DISABLED_LIBRARIES = {"posthog-elixir"}
 SEVERITY_INFERENCE_MAX_TOKENS = 2000
 
+ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
+    "error_tracking_issue_created_severity_inference_total",
+    "Issue-created severity inference attempts by outcome and by the severity stored afterwards",
+    labelnames=("outcome", "severity"),
+)
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
     "Issue-created embedding attempts that failed because the embedding service was unavailable",
@@ -168,44 +174,64 @@ def generate_issue_created_embedding_activity(
         raise
 
 
-def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+def _severity_state(inputs: IssueCreatedWorkflowInputs) -> str | SeverityInferenceSkipReason:
+    """Build the text the model reads, or say why this issue is not eligible."""
     if not severity_inference_enabled(inputs.team_id):
-        return IssueSeverityInferenceResult(skipped_reason="disabled")
+        return SeverityInferenceSkipReason.DISABLED
     try:
         team = Team.objects.select_related("organization").get(id=inputs.team_id)
     except Team.DoesNotExist:
-        return IssueSeverityInferenceResult(skipped_reason="team_missing")
+        return SeverityInferenceSkipReason.TEAM_MISSING
     if not team.organization.is_ai_data_processing_approved:
-        return IssueSeverityInferenceResult(skipped_reason="ai_data_processing_not_approved")
+        return SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED
 
     event_properties = fetch_event_properties(team, inputs)
     stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
     if not stacktrace:
-        return IssueSeverityInferenceResult(skipped_reason="no_exception")
+        return SeverityInferenceSkipReason.NO_EXCEPTION
+    return build_severity_state(stacktrace, event_properties)
 
-    try:
-        answer = infer_severity(inputs.team_id, build_severity_state(stacktrace, event_properties))
-    except (DecisionsDisabledError, GatewayNotConfiguredError):
-        return IssueSeverityInferenceResult(skipped_reason="decisions_unavailable")
-    except DecisionGatewayUnreachableError as error:
-        raise ApplicationError(
-            "Severity model is unreachable", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
-        ) from error
-    except DecisionGatewayError as error:
-        if error.status_code == 429 or error.status_code >= 500:
+
+def _decision_error_skip_reason(inputs: IssueCreatedWorkflowInputs, error: Exception) -> SeverityInferenceSkipReason:
+    """Skip on a failure that a retry cannot fix. Raise a retryable error on a transient one."""
+    match error:
+        case DecisionsDisabledError() | GatewayNotConfiguredError():
+            return SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE
+        case DecisionGatewayUnreachableError():
             raise ApplicationError(
-                f"Severity model returned status {error.status_code}", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
+                "Severity model is unreachable", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
             ) from error
-        logger.warning(
-            "error_tracking_severity_inference_rejected",
-            team_id=inputs.team_id,
-            issue_id=inputs.issue_id,
-            status_code=error.status_code,
-            detail=error.detail,
-        )
-        return IssueSeverityInferenceResult(skipped_reason="gateway_rejected")
+        case DecisionGatewayError(status_code=status_code) if status_code == 429 or status_code >= 500:
+            raise ApplicationError(
+                f"Severity model returned status {status_code}", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        case DecisionGatewayError(status_code=status_code, detail=detail):
+            logger.warning(
+                "error_tracking_severity_inference_rejected",
+                team_id=inputs.team_id,
+                issue_id=inputs.issue_id,
+                status_code=status_code,
+                detail=detail,
+            )
+            return SeverityInferenceSkipReason.GATEWAY_REJECTED
+    raise error
+
+
+def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+    state = _severity_state(inputs)
+    if isinstance(state, SeverityInferenceSkipReason):
+        return IssueSeverityInferenceResult(skipped_reason=state)
+    try:
+        answer = infer_severity(inputs.team_id, state)
+    except (
+        DecisionsDisabledError,
+        GatewayNotConfiguredError,
+        DecisionGatewayError,
+        DecisionGatewayUnreachableError,
+    ) as error:
+        return IssueSeverityInferenceResult(skipped_reason=_decision_error_skip_reason(inputs, error))
     if answer is None:
-        return IssueSeverityInferenceResult(skipped_reason="unexpected_answer")
+        return IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER)
 
     logger.info(
         "error_tracking_severity_inferred",
@@ -217,13 +243,15 @@ def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSe
         ingestion_severity_source=inputs.severity_source,
     )
     if answer.choice == inputs.issue.severity:
-        return IssueSeverityInferenceResult(resolved=True, severity=answer.choice)
-    stored_severity = apply_inferred_severity(
+        return IssueSeverityInferenceResult(resolved=True, stored_severity=answer.choice)
+    write = apply_inferred_severity(
         inputs.team_id, inputs.issue_id, expected=inputs.issue.severity, inferred=answer.choice
     )
-    if stored_severity != answer.choice:
-        return IssueSeverityInferenceResult(resolved=True, severity=stored_severity, skipped_reason="severity_changed")
-    return IssueSeverityInferenceResult(resolved=True, severity=answer.choice)
+    return IssueSeverityInferenceResult(
+        resolved=True,
+        stored_severity=write.stored_severity,
+        skipped_reason=None if write.applied else SeverityInferenceSkipReason.SEVERITY_CHANGED,
+    )
 
 
 @activity.defn
@@ -231,13 +259,21 @@ def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSe
 @close_db_connections
 def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
     try:
-        return _infer_issue_created_severity(inputs)
-    except Exception as error:
-        if not is_expected_activity_failure(error) and not (
-            isinstance(error, ApplicationError) and error.type == SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
-        ):
+        result = _infer_issue_created_severity(inputs)
+    except ApplicationError as error:
+        if error.type == SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE:
+            ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES.labels(outcome="unavailable", severity="none").inc()
+        elif not is_expected_activity_failure(error):
             posthoganalytics.capture_exception(error)
         raise
+    except Exception as error:
+        if not is_expected_activity_failure(error):
+            posthoganalytics.capture_exception(error)
+        raise
+    ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES.labels(
+        outcome=result.skipped_reason or "inferred", severity=result.stored_severity or "none"
+    ).inc()
+    return result
 
 
 # The three activities below add no properties of their own, so the shared activity interceptor
