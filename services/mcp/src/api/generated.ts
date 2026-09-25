@@ -40848,6 +40848,56 @@ export namespace Schemas {
       estimated_rows_total?: number | null;
     }
 
+    /**
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type OfflineExperimentStatusEnum = typeof OfflineExperimentStatusEnum[keyof typeof OfflineExperimentStatusEnum];
+
+
+    export const OfflineExperimentStatusEnum = {
+      Uploading: 'uploading',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExperimentReceipt {
+      /** Stable experiment UUID supplied at creation. */
+      id: string;
+      /** Current upload lifecycle state.
+       *
+       * * `uploading` - Uploading
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: OfflineExperimentStatusEnum;
+      /** Whether this request created the experiment. */
+      created: boolean;
+      /** Caller-supplied execution start time. */
+      started_at: string;
+      /** Time the experiment was first accepted. */
+      created_at: string;
+      /**
+         * Server closure time; null while uploading.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * Declared item count, when supplied.
+         * @nullable
+         */
+      expected_item_count: number | null;
+      /**
+         * Declared result count, when supplied.
+         * @nullable
+         */
+      expected_result_count: number | null;
+      /** Number of unique accepted items. */
+      accepted_item_count: number;
+      /** Number of unique accepted results across all statuses. */
+      accepted_result_count: number;
+    }
+
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -41990,6 +42040,99 @@ export namespace Schemas {
       previous_experiments: ExperimentSetupPreviousExperimentsSection;
       /** Most reused shared metrics. */
       shared_metrics: ExperimentSetupSharedMetricsSection;
+    }
+
+    /**
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled
+     */
+    export type OfflineExperimentRunSourceEnum = typeof OfflineExperimentRunSourceEnum[keyof typeof OfflineExperimentRunSourceEnum];
+
+
+    export const OfflineExperimentRunSourceEnum = {
+      Ci: 'ci',
+      Local: 'local',
+      Scheduled: 'scheduled',
+    } as const;
+
+    export interface ExperimentSubmission {
+      /** Caller-generated experiment UUID. Reuse it for exact retries. */
+      id: string;
+      /**
+         * Display name for this experiment execution.
+         * @maxLength 400
+         */
+      name: string;
+      /** Execution start time in ISO 8601 format, supplied by the caller. */
+      started_at: string;
+      /** Where the execution started: ci, local, or scheduled. Omit or use null when unknown.
+       *
+       * * `ci` - CI
+       * * `local` - Local
+       * * `scheduled` - Scheduled */
+      run_source?: OfflineExperimentRunSourceEnum | null;
+      /**
+         * Expected number of distinct items. Completion must match this count when supplied.
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      expected_item_count?: number | null;
+      /**
+         * Expected number of distinct item/scorer-version results, including non-success statuses.
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      expected_result_count?: number | null;
+      /**
+         * Stable identifier for comparing executions of the same evaluation suite.
+         * @maxLength 255
+         * @nullable
+         */
+      suite_key?: string | null;
+      /**
+         * Source of an external dataset. Hosted dataset provenance is derived from its revision.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_source?: string | null;
+      /**
+         * Stable identifier for the external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_identifier?: string | null;
+      /**
+         * Pinned revision identifier of the external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_revision_identifier?: string | null;
+      /**
+         * UUID of a hosted dataset revision in this project.
+         * @nullable
+         */
+      dataset_revision_id?: string | null;
+      /**
+         * Version of the application under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      application_version?: string | null;
+      /**
+         * Version of the model under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
+      /**
+         * Version of the prompt under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      prompt_version?: string | null;
     }
 
     /**
@@ -54590,6 +54733,76 @@ export namespace Schemas {
       readonly unavailable: readonly string[];
     }
 
+    export interface ItemReceipt {
+      /** Accepted item UUID. */
+      id: string;
+      /** Whether this upload created the item. */
+      created: boolean;
+      /** Original server acceptance time, unchanged on retry. */
+      accepted_at: string;
+    }
+
+    export type OfflineExperimentItemPayloadInputInput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    export type OfflineExperimentItemPayloadInputOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    export type OfflineExperimentItemPayloadInputExpectedOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * @nullable
+     */
+    export type OfflineExperimentItemPayloadInputMetadata = { [key: string]: unknown } | null;
+
+    export interface OfflineExperimentItemPayloadInput {
+      input?: OfflineExperimentItemPayloadInputInput;
+      output?: OfflineExperimentItemPayloadInputOutput;
+      expected_output?: OfflineExperimentItemPayloadInputExpectedOutput;
+      /** @nullable */
+      metadata?: OfflineExperimentItemPayloadInputMetadata;
+    }
+
+    export interface ItemSubmission {
+      /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
+      id: string;
+      /**
+         * Stable case identifier for matching inputs across experiments.
+         * @maxLength 255
+         * @nullable
+         */
+      case_key?: string | null;
+      /**
+         * Identifier for a repeated execution of the same case.
+         * @maxLength 255
+         * @nullable
+         */
+      trial?: string | null;
+      /**
+         * Stable item identifier in an external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_item_identifier?: string | null;
+      /**
+         * Pinned item-version identifier in an external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_item_version_identifier?: string | null;
+      /**
+         * UUID of the hosted item version in the experiment's dataset revision.
+         * @nullable
+         */
+      dataset_item_version_id?: string | null;
+      /**
+         * Trace identifier for the application execution that produced this output.
+         * @maxLength 255
+         * @nullable
+         */
+      application_trace_id?: string | null;
+      /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
+      payload?: OfflineExperimentItemPayloadInput;
+    }
+
     /**
      * Keyword arguments for the estimator's constructor; null or absent means the defaults.
      * @nullable
@@ -61764,6 +61977,78 @@ export namespace Schemas {
       /** Temporal workflow id for this scanner application. Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
       workflow_id: string;
     }
+
+    export interface OfflineEvaluationValidationError {
+      /** Stable validation error code. */
+      code: string;
+      /** Explanation of the invalid value. */
+      detail: string;
+      /**
+         * Invalid field path, with dot-separated fields and zero-based batch indexes.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
+    export interface OfflineEvaluationError {
+      /** Error category for standard API errors. */
+      type?: string;
+      /** Stable error code. */
+      code: string;
+      /** Explanation of the rejected request. */
+      detail: string;
+      /**
+         * Invalid field, including batch entry index.
+         * @nullable
+         */
+      attr?: string | null;
+      /**
+         * Declared item count.
+         * @nullable
+         */
+      expected_item_count?: number | null;
+      /**
+         * Declared result count.
+         * @nullable
+         */
+      expected_result_count?: number | null;
+      /** Accepted items at failed completion. */
+      accepted_item_count?: number;
+      /** Accepted results at failed completion. */
+      accepted_result_count?: number;
+      /** All validation errors found in the request. */
+      errors?: OfflineEvaluationValidationError[];
+    }
+
+    /**
+     * @nullable
+     */
+    export type OfflineEvaluationResultPayloadInputMetadata = { [key: string]: unknown } | null;
+
+    export interface OfflineEvaluationResultPayloadInput {
+      /** @nullable */
+      reasoning?: string | null;
+      /** @nullable */
+      error_message?: string | null;
+      /** @nullable */
+      metadata?: OfflineEvaluationResultPayloadInputMetadata;
+    }
+
+    /**
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable
+     */
+    export type OfflineEvaluationResultStatusEnum = typeof OfflineEvaluationResultStatusEnum[keyof typeof OfflineEvaluationResultStatusEnum];
+
+
+    export const OfflineEvaluationResultStatusEnum = {
+      Ok: 'ok',
+      Error: 'error',
+      Skipped: 'skipped',
+      NotApplicable: 'not_applicable',
+    } as const;
 
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
@@ -86504,6 +86789,54 @@ export namespace Schemas {
       Rejected: 'rejected',
     } as const;
 
+    export interface ResultReceipt {
+      /** Accepted item UUID. */
+      id: string;
+      /** Whether this upload created the item. */
+      created: boolean;
+      /** Original server acceptance time, unchanged on retry. */
+      accepted_at: string;
+      /** Item this result evaluates. */
+      item_id: string;
+      /** Pinned scorer version used by this result. */
+      scorer_version_id: string;
+    }
+
+    export interface ResultSubmission {
+      /** UUID of an item declared in this request or already accepted in this experiment. */
+      item_id: string;
+      /** Exact UUID of an existing scorer version in this project. */
+      scorer_version_id: string;
+      /** Outcome of this scorer execution.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+      value?: number | boolean | string[] | null;
+      /**
+         * Optional stable error code, permitted only for error outcomes.
+         * @maxLength 128
+         * @nullable
+         */
+      error_code?: string | null;
+      /**
+         * Trace identifier of the evaluator that produced this result.
+         * @maxLength 255
+         * @nullable
+         */
+      evaluator_trace_id?: string | null;
+      /**
+         * Caller-supplied evaluation time in ISO 8601 format.
+         * @nullable
+         */
+      evaluated_at?: string | null;
+      /** Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels. */
+      payload?: OfflineEvaluationResultPayloadInput;
+    }
+
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
 
 
@@ -99685,6 +100018,27 @@ export namespace Schemas {
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;
+    }
+
+    export interface UploadReceipt {
+      /** One acknowledgment per referenced item. */
+      items: ItemReceipt[];
+      /** Acknowledgments in the submitted result order. */
+      results: ResultReceipt[];
+    }
+
+    export interface UploadSubmission {
+      /**
+         * Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.
+         * @maxItems 1000
+         */
+      items?: ItemSubmission[];
+      /**
+         * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      results: ResultSubmission[];
     }
 
     export interface UploadVersionRequest {
