@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 
@@ -21,13 +22,21 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import BumpStuckCounterInput
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
+    RASTERIZE_POST_RENDER_RESERVE,
+    RASTERIZE_RENDER_TIMEOUT,
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
     RecordRasterizationFailureInput,
 )
-from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow, _resolve_error_code
+from posthog.temporal.session_replay.rasterize_recording.workflow import (
+    RasterizeRecordingWorkflow,
+    _is_killed_worker_timeout,
+    _resolve_error_code,
+)
 
 
 def _record_failure_into(calls: list[RecordRasterizationFailureInput]):
@@ -137,14 +146,14 @@ async def test_terminal_failure_bumps_stuck_counter():
 
 @pytest.mark.asyncio
 async def test_killed_worker_render_failure_quarantines_immediately(monkeypatch):
-    # A timeout-class final failure in the render phase must bump with killed_worker=True, or a
+    # A killed-worker final failure in the render phase must bump with killed_worker=True, or a
     # worker-killing recording waits for a second whole retry envelope before the quarantine
     # engages. The classifier is patched because the test server cannot mint a real heartbeat
     # timeout without a live worker hanging for the full 30s timeout; the classifier itself is
-    # covered by test_resolve_error_code_maps_temporal_timeouts.
+    # covered by test_only_a_blown_attempt_deadline_reads_as_a_killed_worker.
     monkeypatch.setattr(
-        "posthog.temporal.session_replay.rasterize_recording.workflow._resolve_error_code",
-        lambda _exc: "ACTIVITY_TIMEOUT",
+        "posthog.temporal.session_replay.rasterize_recording.workflow._is_killed_worker_timeout",
+        lambda _exc: True,
     )
 
     bump_calls = await _run_terminally_failing_workflow("sess-huge", [], fail_at="render")
@@ -157,8 +166,8 @@ async def test_timeout_outside_the_render_phase_does_not_quarantine(monkeypatch)
     # A timed-out prep activity (a Postgres incident, not the recording) must stay on the ordinary
     # two-strike path; quarantining it for 24h would silence scans for sessions the renderer never opened.
     monkeypatch.setattr(
-        "posthog.temporal.session_replay.rasterize_recording.workflow._resolve_error_code",
-        lambda _exc: "ACTIVITY_TIMEOUT",
+        "posthog.temporal.session_replay.rasterize_recording.workflow._is_killed_worker_timeout",
+        lambda _exc: True,
     )
 
     bump_calls = await _run_terminally_failing_workflow("sess-db-blip", [], fail_at="prep")
@@ -232,6 +241,205 @@ async def test_failure_recording_stays_behind_its_patch(monkeypatch):
         workflows=[RasterizeRecordingWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ).replay_workflow(pre_patch_history)
+
+
+@pytest.mark.asyncio
+async def test_render_retry_budget_stays_inside_the_callers_envelope():
+    """A caller can fund fewer render attempts than the retry policy asks for.
+
+    Without a schedule_to_close the second attempt is scheduled into a budget that cannot hold it, the
+    envelope kills the workflow mid-render, and the caller reads an untyped execution timeout that
+    carries no rasterizer error code.
+    """
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id="sess-123", team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_mocked(_inputs: dict) -> dict:
+        return RasterizationActivityOutput(
+            s3_uri="s3://bucket/key", video_duration_s=1.0, playback_speed=1.0
+        ).model_dump()
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_noop(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="clear_stuck_counter_activity")
+    async def clear_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_noop, clear_noop],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
+        ):
+            handle = await env.client.start_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, product="replay_vision"),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+            await handle.result()
+            history = await handle.fetch_history()
+
+    scheduled = next(
+        event.activity_task_scheduled_event_attributes
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+        and event.activity_task_scheduled_event_attributes.activity_type.name == "rasterize-recording"
+    )
+    # Temporal defaults an unset schedule_to_close to the whole execution timeout, so both deadlines land
+    # together and the envelope wins the race. The reserve is what lets the activity time out first, with a
+    # typed error and room left to record it.
+    budget = scheduled.schedule_to_close_timeout.ToTimedelta()
+    assert budget <= RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT - RASTERIZE_POST_RENDER_RESERVE
+    # The envelope must still fund a retry after a fast first failure, which is what it was sized for.
+    assert budget > RASTERIZE_RENDER_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_an_exhausted_envelope_does_not_start_a_render():
+    """A render the envelope cannot hold burns a browser pod to reach the same failure."""
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id="sess-123", team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_unused(_inputs: dict) -> dict:
+        raise AssertionError("the render must not be scheduled without a budget to hold it")
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    record_calls: list[RecordRasterizationFailureInput] = []
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_unused, bump_noop, _record_failure_into(record_calls)],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_unused]),
+        ):
+            handle = await env.client.start_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, product="replay_vision"),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                # Shorter than the reserve, so nothing is left for a render by the time prep returns.
+                execution_timeout=RASTERIZE_POST_RENDER_RESERVE - dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+            with pytest.raises(Exception):
+                await handle.result()
+            history = await handle.fetch_history()
+
+    assert "rasterize-recording" not in _scheduled_activities(history)
+    # The caller classifies on this type, so losing it sends the user a "known issue" retry prompt.
+    assert [call.error_code for call in record_calls] == [RASTERIZE_BUDGET_EXHAUSTED_TYPE]
+
+
+@pytest.mark.asyncio
+async def test_a_render_that_never_reached_a_worker_does_not_quarantine(monkeypatch):
+    """The render's schedule_to_close also counts the queue wait, so it fires with no worker involved.
+
+    Reading that as a killed worker locks the recording out of automatic scanning for 24 hours, while
+    the caller tells the user the same failure is transient and retryable.
+    """
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    # A seconds-long render budget inside a roomy envelope. The reserve is what the budget is held
+    # back from, so inflating it starves the render without shortening the run that has to survive
+    # the timeout and record it.
+    envelope = dt.timedelta(seconds=60)
+    monkeypatch.setattr(
+        "posthog.temporal.session_replay.rasterize_recording.workflow.RASTERIZE_POST_RENDER_RESERVE",
+        envelope - dt.timedelta(seconds=5),
+    )
+
+    bump_calls: list[BumpStuckCounterInput] = []
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id="sess-queued", team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_mocked(inputs: BumpStuckCounterInput) -> None:
+        bump_calls.append(inputs)
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        # No worker on the rasterization task queue: the render waits there until its schedule_to_close
+        # fires, which is what a drained or saturated render pool produces.
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RasterizeRecordingWorkflow],
+            activities=[build_mocked, finalize_unused, bump_mocked, _record_failure_into([])],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(Exception):
+                await env.client.execute_workflow(
+                    RasterizeRecordingWorkflow.run,
+                    RasterizeRecordingInputs(exported_asset_id=42, product="replay_vision"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=envelope,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    search_attributes=_search_attributes(session_id="sess-queued"),
+                )
+
+    assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-queued", killed_worker=False)]
 
 
 @pytest.mark.asyncio
@@ -429,6 +637,32 @@ def test_resolve_error_code_maps_temporal_timeouts():
 
     assert _resolve_error_code(timeout) == "ACTIVITY_TIMEOUT"
     assert _resolve_error_code(wrapped) == "ACTIVITY_TIMEOUT"
+
+
+def _timeout(timeout_type: TimeoutType | None) -> TemporalTimeoutError:
+    return TemporalTimeoutError("activity timed out", type=timeout_type, last_heartbeat_details=[])
+
+
+@pytest.mark.parametrize(
+    "cause,expected",
+    [
+        pytest.param(_timeout(TimeoutType.HEARTBEAT), True, id="heartbeat"),
+        pytest.param(_timeout(TimeoutType.START_TO_CLOSE), True, id="start_to_close"),
+        # The rest all include time the recording never spent on a worker: a schedule-to-close caps
+        # the whole retry chain and counts the queue wait, and a schedule-to-start is queue wait alone.
+        pytest.param(_timeout(TimeoutType.SCHEDULE_TO_CLOSE), False, id="schedule_to_close"),
+        pytest.param(_timeout(TimeoutType.SCHEDULE_TO_START), False, id="schedule_to_start"),
+        pytest.param(_timeout(None), False, id="untyped"),
+        pytest.param(ApplicationError("render failed", type="NO_SNAPSHOTS"), False, id="renderer_error"),
+    ],
+)
+def test_only_a_blown_attempt_deadline_reads_as_a_killed_worker(cause, expected):
+    """The quarantine costs the recording 24h of scanning, so it may only fire on a dead worker."""
+    wrapped = _activity_error()
+    wrapped.__cause__ = cause
+
+    assert _is_killed_worker_timeout(cause) is expected
+    assert _is_killed_worker_timeout(wrapped) is expected
 
 
 def test_resolve_error_code_keeps_the_renderers_own_code():
