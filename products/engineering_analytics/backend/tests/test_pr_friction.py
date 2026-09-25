@@ -2,6 +2,8 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -11,15 +13,23 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
+from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views import pr_friction
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     REVIEWS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import _issue_event_row, _pr_row, _run_row
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _issue_event_row,
+    _pr_row,
+    _run_row,
+    create_depot_source,
+    create_github_source,
+)
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
     _ago_offset_with_duration,
@@ -177,8 +187,45 @@ class TestPRFrictionView(_WarehouseMixin):
         assert response.columns == list(pr_friction.FIELDS)
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
-    def test_view_matches_the_timeline_replay(self) -> None:
+    def _seed_depot_ci(self) -> None:
+        # PR 36 has no GitHub CI; one Depot CI run failed on it before it merged.
+        start, end = _span(0, 15)
+        attempt = dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS) | {
+            "run_id": "427q556wmn",
+            "run_workflow_count": 1,
+            "repo": "PostHog/posthog",
+            "ref": "refs/pull/36/merge",
+            "head_sha": "sha36",
+            "workflow_id": "6n4tghls33",
+            "workflow_name": "Backend CI on Depot",
+            "workflow_status": "failed",
+            "workflow_created_at": start,
+            "workflow_started_at": start,
+            "workflow_finished_at": end,
+            "job_key": "ci-backend.yml:lint",
+            "attempt_id": "zf6sbbn2wh",
+            "attempt": 1,
+            "attempt_status": "failed",
+            "attempt_started_at": start,
+            "attempt_finished_at": end,
+        }
+        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
+        self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            [attempt],
+            source=depot,
+            prefix="ci",
+            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+        )
+
+    @parameterized.expand([("github_ci", False), ("depot_ci", True)])
+    def test_view_matches_the_timeline_replay(self, _name: str, with_depot_ci: bool) -> None:
+        if with_depot_ci:
+            self._github_source = create_github_source(self.team, repository="PostHog/posthog")
         self._seed()
+        if with_depot_ci:
+            self._seed_depot_ci()
         rows = self._view_rows()
         timelines = query_pull_request_timelines(
             curated=CuratedGitHubSource.for_team(self.team),

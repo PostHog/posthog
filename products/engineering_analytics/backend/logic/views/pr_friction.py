@@ -426,7 +426,7 @@ def build_team_view(team: "Team") -> str | None:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.workflow_runs, workflow_jobs_table=source.workflow_jobs, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
+        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
         for source in sources
         if source.pull_requests
     )

@@ -251,7 +251,7 @@ class CuratedGitHubSource:
         )
 
     def _jobs_table(self, workflow_jobs_table: str) -> str:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.pull_requests)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the

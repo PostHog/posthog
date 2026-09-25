@@ -199,13 +199,12 @@ def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_reques
     return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(depot, pull_requests_table)))
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None = None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Depot job rows carry no branch: branch filters read the run's branch, and the jobs builder scans
-    its source twice, so a PR snapshot lookup here would cost two full PR scans for a column no
-    filter reads.
+    Depot job rows take their run's branch from the PR snapshot, because the job cost and history
+    views expose the job's branch and the job aggregates filter on it.
     """
     if depot is None:
         return jobs_table
-    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table=None)))
+    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table)))
