@@ -86,7 +86,7 @@ def emit_issue_spiking_internal_event_activity(inputs: IssueSpikingWorkflowInput
 
 
 @activity.defn
-@scoped_temporal()
+@scoped_temporal(capture_exceptions=False)
 @close_db_connections
 async def emit_issue_spiking_signal_activity(inputs: IssueSpikingWorkflowInputs) -> None:
     multiplier = inputs.current_bucket_value / inputs.computed_baseline if inputs.computed_baseline else float("inf")

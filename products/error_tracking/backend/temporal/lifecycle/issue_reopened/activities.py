@@ -33,7 +33,7 @@ def emit_issue_reopened_internal_event_activity(inputs: IssueReopenedWorkflowInp
 
 
 @activity.defn
-@scoped_temporal()
+@scoped_temporal(capture_exceptions=False)
 @close_db_connections
 async def emit_issue_reopened_signal_activity(inputs: IssueReopenedWorkflowInputs) -> None:
     await emit_issue_lifecycle_signal(

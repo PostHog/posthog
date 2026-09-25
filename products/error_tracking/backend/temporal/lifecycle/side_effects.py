@@ -3,7 +3,6 @@ from typing import Protocol
 
 from django.utils.dateparse import parse_datetime
 
-from asgiref.sync import sync_to_async
 from confluent_kafka import KafkaError, KafkaException
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
@@ -13,6 +12,7 @@ from posthog.helpers.tiktoken_encoding import (
     get_tiktoken_encoding_for_model,
 )
 from posthog.models import Team
+from posthog.sync import database_sync_to_async_pool
 
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
@@ -227,7 +227,7 @@ async def emit_issue_lifecycle_signal(
     except Team.DoesNotExist:
         return
 
-    event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
+    event_properties = await database_sync_to_async_pool(fetch_event_properties)(team, inputs)
     issue_name = inputs.issue.name or "Unknown"
     issue_description = inputs.issue.description or ""
     header = f"{preamble}:\n{issue_name}: {issue_description}\n"

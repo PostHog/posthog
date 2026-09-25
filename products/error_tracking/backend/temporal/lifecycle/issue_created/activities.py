@@ -224,7 +224,7 @@ def emit_issue_created_internal_event_activity(inputs: IssueCreatedWorkflowInput
 
 
 @activity.defn
-@scoped_temporal()
+@scoped_temporal(capture_exceptions=False)
 @close_db_connections
 async def emit_issue_created_signal_activity(inputs: IssueCreatedWorkflowInputs) -> None:
     await emit_issue_lifecycle_signal(
