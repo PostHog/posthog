@@ -45,6 +45,7 @@ function chipFromAttrs(attrs: Record<string, unknown>): MentionChip {
 }
 
 function chipToPlainText(chip: MentionChip): string {
+  if (chip.type === "comment_context") return chip.label;
   return chip.type === "command" ? `/${chip.label}` : `@${chip.label}`;
 }
 

@@ -15,7 +15,8 @@ export type ChipType =
   | "feature_flag"
   | "posthog_object"
   | "github_issue"
-  | "github_pr";
+  | "github_pr"
+  | "comment_context";
 
 export interface MentionChipAttrs {
   type: ChipType;

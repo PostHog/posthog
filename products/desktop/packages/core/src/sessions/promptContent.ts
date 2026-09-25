@@ -185,7 +185,7 @@ export function extractPromptDisplayContent(
 }
 
 const MENTION_TAG_TEST =
-  /<(?:file\s+path|folder\s+path|github_issue\s+number|github_pr\s+number|error_context\s+label)="[^"]+"/;
+  /<(?:file\s+path|folder\s+path|github_issue\s+number|github_pr\s+number|error_context\s+label|comment_context\s+label)="[^"]+"/;
 export const SLASH_COMMAND_START = /^\/([a-zA-Z][\w-]*)(?=\s|$)/;
 
 export function hasMentionTags(content: string): boolean {

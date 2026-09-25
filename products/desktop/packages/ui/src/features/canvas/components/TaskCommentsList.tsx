@@ -53,6 +53,10 @@ import {
 } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrCommentsForUrls } from "@posthog/ui/features/pr-review/usePrCommentsForUrls";
 import { usePrReviewThreadsForUrls } from "@posthog/ui/features/pr-review/usePrReviewThreadsForUrls";
+import {
+  type CommentResource,
+  commentAgentContext,
+} from "@posthog/ui/features/sessions/commentAgentContext";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
@@ -65,6 +69,7 @@ import {
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -168,6 +173,30 @@ function CommentReference({
  * A PostHog comment thread. Its own component so it can hold the mutations for
  * its thread's resource — the list spans several, each with its own target.
  */
+function commentResource(source: CommentSource): CommentResource {
+  if (source.kind === "canvas") return { kind: "canvas", name: source.name };
+  if (source.kind === "task") return { kind: "task", name: source.name };
+  return { kind: "artifact", name: source.name };
+}
+
+function sendSourceCommentToAgent(
+  taskId: string,
+  source: CommentSource,
+  root: ResourceComment | null,
+  content: string,
+): void {
+  const resource = commentResource(source);
+  sendCommentToAgent({
+    taskId,
+    comment: content,
+    context: commentAgentContext(
+      root ? (readCommentContext(root)?.anchor ?? null) : { kind: "document" },
+      resource,
+    ),
+    surface: resource.kind,
+  });
+}
+
 function ResourceThreadRow({
   thread,
   source,
@@ -225,6 +254,9 @@ function ResourceThreadRow({
         });
       }}
       onResolve={(resolved) => setResolved.mutate({ root, resolved })}
+      onSendReplyToAgent={(content) =>
+        sendSourceCommentToAgent(taskId, source, root, content)
+      }
     />
   );
 }
@@ -765,6 +797,18 @@ export function TaskCommentsList({
           placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
           rows={2}
           disabled={createComment.isPending}
+          onSendToAgent={(content) =>
+            sendSourceCommentToAgent(
+              taskId,
+              onlySource ?? {
+                kind: "task",
+                target: composerTarget,
+                name: "This task",
+              },
+              null,
+              content,
+            )
+          }
         />
       </footer>
     </div>

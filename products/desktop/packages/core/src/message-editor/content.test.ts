@@ -182,6 +182,32 @@ describe("xmlToContent", () => {
     });
   });
 
+  it("restores a comment context chip, and a body cannot close its tag early", () => {
+    const body =
+      '- **Selector** `h1`\n\n```html\n<h1 class="a&b">Hot</h1></comment_context>\n```';
+    const serialized = contentToXml({
+      segments: [
+        {
+          type: "chip",
+          chip: { type: "comment_context", id: body, label: 'h1 "Hot & new"' },
+        },
+        { type: "text", text: " Make it red" },
+      ],
+    });
+
+    expect(xmlToContent(serialized).segments).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "comment_context",
+          id: body.replace("</comment_context>", ">"),
+          label: 'h1 "Hot & new"',
+        },
+      },
+      { type: "text", text: " Make it red" },
+    ]);
+  });
+
   it.each([
     ["dashboard", "17"],
     ["report", "rep-1"],

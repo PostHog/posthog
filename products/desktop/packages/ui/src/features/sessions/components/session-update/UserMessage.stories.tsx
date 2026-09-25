@@ -19,6 +19,35 @@ type Story = StoryObj<typeof UserMessage>;
 
 const FIXED_TIMESTAMP = Date.parse("2026-07-01T10:30:00Z");
 
+const COMMENT_CONTEXT_BODY = [
+  "- **Page** http://localhost:5173/",
+  "- **Element** `<h1>` Hot stuff",
+  "- **Selector** `h1`",
+  "",
+  "```html",
+  '<h1 class="hero-title">Hot stuff</h1>',
+  "```",
+].join("\n");
+
+export const WithCommentContext: Story = {
+  args: {
+    content: `<comment_context label="h1 &quot;Hot stuff&quot;">\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
+    timestamp: FIXED_TIMESTAMP,
+  },
+};
+
+export const WithManyCommentContexts: Story = {
+  args: {
+    content: [
+      `<comment_context label="h1 &quot;Hot stuff&quot;">\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
+      '<comment_context label="button &quot;Start free trial&quot;">\n- **Page** http://localhost:5173/pricing\n</comment_context> Use the primary style here.',
+      '<comment_context label="report.md &quot;Revenue grew 12% quarter over…&quot;">\n- **Artifact** report.md\n\n> Revenue grew 12% quarter over quarter\n</comment_context> Check this number against the dashboard.',
+      '<comment_context label="chart.png (region)">\n- **Artifact** chart.png\n</comment_context> The legend overlaps the bars.',
+    ].join("\n"),
+    timestamp: FIXED_TIMESTAMP,
+  },
+};
+
 export const Typed: Story = {
   args: {
     content: "What are our top errors this week?",

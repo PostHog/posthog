@@ -1,5 +1,8 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { FileAttachment } from "@posthog/core/message-editor/content";
+import type {
+  EditorContent,
+  FileAttachment,
+} from "@posthog/core/message-editor/content";
 import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
 import { PromptHistoryDialog } from "@posthog/ui/features/message-editor/components/PromptHistoryDialog";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
@@ -118,6 +121,7 @@ interface HarnessProps
   sessionId?: string;
   /** Seeded into the editor after mount, so `!` reaches bash mode. */
   text?: string;
+  content?: EditorContent;
   chips?: MentionChip[];
   attachments?: FileAttachment[];
   /** The merged model + effort pill a live session renders. */
@@ -132,6 +136,7 @@ interface HarnessProps
 function PromptInputHarness({
   sessionId = "storybook-session",
   text,
+  content,
   chips,
   attachments,
   showSelectors = true,
@@ -156,11 +161,12 @@ function PromptInputHarness({
     seededRef.current = true;
     const timer = setTimeout(() => {
       if (text) ref.current?.setContent(text);
+      if (content) ref.current?.setContent(content);
       for (const chip of chips ?? []) ref.current?.insertChip(chip);
       for (const file of attachments ?? []) ref.current?.addAttachment(file);
     }, 200);
     return () => clearTimeout(timer);
-  }, [text, chips, attachments]);
+  }, [text, content, chips, attachments]);
 
   return (
     <PromptInput
@@ -297,6 +303,66 @@ export const WithFileChip: Story = {
         label: ".claude/settings.json",
       },
     ],
+  },
+};
+
+const COMMENT_CONTEXT_BODY = [
+  "- **Page** http://localhost:5173/",
+  "- **Element** `<h1>` Hot stuff",
+  "- **Selector** `h1`",
+  "",
+  "```html",
+  '<h1 class="hero-title">Hot stuff</h1>',
+  "```",
+].join("\n");
+
+export const WithCommentContextChip: Story = {
+  name: "Chip: comment context",
+  args: {
+    sessionId: "sb-chip-comment-context",
+    chips: [
+      {
+        type: "comment_context",
+        id: COMMENT_CONTEXT_BODY,
+        label: 'h1 "Hot stuff"',
+      },
+    ],
+    text: "Make this heading red and a bit larger.",
+  },
+};
+
+function commentChip(label: string, body: string) {
+  return {
+    type: "chip" as const,
+    chip: { type: "comment_context" as const, id: body, label },
+  };
+}
+
+export const WithManyCommentContextChips: Story = {
+  name: "Chips: several comment contexts",
+  args: {
+    sessionId: "sb-chip-comment-context-many",
+    content: {
+      segments: [
+        commentChip('h1 "Hot stuff"', COMMENT_CONTEXT_BODY),
+        { type: "text", text: " Make this heading red and a bit larger.\n" },
+        commentChip(
+          'button "Start free trial"',
+          '- **Page** http://localhost:5173/pricing\n- **Element** `<button>` Start free trial\n- **Selector** `button[data-attr="trial"]`',
+        ),
+        { type: "text", text: " Use the primary style here.\n" },
+        commentChip(
+          'report.md "Revenue grew 12% quarter over…"',
+          "- **Artifact** report.md\n\n> Revenue grew 12% quarter over quarter",
+        ),
+        { type: "text", text: " Check this number against the dashboard.\n" },
+        commentChip(
+          "chart.png (region)",
+          "- **Artifact** chart.png\n- **Region** left 10%, top 20%, width 50%, height 25%",
+        ),
+        { type: "text", text: " The legend overlaps the bars." },
+      ],
+    },
   },
 };
 

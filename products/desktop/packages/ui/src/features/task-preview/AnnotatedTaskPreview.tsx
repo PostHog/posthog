@@ -1,14 +1,13 @@
 import type { ElementCommentAnchor } from "@posthog/core/comments/anchors";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
+import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
 import {
   useCommentsQuery,
   useCreateComment,
 } from "@posthog/ui/features/sessions/components/useComments";
-import { track } from "@posthog/ui/shell/analytics";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { attachPreviewCommentToComposer } from "./attachPreviewCommentToComposer";
-import { PreviewCommentCard } from "./PreviewCommentCard";
 import { PreviewCommentThreads } from "./PreviewCommentThreads";
 import { previewPins, previewThreads } from "./previewComments";
 import { previewCommentTarget } from "./previewCommentTarget";
@@ -23,12 +22,6 @@ type PendingComment = {
   element: TaskPreviewElement;
   anchor: { top: number; right: number; bottom: number };
 };
-
-function elementLabel(element: TaskPreviewElement): string {
-  return element.text
-    ? `<${element.tag}> "${element.text}"`
-    : `<${element.tag}> ${element.selector}`;
-}
 
 export function AnnotatedTaskPreview({
   taskId,
@@ -93,11 +86,7 @@ export function AnnotatedTaskPreview({
 
   const dismissPending = useCallback(() => setPending(null), []);
 
-  const submit = async (
-    content: string,
-    mentions: number[],
-    sendToAgent: boolean,
-  ) => {
+  const submit = async (content: string, mentions: number[]) => {
     if (!pending) return;
     const anchor: ElementCommentAnchor = {
       kind: "element",
@@ -109,18 +98,19 @@ export function AnnotatedTaskPreview({
       mentions,
     });
     setActiveThreadId(created.id);
-    track(ANALYTICS_EVENTS.TASK_PREVIEW_COMMENT_CREATED, {
-      sent_to_agent: sendToAgent,
-    });
-    if (sendToAgent) {
-      attachPreviewCommentToComposer({
-        taskId,
-        port,
-        anchor,
-        comment: content,
-      });
-    }
   };
+
+  const sendToAgent = (anchor: ElementCommentAnchor, content: string) =>
+    sendCommentToAgent({
+      taskId,
+      comment: content,
+      context: commentAgentContext(anchor, {
+        kind: "preview",
+        name: title,
+        port,
+      }),
+      surface: "preview",
+    });
 
   const showThreads = threads.length > 0 || commenting;
 
@@ -152,21 +142,45 @@ export function AnnotatedTaskPreview({
             threads={threads}
             target={target}
             taskId={taskId}
+            name={title}
+            port={port}
             members={members}
             activeThreadId={activeThreadId}
             onSelect={selectThread}
           />
         </aside>
       )}
-      {pending && (
-        <PreviewCommentCard
-          anchor={pending.anchor}
-          elementLabel={elementLabel(pending.element)}
-          members={members}
-          onSubmit={submit}
-          onDismiss={dismissPending}
-        />
-      )}
+      <SelectionCommentOverlay
+        selection={
+          pending
+            ? {
+                text: pending.element.text,
+                fromLine: 1,
+                toLine: 1,
+                anchor: {
+                  top: pending.anchor.top,
+                  endX: pending.anchor.right,
+                  bottom: pending.anchor.bottom,
+                },
+              }
+            : null
+        }
+        open={!!pending}
+        filePath={title}
+        placeholder="Add a comment…"
+        initiallyExpanded
+        members={members}
+        onDismiss={dismissPending}
+        onSubmit={(_start, _end, content, mentions) =>
+          submit(content, mentions ?? [])
+        }
+        onSendToAgent={
+          pending
+            ? (content) =>
+                sendToAgent({ kind: "element", ...pending.element }, content)
+            : undefined
+        }
+      />
     </div>
   );
 }

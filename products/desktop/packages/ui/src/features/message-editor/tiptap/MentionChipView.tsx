@@ -1,5 +1,6 @@
 import {
   ChartLineIcon,
+  ChatCircleTextIcon,
   FileTextIcon,
   FlagIcon,
   FlaskIcon,
@@ -15,6 +16,7 @@ import { Chip, cn } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
+import { CommentContextPreview } from "../components/CommentContextPreview";
 import { usePasteUndoStore } from "../pasteUndoStore";
 import type { ChipType, MentionChipAttrs } from "./MentionChipNode";
 
@@ -33,6 +35,7 @@ const typeIconMap: Record<ChipType, React.ComponentType<{ size: number }>> = {
   insight: ChartLineIcon,
   feature_flag: FlagIcon,
   posthog_object: PulseIcon,
+  comment_context: ChatCircleTextIcon,
 };
 
 function IconCloseButton({
@@ -97,7 +100,12 @@ function DefaultChip({
   const canUndoPaste =
     pastedText && chipId !== null && chipId === undoableChipId;
   const isCommand = type === "command";
-  const prefix = isCommand ? "/" : type === "posthog_object" ? "" : "@";
+  const isCommentContext = type === "comment_context";
+  const prefix = isCommand
+    ? "/"
+    : type === "posthog_object" || isCommentContext
+      ? ""
+      : "@";
   const isFile = type === "file";
   const isFolder = type === "folder";
   const isGithubRef = type === "github_issue" || type === "github_pr";
@@ -146,6 +154,14 @@ function DefaultChip({
       )}
     </Chip>
   );
+
+  if (isCommentContext) {
+    return (
+      <Tooltip content={<CommentContextPreview label={label} body={id} />}>
+        {chipContent}
+      </Tooltip>
+    );
+  }
 
   if (isFile || isFolder) {
     return (

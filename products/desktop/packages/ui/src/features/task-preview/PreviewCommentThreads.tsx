@@ -1,17 +1,21 @@
 import type { CommentTarget } from "@posthog/core/comments/anchors";
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
 import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import {
   isOptimisticComment,
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import type { PreviewThread } from "./previewComments";
 
 function PreviewThreadRow({
   thread,
   target,
   taskId,
+  name,
+  port,
   members,
   selected,
   onSelect,
@@ -19,6 +23,8 @@ function PreviewThreadRow({
   thread: PreviewThread;
   target: CommentTarget;
   taskId: string;
+  name: string;
+  port: number;
   members: UserBasic[];
   selected: boolean;
   onSelect: () => void;
@@ -54,6 +60,18 @@ function PreviewThreadRow({
       onResolve={(resolved) =>
         setResolved.mutate({ root: thread.root, resolved })
       }
+      onSendReplyToAgent={(content) =>
+        sendCommentToAgent({
+          taskId,
+          comment: content,
+          context: commentAgentContext(thread.anchor, {
+            kind: "preview",
+            name,
+            port,
+          }),
+          surface: "preview",
+        })
+      }
     />
   );
 }
@@ -62,6 +80,8 @@ export function PreviewCommentThreads({
   threads,
   target,
   taskId,
+  name,
+  port,
   members,
   activeThreadId,
   onSelect,
@@ -69,6 +89,8 @@ export function PreviewCommentThreads({
   threads: PreviewThread[];
   target: CommentTarget;
   taskId: string;
+  name: string;
+  port: number;
   members: UserBasic[];
   activeThreadId: string | null;
   onSelect: (id: string) => void;
@@ -88,6 +110,8 @@ export function PreviewCommentThreads({
           thread={thread}
           target={target}
           taskId={taskId}
+          name={name}
+          port={port}
           members={members}
           selected={thread.id === activeThreadId}
           onSelect={() => onSelect(thread.id)}

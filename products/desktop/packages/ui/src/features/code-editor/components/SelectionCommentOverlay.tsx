@@ -37,6 +37,7 @@ interface SelectionCommentOverlayProps {
   showActionText?: boolean;
   initiallyExpanded?: boolean;
   members?: UserBasic[];
+  onSendToAgent?: (text: string) => void;
 }
 
 /**
@@ -55,6 +56,7 @@ export function SelectionCommentOverlay({
   showActionText = false,
   initiallyExpanded = false,
   members,
+  onSendToAgent,
 }: SelectionCommentOverlayProps) {
   if (!open || !selection?.anchor) return null;
   // Key by the range so a fresh selection remounts the card back to the "+".
@@ -72,6 +74,7 @@ export function SelectionCommentOverlay({
       showActionText={showActionText}
       initiallyExpanded={initiallyExpanded}
       members={members}
+      onSendToAgent={onSendToAgent}
     />
   );
 }
@@ -88,6 +91,7 @@ function SelectionComposerCard({
   showActionText,
   initiallyExpanded,
   members,
+  onSendToAgent,
 }: {
   anchor: { top: number; endX: number; bottom: number };
   fromLine: number;
@@ -105,6 +109,7 @@ function SelectionComposerCard({
   showActionText: boolean;
   initiallyExpanded: boolean;
   members?: UserBasic[];
+  onSendToAgent?: (text: string) => void;
 }) {
   const [userExpanded, setUserExpanded] = useState(false);
   const expanded = initiallyExpanded || userExpanded;
@@ -192,6 +197,7 @@ function SelectionComposerCard({
             rows={2}
             disabled={submitting}
             autoFocus
+            onSendToAgent={onSendToAgent}
           />
         </div>
       ) : (

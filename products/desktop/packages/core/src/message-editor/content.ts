@@ -45,7 +45,8 @@ export interface MentionChip {
     | "feature_flag"
     | "posthog_object"
     | "github_issue"
-    | "github_pr";
+    | "github_pr"
+    | "comment_context";
   id: string;
   label: string;
   objectKind?: PostHogObjectKind;
@@ -77,6 +78,7 @@ export function contentToPlainText(content: EditorContent): string {
         return `@${chip.label}`;
       if (chip.type === "command") return `/${chip.label}`;
       if (chip.type === "posthog_object") return chip.label;
+      if (chip.type === "comment_context") return chip.label;
       return `@${chip.label}`;
     })
     .join("");
@@ -134,6 +136,8 @@ export function contentToXml(content: EditorContent): string {
         const title = labelMatch?.[2] ?? "";
         return `<${chip.type} number="${escapeXmlAttr(number)}" title="${escapeXmlAttr(title)}" url="${escapedId}" />`;
       }
+      case "comment_context":
+        return commentContextXml(chip.label, chip.id);
       default:
         return `@${chip.label}`;
     }
@@ -151,10 +155,17 @@ export function contentToXml(content: EditorContent): string {
   return parts.join("");
 }
 
+export const COMMENT_CONTEXT_TAG = "comment_context";
+
+export function commentContextXml(label: string, body: string): string {
+  const safeBody = body.replaceAll(`</${COMMENT_CONTEXT_TAG}`, "");
+  return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
+}
+
 // Self-closing chip tags, paired report references, and the paired
 // `<hogql>...</hogql>` form whose SQL rides in the tag body.
 const CHIP_TAG_REGEX =
-  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|report|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<report\b([^>]*?)>([\s\S]*?)<\/report>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
+  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|report|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<report\b([^>]*?)>([\s\S]*?)<\/report>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>|<comment_context\b([^>]*)>([\s\S]*?)<\/comment_context>/g;
 
 export function deriveFileLabel(filePath: string): string {
   const segments = filePath.split("/").filter(Boolean);
@@ -254,6 +265,11 @@ function hogqlChipFromBody(body: string): MentionChip | null {
   };
 }
 
+function commentContextChip(rawAttrs: string, body: string): MentionChip {
+  const label = parseXmlAttrs(rawAttrs).label || "Comment";
+  return { type: "comment_context", id: body.trim(), label };
+}
+
 export function xmlToContent(xml: string): EditorContent {
   const segments: EditorContent["segments"] = [];
   let lastIndex = 0;
@@ -264,7 +280,9 @@ export function xmlToContent(xml: string): EditorContent {
       ? chipFromTag(match[1], match[2] ?? "")
       : match[3] !== undefined
         ? chipFromTag("report", match[3], unescapeXmlAttr(match[4] ?? ""))
-        : hogqlChipFromBody(match[5] ?? "");
+        : match[6] !== undefined
+          ? commentContextChip(match[6], match[7] ?? "")
+          : hogqlChipFromBody(match[5] ?? "");
     if (!chip) continue;
 
     if (matchIndex > lastIndex) {
