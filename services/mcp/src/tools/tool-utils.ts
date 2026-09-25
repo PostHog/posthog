@@ -1,5 +1,10 @@
 import { formatResponse } from '@/lib/response'
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
+    POSTHOG_TEXT_PROJECTION_KEY,
+    type Context,
+} from '@/tools/types'
 
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
@@ -88,17 +93,20 @@ const TEXT_PROJECTION_NOTE =
     'Each row above is narrowed to the fields worth scanning. Read one row in full with the matching retrieve tool, or re-run this call with JSON output to get every field of every row.'
 
 /**
- * Attach a compact text projection of a list result, leaving the structured payload whole.
+ * Narrow a list result to a compact set of fields for every model-visible channel.
  *
  * A row can be far wider than what a reader needs to choose between rows — a frozen scanner config and
- * segmented model reasoning against an id, a status and a sentence. The response builder prefers
- * `__formatted_results_override` over serializing the payload, so naming the fields worth reading is what
- * keeps a wide list answerable. It also decides which channel the rows travel in: with no projection the
- * builder moves the payload into `structuredContent` alone and leaves the text channel a pointer, which a
- * host that reads only text turns into an answer with no rows in it.
+ * segmented model reasoning against an id, a status and a sentence. The projection names the fields worth
+ * reading, and the response builder serves it in place of the row: it prefers
+ * `__formatted_results_override` over serializing the payload for the text channel, and
+ * `__text_projection` tells it to keep the whole payload out of `structuredContent` too. Both channels
+ * matter, because a client that reads `structuredContent` in preference to the text would otherwise get
+ * the full rows back and the projection would buy it nothing.
  *
- * The projection is non-enumerable and computed on demand, so the object every other consumer sees — the
- * UI app, a JSON caller — is the untouched result.
+ * The full payload still reaches the UI app, through the app-only `_meta` key the builder re-homes it
+ * onto, and a caller that wants every field asks for it with `output_format=json`. Both marker keys are
+ * non-enumerable and the text is computed on demand, so the object every other consumer sees is the
+ * untouched result.
  *
  * Projected rows carry model output written over customer recordings, so the text is fenced the way
  * `withInformationalResponse` fences its own. The informational key itself is deliberately not set: it
@@ -135,7 +143,20 @@ export function withTextProjection<T>(result: T, fields: string[]): T {
             return formattedResult
         },
     })
+    Object.defineProperty(wrappedResult, POSTHOG_TEXT_PROJECTION_KEY, {
+        value: true,
+        enumerable: false,
+    })
     return wrappedResult as T
+}
+
+/** Whether a handler result carries a compact text projection of its rows (see `withTextProjection`). */
+export function hasTextProjection(result: unknown): boolean {
+    return (
+        typeof result === 'object' &&
+        result !== null &&
+        (result as Record<string, unknown>)[POSTHOG_TEXT_PROJECTION_KEY] === true
+    )
 }
 
 /**
