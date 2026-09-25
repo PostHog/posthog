@@ -286,9 +286,9 @@ class FrictionScorer:
 
 
 _FRICTION_SELECT = f"""
-    SELECT number, author, author_avatar_url, push_count, flake_red_count, master_red_count, unknown_red_count, own_red_count,
-        futile_rerun_count, ci_wait_seconds, first_approval_wait_seconds, pushes_after_approval, queue_seconds,
-        kickout_count
+    SELECT number, repo_owner, repo_name, author, author_avatar_url, push_count, flake_red_count, master_red_count,
+        unknown_red_count, own_red_count, futile_rerun_count, ci_wait_seconds, first_approval_wait_seconds,
+        pushes_after_approval, queue_seconds, kickout_count
     FROM {pr_friction.VIEW_NAME}
     WHERE NOT is_bot AND author != '' AND __REPO__
 """
@@ -343,6 +343,8 @@ def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFricti
         )
         for (
             number,
+            _repo_owner,
+            _repo_name,
             author,
             avatar_url,
             push_count,

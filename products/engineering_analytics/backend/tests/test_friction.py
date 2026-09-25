@@ -59,6 +59,8 @@ def _population() -> list[PullRequestFriction]:
 def _row(pr: PullRequestFriction) -> tuple:
     return (
         pr.number,
+        "PostHog",
+        "posthog",
         pr.author,
         pr.author_avatar_url,
         pr.push_count,
