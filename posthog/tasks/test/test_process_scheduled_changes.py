@@ -138,6 +138,42 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
         self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
 
+    def test_a_target_in_another_config_format_fails_without_blocking_the_batch(self) -> None:
+        v2_document = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        other_format = FeatureFlag.objects.create(
+            name="other", key="other-format", active=True, filters=v2_document, team=self.team, created_by=self.user
+        )
+        v1_flag = FeatureFlag.objects.create(
+            name="v1", key="v1-flag", active=False, filters={"groups": []}, team=self.team, created_by=self.user
+        )
+        failing = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=other_format.id,
+            model_name="FeatureFlag",
+            payload={"operation": "add_release_condition", "value": {"groups": [{"properties": []}]}},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=60)),
+        )
+        applying = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=v1_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+        )
+
+        process_scheduled_changes()
+
+        other_format.refresh_from_db()
+        v1_flag.refresh_from_db()
+        failing.refresh_from_db()
+        applying.refresh_from_db()
+        assert other_format.filters == v2_document
+        assert v1_flag.active is True
+        assert failing.failure_reason is not None
+        assert json.loads(failing.failure_reason)["error_type"] == "ConfigFormatError"
+        assert applying.failure_reason is None
+        assert applying.executed_at is not None
+
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",

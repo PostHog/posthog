@@ -214,6 +214,23 @@ class TestProductIntent(BaseTest):
         )
         self.assertTrue(self.product_intent.has_activated_feature_flags())
 
+    def test_has_activated_feature_flags_ignores_flags_in_another_config_format(self):
+        self.product_intent.product_type = "feature_flags"
+        self.product_intent.save()
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        for index in (1, 2):
+            FeatureFlag.objects.create(
+                team=self.team,
+                key=f"flag-{index}",
+                filters={"groups": [{"properties": [{"key": "email", "value": "test@test.com"}]}]},
+            )
+
+        self.assertTrue(self.product_intent.has_activated_feature_flags())
+
     def test_has_activated_feature_flags_excludes_experiment_and_survey_flags(self):
         self.product_intent.product_type = "feature_flags"
         self.product_intent.save()

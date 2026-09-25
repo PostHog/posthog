@@ -22,6 +22,7 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
+from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
@@ -61,6 +62,8 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
         return {"active": value}
 
     current_filters = flag.get_filters()
+    # The merges below are v1 merges; a target in another format fails closed here.
+    require_v1_config(current_filters)
 
     if operation == "add_release_condition":
         new_groups = value.get("groups", []) if isinstance(value, dict) else []
@@ -303,6 +306,10 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         )
 
     def get_analytics_metadata(self) -> dict:
+        try:
+            self._v1_filters()
+        except ConfigFormatError as exc:
+            return {"created_at": self.created_at, "config_format": exc.config_format.kind}
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
@@ -319,22 +326,34 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             "payload_count": payload_count,
         }
 
+    def _v1_filters(self) -> dict:
+        """The stored document when it is config version 1; any other format raises ``ConfigFormatError``.
+
+        The accessors below read v1 keys. A document in another format must never reach
+        them and be read as a flag with no conditions and no variants; callers that can
+        meet such a row catch the error. ``get_filters()`` stays raw for readers that
+        classify the document themselves.
+        """
+        filters = self.get_filters()
+        require_v1_config(filters)
+        return filters
+
     @property
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
-        return self.get_filters().get("groups", []) or []
+        return self._v1_filters().get("groups", []) or []
 
     @property
     def has_feature_enrollment(self) -> bool:
-        return bool(self.get_filters().get("feature_enrollment", False))
+        return bool(self._v1_filters().get("feature_enrollment", False))
 
     @property
     def holdout(self):
-        return self.get_filters().get("holdout", None)
+        return self._v1_filters().get("holdout", None)
 
     @property
     def _payloads(self):
-        return self.get_filters().get("payloads", {}) or {}
+        return self._v1_filters().get("payloads", {}) or {}
 
     def get_payload(self, match_val: str) -> Optional[object]:
         return self._payloads.get(match_val, None)
@@ -342,12 +361,12 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     @property
     def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
         "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
-        return self.get_filters().get("aggregation_group_type_index", None)
+        return self._v1_filters().get("aggregation_group_type_index", None)
 
     @property
     def variants(self):
         # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
-        multivariate = self.get_filters().get("multivariate", None)
+        multivariate = self._v1_filters().get("multivariate", None)
         if isinstance(multivariate, dict):
             variants = multivariate.get("variants", None)
             if isinstance(variants, list):
@@ -356,7 +375,12 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
 
     @property
     def is_eligible_for_experiment(self) -> bool:
-        return experiment_eligibility_error(self.variants) is None
+        try:
+            variants = self.variants
+        except ConfigFormatError:
+            # Only a v1 document carries the variants an experiment reads.
+            return False
+        return experiment_eligibility_error(variants) is None
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:

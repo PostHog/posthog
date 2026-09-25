@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from rest_framework import serializers
 
+from products.feature_flags.backend.facade.config import detect_config_format
+
 if TYPE_CHECKING:
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -63,7 +65,15 @@ def assert_flag_available_for(flag: "FeatureFlag", *, product: str) -> None:
     This reads before the caller writes, so two products adopting the same free flag at the same
     moment can both pass. No database constraint can span the four owning tables, so the remaining
     window is accepted rather than locked.
+
+    A flag stored in another config format is not available either: every adopting product reads
+    and writes its document as config version 1.
     """
+    if detect_config_format(flag.filters).kind != "v1":
+        raise serializers.ValidationError(
+            f"The feature flag {flag.key} uses a configuration format that {_OWNER_LABELS[product]} "
+            "cannot use yet. Pick a different flag."
+        )
     owner = flag_owner_kind(flag)
     if owner is not None and owner != product:
         raise serializers.ValidationError(

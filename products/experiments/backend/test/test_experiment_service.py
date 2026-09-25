@@ -745,6 +745,20 @@ class TestExperimentService(APIBaseTest):
 
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
+    def test_existing_flag_in_another_config_format_raises(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().create_experiment(name="Other format", feature_flag_key="other-format")
+
+        assert "configuration format that an experiment cannot use yet" in str(ctx.exception)
+        assert not Experiment.objects.filter(team=self.team, name="Other format").exists()
+
     def test_existing_flag_with_one_variant_raises(self):
         self._create_flag(
             key="one-variant",

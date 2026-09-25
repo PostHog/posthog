@@ -72,6 +72,16 @@ class TestFlagOwnership(APIBaseTest):
 
         assert "already belongs to an experiment" in str(cm.exception)
 
+    def test_guard_rejects_a_flag_in_another_config_format(self) -> None:
+        flag = self._flag("other-format")
+        flag.filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag.save()
+
+        with self.assertRaises(serializers.ValidationError) as cm:
+            assert_flag_available_for(flag, product=FLAG_OWNER_SURVEY)
+
+        assert "configuration format that a survey cannot use yet" in str(cm.exception)
+
     def test_guard_allows_a_free_flag(self) -> None:
         assert_flag_available_for(self._flag("free"), product=FLAG_OWNER_SURVEY)
 
@@ -95,6 +105,23 @@ class TestSurveyFlagAdoptionGuard(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "already belongs to an experiment" in str(response.json())
+
+    def test_survey_cannot_adopt_a_flag_in_another_config_format(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            created_by=self.user,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "poacher", "type": "popover", "targeting_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "configuration format" in str(response.json())
 
     def test_survey_cannot_be_repointed_at_a_flag_another_product_owns(self) -> None:
         created = self.client.post(

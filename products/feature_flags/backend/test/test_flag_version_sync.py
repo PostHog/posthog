@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from django.utils import timezone
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_storage
@@ -40,6 +41,25 @@ def _flag_dependency_filters(dependency_flag_id: int | str) -> dict:
                 ]
             }
         ]
+    }
+
+
+def _other_format_filters(referenced: dict) -> dict:
+    """A config version 2 document whose rule predicate references a cohort or flag.
+
+    It matches the jsonb prefilters the receivers use, so it reaches the v1 reads."""
+    return {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": False,
+        "rules": [
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "rule_type": "targeted_release",
+                "targeting": {"properties": [referenced]},
+                "value": True,
+            }
+        ],
     }
 
 
@@ -128,6 +148,27 @@ class TestFlagVersionSync(BaseTest):
             # No request context in this test, so the entry is a system action.
             assert entry.user is None
             assert entry.is_system is True
+
+    def test_a_flag_in_another_config_format_is_skipped_by_the_cohort_walk(self):
+        edited = self._create_cohort("edited", _person_filters("a@a.com"))
+        flag_direct = self._create_flag("direct", edited.pk)
+        other_format = FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            created_by=self.user,
+            filters=_other_format_filters({"key": "id", "type": "cohort", "value": edited.pk}),
+        )
+
+        with capture_logs() as logs:
+            edited.filters = _person_filters("z@z.com")
+            edited.save()
+
+        flag_direct.refresh_from_db()
+        other_format.refresh_from_db()
+        assert flag_direct.version == 2
+        assert other_format.version == 1
+        assert _updated_entries(other_format) == []
+        assert [log for log in logs if log["event"] == "flag_version_sync_cohort_expansion_failed"] == []
 
     def test_flag_history_entry_attributes_the_cohort_editor(self):
         cohort = self._create_cohort("cohort", _person_filters("a@a.com"))
@@ -276,6 +317,26 @@ class TestFlagDependencyVersionSync(BaseTest):
         dependent = self._create_flag("dependent", _flag_dependency_filters(base.pk))
         transitive = self._create_flag("transitive", _flag_dependency_filters(dependent.pk))
         return base, dependent, transitive
+
+    def test_a_flag_in_another_config_format_is_skipped_by_the_dependency_walk(self):
+        base, dependent, _transitive = self._create_chain()
+        other_format = self._create_flag(
+            "other-format",
+            _other_format_filters(
+                {"key": str(base.pk), "type": "flag", "operator": "flag_evaluates_to", "value": True}
+            ),
+        )
+
+        with capture_logs() as logs:
+            base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
+            base.save()
+
+        dependent.refresh_from_db()
+        other_format.refresh_from_db()
+        assert dependent.version == 2
+        assert other_format.version == 1
+        assert _updated_entries(other_format) == []
+        assert [log for log in logs if log["event"] == "flag_version_sync_dependency_parse_failed"] == []
 
     def test_flag_definition_change_bumps_versions_of_flags_depending_on_it(self):
         base, dependent, transitive = self._create_chain()

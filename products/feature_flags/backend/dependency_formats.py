@@ -5,7 +5,7 @@ from pydantic import JsonValue
 
 from posthog.utils import safe_int
 
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 DEPENDENCY_BATCH_SIZE = 100
@@ -15,12 +15,6 @@ class DependencyConfigFormatError(ConfigFormatError):
     def __init__(self, error: ConfigFormatError, *, flag_id: int) -> None:
         super().__init__(error.config_format)
         self.flag_id = flag_id
-
-
-def require_v1_config(filters: Mapping[str, JsonValue] | None) -> None:
-    config_format = detect_config_format(filters)
-    if config_format.kind != "v1":
-        raise ConfigFormatError(config_format)
 
 
 def _dependency_ids(filters: Mapping[str, JsonValue]) -> Iterator[int]:

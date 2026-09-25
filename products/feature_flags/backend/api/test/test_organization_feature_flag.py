@@ -445,6 +445,28 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+    def test_copy_rejects_a_source_in_another_config_format(self):
+        self.feature_flag_to_copy.filters = {
+            "version": 2,
+            "return_type": "boolean",
+            "default_value": False,
+            "rules": [],
+        }
+        self.feature_flag_to_copy.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": self.feature_flag_to_copy.key,
+                "from_project": self.feature_flag_to_copy.team_id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format" in response.json()["error"]
+        assert not FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_to_copy.key).exists()
+
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"

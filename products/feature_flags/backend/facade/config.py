@@ -59,6 +59,13 @@ def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
     return ConfigFormat(kind="unsupported", raw_version=version)
 
 
+def require_v1_config(filters: Mapping[str, Any] | None) -> None:
+    """Raise ``ConfigFormatError`` unless ``filters`` is a config version 1 document."""
+    config_format = detect_config_format(filters)
+    if config_format.kind != "v1":
+        raise ConfigFormatError(config_format)
+
+
 @frozen
 class RuleV2:
     id: str

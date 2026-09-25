@@ -117,11 +117,7 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import (
-    DependencyConfigFormatError,
-    require_v1_config,
-    validate_dependency_formats,
-)
+from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -133,7 +129,7 @@ from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format, require_v1_config
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
@@ -2632,7 +2628,8 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
-            if instance.has_feature_enrollment:
+            # Enrollment lives in the v1 document; a v2 flag cannot back an early access feature.
+            if detect_config_format(instance.filters).kind == "v1" and instance.has_feature_enrollment:
                 from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
 
                 migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)

@@ -542,6 +542,13 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.name, flag.key, flag.version) == ("Renamed", "v2-renamed", 4)
 
+    def test_a_key_change_never_reads_v1_enrollment(self) -> None:
+        flag = self.flag()
+        response = self.patch_flag(flag, {"version": 3, "key": "v2-renamed"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.key, flag.filters) == ("v2-renamed", config(targeted(), rollout()))
+
     @parameterized.expand(["has_encrypted_payloads", "is_remote_configuration"])
     def test_unsupported_flag_families_are_not_admitted(self, field: str) -> None:
         # Not in the admitted family, so the write falls back to the closed path rather

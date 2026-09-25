@@ -16,7 +16,8 @@ from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
@@ -128,6 +129,18 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         if not obj.failure_reason:
             return None
         return obj.formatted_failure_reason
+
+    @staticmethod
+    def _reject_unsupported_target(feature_flag: FeatureFlag, payload: dict) -> None:
+        # Shaping the payload reads the flag's document the way the applier will, so a target in
+        # another config format fails closed when scheduled rather than when fired.
+        try:
+            build_scheduled_change_serializer_data(feature_flag, payload)
+        except ConfigFormatError:
+            raise serializers.ValidationError(
+                {"payload": "This flag uses a configuration format that scheduled changes cannot modify."},
+                code="unsupported_config_version",
+            )
 
     def validate(self, data: dict) -> dict:
         instance = getattr(self, "instance", None)
@@ -285,6 +298,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # same flag here but would dodge the str-equality access filter in the viewset if persisted verbatim.
         if feature_flag is not None:
             validated_data["record_id"] = str(feature_flag.id)
+            self._reject_unsupported_target(feature_flag, validated_data.get("payload", {}))
 
         # Capture the project's timezone at creation time so cron recurrence resolves
         # wall-clock fields in that timezone, independent of later team.timezone changes.
@@ -317,6 +331,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # Canonicalize any legacy non-canonical record_id so the access filter keeps matching it.
         if feature_flag is not None:
             instance.record_id = str(feature_flag.id)
+            self._reject_unsupported_target(feature_flag, validated_data.get("payload", instance.payload))
 
         # Re-gate whenever the payload changes: create() only gates the payload the row is born with,
         # so without this an editor could create an ungated schedule and then PATCH its payload to a

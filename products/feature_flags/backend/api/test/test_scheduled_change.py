@@ -55,6 +55,40 @@ class TestScheduledChange(APIBaseTest):
         assert response_data["created_by"]["id"] == self.user.id
         assert response_data["change_request"] is None
 
+    def test_v1_merge_operations_are_rejected_for_a_target_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="other-format",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        base = {"record_id": str(flag.id), "model_name": "FeatureFlag", "scheduled_at": "2030-01-01T00:00:00Z"}
+
+        for operation, value in (("add_release_condition", {"groups": []}), ("update_variants", {"variants": []})):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                data={**base, "payload": {"operation": operation, "value": value}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert (response.json()["code"], response.json()["attr"]) == ("unsupported_config_version", "payload")
+        assert not ScheduledChange.objects.filter(record_id=str(flag.id)).exists()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={**base, "payload": {"operation": "update_status", "value": True}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{response.json()['id']}/",
+            data={"payload": {"operation": "add_release_condition", "value": {"groups": []}}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "unsupported_config_version"
+
     def test_cannot_create_scheduled_change_without_feature_flag_edit_permission(self):
         """Test that users without edit permissions cannot create scheduled changes for feature flags"""
         # Create a feature flag

@@ -74,6 +74,7 @@ from products.feature_flags.backend.api.feature_flag import (
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
@@ -1544,8 +1545,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         conditions = data.get("conditions") or {}
         linked_flag_variant = conditions.get("linkedFlagVariant")
         if linked_flag_variant and linked_flag and linked_flag_variant != "any":
-            # Get available variants from the linked feature flag
-            available_variants = [variant["key"] for variant in linked_flag.variants]
+            try:
+                available_variants = [variant["key"] for variant in linked_flag.variants]
+            except ConfigFormatError:
+                raise serializers.ValidationError(
+                    "linkedFlagVariant cannot be used with this feature flag's configuration format"
+                )
             if linked_flag_variant not in available_variants:
                 if available_variants:
                     raise serializers.ValidationError(

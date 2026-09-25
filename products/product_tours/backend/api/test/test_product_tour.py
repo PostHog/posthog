@@ -1062,6 +1062,27 @@ class TestProductTourLinkedFlagValidation(APIBaseTest):
         if error_substring:
             assert error_substring in str(response.json())
 
+    def test_linked_flag_variant_rejects_a_flag_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            created_by=self.user,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "linked_flag_id": flag.id,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": "control"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "configuration format" in str(response.json())
+
     def test_linked_flag_variant_requires_linked_flag_id(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/product_tours/",

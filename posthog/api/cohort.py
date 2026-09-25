@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
@@ -112,6 +112,7 @@ from products.cohorts.backend.realtime_state import (
     has_realtime_state,
     resolve_realtime_readiness,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -1405,7 +1406,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohort_id = instance.pk
 
         flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = any(cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in flags)
+        cohort_used_in_flags = any(
+            cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in _v1_flags(flags)
+        )
 
         if not cohort_used_in_flags:
             return
@@ -1642,6 +1645,19 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
     )
 
 
+def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
+    """Rows whose document carries the v1 release groups the cohort walks below read.
+
+    A flag in another config format references cohorts in its own shape; until those reads
+    exist it is skipped here rather than read as a flag with no conditions.
+    """
+    return [
+        flag
+        for flag in flags
+        if flag.filters is None or (isinstance(flag.filters, dict) and detect_config_format(flag.filters).kind == "v1")
+    ]
+
+
 def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
     """Cohort ids each flag references directly in its filter conditions.
 
@@ -1668,7 +1684,7 @@ def _filter_flags_referencing_cohort(
     target still resolves: ``used_in`` reports flags referencing a deleted cohort, which
     matches the insights and cohorts blocks (neither checks the target's deleted state).
     """
-    flag_list = list(flags)
+    flag_list = _v1_flags(flags)
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
     direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
     if direct_ids:
@@ -2380,7 +2396,15 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
-    if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
+    try:
+        aggregates_by_group = feature_flag.aggregation_group_type_index is not None
+    except ConfigFormatError:
+        cohort._safe_save_cohort_state(
+            team_id=team_id, processing_error="This flag uses a configuration format that cannot populate a cohort."
+        )
+        return
+
+    if not feature_flag.active or aggregates_by_group:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 

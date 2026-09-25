@@ -148,3 +148,42 @@ class TestFeatureFlagConfigVersionWrites(APIBaseTest):
             assert flag.filters == filters
         else:
             assert not FeatureFlag.objects.filter(team=self.team, key="reserved-version").exists()
+
+
+V2_DOCUMENT = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+
+
+class TestV2RowReads(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.v2_flag = FeatureFlag.objects.create(
+            team=self.team, key="v2-flag", created_by=self.user, filters=V2_DOCUMENT
+        )
+        self.v1_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def test_get_serializes_the_stored_document(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["filters"] == V2_DOCUMENT
+        assert response.json()["is_eligible_for_experiment"] is False
+
+    def test_list_serves_v1_and_v2_rows_together(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        filters_by_key = {flag["key"]: flag["filters"] for flag in response.json()["results"]}
+        assert filters_by_key["v2-flag"] == V2_DOCUMENT
+        assert filters_by_key["v1-flag"]["groups"] == [{"properties": [], "rollout_percentage": 100}]
+
+    def test_activity_and_version_history_read_the_v2_row(self) -> None:
+        activity = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/activity/")
+        assert activity.status_code == status.HTTP_200_OK, activity.json()
+        history = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{self.v2_flag.id}/versions/{self.v2_flag.version}/"
+        )
+        assert history.status_code == status.HTTP_200_OK, history.json()
+        assert history.json()["filters"] == V2_DOCUMENT
