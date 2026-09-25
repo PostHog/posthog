@@ -19,6 +19,7 @@
             "type": "string"
         },
         "count_only": {
+            "default": false,
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
             "type": "boolean"
         },
@@ -31,7 +32,8 @@
             "type": "boolean"
         },
         "include_source_metadata": {
-            "description": "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Defaults to true.",
+            "default": true,
+            "description": "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.",
             "type": "boolean"
         },
         "limit": {
