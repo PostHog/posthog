@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
@@ -36,10 +39,17 @@ export const scene: SceneExport = {
 }
 
 export function Dashboards(): JSX.Element {
-    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { loadDashboards } = useActions(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { currentTab, listState } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+
+    useEffect(() => {
+        if ((listState === 'empty' || listState === 'load-failed') && currentTab !== DashboardsTab.Templates) {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('dashboards list showed nothing', { state: listState, tab: currentTab })
+        }
+    }, [listState, currentTab])
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
@@ -106,9 +116,20 @@ export function Dashboards(): JSX.Element {
             <div>
                 {currentTab === DashboardsTab.Templates ? (
                     <DashboardTemplatesTable />
-                ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
+                ) : listState === 'load-failed' ? (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadDashboards(),
+                            'data-attr': 'dashboards-retry-load',
+                        }}
+                    >
+                        Couldn't load your dashboards. Try again, and if it keeps happening contact support.
+                    </LemonBanner>
+                ) : (
                     <DashboardsTableContainer />
-                ) : null}
+                )}
             </div>
         </SceneContent>
     )

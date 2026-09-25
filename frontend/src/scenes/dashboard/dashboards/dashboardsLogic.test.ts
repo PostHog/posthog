@@ -264,6 +264,34 @@ describe('dashboardsLogic', () => {
         })
     })
 
+    describe('list state', () => {
+        it('reports a failed load, which a still-true loading flag would otherwise hide', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.loadDashboardsFailure('nope')
+            }).toMatchValues({ listState: 'load-failed' })
+        })
+
+        it('blames the filters only when filters are set, not the tab', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(DashboardsTab.Yours)
+                logic.actions.setFilters({ folder: 'Nowhere' })
+            }).toMatchValues({ emptyListMessage: 'No dashboards match your filters. Clear them to see the rest.' })
+        })
+
+        it.each([
+            [DashboardsTab.All, 'This project has no dashboards yet. Create one to get started.'],
+            [
+                DashboardsTab.Yours,
+                "You haven't created a dashboard yet. Create one, or open All dashboards to see what the rest of the project has.",
+            ],
+            [DashboardsTab.Pinned, 'No pinned dashboards yet. Pin one from All dashboards to keep it here.'],
+        ])('explains why %s is empty', async (tab, message) => {
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(tab)
+            }).toMatchValues({ emptyListMessage: message })
+        })
+    })
+
     it('shows correct dashboards when filtering by name', async () => {
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [OTHER_USER.id] })

@@ -61,14 +61,17 @@ function BulkMoveToFolderButton({
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { dashboards } = useValues(dashboardsLogic)
+    const { dashboards, emptyListMessage } = useValues(dashboardsLogic)
 
-    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
+    return (
+        <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} emptyState={emptyListMessage} />
+    )
 }
 
 interface DashboardsTableProps {
     dashboards: DashboardBasicType[]
     dashboardsLoading: boolean
+    emptyState?: string
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
 }
@@ -76,6 +79,7 @@ interface DashboardsTableProps {
 export function DashboardsTable({
     dashboards,
     dashboardsLoading,
+    emptyState,
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
@@ -341,7 +345,7 @@ export function DashboardsTable({
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
-                emptyState="No dashboards matching your filters!"
+                emptyState={emptyState}
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
                     barClassName: 'mb-2',

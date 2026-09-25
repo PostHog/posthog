@@ -174,6 +174,8 @@ class TestTeam(BaseTest):
         self.assertIsInstance(team.primary_dashboard, Dashboard)
         assert team.primary_dashboard is not None
         self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
+        # Without a creator the starter dashboard never matches the "My dashboards" filter
+        self.assertEqual(team.primary_dashboard.created_by, self.user)
 
         # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
