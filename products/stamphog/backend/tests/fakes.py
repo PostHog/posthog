@@ -17,6 +17,7 @@ import re
 import hmac
 import json
 import hashlib
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -95,6 +96,7 @@ def sign_payload(body: bytes, secret: str) -> str:
 _TOKEN_RE = re.compile(r"^/app/installations/(?P<inst>[^/]+)/access_tokens$")
 _PR_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)$")
 _PR_FILES_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/files$")
+_PR_COMMITS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/commits$")
 _REVIEWS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews$")
 _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/comments$")
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
@@ -105,6 +107,7 @@ _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
 _PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
+_COMPARE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/compare/(?P<basehead>[^/]+)$")
 _PR_REACTION_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions/(?P<rid>\d+)$")
 
 _API_PREFIX = "https://api.github.com"
@@ -172,6 +175,13 @@ class GitHubRecorder:
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
+        # The merge base the compare API reports for every PR, and the familiarity GraphQL answers:
+        # path -> blame ranges, and path -> the author's history nodes. Unscripted paths answer empty.
+        self.merge_base_sha = "mergebase000"
+        # (repo, number) -> the PR's commits, oldest first. register_pr fills one commit at the head.
+        self.pr_commits: dict[tuple[str, int], list[dict]] = {}
+        self.blame_ranges: dict[str, list[dict]] = {}
+        self.author_history: dict[str, list[dict]] = {}
         self.policy_files: dict[str, str] = {}
         # Per-repository overrides for the same paths, for cases where two connected repos must
         # answer differently (one carries a root owners.yaml, another does not).
@@ -186,9 +196,21 @@ class GitHubRecorder:
         self._next_id += 1
         return self._next_id
 
-    def register_pr(self, repo: str, number: int, pr_object: dict, files: list[dict] | None = None) -> None:
+    def register_pr(
+        self,
+        repo: str,
+        number: int,
+        pr_object: dict,
+        files: list[dict] | None = None,
+        commit_messages: tuple[str, ...] = ("feat: change",),
+    ) -> None:
         self.prs[(repo, number)] = pr_object
         self.pr_files[(repo, number)] = files if files is not None else []
+        head_sha = (pr_object.get("head") or {}).get("sha") or ""
+        shas = [f"{head_sha}-parent{index}" for index in range(len(commit_messages) - 1)] + [head_sha]
+        self.pr_commits[(repo, number)] = [
+            {"sha": sha, "commit": {"message": message}} for sha, message in zip(shas, commit_messages)
+        ]
 
     def github_request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
         """Drop-in for ``github_request`` — route by (method, path), record writes."""
@@ -200,10 +222,16 @@ class GitHubRecorder:
             return self._mint_token(m.group("inst"))
         if method == "GET" and (m := _PR_FILES_RE.match(path)):
             return self._get_files(m.group("repo"), int(m.group("number")), params)
+        if method == "GET" and (m := _PR_COMMITS_RE.match(path)):
+            page = int(params.get("page", 1))
+            commits = self.pr_commits.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
+            return FakeResponse(200, json_data=commits)
         if method == "GET" and (m := _PR_RE.match(path)):
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
+        if method == "GET" and _COMPARE_RE.match(path):
+            return FakeResponse(200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}})
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
@@ -282,8 +310,19 @@ class GitHubRecorder:
     def _graphql(self, body: dict) -> FakeResponse:
         query = str(body.get("query") or "")
         variables = body.get("variables") or {}
-        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the minimizeComment
-        # mutation after a dismissal, and the shared ownership file reader. Route by the query's shape.
+        # GraphQL callers share /graphql: get_pr_review_threads, get_user_team_slugs, the familiarity
+        # blame and history reads, the minimizeComment mutation after a dismissal, and the shared
+        # ownership file reader. Route by the query's shape.
+        if "blame(" in query:
+            ranges = self.blame_ranges.get(str(variables.get("path")), [])
+            return FakeResponse(200, json_data={"data": {"repository": {"object": {"blame": {"ranges": ranges}}}}})
+        if "history(" in query:
+            aliases = {
+                name: {"nodes": self.author_history.get(str(path), [])}
+                for name, path in variables.items()
+                if re.fullmatch(r"p\d+", name)
+            }
+            return FakeResponse(200, json_data={"data": {"repository": {"object": aliases}}})
         if "minimizeComment" in query:
             self.github_writes.append({"kind": "minimize_review", "node_id": variables.get("id"), "query": query})
             return FakeResponse(
@@ -492,7 +531,7 @@ class FakeSlackIntegration:
     # the digest is expected to swallow.
     fail_thread_replies: bool = False
 
-    def __init__(self, integration: Any) -> None:
+    def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
 
     @property
@@ -571,12 +610,19 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     class _FakeSandbox:
         # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
         destroy_error: Exception | None = None
+        # A test can set this to make teardown hang until the event is set, or for at most ten
+        # seconds, so a caller that waits on teardown fails the test instead of hanging it.
+        destroy_blocker: threading.Event | None = None
+        # Set once destroy() returns, so a test can tell whether its caller waited for it.
+        destroy_returned: bool = False
         # A test can set this to make provisioning blow up, which is the first step of the review's
         # paid phase (retry-boundary coverage).
         create_error: Exception | None = None
         # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
         # (environment variables, egress allowlist).
         created_configs: list[Any] = []
+        # Every command passed to execute(), so a test can assert what ran in the sandbox.
+        executed_commands: list[str] = []
 
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
@@ -586,6 +632,7 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
+            type(self).executed_commands.append(command)
             stdout = engine_output if "review_local.py" in command else ""
             return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
 
@@ -595,6 +642,9 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 
         def destroy(self) -> None:
+            if self.destroy_blocker is not None:
+                self.destroy_blocker.wait(timeout=10)
+            type(self).destroy_returned = True
             if self.destroy_error is not None:
                 raise self.destroy_error
 

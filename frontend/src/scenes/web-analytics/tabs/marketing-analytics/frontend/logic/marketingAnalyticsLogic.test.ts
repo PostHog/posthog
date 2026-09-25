@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import {
     ConversionGoalFilter,
+    MARKETING_INTEGRATION_CONFIGS,
     DatabaseSchemaDataWarehouseTable,
     InsightVizNode,
     TrendsQuery,
@@ -19,6 +20,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
@@ -56,6 +58,150 @@ describe('marketingAnalyticsLogic', () => {
             logic.unmount()
         }
         localStorage.clear()
+    })
+
+    it.each<{
+        description: string
+        overrideFromUrl?: boolean
+        tab?: MarketingAnalyticsTab
+        clearDraft?: boolean
+        saveDraft?: boolean
+        removeDraftColumn?: boolean
+        orderBy?: MarketingAnalyticsOrderBy[]
+        expectedOrderBy?: MarketingAnalyticsOrderBy[]
+    }>([
+        { description: 'active draft' },
+        { description: 'URL override', overrideFromUrl: true },
+        {
+            description: 'Ad performance URL override',
+            overrideFromUrl: true,
+            tab: MarketingAnalyticsTab.AD_PERFORMANCE,
+        },
+        {
+            description: 'cleared draft sorted by its goal',
+            clearDraft: true,
+            orderBy: [['Draft purchase', 'DESC']],
+            expectedOrderBy: [],
+        },
+        { description: 'cleared draft without sorting', clearDraft: true, orderBy: [], expectedOrderBy: [] },
+        { description: 'cleared draft sorted by a saved column', clearDraft: true },
+        { description: 'saved draft goal', saveDraft: true },
+        { description: 'draft cleared by removing one column', removeDraftColumn: true },
+    ])(
+        'restores campaign columns on a fresh visit: $description',
+        async ({
+            overrideFromUrl = false,
+            tab,
+            clearDraft = false,
+            saveDraft = false,
+            removeDraftColumn = false,
+            orderBy = [['Clicks', 'DESC']],
+            expectedOrderBy = [['Clicks', 'DESC']],
+        }) => {
+            const mountTable = async (): Promise<ReturnType<typeof marketingAnalyticsTilesLogic.build>> => {
+                logic = marketingAnalyticsLogic()
+                logic.mount()
+                const tiles = marketingAnalyticsTilesLogic()
+                tiles.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                return tiles
+            }
+            let tiles = await mountTable()
+            const select = [MarketingAnalyticsBaseColumns.Campaign, MarketingAnalyticsBaseColumns.Clicks]
+            const pinnedColumns = [MarketingAnalyticsBaseColumns.Clicks]
+            const expectedPinnedColumns = saveDraft ? [...pinnedColumns, 'Draft purchase'] : pinnedColumns
+            logic.actions.setDraftConversionGoal({
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                conversion_goal_id: 'draft-purchase',
+                conversion_goal_name: 'Draft purchase',
+                schema_map: {},
+            })
+            await expectLogic(marketingAnalyticsTableLogic, () =>
+                marketingAnalyticsTableLogic.actions.setQuery({
+                    ...tiles.values.campaignCostsBreakdown!,
+                    pinnedColumns: [...pinnedColumns, 'Draft purchase'],
+                    source: {
+                        ...(tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery),
+                        select: [...select, 'Draft purchase', 'Cost per Draft purchase'],
+                        orderBy,
+                    },
+                })
+            ).toFinishAllListeners()
+            if (saveDraft) {
+                await expectLogic(logic, () => logic.actions.saveConversionGoal()).toFinishAllListeners()
+                expect(marketingAnalyticsTableLogic.values.defaultColumns).toContain('Draft purchase')
+            }
+            if (removeDraftColumn) {
+                await expectLogic(marketingAnalyticsTableLogic, () =>
+                    marketingAnalyticsTableLogic.actions.setQuery({
+                        ...tiles.values.campaignCostsBreakdown!,
+                        source: {
+                            ...(tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery),
+                            select: [...select, 'Draft purchase'],
+                        },
+                    })
+                ).toFinishAllListeners()
+                expect(logic.values.draftConversionGoal).toBeNull()
+            }
+            if (clearDraft) {
+                await expectLogic(logic, () => logic.actions.clearConversionGoal()).toFinishAllListeners()
+                expect(marketingAnalyticsTableLogic.values.query).toMatchObject({
+                    pinnedColumns,
+                    source: { select },
+                })
+                expect(
+                    (marketingAnalyticsTableLogic.values.query?.source as MarketingAnalyticsTableQuery).orderBy ?? []
+                ).toEqual(expectedOrderBy)
+            }
+            const savedColumns = JSON.parse(
+                localStorage.getItem(
+                    `${MOCK_TEAM_ID}__.scenes.marketingAnalytics.marketingAnalyticsTableLogic.columnConfiguration`
+                )!
+            )
+            expect({ ...savedColumns, orderBy: savedColumns.orderBy ?? [] }).toEqual({
+                select,
+                pinnedColumns: expectedPinnedColumns,
+                orderBy: expectedOrderBy,
+            })
+            tiles.unmount()
+            logic.unmount()
+
+            initKeaTests()
+            router.actions.push(
+                urls.marketingAnalyticsApp(),
+                overrideFromUrl ? { tab, select: 'Campaign,Cost', order_column: 'Cost', order_direction: 'ASC' } : {}
+            )
+            tiles = await mountTable()
+            try {
+                expect(tiles.values.campaignCostsBreakdown).toMatchObject({
+                    pinnedColumns: overrideFromUrl ? [] : expectedPinnedColumns,
+                    source: {
+                        select: overrideFromUrl ? ['Campaign', 'Cost'] : ['Clicks', 'Campaign'],
+                        orderBy: overrideFromUrl ? [['Cost', 'ASC']] : expectedOrderBy,
+                    },
+                })
+            } finally {
+                tiles.unmount()
+            }
+        }
+    )
+
+    it('uses default columns for empty column URL parameters', async () => {
+        router.actions.push(urls.marketingAnalyticsApp(), { select: null, pinned_columns: null })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(tiles.values.campaignCostsBreakdown).toMatchObject({
+                pinnedColumns: [],
+                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+            })
+        } finally {
+            tiles.unmount()
+        }
     })
 
     it('excludes conversion queries only in Ad performance and preserves legacy columns', async () => {
@@ -395,4 +541,43 @@ describe('marketingAnalyticsLogic', () => {
             })
         }
     )
+
+    it('removes AppleSearchAds from connected sources and mapping menus when its flag turns off', async () => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const campaignSchema = MARKETING_INTEGRATION_CONFIGS.AppleSearchAds.campaignTableName
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    { id: 'new-source', source_type: 'AppleSearchAds', schemas: [] } as unknown as ExternalDataSource,
+                    { id: 'google-source', source_type: 'GoogleAds', schemas: [] } as unknown as ExternalDataSource,
+                ],
+            })
+        ).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({
+            tables: {
+                campaign: {
+                    id: 'campaign-table',
+                    name: `AppleSearchAds_${campaignSchema}`,
+                    type: 'data_warehouse',
+                    source: { id: 'new-source', source_type: 'AppleSearchAds' },
+                    fields: {},
+                } as DatabaseSchemaDataWarehouseTable,
+            },
+            joins: [],
+        })
+        for (const enabled of [false, true, false]) {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS]: enabled })
+            expect(logic.values.nativeSources.map((source) => source.source_type)).toEqual(
+                enabled ? ['AppleSearchAds', 'GoogleAds'] : ['GoogleAds']
+            )
+            expect(marketingAnalyticsSettingsLogic.values.integrationCampaignTables.AppleSearchAds).toBe(
+                enabled ? `AppleSearchAds_${campaignSchema}` : undefined
+            )
+        }
+    })
 })

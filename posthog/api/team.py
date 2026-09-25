@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -81,6 +82,7 @@ from posthog.models.team.logs_retention import (
     LOGS_RETENTION_BASE_TIERS_DAYS,
     logs_retention_days_error,
     required_logs_retention_feature,
+    retention_update_throttle_error,
 )
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -234,6 +236,10 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+# Gates changes to the traces default retention period. Mirrored in `FEATURE_FLAGS.TRACING_SETTINGS_RETENTION`.
+TRACES_RETENTION_FLAG = "tracing-settings-retention"
+
+
 class TeamTracingConfigSerializer(serializers.ModelSerializer):
     tracing_distinct_id_attribute_keys = serializers.ListField(
         # trim_whitespace is the DRF default, but the uniqueness validator below
@@ -264,18 +270,71 @@ class TeamTracingConfigSerializer(serializers.ModelSerializer):
         ),
     )
 
+    retention_days = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "How long spans are kept before they are deleted, in days. Applied at ingest, so a "
+            "change only affects spans received after it. Can be changed at most once per 24 "
+            "hours. Span retention rules override this period for the spans they match."
+        ),
+    )
+
     class Meta:
         model = TeamTracingConfig
         fields = [
             "tracing_distinct_id_attribute_keys",
             "tracing_session_id_attribute_keys",
+            "retention_days",
+            "retention_last_updated",
         ]
+        read_only_fields = ["retention_last_updated"]
 
     def validate_tracing_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
         return _validate_unique_attribute_keys(value)
 
     def validate_tracing_session_id_attribute_keys(self, value: list[str]) -> list[str]:
         return _validate_unique_attribute_keys(value)
+
+    def validate_retention_days(self, value: int) -> int:
+        # Only a changed period is checked against the flags and the entitlement, so an unrelated
+        # update that sends the stored period back keeps working after either is turned off.
+        if self.instance is not None and self.instance.retention_days == value:
+            return value
+
+        team = self.context.get("team")
+        organization = team.organization if team is not None else None
+        user = getattr(self.context.get("request"), "user", None)
+        if not _flag_enabled_for_caller(TRACES_RETENTION_FLAG, organization, user, team):
+            raise exceptions.PermissionDenied("Changing traces retention is not available for this project yet.")
+
+        # Only evaluate the flag outside the base tiers, so the common path makes no flag call.
+        custom_enabled = value not in LOGS_RETENTION_BASE_TIERS_DAYS and _custom_retention_flag_enabled(
+            organization, user, team
+        )
+        error = logs_retention_days_error(value, custom_retention_enabled=custom_enabled)
+        if error:
+            raise exceptions.ValidationError(error)
+
+        # Traces reuse the Logs retention entitlement.
+        required_feature = required_logs_retention_feature(value)
+        if required_feature and (organization is None or not organization.is_feature_available(required_feature)):
+            raise exceptions.PermissionDenied(
+                f"This organization does not have permission to set traces retention to {value} days."
+            )
+
+        throttle_error = retention_update_throttle_error(
+            self.instance.retention_last_updated if self.instance is not None else None
+        )
+        if throttle_error:
+            raise exceptions.ValidationError(throttle_error)
+
+        return value
+
+    def update(self, instance: TeamTracingConfig, validated_data: dict[str, Any]) -> TeamTracingConfig:
+        new_retention = validated_data.get("retention_days")
+        if new_retention is not None and new_retention != instance.retention_days:
+            validated_data["retention_last_updated"] = timezone.now()
+        return super().update(instance, validated_data)
 
 
 def handle_tracing_config(request: request.Request, team: Team) -> response.Response:
@@ -286,7 +345,9 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
     config = get_or_create_team_extension(team, TeamTracingConfig)
 
     if request.method == "PATCH":
-        serializer = TeamTracingConfigSerializer(config, data=request.data, partial=True)
+        serializer = TeamTracingConfigSerializer(
+            config, data=request.data, partial=True, context={"request": request, "team": team}
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return response.Response(serializer.data)
@@ -298,13 +359,38 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
     """Shared handler for the experiments_config action — exposed under both the
     team/environment and project routers so both surfaces stay in parity."""
     # Keeps the products app import off this module's import path.
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+    from products.experiments.backend.models.team_experiments_config import (  # noqa: PLC0415
+        MAX_RECALCULATION_TIMES,
+        MIN_RECALCULATION_GAP_HOURS,
+        TeamExperimentsConfig,
+        legacy_from_recalculation_times,
+        recalculation_times_from_legacy,
+        validate_recalculation_times,
+    )
 
     class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        experiment_recalculation_times = serializers.ListField(
+            child=serializers.RegexField(
+                regex=r"^(?:[01]\d|2[0-3]):00:00$",
+                error_messages={"invalid": "Recalculation times must be on the hour, in HH:00:00 format (UTC)."},
+            ),
+            required=False,
+            allow_null=True,
+            allow_empty=False,
+            max_length=MAX_RECALCULATION_TIMES,
+            help_text=(
+                "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
+                f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
+                "Takes precedence over experiment_recalculation_time."
+            ),
+        )
+
         class Meta:
             model = TeamExperimentsConfig
             fields = [
                 "experiment_recalculation_time",
+                "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
                 "experiment_precomputation_enabled",
@@ -317,11 +403,28 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "flag_cleanup_repository",
             ]
 
+        def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
+            try:
+                validate_recalculation_times(value)
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(e.messages)
+            return value
+
         def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
             # A human toggling precomputation must stick: the auto-enrollment job only
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            # The two recalculation fields must stay coherent while both exist: writing one
+            # syncs the other, so old clients and the workflow reader never disagree.
+            if "experiment_recalculation_times" in validated_data:
+                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
+                    validated_data["experiment_recalculation_times"]
+                )
+            elif "experiment_recalculation_time" in validated_data:
+                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
+                    validated_data["experiment_recalculation_time"]
+                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
@@ -1217,17 +1320,26 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
-def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:
-    organization = _get_organization_for_logs_settings_check(serializer)
-    request = serializer.context.get("request")
-    user = getattr(request, "user", None)
+def _flag_enabled_for_caller(flag: str, organization: Organization | None, user: Any, team: Team | None) -> bool:
     if organization is None or user is None or not user.is_authenticated:
         return False
     return posthog_feature_flag_enabled(
-        LOGS_CUSTOM_RETENTION_FLAG,
+        flag,
         str(user.distinct_id),
         organization_id=organization.id,
         team_id=team.id if team is not None else None,
+    )
+
+
+def _custom_retention_flag_enabled(organization: Organization | None, user: Any, team: Team | None) -> bool:
+    """Whether the caller may pick a retention period outside the base tiers."""
+    return _flag_enabled_for_caller(LOGS_CUSTOM_RETENTION_FLAG, organization, user, team)
+
+
+def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team: Team | None) -> bool:
+    request = serializer.context.get("request")
+    return _custom_retention_flag_enabled(
+        _get_organization_for_logs_settings_check(serializer), getattr(request, "user", None), team
     )
 
 
@@ -1974,17 +2086,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # Check if retention_days is being changed
             if new_retention is not None and old_retention != new_retention:
                 value["retention_last_updated"] = timezone.now().isoformat()
-                # Check if retention_last_updated exists and is within 24 hours
-                if old_last_updated:
-                    last_updated = parse_datetime(old_last_updated)
-                    if last_updated:
-                        time_since_update = timezone.now() - last_updated
-                        if time_since_update < timedelta(hours=24):
-                            hours_remaining = 24 - (time_since_update.total_seconds() / 3600)
-                            raise exceptions.ValidationError(
-                                f"You can only update retention settings once per 24 hours. "
-                                f"Please wait {int(hours_remaining)} more hour(s)."
-                            )
+                throttle_error = retention_update_throttle_error(old_last_updated)
+                if throttle_error:
+                    raise exceptions.ValidationError(throttle_error)
 
         return value
 

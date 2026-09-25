@@ -349,6 +349,17 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
+        # On native events, property resolution rebuilds this virtual map for every JSONExtract* function.
+        if (
+            self.context.uses_new_events_schema()
+            and table_name == "events"
+            and database_field.name == "properties"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "$feature_flags"
+        ):
+            return None
+
         if (
             self.context.uses_new_events_schema()
             and table_name == "events"

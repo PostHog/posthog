@@ -60,9 +60,13 @@ function HogFlowGraphEditor(): JSX.Element {
     }, [setReactFlowWrapper])
 
     useEffect(() => {
-        if (nodesInitialized) {
-            fitView({ duration: 0 })
+        if (!nodesInitialized || !reactFlowWrapper.current) {
+            return
         }
+
+        const observer = new ResizeObserver(() => fitView({ duration: 0 }))
+        observer.observe(reactFlowWrapper.current)
+        return () => observer.disconnect()
     }, [fitView, nodesInitialized])
 
     // ReactFlow diffs its nodes prop by reference: an inline spread would hand it a fresh array
@@ -74,11 +78,13 @@ function HogFlowGraphEditor(): JSX.Element {
 
     return (
         <div
-            ref={reactFlowWrapper}
-            className="relative flex min-h-0 flex-1 overflow-hidden"
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
             data-attr="workflow-editor"
         >
-            <div className="flex min-h-0 min-w-0 grow">
+            <div
+                ref={reactFlowWrapper}
+                className="flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-80 @max-[48rem]/workflow-editor:shrink-0"
+            >
                 <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                     className="grow"
                     fitView
@@ -110,7 +116,7 @@ function HogFlowGraphEditor(): JSX.Element {
                     {(isMovingNode || isCopyingNode) && (
                         <Panel position="bottom-left">
                             {/* Offset right of the zoom controls so the hint sits beside them */}
-                            <div className="flex items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
+                            <div className="flex flex-wrap items-center gap-1.5 ml-12 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
                                 <IconInfo className="text-base text-muted shrink-0" />
                                 <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
                                 <span className="text-muted">· press Esc to cancel</span>
@@ -130,7 +136,7 @@ function HogFlowGraphEditor(): JSX.Element {
 function HogFlowTreeEditorContent(): JSX.Element {
     return (
         <div
-            className="relative flex min-h-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
             data-attr="workflow-editor"
         >
             <HogFlowTreeEditor />
@@ -144,7 +150,7 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
             <HogFlowBranchSelectionProvider>
-                <div className="@container/workflow-editor flex min-h-0 flex-1">
+                <div className="@container/workflow-editor flex min-h-0 min-w-0 flex-1">
                     {isTreeView ? (
                         <ReactFlowProvider>
                             <HogFlowTreeEditorContent />

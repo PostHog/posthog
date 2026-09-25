@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconChevronDown, IconCursor } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -45,9 +44,6 @@ function ChoosePathStep(): JSX.Element {
 
     return (
         <div className="max-w-6xl w-full">
-            <div className="flex justify-center mb-4">
-                <Logomark size="md" />
-            </div>
             <h1 className="text-4xl font-bold text-center mb-2">{heading}</h1>
             <p className="text-center text-muted mb-8">{subheading}</p>
 
@@ -56,7 +52,7 @@ function ChoosePathStep(): JSX.Element {
                 {useCases.map((useCase: UseCaseDefinition) => (
                     <LemonCard
                         key={useCase.key}
-                        className="p-4 cursor-pointer"
+                        className="OnboardingProductCard p-4 cursor-pointer"
                         onClick={() => selectUseCase(useCase.key)}
                         hoverEffect
                         data-attr={`use-case-${useCase.key}`}
@@ -78,7 +74,7 @@ function ChoosePathStep(): JSX.Element {
 
                 {/* Pick myself option */}
                 <LemonCard
-                    className="p-4 cursor-pointer"
+                    className="OnboardingProductCard p-4 cursor-pointer"
                     onClick={() => selectPickMyself()}
                     hoverEffect
                     data-attr="pick-myself-card"
@@ -112,7 +108,7 @@ function ProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className="relative cursor-pointer hover:transform-none p-4"
+            className="OnboardingProductCard relative cursor-pointer hover:transform-none p-4"
             onClick={onToggle}
             focused={selected}
             hoverEffect
@@ -152,9 +148,6 @@ function ProductSelectionStep(): JSX.Element {
 
     return (
         <div className="max-w-6xl w-full">
-            <div className="flex justify-center mb-4">
-                <Logomark size="md" />
-            </div>
             <h1 className="text-4xl font-bold text-center mb-2">Which products would you like to use?</h1>
             <p className="text-center text-muted mb-8">
                 {recommendationSourceLabel ? (
@@ -254,10 +247,7 @@ export function ProductSelection(): JSX.Element {
     const { currentStep } = useValues(productSelectionLogic)
 
     return (
-        // On mobile, top-align so the scroll container grows with the content (centering inside min-h-full hides the
-        // Continue button behind the browser chrome and prevents scrolling to it). The bottom padding clears the chrome
-        // / device notch, mirroring the --scene-padding-bottom formula in Navigation.scss. Desktop (sm+) is unchanged.
-        <div className="flex flex-col flex-1 w-full min-h-full p-4 pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-4 items-center justify-start sm:justify-center bg-primary overflow-x-hidden">
+        <div className="flex flex-col w-full pb-[max(env(safe-area-inset-bottom),80px)] sm:pb-0 items-center justify-start overflow-x-hidden">
             <div className="flex flex-col items-center justify-start sm:justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
