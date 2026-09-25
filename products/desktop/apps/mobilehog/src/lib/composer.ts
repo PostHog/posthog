@@ -16,9 +16,17 @@ interface ComposerConfig {
 }
 
 interface ComposerState extends ComposerConfig {
+  contextId: string;
+  saved: Record<string, ComposerConfig>;
+  selectContext: (
+    id: string,
+    model?: string,
+    reasoning?: SupportedReasoningEffort,
+  ) => void;
   setModel: (model: string) => void;
   setReasoning: (reasoning: SupportedReasoningEffort) => void;
   reset: () => void;
+  clear: () => void;
 }
 
 const defaults: ComposerConfig = {
@@ -42,6 +50,34 @@ function clampReasoning(
 
 export const useComposer = create<ComposerState>((set, get) => ({
   ...defaults,
+  contextId: "new",
+  saved: {},
+  selectContext: (id, model, reasoning) => {
+    const current = get();
+    if (current.contextId === id) return;
+    const saved = {
+      ...current.saved,
+      [current.contextId]: {
+        model: current.model,
+        adapter: current.adapter,
+        reasoning: current.reasoning,
+      },
+    };
+    const adapter = model ? adapterForModelId(model) : defaults.adapter;
+    set({
+      contextId: id,
+      saved,
+      ...(saved[id] ?? {
+        adapter,
+        model: model ?? defaults.model,
+        reasoning: clampReasoning(
+          adapter,
+          model ?? defaults.model,
+          reasoning ?? defaults.reasoning,
+        ),
+      }),
+    });
+  },
   setModel: (model) => {
     const adapter = adapterForModelId(model);
     set({
@@ -52,6 +88,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
   },
   setReasoning: (reasoning) => set({ reasoning }),
   reset: () => set({ ...defaults }),
+  clear: () => set({ ...defaults, contextId: "new", saved: {} }),
 }));
 
 // The run request fields for the current picks, in api-client's names.

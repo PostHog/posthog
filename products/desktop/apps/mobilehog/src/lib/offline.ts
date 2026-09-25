@@ -42,7 +42,14 @@ export function useOfflineWorkspace(): void {
       const cache = dehydrate(client, {
         shouldDehydrateQuery: (query) =>
           query.state.status === "success" &&
-          ["tasks", "reports", "activity"].includes(String(query.queryKey[0])),
+          [
+            "tasks",
+            "reports",
+            "activity",
+            "models",
+            "repositories",
+            "current-user",
+          ].includes(String(query.queryKey[0])),
       });
       cache.mutations = [];
       cache.queries = cache.queries

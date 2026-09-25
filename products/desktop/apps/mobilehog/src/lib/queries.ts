@@ -1,6 +1,7 @@
 import type { GatewayModel } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
+  type InfiniteData,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -71,9 +72,17 @@ export function useTasks(search = "", enabled = true, filter = "recent") {
 }
 
 export function useTask(taskId: string) {
+  const queryClient = useQueryClient();
   const session = useAuth((s) => s.session);
   return useQuery({
     queryKey: keys.task(taskId),
+    placeholderData: () =>
+      queryClient
+        .getQueriesData<InfiniteData<{ tasks: Task[] }>>({
+          queryKey: [...keys.tasks, "list"],
+        })
+        .flatMap(([, data]) => data?.pages.flatMap((page) => page.tasks) ?? [])
+        .find((task) => task.id === taskId),
     queryFn: () => getClient().getTask(taskId),
     enabled: !!session && !!taskId,
     refetchInterval: (query) => {
@@ -158,7 +167,9 @@ export async function createAndRunTask(input: {
   repository: string | null;
   taskId?: string;
   onCreated?: (id: string) => Promise<void>;
+  config?: ReturnType<typeof currentRunConfig>;
 }): Promise<Task> {
+  const config = input.config ?? currentRunConfig();
   const client = getClient();
   const task = input.taskId
     ? await client.getTask(input.taskId)
@@ -171,6 +182,6 @@ export async function createAndRunTask(input: {
   if (task.latest_run) return task;
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.wirePrompt ?? input.prompt,
-    ...currentRunConfig(),
+    ...config,
   });
 }

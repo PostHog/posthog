@@ -1,9 +1,10 @@
 import {
   formatGatewayModelName,
   getReasoningEffortOptions,
+  type SupportedReasoningEffort,
 } from "@posthog/shared";
-import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -26,6 +27,8 @@ import { useDictation } from "@/lib/useDictation";
 interface ComposerProps {
   placeholder: string;
   draftId: string;
+  initialModel?: string;
+  initialReasoning?: SupportedReasoningEffort;
   // Shown as a second pill when provided (null = no repository chosen).
   repository?: string | null;
   disabled?: boolean;
@@ -43,6 +46,8 @@ interface ComposerProps {
 export function Composer({
   placeholder,
   draftId,
+  initialModel,
+  initialReasoning,
   repository,
   disabled,
   onSend,
@@ -52,6 +57,14 @@ export function Composer({
   autoFocus,
 }: ComposerProps) {
   const router = useRouter();
+  useFocusEffect(
+    useCallback(() => {
+      if (draftId === "new" || initialModel)
+        useComposer
+          .getState()
+          .selectContext(draftId, initialModel, initialReasoning);
+    }, [draftId, initialModel, initialReasoning]),
+  );
   const online = useConnectivity((state) => state.online);
   const draft = useDraft(draftId);
   const { text, photos } = draft;
@@ -71,7 +84,7 @@ export function Composer({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
-  const { model, adapter, reasoning } = useComposer();
+  const { model, adapter, reasoning, contextId } = useComposer();
   const models = useModels();
   const found = models.data?.find((candidate) => candidate.id === model);
   const effort = getReasoningEffortOptions(adapter, model)?.find(
@@ -300,6 +313,9 @@ export function Composer({
         <View style={styles.row}>
           {photoButton}
           <Pressable
+            disabled={
+              submitting || sending || disabled || contextId !== draftId
+            }
             onPress={() => router.push("/config")}
             accessibilityRole="button"
             accessibilityLabel="Choose model"
@@ -310,8 +326,14 @@ export function Composer({
             ]}
           >
             <Text style={styles.pillText} numberOfLines={1}>
-              {found ? formatGatewayModelName(found) : model}
-              {effort ? <Text style={styles.pillMuted}> {effort}</Text> : null}
+              {contextId !== draftId
+                ? "Loading model"
+                : found
+                  ? formatGatewayModelName(found)
+                  : model}
+              {effort && contextId === draftId ? (
+                <Text style={styles.pillMuted}> {effort}</Text>
+              ) : null}
             </Text>
           </Pressable>
           {repository !== undefined ? (
