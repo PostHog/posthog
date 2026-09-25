@@ -224,7 +224,7 @@ class AnthropicAdapter:
             if is_output_limit_error_message(str(error)):
                 return OutputTokenLimitError(str(error))
             # Unmapped, a caller spends its whole retry budget re-sending a refused request.
-            return ProviderBadRequestError(provider_error_detail(error) or str(error))
+            return ProviderBadRequestError(provider_error_detail(error))
         if isinstance(error, anthropic.RateLimitError):
             if _is_quota_or_billing_error(error):
                 return QuotaExceededError(str(error))

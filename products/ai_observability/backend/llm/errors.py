@@ -70,9 +70,14 @@ class ProviderBadRequestError(LLMError):
     """Raised when the provider rejects the request itself and no narrower class fits, for example
     an unsupported parameter, a malformed schema, or content the provider cannot decode.
 
-    The same request always gets the same 400, so a caller must not retry it. The message carries
-    the provider's own sentence, which is the only description of what was wrong.
+    The same request always gets the same 400, so a caller must not retry it. `detail` carries the
+    provider's own sentence, which is the only description of what was wrong. It is None when the
+    provider sent nothing readable, so a caller must not put it in front of a user unchecked.
     """
+
+    def __init__(self, detail: str | None = None):
+        self.detail = detail
+        super().__init__(detail or "The model provider rejected this request")
 
 
 _CONTEXT_WINDOW_ERROR_MARKERS = (
@@ -124,10 +129,13 @@ def provider_error_detail(error: Exception | None) -> str | None:
 
     `str(e)` on an OpenAI or Anthropic error embeds the whole response dict, so read the parsed
     body instead. google-genai carries the same text on `message`.
+
+    The two SDKs disagree on what `body` holds. Anthropic keeps the whole `{"error": {...}}`
+    envelope, while OpenAI unwraps it and stores the inner object, so read through both shapes.
     """
     body = getattr(error, "body", None)
     if isinstance(body, dict):
-        detail = body.get("error")
+        detail = body.get("error", body)
         if isinstance(detail, dict):
             detail = detail.get("message")
         if isinstance(detail, str) and detail.strip():
@@ -172,7 +180,9 @@ def user_facing_error_message(error: Exception | None) -> str:
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, ProviderBadRequestError):
-        return f"The model provider rejected this request: {error}"
+        if error.detail:
+            return f"The model provider rejected this request: {error.detail}"
+        return "The model provider rejected this request. Pick a different model, then try again."
     if isinstance(error, StructuredOutputParseError):
         return "The model returned a response we could not read. Try again."
     if isinstance(error, UnsupportedProviderError):
