@@ -124,6 +124,7 @@ class InProgressGithubRunsDTO:
     """In-progress runs that block disconnecting a team GitHub integration."""
 
     count: int
+    oldest_task_id: UUID | None = None
     oldest_task_title: str | None = None
 
 

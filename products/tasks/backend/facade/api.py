@@ -1111,8 +1111,12 @@ def get_in_progress_runs_for_github_integration(team_id: int, integration_id: in
     count = runs.count()
     if not count:
         return contracts.InProgressGithubRunsDTO(count=0)
-    oldest_title = runs.order_by("created_at").values_list("task__title", flat=True).first()
-    return contracts.InProgressGithubRunsDTO(count=count, oldest_task_title=oldest_title or None)
+    oldest = runs.order_by("created_at").values("task_id", "task__title").first()
+    if oldest is None:
+        return contracts.InProgressGithubRunsDTO(count=count)
+    return contracts.InProgressGithubRunsDTO(
+        count=count, oldest_task_id=oldest["task_id"], oldest_task_title=oldest["task__title"] or None
+    )
 
 
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
