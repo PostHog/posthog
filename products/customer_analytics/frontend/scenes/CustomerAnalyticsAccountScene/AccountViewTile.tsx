@@ -84,9 +84,7 @@ export function AccountViewTile({
                     />
                 </LemonMenu>
             </div>
-            <div
-                className={`min-w-0 px-2 pt-2 ${component.kind === 'usage' ? 'pb-2' : 'pb-0'} [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]`}
-            >
+            <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]">
                 <AccountViewComponent
                     kind={component.kind}
                     accountId={accountId}
