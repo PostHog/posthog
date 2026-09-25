@@ -1,6 +1,8 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -9,7 +11,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # integer isn't a safe partition key for `partition_mode="datetime"`.
 
 
-@dataclass
+@frozen
 class DynatraceEndpointConfig:
     name: str
     path: str
