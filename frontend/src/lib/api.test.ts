@@ -428,6 +428,15 @@ describe('API helper', () => {
             await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
         })
 
+        it('reads a body-less file system list as an empty page, so the project tree can dereference it', async () => {
+            fakeFetch.mockResolvedValue(fakeResponse({ status: 204, text: bodyOf('') }))
+            await expect(api.fileSystem.list({ parent: 'Project' })).resolves.toEqual({
+                count: 0,
+                results: [],
+                users: [],
+            })
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))

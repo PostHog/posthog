@@ -2404,7 +2404,9 @@ const api = {
             searchNameOnly?: boolean
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
-            return await new ApiRequest()
+            // A 2xx with no body resolves to null (see getJSONFromSuccessResponse), which every
+            // caller here dereferences straight away. Read it as an empty page instead.
+            const response: CountedPaginatedResponseWithUsers<FileSystemEntry> | null = await new ApiRequest()
                 .fileSystem()
                 .withQueryString({
                     parent,
@@ -2423,6 +2425,7 @@ const api = {
                     search_name_only: searchNameOnly,
                 })
                 .get({ signal })
+            return response ?? { count: 0, results: [], users: [] }
         },
         async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
