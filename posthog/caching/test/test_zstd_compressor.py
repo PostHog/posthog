@@ -2,14 +2,15 @@ import struct
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.caching.zstd_compressor import ZSTD_FRAME_MAGIC, ZstdCompressor
 
 
-class TestZstdCompressor(TestCase):
+class TestZstdCompressor(SimpleTestCase):
     # compressors take an options in init but don't use it 🤷
     compressor = ZstdCompressor({})
 
@@ -89,10 +90,21 @@ class TestZstdCompressor(TestCase):
         ]
     )
     def test_only_an_unreadable_zstd_frame_is_counted(self, _, input: bytes, expected_increments: int) -> None:
-        with (
-            self.settings(USE_REDIS_COMPRESSION=True),
-            patch("posthog.caching.zstd_compressor.COULD_NOT_DECOMPRESS_VALUE_COUNTER") as mock_counter,
-        ):
-            assert self.compressor.decompress(input) == input
+        for setting in (False, True):
+            with (
+                self.subTest(USE_REDIS_COMPRESSION=setting),
+                self.settings(USE_REDIS_COMPRESSION=setting),
+                patch("posthog.caching.zstd_compressor.COULD_NOT_DECOMPRESS_VALUE_COUNTER") as mock_counter,
+            ):
+                assert self.compressor.decompress(input) == input
+                assert mock_counter.inc.call_count == expected_increments
 
-        assert mock_counter.inc.call_count == expected_increments
+    def test_soft_time_limit_during_decode_propagates(self) -> None:
+        with (
+            patch("posthog.caching.zstd_compressor.zstd.decompress", side_effect=SoftTimeLimitExceeded()),
+            patch("posthog.caching.zstd_compressor.COULD_NOT_DECOMPRESS_VALUE_COUNTER") as mock_counter,
+            self.assertRaises(SoftTimeLimitExceeded),
+        ):
+            self.compressor.decompress(self.zstd_compressed_bytes)
+
+        mock_counter.inc.assert_not_called()

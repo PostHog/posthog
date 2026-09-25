@@ -268,7 +268,11 @@ class TestFixAndRecord(BaseTest):
     @parameterized.expand(
         [
             ("write_refused_without_raising", {"return_value": False}, "update_fn_returned_false"),
-            ("write_raised_a_parse_error", {"side_effect": ValueError("bad payload")}, "data_error"),
+            (
+                "write_raised_a_parse_error",
+                {"side_effect": json.JSONDecodeError("bad payload", "bad", 0)},
+                "data_error",
+            ),
             (
                 "write_raised_a_dependency_error",
                 {"side_effect": HyperCacheDependencyUnavailable("flags down")},
@@ -1378,6 +1382,7 @@ class TestClassifyFailure(SimpleTestCase):
     @parameterized.expand(
         [
             ("an_empty_stored_value", EOFError("Ran out of input"), "data_error"),
+            ("an_invalid_storage_endpoint", ValueError("Invalid endpoint"), "unknown"),
             ("a_bug_in_the_sweep", AttributeError("'NoneType' object has no attribute 'get'"), "unknown"),
             ("a_redis_write_during_an_outage", ConnectionInterrupted(connection=None), "dependency_unavailable"),
             (
