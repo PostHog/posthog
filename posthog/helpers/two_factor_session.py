@@ -27,6 +27,7 @@ from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+from posthog.utils import get_ip_address, get_short_user_agent
 
 from products.security.backend.facade.api import is_email_code_exempt
 
@@ -450,7 +451,9 @@ class CodeBasedVerifier:
         try:
             issued_at = int(time.time())
             code = code_based_verification_token_generator.make_code(user, issued_at)
-            email.send_code_based_verification(user.pk, code)
+            email.send_code_based_verification(
+                user.pk, code, ip_address=get_ip_address(request), short_user_agent=get_short_user_agent(request)
+            )
             request.session["code_based_verification_pending_user_id"] = user.pk
             request.session["code_based_verification_issued_at"] = issued_at
             # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be

@@ -52,6 +52,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
 
         self.assertEqual(mock_send.call_args[0][0], self.user.id)
         self.assertRegex(code, r"^\d{6}$")
+        self.assertEqual(mock_send.call_args.kwargs["ip_address"], "127.0.0.1")
         # Not logged in until the code is verified.
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
