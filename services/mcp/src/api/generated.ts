@@ -38101,6 +38101,12 @@ export namespace Schemas {
          * @nullable
          */
       content_hash?: string | null;
+      /**
+         * Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.
+         * @minimum 0
+         * @nullable
+         */
+      content_length?: number | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkCheckUpload {
@@ -38167,6 +38173,10 @@ export namespace Schemas {
       presigned_url: ErrorTrackingSymbolSetPresignedPost;
       /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
       fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject. */
+      presigned_put_url?: string;
+      /** Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration. */
+      fallback_presigned_put_url?: string;
     }
 
     /**
