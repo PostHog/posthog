@@ -1700,9 +1700,13 @@ class TestPagedReadFallback:
         assert rows.column("ts").equals(rows.sort_by("ts").column("ts"))
         assert rows.sort_by("id").column("id").to_pylist() == expected_ids
 
-    def test_full_refresh_pages_through_a_result_cap_on_the_sorting_key(self, make_table):
+    @pytest.mark.parametrize(
+        "order_by",
+        [pytest.param("(grp, ts)", id="string_and_datetime_key"), pytest.param("id", id="numeric_key")],
+    )
+    def test_full_refresh_pages_through_a_result_cap_on_the_sorting_key(self, make_table, order_by):
         rows = self._read(
-            make_table("(grp, ts)"),
+            make_table(order_by),
             self._HOST_LIMITS,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
