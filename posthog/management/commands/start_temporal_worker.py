@@ -190,6 +190,10 @@ from products.customer_analytics.backend.facade.temporal import (
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
 )
+from products.data_catalog.backend.facade.temporal import (
+    ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
+    WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
+)
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
     WORKFLOWS as DATA_QUALITY_WORKFLOWS,
@@ -512,8 +516,8 @@ _task_queue_specs = [
     # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS + DATA_CATALOG_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,

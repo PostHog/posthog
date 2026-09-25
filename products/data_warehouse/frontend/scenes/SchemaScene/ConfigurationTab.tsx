@@ -17,7 +17,7 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -50,6 +50,8 @@ import {
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
+import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataSchemaApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
@@ -871,6 +873,31 @@ function ColumnsAndRowFiltersSection({
     )
 }
 
+const SCHEDULED_FULL_REFRESH_SYNC_TYPES: ExternalDataSourceSchema['sync_type'][] = ['incremental', 'append', 'xmin']
+const MAX_FULL_REFRESH_INTERVAL_DAYS = 90
+// A full refresh runs on a scheduled sync, so it cannot come around more often than the table syncs.
+const MIN_FULL_REFRESH_DAYS_BY_FREQUENCY: Partial<Record<DataWarehouseSyncInterval, number>> = {
+    '7day': 7,
+    '30day': 30,
+}
+
+type ScheduleSectionSchema = ExternalDataSourceSchema &
+    Partial<Pick<ExternalDataSchemaApi, 'full_refresh_interval_days' | 'next_full_refresh_at'>>
+
+function fullRefreshDaysError(days: number | null, frequency: DataWarehouseSyncInterval): string | null {
+    if (days === null) {
+        return null
+    }
+    if (!Number.isInteger(days) || days < 1 || days > MAX_FULL_REFRESH_INTERVAL_DAYS) {
+        return `Enter a whole number of days from 1 to ${MAX_FULL_REFRESH_INTERVAL_DAYS}, or leave it empty`
+    }
+    const minDays = MIN_FULL_REFRESH_DAYS_BY_FREQUENCY[frequency]
+    if (minDays !== undefined && days < minDays) {
+        return `A full refresh runs on a scheduled sync, so enter at least ${minDays} days, or sync more often`
+    }
+    return null
+}
+
 function ScheduleSection({
     sourceId,
     schema,
@@ -878,12 +905,13 @@ function ScheduleSection({
     setIsProjectTime,
 }: {
     sourceId: string
-    schema: ExternalDataSourceSchema
+    schema: ScheduleSectionSchema
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
+    const supportsScheduledFullRefresh = SCHEDULED_FULL_REFRESH_SYNC_TYPES.includes(schema.sync_type)
     const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies().map((value) => ({
         value,
         label: SyncFrequencyLabelMap[value],
@@ -893,11 +921,15 @@ function ScheduleSection({
         schema.sync_frequency || (isCdc ? '5min' : '6hour')
     )
     const [draftSyncTimeOfDay, setDraftSyncTimeOfDay] = useState<string | null>(schema.sync_time_of_day ?? null)
+    const [draftFullRefreshDays, setDraftFullRefreshDays] = useState<number | null>(
+        schema.full_refresh_interval_days ?? null
+    )
     const [saving, setSaving] = useState(false)
     const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
     const serverFrequency = schema.sync_frequency || (isCdc ? '5min' : '6hour')
     const serverSyncTimeOfDay = schema.sync_time_of_day ?? null
+    const serverFullRefreshDays = schema.full_refresh_interval_days ?? null
 
     // Reset the draft when the user navigates to a different schema or when the server values
     // change (e.g. after the sync type switches between CDC and non-CDC, which flips the default
@@ -905,25 +937,35 @@ function ScheduleSection({
     useEffect(() => {
         setDraftFrequency(serverFrequency)
         setDraftSyncTimeOfDay(serverSyncTimeOfDay)
-    }, [schema.id, serverFrequency, serverSyncTimeOfDay])
+        setDraftFullRefreshDays(serverFullRefreshDays)
+    }, [schema.id, serverFrequency, serverSyncTimeOfDay, serverFullRefreshDays])
 
-    const isDirty = draftFrequency !== serverFrequency || draftSyncTimeOfDay !== serverSyncTimeOfDay
+    const isDirty =
+        draftFrequency !== serverFrequency ||
+        draftSyncTimeOfDay !== serverSyncTimeOfDay ||
+        draftFullRefreshDays !== serverFullRefreshDays
+    const fullRefreshError = supportsScheduledFullRefresh
+        ? fullRefreshDaysError(draftFullRefreshDays, draftFrequency)
+        : null
 
     const handleSave = async (): Promise<void> => {
         setSaving(true)
         try {
-            await api.externalDataSources.bulkUpdateSchemas(sourceId, [
-                {
-                    id: schema.id,
-                    should_sync: schema.should_sync,
-                    sync_type: schema.sync_type,
-                    incremental_field: schema.incremental_field,
-                    incremental_field_type: schema.incremental_field_type,
-                    sync_frequency: draftFrequency,
-                    sync_time_of_day: draftSyncTimeOfDay,
-                    cdc_table_mode: schema.cdc_table_mode,
-                },
-            ])
+            await externalDataSourcesBulkUpdateSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), sourceId, {
+                schemas: [
+                    {
+                        id: schema.id,
+                        should_sync: schema.should_sync,
+                        sync_type: schema.sync_type,
+                        incremental_field: schema.incremental_field,
+                        incremental_field_type: schema.incremental_field_type,
+                        sync_frequency: draftFrequency,
+                        sync_time_of_day: draftSyncTimeOfDay,
+                        cdc_table_mode: schema.cdc_table_mode,
+                        ...(supportsScheduledFullRefresh ? { full_refresh_interval_days: draftFullRefreshDays } : {}),
+                    },
+                ],
+            })
             lemonToast.success('Schedule saved')
             loadSchema()
         } catch (e: any) {
@@ -963,17 +1005,85 @@ function ScheduleSection({
                     isProjectTime={isProjectTime}
                     setIsProjectTime={setIsProjectTime}
                 />
+                {supportsScheduledFullRefresh && (
+                    <FullRefreshIntervalField
+                        schema={schema}
+                        draftFullRefreshDays={draftFullRefreshDays}
+                        setDraftFullRefreshDays={setDraftFullRefreshDays}
+                        isDraftSaved={draftFullRefreshDays === serverFullRefreshDays}
+                    />
+                )}
             </div>
             <div className="mt-4 flex justify-end">
                 <LemonButton
                     type="primary"
                     loading={saving}
                     onClick={handleSave}
-                    disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)}
+                    disabledReason={accessDisabledReason ?? (!isDirty ? 'No changes to save' : fullRefreshError)}
                 >
                     Save
                 </LemonButton>
             </div>
+        </div>
+    )
+}
+
+function FullRefreshIntervalField({
+    schema,
+    draftFullRefreshDays,
+    setDraftFullRefreshDays,
+    isDraftSaved,
+}: {
+    schema: ScheduleSectionSchema
+    draftFullRefreshDays: number | null
+    setDraftFullRefreshDays: (value: number | null) => void
+    isDraftSaved: boolean
+}): JSX.Element {
+    const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
+
+    return (
+        <div className="flex flex-col gap-1">
+            <span>Scheduled full refresh</span>
+            <span className="text-xs text-muted max-w-md">
+                Re-import every row of the table on this cadence, so rows deleted at the source are removed. The refresh
+                runs on a scheduled sync, and queries keep showing the current rows until it finishes. Re-imported rows
+                count toward your usage. Leave it empty to turn it off.
+                {schema.sync_type === 'append' && (
+                    <span>
+                        {' '}
+                        For append only tables, a refresh replaces the rows collected so far with the rows the source
+                        has now.
+                    </span>
+                )}
+            </span>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={MAX_FULL_REFRESH_INTERVAL_DAYS}
+                    value={draftFullRefreshDays ?? NaN}
+                    onChange={(value) =>
+                        setDraftFullRefreshDays(value === undefined || Number.isNaN(value) ? null : value)
+                    }
+                    placeholder="Off"
+                    className="w-24"
+                    disabledReason={accessDisabledReason}
+                    data-attr="schema-full-refresh-interval-days"
+                />
+                <span>days</span>
+            </div>
+            {schema.next_full_refresh_at && isDraftSaved && (
+                <span className="text-xs text-muted">
+                    Next full refresh:{' '}
+                    <TZLabel time={schema.next_full_refresh_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                </span>
+            )}
+            {draftFullRefreshDays !== null && (
+                <LemonBanner type="warning" className="max-w-md">
+                    If workflows or destinations run on new rows of this table, each full refresh runs them again for
+                    every row.
+                </LemonBanner>
+            )}
         </div>
     )
 }
