@@ -32,6 +32,7 @@ products/mcp_analytics/backend/tests/test_dashboard_series.py
 products/mcp_analytics/backend/tests/test_harness_breakdown.py
 products/mcp_analytics/backend/tests/test_missing_capabilities.py
 products/mcp_analytics/backend/tests/test_model_breakdown.py
+products/mcp_analytics/backend/tests/test_protocol_version_breakdown.py
 products/mcp_analytics/backend/tests/test_tool_quality_tables.py
 products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
