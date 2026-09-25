@@ -320,6 +320,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
             null as AccessControlResponseType | null,
             {
                 loadResourceAccessControls: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get<AccessControlResponseType>(
                         `api/projects/${values.currentProjectId}/resource_access_controls`
                     )

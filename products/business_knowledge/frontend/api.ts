@@ -4,6 +4,7 @@ import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
     businessKnowledgeSourcesCreate,
     businessKnowledgeSourcesDestroy,
+    businessKnowledgeSourcesDocumentsList,
     businessKnowledgeSourcesList,
     businessKnowledgeSourcesPartialUpdate,
     businessKnowledgeSourcesRefreshCreate,
@@ -16,6 +17,7 @@ import type {
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
     KnowledgeSourceApi,
+    KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
@@ -76,6 +78,12 @@ export async function listSources(params?: {
 
 export async function getSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRetrieve(String(getCurrentTeamId()), id)
+}
+
+export async function getSourceDocuments(id: string): Promise<KnowledgeSourceDocumentApi[]> {
+    // 500 matches the crawl cap (MAX_URLS_PER_SOURCE), so one page is the full set.
+    const response = await businessKnowledgeSourcesDocumentsList(String(getCurrentTeamId()), id, { limit: 500 })
+    return response.results
 }
 
 export async function getSourceText(id: string): Promise<{ id: string; text: string }> {

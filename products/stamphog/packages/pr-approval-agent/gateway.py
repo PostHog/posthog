@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 # aio_ matches the other cutovers; no $ai_ prefix (gateway strips those).
 AI_PRODUCT = "aio_stamphog"
 
+# Lives here rather than in reviewer.py so the hosted server can read it without claude_agent_sdk:
+# its fast refusal summary calls the same model through the same gateway.
+REVIEWER_MODEL = "claude-sonnet-5"
+
 
 def analytics_extra_properties() -> dict[str, object]:
     """Extra analytics properties the hosted stamphog server injects, or {}.

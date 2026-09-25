@@ -9,16 +9,20 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -412,6 +416,30 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("trace_ids", str(response.data).lower())
 
+    @parameterized.expand(
+        [
+            ("read_scope", "llm_analytics:read", status.HTTP_200_OK),
+            ("write_scope", "llm_analytics:write", status.HTTP_200_OK),
+            ("wrong_scope", "feature_flag:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_batch_check_accepts_a_personal_api_key(self, _name, scope, expected_status):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        key_value = self.create_personal_api_key_with_scopes([scope])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["trace1"], "mode": "minimal"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertIn("llm_analytics:read", str(response.data["detail"]))
+
     def test_summarization_denied_when_ai_consent_not_approved(self):
         """Should return 403 when AI data processing is not approved."""
         self.organization.is_ai_data_processing_approved = False
@@ -447,6 +475,140 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         }
         bulk_create_events([{**row, "properties": metadata}])
         bulk_create_ai_events([{**row, "properties": {**metadata, **content}}])
+
+    @parameterized.expand([("trace",), ("event",)])
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_cache_and_client_payload_follow_current_property_permissions(
+        self, summarize_type: str, mock_summarize: MagicMock
+    ) -> None:
+        self._approve_ai_processing()
+        reader = self._create_user("summary-reader@example.com")
+        self.client.force_login(reader)
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        event_uuid = uuid.uuid4()
+        trace_id = str(uuid.uuid4())
+        timestamp = datetime.now(UTC)
+        metadata = {"$ai_trace_id": trace_id, "$ai_span_name": "generation"}
+        content = {
+            "$ai_input": [{"role": "user", "content": "private-input"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "public-output"}],
+        }
+        self._ingest_ai_event("$ai_generation", event_uuid, timestamp, metadata, content)
+        event = {"id": str(event_uuid), "event": "$ai_generation", "properties": {**metadata, **content}}
+        data = (
+            {"trace": {"id": trace_id, "properties": metadata}, "hierarchy": [{"event": event, "children": []}]}
+            if summarize_type == "trace"
+            else {"event": event}
+        )
+        request_data = {
+            "summarize_type": summarize_type,
+            "data": data,
+            "date_from": (timestamp - timedelta(days=1)).isoformat(),
+            "date_to": (timestamp + timedelta(days=1)).isoformat(),
+        }
+        url = f"/api/projects/{self.team.id}/llm_analytics/summarization/"
+        mock_summarize.return_value = SummarizationResponse(
+            title="private-input", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+        unrestricted = self.client.post(url, request_data, format="json")
+        self.assertEqual(unrestricted.status_code, status.HTTP_200_OK, unrestricted.data)
+        self.assertIn("private-input", unrestricted.data["text_repr"])
+
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        if summarize_type == "trace":
+            titles = self.client.post(url + "batch_check/", {"trace_ids": [trace_id]}, format="json")
+            self.assertEqual(titles.status_code, status.HTTP_200_OK, titles.data)
+            self.assertEqual(titles.data["summaries"], [])
+
+        mock_summarize.return_value = SummarizationResponse(
+            title="public-output", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+        restricted = self.client.post(url, request_data, format="json")
+        self.assertEqual(restricted.status_code, status.HTTP_200_OK, restricted.data)
+        self.assertEqual(restricted.data["summary"]["title"], "public-output")
+        self.assertNotIn("private-input", restricted.data["text_repr"])
+        self.assertIn("public-output", restricted.data["text_repr"])
+        self.assertNotIn("private-input", mock_summarize.call_args.kwargs["text_repr"])
+
+        id_request = {"trace_id": trace_id} if summarize_type == "trace" else {"generation_id": str(event_uuid)}
+        cached = self.client.post(url, id_request, format="json")
+        self.assertEqual(cached.status_code, status.HTTP_200_OK, cached.data)
+        self.assertEqual(cached.data, restricted.data)
+        self.assertEqual(mock_summarize.call_count, 2)
+        if summarize_type == "trace":
+            titles = self.client.post(url + "batch_check/", {"trace_ids": [trace_id]}, format="json")
+            self.assertEqual(
+                titles.data["summaries"], [{"trace_id": trace_id, "title": "public-output", "cached": True}]
+            )
+
+    @parameterized.expand(
+        [
+            (summarize_type, property_type)
+            for summarize_type in ("trace", "event")
+            for property_type in (PropertyDefinition.Type.PERSON, PropertyDefinition.Type.EVENT)
+        ]
+    )
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_client_only_payload_requires_no_event_property_restrictions(
+        self, summarize_type: str, property_type: int, mock_summarize: MagicMock
+    ) -> None:
+        self._approve_ai_processing()
+        reader = self._create_user("restricted-reader@example.com")
+        self.client.force_login(reader)
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(team=self.team, name="$ai_input", type=property_type)
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=reader.organization_memberships.get(organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        event = {
+            "id": str(uuid.uuid4()) if property_type == PropertyDefinition.Type.EVENT else "client-only-event",
+            "event": "$ai_generation",
+            "properties": {
+                "$ai_span_name": "generation",
+                "$ai_input": [{"role": "user", "content": "client-supplied-input"}],
+            },
+        }
+        data = (
+            {
+                "trace": {"id": "client-only-trace", "properties": {"$ai_span_name": "generation"}},
+                "hierarchy": [{"event": event, "children": []}],
+            }
+            if summarize_type == "trace"
+            else {"event": event}
+        )
+        mock_summarize.return_value = SummarizationResponse(
+            title="client-supplied-input", flow_diagram="Start", summary_bullets=[], interesting_notes=[]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/summarization/",
+            {"summarize_type": summarize_type, "data": data},
+            format="json",
+        )
+
+        if property_type == PropertyDefinition.Type.EVENT:
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
+            mock_summarize.assert_not_called()
+        else:
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+            self.assertIn("client-supplied-input", response.data["text_repr"])
 
     @parameterized.expand(
         [
@@ -501,8 +663,11 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         for fragment in expected:
             self.assertIn(fragment, text_repr)
 
+    @parameterized.expand([("by_id", False), ("restricted_client_data", True)])
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_summarizes_an_event_predating_the_ai_events_split(self, mock_summarize):
+    def test_summarizes_an_event_predating_the_ai_events_split(
+        self, _name: str, use_client_data: bool, mock_summarize: MagicMock
+    ) -> None:
         self._approve_ai_processing()
         mock_summarize.return_value = SummarizationResponse(
             title="Event Summary",
@@ -512,7 +677,12 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         )
 
         event_uuid = uuid.uuid4()
-        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        timestamp = datetime.now(UTC) - timedelta(days=45)
+        properties = {
+            "$ai_trace_id": "trace-1",
+            "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "private-output"}],
+        }
         bulk_create_events(
             [
                 {
@@ -521,22 +691,49 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
                     "distinct_id": "user-1",
                     "timestamp": timestamp,
                     "event_uuid": str(event_uuid),
-                    "properties": {
-                        "$ai_trace_id": "trace-1",
-                        "$ai_input": [{"role": "user", "content": "how do i reset my password"}],
-                    },
+                    "properties": properties,
                 }
             ]
         )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
-            {
+        if use_client_data:
+            reader = self._create_user("legacy-summary-reader@example.com")
+            self.client.force_login(reader)
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="$ai_output_choices", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=reader.organization_memberships.get(organization=self.organization),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+            request_data = {
+                "summarize_type": "event",
+                "data": {
+                    "event": {
+                        "id": str(event_uuid),
+                        "event": "$ai_generation",
+                        "timestamp": timestamp.isoformat(),
+                        "properties": properties,
+                    }
+                },
+            }
+        else:
+            request_data = {
                 "generation_id": str(event_uuid),
                 "mode": "minimal",
                 "date_from": (timestamp - timedelta(days=1)).isoformat(),
                 "date_to": (timestamp + timedelta(days=1)).isoformat(),
-            },
+            }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            request_data,
             format="json",
         )
 
@@ -547,6 +744,8 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
             self.assertIn("how do i reset my password", response.data["text_repr"].lower())
+            if use_client_data:
+                self.assertNotIn("private-output", response.data["text_repr"])
 
     def test_unknown_event_uuid_is_reported_as_not_found(self):
         self._approve_ai_processing()

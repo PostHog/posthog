@@ -762,8 +762,7 @@ WHERE and(
             modifiers=self.modifiers,
         )
 
-    def get_cache_key(self) -> str:
-        original = super().get_cache_key()
+    def get_cache_key_variant(self) -> str:
         # Precompute enrollment is part of the key so flipping the rollout flag
         # invalidates cached results: with default-on reads, disabling the flag
         # (the kill switch) must not keep serving cached precompute-produced
@@ -774,12 +773,12 @@ WHERE and(
         # under the old key must not keep serving until it stales out. Only read
         # the floor when precompute is on — otherwise it can't change the result.
         above_floor = precompute and is_team_above_volume_floor(self.team.pk)
-        key = f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}_vf{int(above_floor)}"
+        variant = f"_{self.team.path_cleaning_filters}_pc{int(precompute)}_vf{int(above_floor)}"
         # A rewritten filter selects a different population for the same query, so
         # rewritten and entry-attributed runs must not share cache entries.
         if self.rewritten_first_pageview_filters:
-            key = f"{key}_fpfilters"
-        return key
+            variant = f"{variant}_fpfilters"
+        return variant
 
     @cached_property
     def events_session_property(self):

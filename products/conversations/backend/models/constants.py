@@ -52,3 +52,11 @@ class OrganizationIdSource(models.TextChoices):
 class RuleType(models.TextChoices):
     TONE = "tone", "Tone"
     ESCALATION = "escalation", "Escalation"
+
+
+# Workflow "Send message" posts with no PostHog user. Delivery treats this like an AI reply
+# (outbound, no created_by). The name is what agents see on the ticket; channel delivery
+# uses the support identity instead, so a customer never sees this label.
+WORKFLOW_AUTHOR_TYPE = "workflow"
+WORKFLOW_AUTHOR_NAME = "Workflow"
+WORKFLOW_DISPATCH_KEY = "workflow_dispatch_key"

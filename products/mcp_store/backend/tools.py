@@ -2,7 +2,8 @@
 
 The proxy enforces per-tool approval (`approved` / `needs_approval` / `do_not_use`)
 against these cached rows — so they need to stay reasonably fresh. Refresh happens
-on successful install/reconnect and on-demand via the UI's "Refresh tools" button.
+on successful install/reconnect, on-demand via the UI's "Refresh tools" button, and
+through `resync_installation_tools` when a caller names a tool that has no row.
 """
 
 import json
@@ -13,6 +14,7 @@ from django.utils import timezone
 import httpx
 import structlog
 
+from posthog.redis import get_client
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 
@@ -46,6 +48,19 @@ HANDSHAKE_TIMEOUT = 10
 # discovery handshake. Still well under the proxy's 180s: this path serves an
 # interactive agent, and a worker blocked for minutes is worse than a retry.
 CALL_TIMEOUT = 60
+
+# Bounds how often a cache miss can reach upstream, so a caller looping on a
+# name the server does not have cannot open a handshake per call. A re-listing
+# is three requests at HANDSHAKE_TIMEOUT each, inside the request that refuses
+# the call, so the window is wide. A person who cannot wait it out presses
+# "Refresh tools", which lists upstream directly and ignores this.
+RESYNC_THROTTLE_SECONDS = 60 * 60
+
+# A listing that failed refreshed nothing, so holding the full window would let
+# one transient upstream fault keep both repair paths shut for an hour. This is
+# still long enough that a caller looping on a missing name cannot make every
+# call pay for a failed handshake.
+RESYNC_FAILURE_THROTTLE_SECONDS = 5 * 60
 
 
 class ToolsFetchError(Exception):
@@ -126,6 +141,11 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolsFetchError("Upstream MCP server timed out") from exc
+    except httpx.HTTPError as exc:
+        # A malformed reply or a redirect loop is an upstream fault like the
+        # cases above. Callers on the request path turn ToolsFetchError into a
+        # refusal; anything else escaping here becomes a 500.
+        raise ToolsFetchError(f"Upstream MCP handshake failed: {exc}") from exc
 
 
 def call_upstream_tool(
@@ -281,7 +301,9 @@ def _mcp_list_tools(client: httpx.Client, url: str, headers: dict[str, str]) -> 
     if not isinstance(tools, list):
         raise ToolsFetchError("tools/list response missing 'result.tools' array")
 
-    return [t for t in tools if isinstance(t, dict) and t.get("name")]
+    # The upstream server is untrusted input, and a non-string name is unhashable:
+    # it would crash the sync rather than cost us one skipped tool.
+    return [t for t in tools if isinstance(t, dict) and isinstance(t.get("name"), str) and t["name"]]
 
 
 def _mcp_call_tool(
@@ -405,39 +427,46 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
 
         row = existing_by_name.get(tool_name)
         if row is None:
-            MCPServerInstallationTool.objects.create(
+            # get_or_create rather than create: the install task, "Refresh tools"
+            # and the request-path repair can overlap, and the loser of the
+            # (installation, tool_name) unique constraint would raise.
+            row, created = MCPServerInstallationTool.objects.get_or_create(
                 installation=installation,
                 tool_name=tool_name,
-                display_name=display_name,
-                description=description,
-                input_schema=input_schema,
-                annotations=annotations,
-                # New tools default to needs_approval so adoption stays explicit.
-                # The policy engine keys off this exact value to tell a synced
-                # default apart from a member's real choice — keep them in step.
-                approval_state=SYNC_DEFAULT_APPROVAL_STATE,
-                last_seen_at=now,
-                removed_at=None,
+                defaults={
+                    "display_name": display_name,
+                    "description": description,
+                    "input_schema": input_schema,
+                    "annotations": annotations,
+                    # New tools default to needs_approval so adoption stays explicit.
+                    # The policy engine keys off this exact value to tell a synced
+                    # default apart from a member's real choice — keep them in step.
+                    "approval_state": SYNC_DEFAULT_APPROVAL_STATE,
+                    "last_seen_at": now,
+                    "removed_at": None,
+                },
             )
-        else:
-            row.display_name = display_name
-            row.description = description
-            row.input_schema = input_schema
-            row.annotations = annotations
-            row.last_seen_at = now
-            # A previously-removed tool reappeared; preserve approval_state but clear the flag.
-            row.removed_at = None
-            row.save(
-                update_fields=[
-                    "display_name",
-                    "description",
-                    "input_schema",
-                    "annotations",
-                    "last_seen_at",
-                    "removed_at",
-                    "updated_at",
-                ]
-            )
+            if created:
+                continue
+
+        row.display_name = display_name
+        row.description = description
+        row.input_schema = input_schema
+        row.annotations = annotations
+        row.last_seen_at = now
+        # A previously-removed tool reappeared; preserve approval_state but clear the flag.
+        row.removed_at = None
+        row.save(
+            update_fields=[
+                "display_name",
+                "description",
+                "input_schema",
+                "annotations",
+                "last_seen_at",
+                "removed_at",
+                "updated_at",
+            ]
+        )
 
     # Mark anything we didn't see as removed; keep their approval_state intact.
     for tool_name, row in existing_by_name.items():
@@ -449,3 +478,36 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         row.save(update_fields=["removed_at", "updated_at"])
 
     return list(installation.tools.all())
+
+
+def resync_installation_tools(installation: MCPServerInstallation) -> bool:
+    """Re-list an installation's tools on a cache miss, at most once per window.
+
+    Returns whether the rows were refreshed, so the caller knows to re-read them.
+    A refusal to call a tool is only correct while the rows describe the upstream
+    server.
+    """
+    key = f"mcp_store:tools_resync:{installation.id}"
+    try:
+        if not get_client().set(key, 1, nx=True, ex=RESYNC_THROTTLE_SECONDS):
+            return False
+    except Exception:
+        # Fail closed: an unbounded re-listing is worse than none.
+        logger.exception("mcp_store tools re-listing throttle unavailable", installation_id=str(installation.id))
+        return False
+
+    try:
+        sync_installation_tools(installation)
+    except ToolsFetchError as exc:
+        logger.warning(
+            "mcp_store tools re-listing failed",
+            installation_id=str(installation.id),
+            url=installation.url,
+            error=str(exc),
+        )
+        try:
+            get_client().expire(key, RESYNC_FAILURE_THROTTLE_SECONDS)
+        except Exception:
+            logger.exception("mcp_store tools re-listing throttle not shortened", installation_id=str(installation.id))
+        return False
+    return True

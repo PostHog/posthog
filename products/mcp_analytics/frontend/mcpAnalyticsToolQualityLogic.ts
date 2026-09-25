@@ -583,6 +583,8 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             reloadAll: () => {
                 actions.loadToolRowsPage()
                 actions.loadDailyStats()
+                actions.loadCategoryCounts()
+                actions.loadAvailableCategories()
             },
             setSelectedTool: () => {
                 actions.loadDailyStats()

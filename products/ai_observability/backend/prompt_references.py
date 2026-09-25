@@ -101,7 +101,12 @@ def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, An
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
-    """Prompts whose latest or labeled version references `prompt_name` through this label."""
+    """Prompts whose latest or labeled version references `prompt_name` through this label.
+
+    Capped like its siblings: the names end up in error messages and dialogs,
+    and existence checks stay correct because over the cap still means
+    "referenced".
+    """
     return sorted(
         LLMPromptDependency.objects.filter(
             team_id=team_id, child_name=prompt_name, child_label=label_name, prompt__deleted=False
@@ -110,6 +115,7 @@ def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_n
         .exclude(parent_name=prompt_name)
         .values_list("parent_name", flat=True)
         .distinct()
+        .order_by("parent_name")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
 
 
@@ -136,17 +142,6 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
     if not references:
         return
 
-    # Resolution splices content at every occurrence, so the assembled-size
-    # check has to weigh a repeated tag once per occurrence.
-    occurrence_counts = Counter(all_references)
-
-    if len(references) > MAX_PROMPT_REFERENCES:
-        raise _reference_error(
-            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
-            "Remove some references and try again.",
-            "too_many_references",
-        )
-
     referenced_by = get_active_referencing_parent_names(team_id, prompt_name)
     if referenced_by:
         raise _reference_error(
@@ -154,6 +149,47 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             "A referenced prompt cannot contain references of its own.",
             "referenced_prompt_cannot_reference",
         )
+
+    validate_reference_targets(team_id, prompt_name=prompt_name, prompt_payload=prompt_payload)
+
+
+def validate_reference_targets(team_id: int, *, prompt_name: str, prompt_payload: Any) -> None:
+    """Reject content whose reference targets cannot resolve right now.
+
+    The resolvability half of validate_prompt_references, without the
+    incoming-reference depth check: pointing a label at a version whose
+    content holds references is legal while nothing references that label,
+    but the targets must still exist. Runs inside the caller's transaction
+    for the same lock-ordering reasons.
+    """
+    text = normalize_prompt_to_string(prompt_payload)
+    all_references = parse_prompt_references(text)
+    references = sorted(set(all_references), key=lambda r: (r.name, r.version or 0, r.label or ""))
+    if not references:
+        return
+
+    # Splicing at fetch time inserts raw text into whatever surrounds the tag.
+    # Inside a JSON payload that corrupts the document, so references only
+    # live in plain-text prompts, the same rule referenced targets follow.
+    if not isinstance(prompt_payload, str):
+        raise _reference_error(
+            "References are only supported in plain-text prompts. Move the reference into a "
+            "plain-text prompt or remove it.",
+            "reference_in_non_text_prompt",
+        )
+
+    # Checked here rather than only at publish so content written before the
+    # cap existed cannot activate more references through a label.
+    if len(references) > MAX_PROMPT_REFERENCES:
+        raise _reference_error(
+            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
+            "Remove some references and try again.",
+            "too_many_references",
+        )
+
+    # Resolution splices content at every occurrence, so the assembled-size
+    # check has to weigh a repeated tag once per occurrence.
+    occurrence_counts = Counter(all_references)
 
     # True assembled size: the tags are replaced by content at resolution,
     # so their bytes leave the total.

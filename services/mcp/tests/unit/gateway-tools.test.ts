@@ -169,6 +169,24 @@ describe('gateway tools', () => {
         expect(handler).toHaveBeenCalledWith(expect.anything(), { title: 'Bug' })
     })
 
+    // `search` advertises connected tools and `call` invokes them, so the redirect has
+    // to reach them too, or the gateway keeps the dead end the catalog no longer has.
+    it('redirects a gateway tool typed as a command to the call form', async () => {
+        const { exec } = createExec(buildGatewayTools(payload(), mockContext(), '1'))
+
+        await expect(exec.handler(mockContext(), { command: 'linear__create_issue {"title":"Bug"}' })).rejects.toThrow(
+            /is a tool, not a command[\s\S]*call linear__create_issue/
+        )
+    })
+
+    it('answers an unknown plain command without paying for the gateway', async () => {
+        const { exec, provider } = createExec(buildGatewayTools(payload(), mockContext(), '1'))
+
+        await expect(exec.handler(mockContext(), { command: 'frobnicate' })).rejects.toThrow(/Unknown command/)
+
+        expect(provider).not.toHaveBeenCalled()
+    })
+
     it('renders the upstream JSON Schema for info, not an empty derived one', async () => {
         const { exec } = createExec(buildGatewayTools(payload(), mockContext(), '1'))
 

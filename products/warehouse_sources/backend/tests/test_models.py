@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     apply_incremental_lookback,
     complete_schema_run,
     mark_initial_sync_complete,
+    mark_schema_running_unless_halted,
     process_incremental_value,
     update_sync_type_config_keys,
 )
@@ -353,6 +354,26 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["last_full_run_at"] == "2026-09-03T12:00:00+00:00"
         assert schema.sync_type_config["max_partition_bytes"] == 4096
         assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    @parameterized.expand(
+        [
+            ("reset", lambda schema: schema.update_sync_type_config_for_reset_pipeline()),
+            ("partitioning", lambda schema: schema.set_partitioning_enabled(["id"], 10, None, "md5", None)),
+        ]
+    )
+    def test_a_snapshot_marker_set_after_this_instance_loaded_survives(self, _name, write) -> None:
+        # A sync holds its copy for the whole run while capture marks the table's snapshot. Losing the
+        # marker makes the next capture run empty the buffer under the snapshot.
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="orders", sync_type_config={"cdc_mode": "snapshot"}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_snapshot_lane": "buffer"})
+        write(stale)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_snapshot_lane"] == "buffer"
 
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
@@ -785,6 +806,42 @@ class TestMarkInitialSyncComplete(BaseTest):
         assert schema.sync_type_config == expected_config
 
 
+class TestMarkSchemaRunningUnlessHalted(BaseTest):
+    @parameterized.expand(
+        [
+            ("healthy", {}, True),
+            ("broken", {"cdc_broken": {"reason": "critical_lag_self_managed"}}, False),
+            ("paused", {"cdc_extraction_paused": {"reason": "transaction_too_large"}}, False),
+        ]
+    )
+    def test_only_a_schema_without_a_halt_marker_is_painted_running(
+        self, _name: str, sync_type_config: dict, painted: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="users",
+            sync_type="cdc",
+            sync_type_config=sync_type_config,
+            status=ExternalDataSchema.Status.FAILED,
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+        stale.sync_type_config = {}
+
+        assert mark_schema_running_unless_halted(stale) is painted
+
+        schema.refresh_from_db()
+        expected = ExternalDataSchema.Status.RUNNING if painted else ExternalDataSchema.Status.FAILED
+        assert schema.status == expected
+
+
 class TestCompleteSchemaRun(BaseTest):
     """The success repaint checks the broken marker under the row lock: the sweeper can mark the
     source broken while a run is in flight, and an unlocked check on a stale instance would
@@ -944,13 +1001,38 @@ def test_update_xmin_state_writes_all_keys() -> None:
     assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == (100, 4294967396, 1)
 
 
+@contextmanager
+def _merge_in_memory(schema: ExternalDataSchema) -> Iterator[None]:
+    def apply(
+        schema_id: Any,
+        team_id: Any,
+        *,
+        updates: dict[str, Any] | None = None,
+        removes: Any = None,
+        extra_model_fields: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        schema.sync_type_config.update(updates or {})
+        for key in removes or []:
+            schema.sync_type_config.pop(key, None)
+        for field, value in (extra_model_fields or {}).items():
+            setattr(schema, field, value)
+        return schema.sync_type_config
+
+    with patch(
+        "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+        side_effect=apply,
+    ):
+        yield
+
+
 def test_reset_pipeline_clears_xmin_state() -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.XMIN,
         sync_type_config={"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
         initial_sync_complete=True,
     )
-    with patch.object(schema, "save"):
+    with _merge_in_memory(schema):
         schema.update_sync_type_config_for_reset_pipeline()
     assert "xmin_last_value" not in schema.sync_type_config
     assert "xmin_ceiling" not in schema.sync_type_config
@@ -971,7 +1053,7 @@ def test_reset_pipeline_preserves_partition_overrides_but_clears_auto_detected()
             "partition_mode": "md5",
         }
     )
-    with patch.object(schema, "save"):
+    with _merge_in_memory(schema):
         schema.update_sync_type_config_for_reset_pipeline()
     assert "partition_count" not in schema.sync_type_config
     assert "partitioning_enabled" not in schema.sync_type_config
@@ -983,7 +1065,7 @@ def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
     # Once the override is baked into the effective settings, it's a one-shot pin: drop it so
     # a later reset re-detects instead of re-applying a stale value.
     schema = ExternalDataSchema(sync_type_config={"partition_count_override": 10, "partition_size_override": 5})
-    with patch.object(schema, "save"):
+    with _merge_in_memory(schema):
         schema.set_partitioning_enabled(
             partitioning_keys=["id"],
             partition_count=10,
@@ -1011,7 +1093,7 @@ def test_reset_pipeline_preserves_partition_mode_override() -> None:
             "partitioning_enabled": True,
         }
     )
-    with patch.object(schema, "save"):
+    with _merge_in_memory(schema):
         schema.update_sync_type_config_for_reset_pipeline()
     assert "partition_mode" not in schema.sync_type_config
     assert "partitioning_keys" not in schema.sync_type_config
@@ -1025,7 +1107,7 @@ def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
     schema = ExternalDataSchema(
         sync_type_config={"partition_mode_override": "datetime", "partitioning_keys_override": ["action_date"]}
     )
-    with patch.object(schema, "save"):
+    with _merge_in_memory(schema):
         schema.set_partitioning_enabled(
             partitioning_keys=["action_date"],
             partition_count=None,
@@ -1345,7 +1427,7 @@ class TestStagedIncrementalCursor:
             incremental_staged={"run_uuid": "run-1", "last_value": 42},
             incremental_staged_pending=[{"run_uuid": "run-0", "last_value": 1}],
         )
-        with patch.object(schema, "save"):
+        with _merge_in_memory(schema):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
         assert "incremental_staged_pending" not in schema.sync_type_config

@@ -55,16 +55,18 @@ jobs:
 
             # Same step as in container-images-cd.yml, so an image built during an outage links
             # backend exceptions to its release like a normal build does. Never blocks the build:
-            # the action turns the expected failures into an empty id with a warning, and
-            # continue-on-error plus the timeout cover the rest. An empty id is fine: the SDK
-            # treats a blank value as unset.
+            # without the secret the action passes with an empty id, and continue-on-error plus the
+            # timeout cover a failed or hung call. An empty id is fine: the SDK treats a blank value
+            # as unset.
             - name: Resolve error tracking release
               id: release
               continue-on-error: true
               timeout-minutes: 5
-              uses: ./.depot/actions/resolve-error-tracking-release
+              uses: PostHog/resolve-release@52d3bea6f86a713545874057b7d4bfebb6b5f367 # v1.0.0
               with:
                   api-key: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  project-id: '2'
+                  release-name: posthog
                   release-version: ${{ github.sha }}
 
             - name: Build and push

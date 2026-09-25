@@ -1,13 +1,28 @@
+import hashlib
+import inspect
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from typing import (
+    Any,
+    Generic,
+    Literal,
+    NamedTuple,
+    Optional,
+    Protocol,
+    TypeGuard,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+)
 
 from django.db import OperationalError
 
@@ -16,7 +31,10 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import (
+    NotFound as DRFNotFound,
+    ValidationError as DRFValidationError,
+)
 
 from posthog.schema import (
     AccountsQuery,
@@ -109,7 +127,11 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.query_stats import QueryStats, query_stats_scope
+from posthog.hogql.query_stats import (
+    QueryStats,
+    get_active as get_active_query_stats,
+    query_stats_scope,
+)
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
@@ -140,7 +162,9 @@ from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_
 from posthog.event_usage import AnalyticsProps, groups, report_team_action, report_user_or_team_action
 from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
+from posthog.git import get_git_commit_short
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.phase_times import compute_phase_times
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
     build_failure_exception,
@@ -192,6 +216,7 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.facade.user_access_control import (
     WAREHOUSE_ACCESS_SCOPES,
     UserAccessControl,
@@ -255,6 +280,27 @@ def _contains_user_hogql_label() -> str:
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 
+QUERY_HASH_VERSION = 1
+
+
+@frozen
+class QueryIdentity:
+    """The two halves of the cache payload, hashed apart: the question a run answered and how it
+    answered it. The cache key is unchanged; these only ride on the analytics event."""
+
+    query_hash: str
+    runtime_hash: str
+
+
+@frozen
+class RunPhase:
+    """Where a run is, for the failure event a raise sends: the phase the raise lands in, the
+    ClickHouse totals recorded so far, and the calculation time once there is one."""
+
+    name: Literal["prepare", "flight_wait", "rate_limiters", "calculate", "finish"]
+    stats: Optional[QueryStats] = None
+    query_duration_ms: Optional[float] = None
+
 
 class ExecutionMode(StrEnum):
     CALCULATE_BLOCKING_ALWAYS = "force_blocking"
@@ -271,6 +317,41 @@ class ExecutionMode(StrEnum):
     """Use cache for longer, kick off async calculation when results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = "force_cache"
     """Do not initiate calculation."""
+
+
+@frozen
+class QueryRun:
+    """One call of `run`: the identity and ids every event about the run carries, and the caller
+    state the reporting helpers share. Built once, so the events for a run cannot disagree."""
+
+    cache_key: str
+    query_identity: QueryIdentity
+    query_id: Optional[str]
+    execution_mode: ExecutionMode
+    query_type: str
+    insight_id: Optional[int]
+    dashboard_id: Optional[int]
+    trigger: Optional[str]
+    user: Optional[User]
+    start_time: float
+    analytics_props: Optional[AnalyticsProps]
+
+    def elapsed_ms(self) -> float:
+        return round((perf_counter() - self.start_time) * 1000, 2)
+
+    def event_properties(self) -> dict[str, Any]:
+        return {
+            "query_hash": self.query_identity.query_hash,
+            "runtime_hash": self.query_identity.runtime_hash,
+            "hash_version": QUERY_HASH_VERSION,
+            "query_id": self.query_id,
+            "commit": get_git_commit_short(),
+            "insight_id": self.insight_id,
+            "dashboard_id": self.dashboard_id,
+            "execution_mode": self.execution_mode.value,
+            "query_type": self.query_type,
+            "cache_key": self.cache_key,
+        }
 
 
 BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
@@ -363,18 +444,19 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
       (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority
       worth living with for now.
 
-    UserAccessControlError and DRF ValidationError are folded into USER_ERROR
-    locally since classify_query_error doesn't recognise them, but a 403 or a
-    400 is the user's input, not a service failure. A ValidationError with an
-    explicit cause is a technical error a runner converted for display (e.g.
-    the experiments error handler wrapping a ClickHouse OOM) — classify the
-    original so real platform failures keep failing the SLO.
+    UserAccessControlError, DRF ValidationError and DRF NotFound are folded into
+    USER_ERROR locally since classify_query_error doesn't recognise them, but a
+    403, a 400 or a 404 is the user's input, not a service failure. A
+    ValidationError with an explicit cause is a technical error a runner
+    converted for display (e.g. the experiments error handler wrapping a
+    ClickHouse OOM) — classify the original so real platform failures keep
+    failing the SLO.
     """
     if isinstance(exc, DRFValidationError):
         if isinstance(exc.__cause__, Exception):
             return _classify_error_for_slo(exc.__cause__)
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
-    if isinstance(exc, UserAccessControlError):
+    if isinstance(exc, UserAccessControlError | DRFNotFound):
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
     if isinstance(exc, APIQueriesBudgetExceeded):
         # A team over its budget is refused on purpose, not a platform failure.
@@ -1834,13 +1916,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         Prints against the shared database so the printer does not build a second one."""
         return to_printed_hogql(query, self.team, database=self.shared_database)
 
+    def _class_annotation(self, name: str) -> Any:
+        # Python 3.14 instances no longer expose their class's `__annotations__` (PEP 649).
+        for cls in type(self).__mro__:
+            annotations = inspect.get_annotations(cls)
+            if name in annotations:
+                return annotations[name]
+        raise KeyError(name)
+
     @property
     def query_type(self) -> Any:
-        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
 
     @property
     def cached_response_type(self) -> type[CR]:
-        return self.__annotations__["cached_response"]
+        return self._class_annotation("cached_response")
 
     def is_query_node(self, data) -> TypeGuard[Q]:
         query_type: Any = self.query_type
@@ -2154,33 +2244,44 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
-        with (
-            get_materialized_endpoints_rate_limiter().run(
-                team_id=self.team.pk,
-                task_id=self.query_id,
-                is_materialized_endpoint=is_materialized_endpoint,
-            ),
-            get_api_team_rate_limiter().run(
-                is_api=self.is_query_service and not is_materialized_endpoint,
-                team_id=self.team.pk,
-                task_id=self.query_id,
-                limit=concurrency_limit,
-            ),
-            get_app_org_rate_limiter().run(
-                org_id=self.team.organization_id,
-                task_id=self.query_id,
-                team_id=self.team.id,
-                is_api=is_api_key_access,
-                limit=get_org_app_concurrency_limit(self.team.organization_id),
-            ),
-            get_app_dashboard_queries_rate_limiter().run(
-                org_id=self.team.organization_id,
-                dashboard_id=dashboard_id,
-                task_id=self.query_id,
-                team_id=self.team.id,
-                is_api=is_api_key_access,
-            ),
-        ):
+        with ExitStack() as limiter_stack:
+            # Measure only the wait to acquire the limiters. calculate() runs after this closes, but
+            # still inside the stack so the limiters stay held for the whole calculation.
+            with self.timings.measure("rate_limiters"):
+                limiter_stack.enter_context(
+                    get_materialized_endpoints_rate_limiter().run(
+                        team_id=self.team.pk,
+                        task_id=self.query_id,
+                        is_materialized_endpoint=is_materialized_endpoint,
+                    )
+                )
+                limiter_stack.enter_context(
+                    get_api_team_rate_limiter().run(
+                        is_api=self.is_query_service and not is_materialized_endpoint,
+                        team_id=self.team.pk,
+                        task_id=self.query_id,
+                        limit=concurrency_limit,
+                    )
+                )
+                limiter_stack.enter_context(
+                    get_app_org_rate_limiter().run(
+                        org_id=self.team.organization_id,
+                        task_id=self.query_id,
+                        team_id=self.team.id,
+                        is_api=is_api_key_access,
+                        limit=get_org_app_concurrency_limit(self.team.organization_id),
+                    )
+                )
+                limiter_stack.enter_context(
+                    get_app_dashboard_queries_rate_limiter().run(
+                        org_id=self.team.organization_id,
+                        dashboard_id=dashboard_id,
+                        task_id=self.query_id,
+                        team_id=self.team.id,
+                        is_api=is_api_key_access,
+                    )
+                )
+            self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
@@ -2206,6 +2307,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self._on_user_changed()
         start_time = perf_counter()
         cache_key = self.get_cache_key()
+        self._phase = RunPhase(name="prepare")
+        self._timings_before_run: dict[str, float] = self.timings.to_dict()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
@@ -2274,6 +2377,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # data freshness window) served cache instead of recomputing.
                 slo_properties["cache_age_override"] = cache_age_seconds
 
+            query_run = QueryRun(
+                cache_key=cache_key,
+                query_identity=self._query_identity,
+                query_id=self.query_id,
+                execution_mode=execution_mode,
+                query_type=query_type,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                trigger=get_query_tag_value("trigger"),
+                user=user,
+                start_time=start_time,
+                analytics_props=analytics_props,
+            )
             with slo_operation(
                 spec=SloSpec(
                     distinct_id=distinct_id,
@@ -2313,8 +2429,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                             raise
 
-                    trigger: str | None = get_query_tag_value("trigger")
-
                     cache_manager = QueryCache(
                         team_id=self.team.pk,
                         cache_key=cache_key,
@@ -2353,38 +2467,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             analytics_props=analytics_props,
                         )
                         if results:
-                            self._report_result_from_cache(
-                                results,
-                                cache_key=cache_key,
-                                execution_mode=execution_mode,
-                                insight_id=insight_id,
-                                dashboard_id=dashboard_id,
-                                trigger=trigger,
-                                user=user,
-                                start_time=start_time,
-                                analytics_props=analytics_props,
-                            )
+                            self._report_result_from_cache(results, query_run=query_run)
                             return results
 
                     # cache_hit is left unset on this path: either the caller passed
                     # CALCULATE_BLOCKING_ALWAYS (cache skipped) or the cache returned nothing.
-                    slo.tag(execution_path="blocking", calculation_trigger=trigger)
-                    fresh_response = self._execute_and_cache_blocking(
-                        cache_key=cache_key,
-                        cache_manager=cache_manager,
-                        execution_mode=execution_mode,
-                        insight_id=insight_id,
-                        dashboard_id=dashboard_id,
-                        trigger=trigger,
-                        user=user,
-                        start_time=start_time,
-                        analytics_props=analytics_props,
-                    )
-                    # A fresh run of a query analyzed earlier still has a done slot, so this is
-                    # where its findings reach the recomputed response.
-                    self._serve_query_scan(fresh_response, user)
+                    slo.tag(execution_path="blocking", calculation_trigger=query_run.trigger)
+                    fresh_response = self._execute_and_cache_blocking(query_run=query_run, cache_manager=cache_manager)
                     return fresh_response
                 except Exception as exc:
+                    self._report_query_failed(exc, query_run=query_run)
                     if getattr(exc, "served_from_query_failure_cache", False):
                         # ClickHouse was never touched; the original failure was already
                         # classified and captured when it happened.
@@ -2413,22 +2505,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             capture_exception(exc)
                     raise
 
-    def _execute_and_cache_blocking(
-        self,
-        *,
-        cache_key: str,
-        cache_manager: QueryCache,
-        execution_mode: ExecutionMode,
-        insight_id: Optional[int],
-        dashboard_id: Optional[int],
-        trigger: Optional[str],
-        user: Optional[User],
-        start_time: float,
-        analytics_props: Optional["AnalyticsProps"] = None,
-    ) -> CR:
+    def _execute_and_cache_blocking(self, *, query_run: QueryRun, cache_manager: QueryCache) -> CR:
         # The single gate for all blocking execution, forced refreshes included: an open
         # breaker that covers this run's execution budget forbids touching ClickHouse.
-        self._raise_if_breaker_forbids(cache_manager, user)
+        self._raise_if_breaker_forbids(cache_manager, query_run.user)
 
         flight: Optional[QuerySingleFlight] = None
         if self._joins_single_flight():
@@ -2436,37 +2516,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if flight.acquire():
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader").inc()
             else:
-                wait = flight.wait()
+                self._phase = RunPhase(name="flight_wait")
+                with self.timings.measure("flight_wait"):
+                    wait = flight.wait()
                 if wait.outcome != "unavailable":
-                    return self._serve_flight_outcome(
-                        wait,
-                        cache_manager,
-                        cache_key=cache_key,
-                        execution_mode=execution_mode,
-                        insight_id=insight_id,
-                        dashboard_id=dashboard_id,
-                        trigger=trigger,
-                        user=user,
-                        start_time=start_time,
-                        analytics_props=analytics_props,
-                    )
+                    return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
                 # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
                 flight = None
 
         try:
-            return self._calculate_and_cache_blocking(
-                cache_key=cache_key,
-                cache_manager=cache_manager,
-                execution_mode=execution_mode,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
-                trigger=trigger,
-                user=user,
-                start_time=start_time,
-                analytics_props=analytics_props,
-                flight=flight,
-            )
+            return self._calculate_and_cache_blocking(query_run=query_run, cache_manager=cache_manager, flight=flight)
         except Exception as exc:
             # Recorded before the release so the next request to take the lead sees this failure.
             self._record_breaker_failure(cache_manager, exc)
@@ -2509,20 +2569,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_scan=getattr(exc, "query_scan", None),
             )
 
-    def _serve_flight_outcome(
-        self,
-        wait: FlightWait,
-        cache_manager: QueryCache,
-        *,
-        cache_key: str,
-        execution_mode: ExecutionMode,
-        insight_id: Optional[int],
-        dashboard_id: Optional[int],
-        trigger: Optional[str],
-        user: Optional[User],
-        start_time: float,
-        analytics_props: Optional["AnalyticsProps"],
-    ) -> CR:
+    def _serve_flight_outcome(self, wait: FlightWait, cache_manager: QueryCache, *, query_run: QueryRun) -> CR:
         """Serve the entry the leader published, or fail the way it failed."""
         if wait.outcome == "done":
             # Only the entry the leader published. Identity is settled by last_refresh, so the
@@ -2531,26 +2578,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             served = self.handle_cache_and_async_logic(
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 cache_manager=cache_manager,
-                user=user,
-                analytics_props=analytics_props,
+                user=query_run.user,
+                analytics_props=query_run.analytics_props,
             )
             if (
                 isinstance(served, self.cached_response_type)
                 and last_refresh_from_cached_result(served) == wait.last_refresh
             ):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
-                self._report_result_from_cache(
-                    served,
-                    cache_key=cache_key,
-                    execution_mode=execution_mode,
-                    insight_id=insight_id,
-                    dashboard_id=dashboard_id,
-                    trigger=trigger,
-                    user=user,
-                    start_time=start_time,
-                    analytics_props=analytics_props,
-                    execution_path="single_flight_follower",
-                )
+                self._report_result_from_cache(served, query_run=query_run, execution_path="single_flight_follower")
                 return served
         if wait.outcome == "failed" and wait.failure is not None:
             error = rebuild_shared_failure(wait.failure)
@@ -2562,29 +2598,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise QueryRanConcurrently()
 
     def _report_result_from_cache(
-        self,
-        results: CR | CacheMissResponse,
-        *,
-        cache_key: str,
-        execution_mode: ExecutionMode,
-        insight_id: Optional[int],
-        dashboard_id: Optional[int],
-        trigger: Optional[str],
-        user: Optional[User],
-        start_time: float,
-        analytics_props: Optional["AnalyticsProps"],
-        execution_path: str = "cache_hit",
+        self, results: CR | CacheMissResponse, *, query_run: QueryRun, execution_path: str = "cache_hit"
     ) -> None:
         cache_tracking_props: dict[str, Any] = {}
         # The numbers describe the fresh run that filled the cache, not this hit. Read before serving,
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
+            if (not query_run.trigger or not query_run.trigger.startswith("warming")) and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
-                    user_id=user.id if user else None,
+                    user_id=query_run.user.id if query_run.user else None,
                 )
 
             last_refresh = last_refresh_from_cached_result(results)
@@ -2597,45 +2622,70 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "last_refresh": last_refresh.isoformat() if last_refresh else None,
             }
             tag_current_slo(execution_path=execution_path, cache_hit=True, **cache_tracking_props)
-            self._serve_query_scan(results, user)
+            self._serve_query_scan(results, query_run.user)
         else:
             tag_current_slo(execution_path="cache_miss", cache_hit=False)
 
+        phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
-            "insight_id": insight_id,
-            "dashboard_id": dashboard_id,
-            "execution_mode": execution_mode.value,
-            "query_type": getattr(self.query, "kind", "Other"),
-            "cache_key": cache_key,
+            **query_run.event_properties(),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
-            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+            "response_time_ms": query_run.elapsed_ms(),
             "clickhouse_rows_read": cached_query_scan.rows_read if cached_query_scan else None,
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
+            "clickhouse_workload": None,
+            "clickhouse_query_count": None,
             **cache_tracking_props,
+            **phase_times,
         }
         report_user_or_team_action(
             "query executed",
             query_executed_props,
-            user=user,
+            user=query_run.user,
             team=self.team,
             organization=self.team.organization,
-            analytics_props=analytics_props,
+            analytics_props=query_run.analytics_props,
         )
 
+    def _report_query_failed(self, error: Exception, *, query_run: QueryRun) -> None:
+        """Send `query execution failed` for a run that raised, with the same identity and ids as
+        `query executed`, so a run that got a cache key leaves exactly one of the two events. Never raises and
+        never touches the error: the caller re-raises what it caught.
+        """
+        try:
+            phase = self._phase
+            stats = phase.stats
+            refused = getattr(error, "served_from_query_failure_cache", False)
+            query_failed_props = {
+                **query_run.event_properties(),
+                "calculation_trigger": query_run.trigger,
+                "failed_in": phase.name,
+                "outcome": "refused" if refused else "failed",
+                "error_category": _classify_error_for_slo(error)[0].value,
+                "error_type": clickhouse_error_type(error),
+                "failed_after_ms": query_run.elapsed_ms(),
+                "query_duration_ms": phase.query_duration_ms,
+                "clickhouse_rows_read": stats.rows_read if stats else None,
+                "clickhouse_duration_ms": round(stats.duration_ms) if stats else None,
+                "clickhouse_workload": stats.workload() if stats else None,
+                "clickhouse_query_count": stats.query_count if stats else None,
+                **compute_phase_times(self.timings.to_dict(), before=self._timings_before_run),
+            }
+            report_user_or_team_action(
+                "query execution failed",
+                query_failed_props,
+                user=query_run.user,
+                team=self.team,
+                organization=self.team.organization,
+                analytics_props=query_run.analytics_props,
+            )
+        except Exception as report_error:
+            with suppress(Exception):
+                capture_exception(report_error, {"team_id": self.team.pk, "context": "query_execution_failed_event"})
+
     def _calculate_and_cache_blocking(
-        self,
-        *,
-        cache_key: str,
-        cache_manager: QueryCache,
-        execution_mode: ExecutionMode,
-        insight_id: Optional[int],
-        dashboard_id: Optional[int],
-        trigger: Optional[str],
-        user: Optional[User],
-        start_time: float,
-        analytics_props: Optional["AnalyticsProps"] = None,
-        flight: Optional[QuerySingleFlight] = None,
+        self, *, query_run: QueryRun, cache_manager: QueryCache, flight: Optional[QuerySingleFlight] = None
     ) -> CR:
         CachedResponse: type[CR] = self.cached_response_type
 
@@ -2644,26 +2694,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # Avoid affecting cache key
         # Add user based modifiers here, primarily for user specific feature flagging
-        if user:
-            self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
+        if query_run.user:
+            self.modifiers = create_default_modifiers_for_user(query_run.user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
         query_scan_flag = get_query_scan_flag(self.team)
-        query_stats_context: AbstractContextManager[QueryStats | None] = (
-            query_stats_scope() if query_scan_flag is not None else nullcontext(None)
-        )
 
         # Capture data warehouse sync warnings from every HogQL execution that contributes to this
         # response. Nested calls (one runner invoking another) see the parent's accumulator via
         # ContextVar and contribute to it; the outermost scope is the one that attaches and resets.
-        with accumulator_scope() as warnings_accumulator, query_stats_context as query_stats:
-            query_type = getattr(self.query, "kind", "Other")
+        with (
+            accumulator_scope() as warnings_accumulator,
+            query_stats_scope(retain_ast=query_scan_flag is not None) as query_stats,
+        ):
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
+            self._phase = RunPhase(name="rate_limiters", stats=query_stats)
             try:
-                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=query_run.dashboard_id)
                 QUERY_EXECUTION_TOTAL.labels(
-                    query_type=query_type,
+                    query_type=query_run.query_type,
                     category="success",
                     error_type="none",
                     contains_user_hogql=_contains_user_hogql_label(),
@@ -2674,7 +2724,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     ).inc()
             except Exception as e:
                 QUERY_EXECUTION_TOTAL.labels(
-                    query_type=query_type,
+                    query_type=query_run.query_type,
                     category=classify_query_error(e),
                     error_type=clickhouse_error_type(e),
                     contains_user_hogql=_contains_user_hogql_label(),
@@ -2695,24 +2745,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         e,
                         flag=query_scan_flag,
                         stats=query_stats,
-                        cache_key=cache_key,
-                        insight_id=insight_id,
-                        dashboard_id=dashboard_id,
-                        user=user,
+                        cache_key=query_run.cache_key,
+                        insight_id=query_run.insight_id,
+                        dashboard_id=query_run.dashboard_id,
+                        user=query_run.user,
                     )
                 raise
             finally:
                 query_duration_seconds = perf_counter() - query_start
-                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
+                QUERY_EXECUTION_DURATION.labels(query_type=query_run.query_type).observe(query_duration_seconds)
                 if survey_query_metric_labels:
                     SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
+            self._phase = RunPhase(name="finish", stats=query_stats, query_duration_ms=query_duration_ms)
             fresh_response_dict: dict[str, Any] = {
                 **query_result.model_dump(),
                 "is_cached": False,
                 "last_refresh": last_refresh,
                 "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
+                "cache_key": query_run.cache_key,
                 "timezone": self.team.timezone,
                 "cache_target_age": target_age,
             }
@@ -2722,11 +2773,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not trigger or not trigger.startswith("warming"):
+                if not query_run.trigger or not query_run.trigger.startswith("warming"):
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
-                        user_id=user.id if user else None,
+                        user_id=query_run.user.id if query_run.user else None,
                     )
             except Exception as e:
                 # fail silently if we can't extract query metadata
@@ -2734,8 +2785,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
                 )
 
-            if trigger:
-                fresh_response_dict["calculation_trigger"] = trigger
+            if query_run.trigger:
+                fresh_response_dict["calculation_trigger"] = query_run.trigger
 
             # Attach accumulated warehouse sync warnings before caching, so cache hits replay them.
             # Guard against response classes that don't carry the field: every analytics response
@@ -2764,8 +2815,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Stored with the results, so a cache hit carries the numbers of the run that produced
             # them.
             scan_skip: QueryScanSkipReason | None = "flag_off"
-            if query_scan_flag is not None and query_stats is not None:
-                if not is_analyzable_principal(user):
+            if query_scan_flag is not None:
+                if not is_analyzable_principal(query_run.user):
                     # The summary describes the project's data volume, which a shared-link viewer
                     # reads from outside the project, so it stays off their response.
                     scan_skip = "no_principal"
@@ -2785,26 +2836,31 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         team_id=self.team.pk,
                         # Dashboard and tile overrides are already applied here, so the cache key
                         # is the right identity for the analysis.
-                        cache_key=cache_key,
+                        cache_key=query_run.cache_key,
                         query=self.query,
                         trigger="fresh",
                         cacheable=cacheable,
-                        insight_id=insight_id,
-                        dashboard_id=dashboard_id,
+                        insight_id=query_run.insight_id,
+                        dashboard_id=query_run.dashboard_id,
                     )
                     if scan_skip in (None, "slot_exists"):
                         # Says only that there is an analysis to look up, never its state: the
                         # cached copy is not rewritten when the job finishes.
                         query_scan["analysis_requested"] = True
 
+            # Built before the cache entry and the single-flight signal go out, so a response that fails
+            # validation is a failed run that published nothing.
+            response = CachedResponse(**fresh_response_dict)
+
             if cacheable:
-                stored = cache_manager.store_result(
-                    response=fresh_response_dict,
-                    # This would be a possible place to decide to not ever keep this cache warm
-                    # Example: Not for super quickly calculated insights
-                    # Set target_age to None in that case
-                    target_age=target_age,
-                )
+                with self.timings.measure("cache_write"):
+                    stored = cache_manager.store_result(
+                        response=fresh_response_dict,
+                        # This would be a possible place to decide to not ever keep this cache warm
+                        # Example: Not for super quickly calculated insights
+                        # Set target_age to None in that case
+                        target_age=target_age,
+                    )
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
@@ -2814,33 +2870,37 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()
 
+            # A fresh run of a query analyzed earlier still has a done slot, so this is
+            # where its findings reach the recomputed response. Served before the event, so the
+            # response time covers the same work as on a cache hit.
+            self._serve_query_scan(response, query_run.user)
+            phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
-                "insight_id": insight_id,
-                "dashboard_id": dashboard_id,
+                **query_run.event_properties(),
                 "cache_hit": False,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
-                "cache_key": cache_key,
-                "calculation_trigger": trigger,
-                "execution_mode": execution_mode.value,
-                "query_type": query_type,
-                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                "calculation_trigger": query_run.trigger,
+                "response_time_ms": query_run.elapsed_ms(),
                 "query_duration_ms": query_duration_ms,
                 "has_error": has_error,
-                "clickhouse_rows_read": query_stats.rows_read if query_stats else None,
-                "clickhouse_duration_ms": round(query_stats.duration_ms) if query_stats else None,
+                "clickhouse_rows_read": query_stats.rows_read,
+                "clickhouse_duration_ms": round(query_stats.duration_ms),
+                "clickhouse_workload": query_stats.workload(),
+                "clickhouse_query_count": query_stats.query_count,
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
+                **phase_times,
             }
             report_user_or_team_action(
                 "query executed",
                 query_executed_props,
-                user=user,
+                user=query_run.user,
                 team=self.team,
                 organization=self.team.organization,
-                analytics_props=analytics_props,
+                analytics_props=query_run.analytics_props,
             )
 
-            return CachedResponse(**fresh_response_dict)
+            return response
 
     def _serve_query_scan(self, response: Any, user: Optional[User]) -> None:
         """Put the stored analysis on a response, or take the field off for a shared-link viewer, who
@@ -3008,6 +3068,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         restricted = self._get_property_access_restrictions()
         if restricted:
             payload["restricted_properties"] = restricted
+            # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
+            # so restricted results cached before that change are invalidated.
+            payload["property_access_control_version"] = 1
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3017,6 +3080,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["events_retention_floor_months"] = retention_months
 
         return payload
+
+    def get_query_identity(self) -> QueryIdentity:
+        return self._query_identity_for(self.get_cache_payload(), self.get_cache_key_variant())
+
+    def _query_identity_for(self, payload: dict, variant: str) -> QueryIdentity:
+        """Split what the cache key hashes into the question and the answer, and hash each half. The
+        question is the query without its modifiers, plus the team; the answer is every other payload
+        key and the runner's cache key variant. Same serialization as the cache key, so a cache hit
+        and a fresh run of one query produce the same pair."""
+        question = {
+            "query": {k: v for k, v in payload["query"].items() if k != "modifiers"},
+            "team_id": payload["team_id"],
+        }
+        answer = {k: v for k, v in payload.items() if k not in ("query", "team_id")}
+        if variant:
+            answer["cache_key_variant"] = variant
+        return QueryIdentity(
+            query_hash=hashlib.sha256(to_json(question)).hexdigest()[:32],
+            runtime_hash=hashlib.sha256(to_json(answer)).hexdigest()[:32],
+        )
 
     def _products_modifiers_for_cache(self) -> dict:
         # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
@@ -3056,18 +3139,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "property_type": restriction.property_type,
                 "group_type_index": restriction.group_type_index,
             }
-            for restriction in sorted(
-                restricted,
-                key=lambda restriction: (
-                    restriction.name,
-                    restriction.property_type,
-                    restriction.group_type_index if restriction.group_type_index is not None else -1,
-                ),
-            )
+            for restriction in sort_restricted_properties(restricted)
         ]
 
     def get_cache_key(self) -> str:
-        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+        payload = self.get_cache_payload()
+        variant = self.get_cache_key_variant()
+        # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
+        # fresh run agree, and the payload is built once per run.
+        self._query_identity = self._query_identity_for(payload, variant)
+        return f"{self._cache_key_for(payload)}{variant}"
+
+    def get_cache_key_variant(self) -> str:
+        """State outside the cache payload that changes this runner's results, as a key suffix.
+        Override this rather than `get_cache_key`, so the state also reaches `runtime_hash`."""
+        return ""
+
+    def _cache_key_for(self, payload: dict) -> str:
+        return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(payload))}")
 
     def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """

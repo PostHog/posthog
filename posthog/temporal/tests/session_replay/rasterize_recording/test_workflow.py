@@ -451,13 +451,13 @@ def _activity_error() -> ActivityError:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("route_to_media", [False, True])
-async def test_render_runs_on_the_requested_queue(route_to_media: bool):
+@pytest.mark.parametrize("route_elsewhere", [False, True])
+async def test_render_runs_on_the_requested_queue(route_elsewhere: bool):
     from django.conf import settings
 
     from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
 
-    requested_queue = settings.RASTERIZATION_MEDIA_TASK_QUEUE if route_to_media else None
+    requested_queue = "other-rasterization-task-queue" if route_elsewhere else None
     expected_queue = requested_queue or settings.RASTERIZATION_TASK_QUEUE
     rendered_on: list[str] = []
 
@@ -495,7 +495,7 @@ async def test_render_runs_on_the_requested_queue(route_to_media: bool):
             # Both queues carry a render worker, so a mis-routed render still completes and the
             # assertion below names the wrong queue instead of hanging forever.
             Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
-            Worker(env.client, task_queue=settings.RASTERIZATION_MEDIA_TASK_QUEUE, activities=[render_mocked]),
+            Worker(env.client, task_queue="other-rasterization-task-queue", activities=[render_mocked]),
         ):
             await env.client.execute_workflow(
                 RasterizeRecordingWorkflow.run,

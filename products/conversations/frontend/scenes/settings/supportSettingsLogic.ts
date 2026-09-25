@@ -1057,7 +1057,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadGithubRepos: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create('api/conversations/v1/github/repos', {})
                         return response.repos || []
                     } catch {
@@ -1107,7 +1107,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadSlackChannelsWithToken: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create(`api/conversations/v1/slack/channels`, {})
                         return response.channels || []
                     } catch {
@@ -1122,7 +1122,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadTeamsTeamsWithToken: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create('api/conversations/v1/teams/teams', {})
                         return response.teams || []
                     } catch {
@@ -1137,7 +1137,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create('api/conversations/v1/teams/channels', {
                             team_id: teamId,
                         })
@@ -1400,7 +1400,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
     listeners(({ values, actions, cache }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             const response = await api.get(`api/conversations/v1/slack/authorize?next=${query}`)
             window.location.href = response.url
         },
@@ -1581,7 +1581,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Email multi-config listeners
         loadEmailConfigs: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.get('api/conversations/v1/email/status')
                 actions.loadEmailConfigsDone(response.configs || [])
             } catch {
@@ -1596,7 +1596,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.create('api/conversations/v1/email/connect', {
                     from_email: newEmailFromEmail,
                     from_name: newEmailFromName,
@@ -1616,7 +1616,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         disconnectEmail: async ({ configId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/email/disconnect', { config_id: configId })
             } catch {
                 lemonToast.error('Failed to disconnect email')
@@ -1636,7 +1636,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         setDefaultEmail: async ({ configId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/email/set-default', { config_id: configId })
             } catch {
                 lemonToast.error('Failed to set default email address')
@@ -1648,7 +1648,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         verifyEmailDomain: async ({ configId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.create('api/conversations/v1/email/verify-domain', {
                     config_id: configId,
                 })
@@ -1665,7 +1665,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         sendTestEmail: async ({ configId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.create('api/conversations/v1/email/send-test', {
                     config_id: configId,
                 })
@@ -1678,7 +1678,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         disconnectSlack: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/slack/disconnect', {})
             } catch {
                 lemonToast.error('Failed to disconnect Slack')
@@ -1701,7 +1701,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         connectTeams: async ({ nextPath }) => {
             try {
                 const query = encodeURIComponent(nextPath)
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.get(`api/conversations/v1/teams/authorize?next=${query}`)
                 window.location.href = response.url
             } catch {
@@ -1710,7 +1710,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         disconnectTeams: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/teams/disconnect', {})
             } catch {
                 lemonToast.error('Failed to disconnect Microsoft Teams')
@@ -1722,7 +1722,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         installTeamsApp: async ({ teamId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.create('api/conversations/v1/teams/install', {
                     team_id: teamId,
                 })
@@ -1752,7 +1752,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         addTeamsChannelPair: async ({ teamId, channelId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/teams/select-channel', {
                     action: 'add',
                     team_id: teamId,
@@ -1775,7 +1775,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         removeTeamsChannelPair: async ({ channelId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/teams/select-channel', {
                     action: 'remove',
                     channel_id: channelId,
@@ -1878,7 +1878,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         connectGithub: async ({ integrationId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/github/connect', { integration_id: integrationId })
                 actions.loadCurrentTeam()
                 actions.loadGithubRepos()
@@ -1889,7 +1889,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         disconnectGithub: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/github/disconnect', {})
                 actions.loadCurrentTeam()
                 lemonToast.success('GitHub disconnected')
@@ -1899,7 +1899,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         setGithubRepos: async ({ repos }) => {
             try {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create('api/conversations/v1/github/select-repos', { repos })
                 actions.loadCurrentTeam()
             } catch {

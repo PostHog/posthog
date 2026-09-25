@@ -9,6 +9,10 @@ on:
                 description: 'Agent version to pin. Defaults to the npm "latest" dist-tag.'
                 required: false
                 type: string
+            slack_thread_ts:
+                description: 'Slack thread of the release post to reply in. The release workflow sets it.'
+                required: false
+                type: string
 
 permissions:
     contents: read
@@ -20,11 +24,15 @@ concurrency:
 jobs:
     update-sandbox-agent-version:
         runs-on: ubuntu-24.04
-        timeout-minutes: 100
+        timeout-minutes: 125
+        permissions:
+            contents: read
+            packages: read
 
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
             BRANCH_PREFIX: chore/bump-sandbox-agent-version-
+            SLACK_CHANNEL: 'C0C3FBES5ST'
             AGENT_PATHS: products/desktop/packages/agent products/desktop/packages/enricher products/desktop/packages/git products/desktop/packages/harness products/desktop/packages/shared
 
         steps:
@@ -53,6 +61,7 @@ jobs:
                   sparse-checkout: |
                       products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                       .github/actions/wait-for-check
+                      .github/actions/sandbox-agent-gateway-smoke
                   sparse-checkout-cone-mode: false
 
             - name: Resolve the published agent version
@@ -128,6 +137,8 @@ jobs:
                   {
                     echo "action=$action"
                     echo "stale_prs=${stale_prs# }"
+                    echo "current_pr=$current_pr"
+                    echo "declined_by=${declined_by:-}"
                   } >> "$GITHUB_OUTPUT"
 
             - name: Wait for npm to serve the version
@@ -263,7 +274,7 @@ jobs:
 
                   - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
 
-                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. When that check passes, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
@@ -271,7 +282,7 @@ jobs:
 
                   ## How did you test this code?
 
-                  The sandbox image CD workflow builds this PR's image on both architectures, checks that the installed \`@posthog/agent\` matches the pin, and runs the \`agent-server\` entrypoint. That covers packaging and dependency resolution. The agent's own test suite ran before the release was published.
+                  The sandbox image CD workflow builds this PR's image on both architectures, checks that the installed \`@posthog/agent\` matches the pin, and runs the \`agent-server\` entrypoint. That covers packaging and dependency resolution. This workflow then drives one Claude turn and one Codex turn from the image through the US Go ai-gateway, on the default models and efforts, and needs both to read a file with a tool. The agent's own test suite ran before the release was published.
                   BODY
                   } > body.md
                   pr_url=$(gh pr create \
@@ -282,6 +293,57 @@ jobs:
                     --label "automated" --label "dependencies" --label "skip-agent-review")
                   echo "Created $pr_url"
                   echo "number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+                  echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Post the bump PR in the release thread
+              id: slack-opened-reply
+              if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts != ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ inputs.slack_thread_ts }}"
+                      unfurl_links: false
+                      text: ":twisted_rightwards_arrows: Sandbox bump PR <${{ steps.pr.outputs.url }}|#${{ steps.pr.outputs.number }}> opened: `${{ steps.resolve.outputs.pinned }}` to `${{ steps.resolve.outputs.latest }}`. It merges on its own once the image smoke passes."
+
+            # A nightly or manual run has no release thread, so the PR post starts one.
+            - name: Post the bump PR as a new thread
+              id: slack-opened-parent
+              if: steps.state.outputs.action == 'bump' && inputs.slack_thread_ts == ''
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: ":twisted_rightwards_arrows: *@posthog/agent ${{ steps.resolve.outputs.latest }}*: sandbox bump PR <${{ steps.pr.outputs.url }}|#${{ steps.pr.outputs.number }}> opened, from `${{ steps.resolve.outputs.pinned }}`. It merges on its own once the image smoke passes."
+
+            - name: Resolve the Slack thread
+              id: thread
+              if: ${{ !cancelled() }}
+              env:
+                  INPUT_TS: ${{ inputs.slack_thread_ts }}
+                  PARENT_TS: ${{ steps.slack-opened-parent.outputs.ts }}
+              run: |
+                  ts="${INPUT_TS:-$PARENT_TS}"
+                  echo "ts=$ts" >> "$GITHUB_OUTPUT"
+                  printf '%s' "$ts" > .sandbox-agent-slack-thread
+
+            # cd-sandbox-base-image.yml restores this on the merge commit to post that the version is live.
+            - name: Cache the Slack thread for the merge notice
+              if: github.ref == 'refs/heads/master' && steps.state.outputs.action == 'bump' && steps.thread.outputs.ts != ''
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .sandbox-agent-slack-thread
+                  key: sandbox-agent-slack-${{ steps.resolve.outputs.latest }}
 
             - name: Wait for the image smoke on the bump commit
               id: smoke
@@ -289,7 +351,7 @@ jobs:
               uses: ./.github/actions/wait-for-check
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  checkName: Sandbox Base Image Pass
+                  checkName: Sandbox Base Image Smoke
                   ref: ${{ steps.commit.outputs.commit-hash }}
                   timeoutSeconds: '4500'
                   intervalSeconds: '30'
@@ -301,7 +363,65 @@ jobs:
                   SHA: ${{ steps.commit.outputs.commit-hash }}
                   PR: ${{ steps.pr.outputs.number }}
               run: |
-                  echo "::error::Sandbox Base Image Pass concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
+                  echo "::error::Sandbox Base Image Smoke concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
+                  exit 1
+
+            - name: Smoke the agent on the Go ai-gateway
+              id: gateway-smoke
+              if: steps.state.outputs.action == 'bump'
+              timeout-minutes: 25
+              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              with:
+                  image: ghcr.io/posthog/posthog-sandbox-base:${{ steps.commit.outputs.commit-hash }}
+                  mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
+                  registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Stop when the gateway smoke did not pass
+              if: ${{ !cancelled() && steps.state.outputs.action == 'bump' && steps.gateway-smoke.outputs.result != 'pass' }}
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  RESULT: ${{ steps.gateway-smoke.outputs.result }}
+                  SUMMARY_FILE: ${{ steps.gateway-smoke.outputs.summary-file }}
+                  PR: ${{ steps.pr.outputs.number }}
+              run: |
+                  if [ -f "$SUMMARY_FILE" ]; then
+                    gh pr comment "$PR" --body-file "$SUMMARY_FILE"
+                  fi
+                  echo "::error::The gateway smoke reported ${RESULT:-no result}, so PR #$PR waits for a person"
+                  exit 1
+
+            # The nightly run catches a gateway deploy that breaks the pinned agent.
+            - name: Smoke the pinned agent on the Go ai-gateway
+              id: nightly-smoke
+              if: github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action)
+              timeout-minutes: 25
+              uses: ./.github/actions/sandbox-agent-gateway-smoke
+              with:
+                  image: ghcr.io/posthog/posthog-sandbox-base:master
+                  agent-version: ${{ steps.resolve.outputs.pinned }}
+                  mint-key: ${{ secrets.AGENT_SMOKE_AI_GATEWAY_MINT_KEY }}
+                  registry-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Post the nightly smoke failure
+              id: nightly-failure
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: ":red_circle: The nightly Go ai-gateway smoke reported `${{ steps.nightly-smoke.outputs.result || 'no result' }}` for @posthog/agent ${{ steps.resolve.outputs.pinned }} on `posthog-sandbox-base:master`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+            - name: Fail when the nightly smoke did not pass
+              if: ${{ !cancelled() && github.event_name == 'schedule' && contains(fromJSON('["noop", "declined", "current"]'), steps.state.outputs.action) && steps.nightly-smoke.outputs.result != 'pass' && steps.nightly-smoke.outputs.result != 'unavailable' }}
+              env:
+                  RESULT: ${{ steps.nightly-smoke.outputs.result }}
+              run: |
+                  echo "::error::The nightly gateway smoke reported ${RESULT:-no result} for the pinned agent"
                   exit 1
 
             - name: Get release approval token
@@ -314,6 +434,7 @@ jobs:
                   permission-pull-requests: write
 
             - name: Approve and enqueue the bump
+              id: enqueue
               if: steps.state.outputs.action == 'bump'
               env:
                   GH_TOKEN: ${{ steps.releaser-token.outputs.token }}
@@ -329,5 +450,66 @@ jobs:
                   gh api "repos/${REPO}/pulls/${PR}/reviews" \
                     -f event=APPROVE \
                     -f commit_id="$SHA" \
-                    -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures." >/dev/null
+                    -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures and one Claude and one Codex turn on the Go ai-gateway." >/dev/null
                   gh pr comment "$PR" --body '/trunk merge'
+
+            - name: Describe the outcome for Slack
+              id: outcome
+              if: ${{ !cancelled() && steps.thread.outputs.ts != '' }}
+              env:
+                  ACTION: ${{ steps.state.outputs.action }}
+                  ENQUEUE: ${{ steps.enqueue.outcome }}
+                  SMOKE: ${{ steps.smoke.outputs.conclusion }}
+                  GATEWAY_SMOKE: ${{ steps.gateway-smoke.outputs.result }}
+                  PR_URL: ${{ steps.pr.outputs.url }}
+                  PR_NUMBER: ${{ steps.pr.outputs.number }}
+                  LATEST: ${{ steps.resolve.outputs.latest }}
+                  PINNED: ${{ steps.resolve.outputs.pinned }}
+                  CURRENT_PR: ${{ steps.state.outputs.current_pr }}
+                  DECLINED_BY: ${{ steps.state.outputs.declined_by }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+              run: |
+                  pr="<${PR_URL}|#${PR_NUMBER}>"
+                  case "$ACTION" in
+                    bump)
+                      if [ "$ENQUEUE" = "success" ]; then
+                        text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64 and on the Go ai-gateway. Approved and added to the merge queue."
+                      elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then
+                        text=":red_circle: Sandbox Base Image Smoke concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                      elif [ -n "$GATEWAY_SMOKE" ] && [ "$GATEWAY_SMOKE" != "pass" ]; then
+                        text=":red_circle: The Go ai-gateway smoke reported \`${GATEWAY_SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                      elif [ -n "$PR_NUMBER" ]; then
+                        text=":red_circle: The bump run failed before ${pr} reached the merge queue. <${RUN_URL}|View run>"
+                      else
+                        text=":red_circle: The bump run failed before it opened a PR. <${RUN_URL}|View run>"
+                      fi
+                      ;;
+                    noop)
+                      text=":information_source: The sandbox pin is already at \`${LATEST}\`, so no bump PR was opened."
+                      ;;
+                    declined)
+                      text=":no_entry_sign: ${DECLINED_BY} closed the bump PR for \`${LATEST}\` without merging, so the sandbox pin stays at \`${PINNED}\`."
+                      ;;
+                    current)
+                      text=":information_source: <${REPO_URL}/pull/${CURRENT_PR}|#${CURRENT_PR}> already proposes \`${LATEST}\`."
+                      ;;
+                    *)
+                      text=":red_circle: The bump run failed before it opened a PR. <${RUN_URL}|View run>"
+                      ;;
+                  esac
+                  echo "text=$text" >> "$GITHUB_OUTPUT"
+
+            - name: Post the outcome in the Slack thread
+              if: ${{ !cancelled() && steps.outcome.outputs.text != '' }}
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      thread_ts: "${{ steps.thread.outputs.ts }}"
+                      unfurl_links: false
+                      text: "${{ steps.outcome.outputs.text }}"

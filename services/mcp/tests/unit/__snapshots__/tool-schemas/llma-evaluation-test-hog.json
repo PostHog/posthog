@@ -17,6 +17,83 @@
             },
             "type": "array"
         },
+        "output_config": {
+            "description": "Output settings used to validate the preview, including numeric bounds and allows_na.",
+            "properties": {
+                "allows_na": {
+                    "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                    "type": "boolean"
+                },
+                "max": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound."
+                },
+                "min": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound."
+                },
+                "passing_rule": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "operator": {
+                                    "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                                    "enum": ["gte", "lte"],
+                                    "type": "string"
+                                },
+                                "threshold": {
+                                    "description": "Finite passing threshold within any configured score bounds.",
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["operator", "threshold"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
+                },
+                "step": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Optional positive input increment. Does not round evaluation results."
+                },
+                "true_is_failure": {
+                    "description": "Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "output_type": {
+            "default": "boolean",
+            "description": "Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric",
+            "enum": ["boolean", "numeric"],
+            "type": "string"
+        },
         "sample_count": {
             "default": 5,
             "description": "Number of recent $ai_generation events to test against (1–10, default 5).",
@@ -25,7 +102,7 @@
             "type": "number"
         },
         "source": {
-            "description": "Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.",
+            "description": "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
             "minLength": 1,
             "type": "string"
         },

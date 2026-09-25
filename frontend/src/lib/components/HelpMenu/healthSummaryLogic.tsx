@@ -63,6 +63,7 @@ export const healthSummaryLogic = kea<healthSummaryLogicType>([
             {
                 loadHealthSummary: async (): Promise<HealthIssueSummary | null> => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.get(`api/projects/${values.currentTeamIdStrict}/health_issues/summary/`)
                     } catch {
                         return null

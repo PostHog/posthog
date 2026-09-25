@@ -43,7 +43,12 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
-from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
+from products.mcp_store.backend.tools import (
+    ToolCallError,
+    ToolsFetchError,
+    call_upstream_tool,
+    resync_installation_tools,
+)
 
 # Re-exported for the presentation layer ("presentation must use facade"
 # import-linter contract): the single MCP URL policy entry point — shared SSRF
@@ -569,6 +574,22 @@ def member_server_tools(team_id: int, user_id: int, server_host: str) -> list[Co
     return tools
 
 
+def _registered_tool(installation: MCPServerInstallation, tool_name: str) -> MCPServerInstallationTool | None:
+    """The installation's row for one tool, re-listing upstream once on a miss.
+
+    A connection whose connect-time listing never landed holds no rows at all,
+    and a call it cannot resolve against policy is refused. A row marked removed
+    counts as a miss too, so a tool the upstream server brings back under the
+    same name is picked up here rather than waiting for "Refresh tools".
+    """
+
+    rows = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id")
+    tool = rows.first()
+    if (tool is None or tool.removed_at is not None) and resync_installation_tools(installation):
+        tool = rows.first()
+    return tool
+
+
 def _member_access_outcome(
     installation: MCPServerInstallation, team_id: int, user_id: int
 ) -> ConnectorCallOutcome | None:
@@ -616,7 +637,7 @@ def call_member_server_tool(
     if access_outcome is not None:
         return access_outcome
 
-    tool = installation.tools.filter(tool_name=tool_name).order_by("-last_seen_at", "-id").first()
+    tool = _registered_tool(installation, tool_name)
     if tool is None:
         return ConnectorCallOutcome(
             status="tool_missing", detail=f"Tool '{tool_name}' is not registered for this connection."

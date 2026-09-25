@@ -104,6 +104,24 @@ class ColumnDebugStatistics:
 TableDebugStatistics = dict[str, ColumnDebugStatistics]
 
 
+def default_fields_for_destination(destination_type: str) -> list[BatchExportField]:
+    match destination_type:
+        case BatchExportDestination.Destination.AWS_S3 | BatchExportDestination.Destination.S3_COMPATIBLE:
+            return s3_default_fields()
+        case BatchExportDestination.Destination.SNOWFLAKE:
+            return snowflake_default_fields()
+        case BatchExportDestination.Destination.BIGQUERY:
+            return bigquery_default_fields()
+        case BatchExportDestination.Destination.POSTGRES:
+            return postgres_default_fields()
+        case BatchExportDestination.Destination.REDSHIFT:
+            return redshift_default_fields()
+        case BatchExportDestination.Destination.DATABRICKS:
+            return databricks_default_fields()
+        case t:
+            raise ValueError(f"Unsupported destination: {t}")
+
+
 class BatchExportsDebugger:
     """Debugger for batch exports.
 
@@ -279,6 +297,7 @@ class BatchExportsDebugger:
                 name=self.batch_export.model or "events",
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
+                hogql_query=self.batch_export.hogql_query,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
@@ -410,13 +429,6 @@ class BatchExportsDebugger:
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.parent.filters
 
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = compose_filters_clause(
-                filters, team_id=team_id, values=extra_query_parameters
-            )
-        else:
-            filters_str, extra_query_parameters = "", extra_query_parameters
-
         is_backfill = batch_export_run.backfill is not None
 
         if batch_export_run.parent.model == BatchExport.Model.PERSONS:
@@ -460,21 +472,7 @@ class BatchExportsDebugger:
                 )
                 parameters["lookback_days"] = lookback_days
 
-            match batch_export_run.parent.destination.type:
-                case BatchExportDestination.Destination.S3:
-                    fields = s3_default_fields()
-                case BatchExportDestination.Destination.SNOWFLAKE:
-                    fields = snowflake_default_fields()
-                case BatchExportDestination.Destination.BIGQUERY:
-                    fields = bigquery_default_fields()
-                case BatchExportDestination.Destination.POSTGRES:
-                    fields = postgres_default_fields()
-                case BatchExportDestination.Destination.REDSHIFT:
-                    fields = redshift_default_fields()
-                case BatchExportDestination.Destination.DATABRICKS:
-                    fields = databricks_default_fields()
-                case t:
-                    raise ValueError(f"Unsupported destination: {t}")
+            fields = default_fields_for_destination(batch_export_run.parent.destination.type)
 
             if "_inserted_at" not in [field["alias"] for field in fields]:
                 control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
@@ -483,7 +481,15 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id):
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
+
+            filters_str = ""
+            if filters is not None and len(filters) > 0:
+                filters_str, extra_query_parameters = compose_filters_clause(
+                    filters, team_id=team_id, values=extra_query_parameters, native_events_source=native_source
+                )
+
+            if native_source:
                 query = native_events_export_query(query_fields, filters_str)
             else:
                 if filters_str:

@@ -2,12 +2,11 @@
 
 import os
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.schema_enums import SessionTableVersion
@@ -43,16 +42,6 @@ SESSION_READ_REACHBACK_DAYS = 1
 MAX_PRECOMPUTED_SESSION_SECONDS = 3 * 24 * 60 * 60
 SESSION_SETTLING_PERIOD_SECONDS = MAX_PRECOMPUTED_SESSION_SECONDS
 
-# Keep start predicates unwrapped so the sessions resolver pushes them into raw sessions.
-UNSUPPORTED_SESSIONS_QUERY = """
-SELECT 1
-FROM sessions
-WHERE $start_timestamp >= {time_window_min}
-    AND $start_timestamp < {time_window_max}
-    AND $end_timestamp > $start_timestamp + toIntervalSecond({max_session_seconds})
-LIMIT 1
-"""
-
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(toTimeZone(min(events.session.$start_timestamp), 'UTC')) AS period_bucket,
@@ -81,7 +70,8 @@ WHERE and(
 GROUP BY session_id_v7, person_id
 HAVING and(
     min(events.session.$start_timestamp) >= {time_window_min},
-    min(events.session.$start_timestamp) < {time_window_max}
+    min(events.session.$start_timestamp) < {time_window_max},
+    max(events.session.$end_timestamp) <= min(events.session.$start_timestamp) + toIntervalSecond({max_session_seconds})
 )
 """
 
@@ -101,9 +91,13 @@ def base_placeholders() -> dict[str, ast.Expr]:
     }
 
 
-def precompute_window_days(team: Team) -> int:
-    return (
-        PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days + SESSION_READ_REACHBACK_DAYS
+def precompute_window_start(team: Team, end: datetime) -> datetime:
+    # Relative display ranges start at local midnight; attribution lookback uses elapsed UTC seconds.
+    display_start = end.astimezone(team.timezone_info).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+        days=PRECOMPUTE_WINDOW_DAYS
+    )
+    return display_start.astimezone(UTC) - timedelta(
+        days=team.marketing_analytics_config.attribution_window_days + SESSION_READ_REACHBACK_DAYS
     )
 
 
@@ -125,27 +119,6 @@ def ensure_marketing_sessions_precomputed(
     if not windows:
         return LazyComputationResult(ready=True, job_ids=[])
 
-    # Check cache hits too: a session can outgrow the scan budget after its window was materialized.
-    unsupported = execute_hogql_query(
-        UNSUPPORTED_SESSIONS_QUERY,
-        team,
-        modifiers=modifiers,
-        query_type="marketing_sessions_precompute_coverage",
-        placeholders={
-            "time_window_min": ast.Constant(value=windows[0][0]),
-            "time_window_max": ast.Constant(value=windows[-1][1]),
-            "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
-        },
-    )
-    if unsupported.error:
-        return LazyComputationResult(ready=False, job_ids=[], errors=["Could not verify session precompute coverage"])
-    if unsupported.results:
-        return LazyComputationResult(
-            ready=False,
-            job_ids=[],
-            errors=["Session duration exceeds the precompute scan budget; use live attribution"],
-        )
-
     return ensure_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
@@ -160,10 +133,14 @@ def ensure_marketing_sessions_precomputed(
             team.timezone,
             max_window_days=CHUNK_DAYS,
             settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
+            invalidate_at_window_start=True,
         ),
         table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         modifiers=modifiers,
-        cache_key_context={"modifiers": modifiers.model_dump_json(exclude_none=True)},
+        # Traffic-type classification is absent from this query; its rollout may differ across workers.
+        cache_key_context={
+            "modifiers": modifiers.model_dump_json(exclude_none=True, exclude={"cookielessTrafficIsRegular"})
+        },
         placeholders=base_placeholders(),
         query_type="marketing_sessions_dimensional_insert",
     )

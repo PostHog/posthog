@@ -70,6 +70,9 @@ CRON_GAP_SAMPLES = 4
 # yet" beside a cost line proving they had run. Rows stay bounded by the enabled cap in practice:
 # only an enabled scout produces new runs, and a paused scout's last ones age out of the staleness
 # guard.
+# A project may also raise its own enabled cap through the `signals-scout` flag, so this stays a
+# fixed guard rather than tracking that per-project value: the roster must not start truncating
+# because a flag edit moved a number, and a truncation is logged with the names it dropped.
 MAX_SCOUTS_PER_RUNS_QUERY = 10 * MAX_ENABLED_SCOUTS_PER_TEAM
 
 # How many scouts one probe statement covers. A large fleet costs more statements rather than one

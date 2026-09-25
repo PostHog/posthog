@@ -11,6 +11,7 @@ from products.signals.backend.quota import (
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
+from products.tasks.backend.constants import GITHUB_PR_URL_PREFIX
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -26,18 +27,14 @@ SELF_DRIVING_QUOTA_CANCEL_REASON = (
     "Stopped automatically: the organization reached its self-driving pull request limit."
 )
 
-# Only GitHub-hosted PR URLs are billable (products/signals/backend/billing.py applies the same
-# prefix rule), so only they attest already-billed work. Run output is caller-writable, which
-# means any other pr_url value must not stop enforcement. Literal kept local because tasks code
-# must not import signals internals.
-_BILLABLE_PR_URL_PREFIX = "https://github.com/"
 
-
+# Only GitHub-hosted PR URLs are billable, so only they attest already-billed work. Run output is
+# caller-writable, which means any other pr_url value must not stop enforcement.
 def _has_billable_pr_url(output: object) -> bool:
     if not isinstance(output, dict):
         return False
     pr_url = output.get("pr_url")
-    return isinstance(pr_url, str) and pr_url.startswith(_BILLABLE_PR_URL_PREFIX)
+    return isinstance(pr_url, str) and pr_url.startswith(GITHUB_PR_URL_PREFIX)
 
 
 @dataclass

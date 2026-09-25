@@ -46,11 +46,7 @@ import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
 import { evidencePreviewQueryKey } from "../evidencePreview";
-import {
-  EvidenceHoverCard,
-  EvidenceRefChip,
-  ReportReferenceNavigationContext,
-} from "./EvidenceRefChip";
+import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const queryClient = new QueryClient({
@@ -169,56 +165,6 @@ describe("EvidenceRefChip", () => {
       }
     },
   );
-
-  it.each(["report", "insight"] as const)(
-    "opens a %s from Quick Ask without main-window services",
-    (kind) => {
-      signIn();
-      const openReport = vi.fn().mockResolvedValue(undefined);
-      renderInTheme(
-        <ReportReferenceNavigationContext.Provider value={openReport}>
-          <MarkdownRenderer
-            content={`Open <${kind} id="reference-1">Linked reference</${kind}>.`}
-            renderObjectTags
-          />
-        </ReportReferenceNavigationContext.Provider>,
-        false,
-      );
-
-      fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
-
-      if (kind === "report") {
-        expect(openReport).toHaveBeenCalledWith("reference-1");
-        expect(openExternalUrl).not.toHaveBeenCalled();
-      } else {
-        expect(openReport).not.toHaveBeenCalled();
-        expect(openExternalUrl).toHaveBeenCalledWith(
-          "https://us.posthog.com/project/2/insights/reference-1",
-        );
-      }
-      expect(mocks.openReport).not.toHaveBeenCalled();
-      expect(mocks.getSignalReport).not.toHaveBeenCalled();
-    },
-  );
-
-  it("opens a report from Quick Ask before auth state arrives", () => {
-    // No region or project yet, so the chip has no web url to fall back on;
-    // the host route is the only way to the report and must stay clickable.
-    const openReport = vi.fn().mockResolvedValue(undefined);
-    renderInTheme(
-      <ReportReferenceNavigationContext.Provider value={openReport}>
-        <EvidenceRefChip target={{ kind: "report", id: "reference-1" }}>
-          Linked reference
-        </EvidenceRefChip>
-      </ReportReferenceNavigationContext.Provider>,
-      false,
-    );
-
-    fireEvent.click(screen.getByRole("link", { name: "Linked reference" }));
-
-    expect(openReport).toHaveBeenCalledWith("reference-1");
-    expect(openExternalUrl).not.toHaveBeenCalled();
-  });
 
   it("stays plain for a kind with no canonical page even when signed in", () => {
     signIn();

@@ -83,7 +83,7 @@ import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constant
 import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
-} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+} from 'scenes/hog-functions/filters/productEventFilterOptions'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
@@ -122,7 +122,9 @@ import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortReal
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
-import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
+import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { DatabaseSchemaDataWarehouseTable } from '../../../queries/schema/schema-general'
@@ -1251,7 +1253,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'variable key',
                         type: TaxonomicFilterGroupType.WorkflowVariables,
                         categoryLabel: () => 'Workflow variables',
-                        render: HogFlowTaxonomicFilters,
+                        render: LazyHogFlowTaxonomicFilters,
                         // Populated via optionsFromProp from the workflow scene so the All/Suggestions
                         // tab can aggregate workflow variables alongside other groups. The render
                         // override above still drives the dedicated tab UI.
@@ -1953,9 +1955,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Persons',
                         searchPlaceholder: 'persons',
                         type: TaxonomicFilterGroupType.Persons,
-                        endpoint: `api/projects/${teamId}/persons/`,
+                        endpoint: `api/projects/${teamId}/persons/?include_matched_fields=true`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids?.[0],
+                        getTag: (person: PersonListRecordApi) => (
+                            <PersonSearchMatchTags matchedFields={person.matched_fields} />
+                        ),
                         getPopoverHeader: () => `Person`,
                     },
                     {

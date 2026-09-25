@@ -20,11 +20,17 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # create a second, unfed one on its logs nodes. `run_mode()` is resolved here (not a raw
 # CLOUD_DEPLOYMENT check) so a test re-import under a patched deployment picks up the right branch.
 # Local single-node is unaffected either way: migration_tools collapses it to NodeRole.ALL.
-_role = NodeRole.APM if run_mode() is RunMode.CLOUD_DEV else NodeRole.LOGS
+#
+# The MV's destination differs with it. Dev's apm nodes host `writable_trace_spans`, the
+# Distributed proxy into the logs cluster, rather than `trace_spans` itself, so the MV there has
+# to write through the proxy or it resolves to nothing.
+_is_dev = run_mode() is RunMode.CLOUD_DEV
+_role = NodeRole.APM if _is_dev else NodeRole.LOGS
+_mv = KAFKA_TRACE_SPANS_AVRO_MV(to_table="writable_trace_spans") if _is_dev else KAFKA_TRACE_SPANS_AVRO_MV()
 
 operations = [
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_trace_spans_avro_mv", node_roles=[_role]),
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_trace_spans_avro", node_roles=[_role]),
     run_sql_with_exceptions(KAFKA_TRACE_SPANS_AVRO_TABLE_SQL(), node_roles=[_role]),
-    run_sql_with_exceptions(KAFKA_TRACE_SPANS_AVRO_MV(), node_roles=[_role]),
+    run_sql_with_exceptions(_mv, node_roles=[_role]),
 ]
