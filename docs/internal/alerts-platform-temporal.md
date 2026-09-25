@@ -26,12 +26,14 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
-## Dev schedule
+## Tick schedule
 
 `python manage.py schedule_temporal_workflows` creates or updates `alerts-platform-check-due-schedule`
-only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this command.
-Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
-It does not delete schedules created manually in those environments.
+in every deployment that runs it. The normal deployment migration step runs this command, and `bin/migrate`
+skips that step on hobby deploys and on local development. Only the `posthog-web-django` chart app enables
+that migration job, and it has dev, US and EU values files, so registration reaches those three and nowhere
+else. A new deployment that enables the job registers the schedule too. There is no per-region gate: the schedule is the same everywhere, and what differs between
+deployments is which configurations have been backfilled.
 
 The schedule starts `alerts-platform-orchestrate` with `{}` on the orchestration queue every minute (UTC).
 There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
@@ -39,12 +41,35 @@ It uses SKIP overlap, a one-minute catchup window, a 50-second workflow executio
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
-To stop future smoke-test ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
-Disabling registration alone does not remove an existing Temporal schedule.
+To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
+Reverting the code that registers a schedule does not remove one already registered.
 
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
-Enable production only in a separate rollout after dev verification.
+
+### Turning a production deployment on
+
+A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what
+would have been sent and contacts no destination, so a production tick never notifies anybody and never
+writes a source product's rows. What it does cost is the evaluation queries its sources run, on top of the
+ones the source's own production fleet is already running for the same alerts.
+
+The tick's work is whatever `PlatformAlertConfiguration` rows exist, and nothing creates those on its own:
+`python manage.py backfill_platform_alert_configurations [--team-id N]` is the only writer, and it is manual.
+So the order below puts the schedule in place while there is no demand, and load arrives when the backfill
+is run, one cohort at a time.
+
+1. Bring up that deployment's three `alerts-platform-*` workers and confirm all three are ready and
+   polling. Do this before the code that registers the schedule reaches the deployment. They cost nothing
+   while they idle, because no schedule is starting work for them yet.
+2. Let the deploy carry the code in. Migration-time reconciliation registers the schedule unpaused, and
+   with no configurations backfilled each tick discovers empty demand and exits.
+3. Backfill one team at a time with `--team-id` and watch that team's evaluation and preview metrics
+   before widening.
+
+Registering the schedule before the workers poll is untidy rather than dangerous: each tick is created,
+nothing picks up its workflow task, and the 50-second execution timeout closes it. That repeats every
+minute until the workers are ready, then stops on its own.
 
 ### Shared orchestration rollout and rollback
 
@@ -61,7 +86,7 @@ Schedule reconciliation routes directly to orchestration; merging the code alone
    Record the current image, queue configuration, and schedule action for rollback.
 2. Pause `alerts-product-check-due-schedule` if it exists, and stop manual starts and delivery-preview requests during the cutover.
    Before migration-time reconciliation runs with the new code, create `alerts-platform-check-due-schedule` in Temporal with its state explicitly paused.
-   Use the action and policy from [Dev schedule](#dev-schedule). If the new schedule already exists, pause it instead.
+   Use the action and policy from [Tick schedule](#tick-schedule). If the new schedule already exists, pause it instead.
    Pause state is preserved only for the same schedule ID; pausing the old ID does not pause a newly created schedule.
 3. Keep the old images polling all three `alerts-product-*` queues until queued and running orchestration, source-dispatch, evaluation, and delivery work drains.
    Verify this in Temporal rather than waiting a fixed interval. Delivery can outlive its parent, and manual runs can have different timeouts.
@@ -121,7 +146,7 @@ Real notification delivery guarantees remain undecided.
 
 The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEvaluateWorkflow`), the probe activity is `alerts_platform_probe_postgres_activity`, and the schedule is registered by `create_alerts_platform_tick_schedule`.
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
-A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
+A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and no production deployment was registering the schedule when this rename landed. A later rename has to account for whichever deployments have since opted in.
 The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
 Registration never deletes a schedule, so the rollout above deletes the old ID by hand.
 
