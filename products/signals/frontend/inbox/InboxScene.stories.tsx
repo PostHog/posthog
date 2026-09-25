@@ -23,7 +23,8 @@ import {
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
-import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { INBOX_LAST_UI_STATE_STORAGE_KEY, inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
+import { scoutFleetLogic } from './logics/scoutFleetLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -271,6 +272,45 @@ export const SelfDrivingVerdictPending: Story = {
                 '/api/projects/:id/signals/reports': () => new Promise(() => {}),
                 '/api/projects/:id/signals/source_configs': () => new Promise(() => {}),
                 '/api/projects/:id/signals/scout/configs': () => new Promise(() => {}),
+            },
+        }),
+    ],
+}
+
+// A first visit where another surface reloads one of the shared config loaders before the verdict
+// has settled. The reload never lands. Only a refresh this logic asked for may hold the verdict
+// back, so the welcome page must still arrive — the reload says nothing about whether the team is
+// set up. Reading any in-flight loader instead left the skeleton up for the whole visit.
+export const SelfDrivingVerdictOutlivesForeignReload: Story = {
+    decorators: [
+        (StoryFn) => {
+            // No cached verdict: this is the first visit, where the skeleton is all there is to show.
+            window.localStorage.removeItem(INBOX_LAST_UI_STATE_STORAGE_KEY)
+            useMountedLogic(inboxOnboardingLogic)
+            useEffect(() => {
+                // What the Scouts tab does when it opens, and what the roster does after a create.
+                const id = window.setTimeout(() => scoutFleetLogic.actions.loadScoutConfigs(), 300)
+                return () => window.clearTimeout(id)
+            }, [])
+            return <StoryFn />
+        },
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                // Slow enough that the reload below starts before the verdict has ever settled,
+                // so no cached UI can stand in for it.
+                '/api/projects/:id/signals/source_configs': () =>
+                    new Promise((resolve) => setTimeout(() => resolve([200, { results: [], count: 0 }]), 900)),
+                '/api/projects/:id/signals/scout/configs': (() => {
+                    let served = false
+                    return () => {
+                        if (served) {
+                            return new Promise(() => {})
+                        }
+                        served = true
+                        return [200, []]
+                    }
+                })(),
             },
         }),
     ],

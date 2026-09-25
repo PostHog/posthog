@@ -155,9 +155,11 @@ export interface OnboardingModeInputs {
     /** The wizard detector has actually checked, so `isWizardRunning === false` is a verdict rather
      * than "nobody asked yet". */
     isWizardStateResolved: boolean
-    /** A config/count refetch is in flight, so the loaded values may be about to change (e.g. the
-     * wizard just finished, or the user returned to the tab). */
-    isRefetching: boolean
+    /** A refresh this logic asked for is in flight, so the loaded values may be about to change
+     * (the wizard just finished, or the user returned to the tab). Not the same as "any loader is
+     * loading": the four loaders are shared with the tabs, so an unrelated reload must not reopen
+     * a verdict that already settled. */
+    isRefreshing: boolean
     /** The user chose "Set up manually" on the takeover this session, so they are configuring the
      * project by hand and the prompt to run the setup agent is not what they asked for. */
     manualSetupRequested: boolean
@@ -185,7 +187,7 @@ export function computeOnboardingDecision({
     bannerDismissed,
     isWizardRunning,
     isWizardStateResolved,
-    isRefetching,
+    isRefreshing,
     manualSetupRequested,
 }: OnboardingModeInputs): InboxOnboardingDecision {
     // A run in flight is setup in progress: sources and scouts land as it goes, so telling the user
@@ -231,10 +233,31 @@ export function computeOnboardingDecision({
     if (!areCountsResolved) {
         return { mode: 'pending', reason: 'counts_loading' }
     }
-    if (isRefetching) {
+    if (isRefreshing) {
         return { mode: 'pending', reason: 'refetching' }
     }
     return { mode: 'takeover', reason: null }
+}
+
+/**
+ * Holds a verdict once it has settled.
+ *
+ * Every `pending` outcome above is "an input this decision needs is not in yet". After the first
+ * settled verdict that is no longer true: the answer is known, and a later hold means an input is
+ * being re-read, not that it was lost. Replaying `pending` then costs the user the UI they are
+ * already looking at, and costs telemetry the ability to tell a first paint from a re-check.
+ *
+ * Returning the stored decision object unchanged (rather than a copy) keeps the identity stable,
+ * so a re-check that confirms the same verdict produces no downstream work at all.
+ */
+export function applyVerdictLatch(
+    decision: InboxOnboardingDecision,
+    settledDecision: InboxOnboardingDecision | null
+): InboxOnboardingDecision {
+    if (decision.mode !== 'pending' || settledDecision === null) {
+        return decision
+    }
+    return settledDecision
 }
 
 /**
@@ -292,7 +315,10 @@ export interface inboxOnboardingLogicValues {
     manualSetupRequestedByTeam: Record<string, boolean>
     onboardingDecision: InboxOnboardingDecision
     onboardingMode: InboxOnboardingMode
+    refreshInFlight: boolean
     resolvedOnboardingMode: InboxOnboardingMode
+    settledDecision: InboxOnboardingDecision | null
+    stableDecision: InboxOnboardingDecision
     verdictWaitExpired: boolean
 }
 
@@ -309,6 +335,15 @@ export interface inboxOnboardingLogicActions {
         value: true
     }
     expireWizardVerdictWait: () => {
+        value: true
+    }
+    settleRefresh: () => {
+        value: true
+    }
+    setSettledDecision: (decision: InboxOnboardingDecision) => {
+        decision: InboxOnboardingDecision
+    }
+    clearSettledDecision: () => {
         value: true
     }
     refreshSetupState: () => {
@@ -370,10 +405,14 @@ export interface inboxOnboardingLogicMeta {
             bannerDismissed: boolean,
             isWizardRunning: boolean,
             isWizardStateResolved: boolean,
-            isRefetching: boolean,
+            isRefreshing: boolean,
             manualSetupRequested: boolean
         ) => InboxOnboardingDecision
-        resolvedOnboardingMode: (onboardingDecision: InboxOnboardingDecision) => InboxOnboardingMode
+        stableDecision: (
+            onboardingDecision: InboxOnboardingDecision,
+            settledDecision: InboxOnboardingDecision | null
+        ) => InboxOnboardingDecision
+        resolvedOnboardingMode: (stableDecision: InboxOnboardingDecision) => InboxOnboardingMode
         lastSettledUiState: (
             lastSettledUiStateByTeam: Record<string, InboxSettledUiState>,
             currentTeamId: number | null
@@ -459,6 +498,10 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     actions({
         dismissBanner: true,
         expireWizardVerdictWait: true,
+        /** The refresh asked for by `refreshSetupState` finished, however it landed. */
+        settleRefresh: true,
+        setSettledDecision: (decision: InboxOnboardingDecision) => ({ decision }),
+        clearSettledDecision: true,
         setLastSettledUiState: (teamId: number, uiState: InboxSettledUiState) => ({ teamId, uiState }),
         refreshSetupState: true,
         /** "Set up manually" was pressed on the takeover. */
@@ -502,6 +545,25 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             false,
             {
                 expireWizardVerdictWait: () => true,
+            },
+        ],
+        // Only a refresh this logic asked for may hold the verdict back. The four loaders below are
+        // shared with the tabs and the setup rail, so reading them directly made any unrelated
+        // reload look like stale data and pushed a settled verdict back to the skeleton.
+        refreshInFlight: [
+            false,
+            {
+                refreshSetupState: () => true,
+                settleRefresh: () => false,
+            },
+        ],
+        // The last verdict that settled this visit, so a later hold shows it again instead of the
+        // skeleton. Cleared on a team switch: one team's verdict must not answer for another.
+        settledDecision: [
+            null as InboxOnboardingDecision | null,
+            {
+                setSettledDecision: (_, { decision }) => decision,
+                clearSettledDecision: () => null,
             },
         ],
         // Keyed by team: the verdict is per team, and a cached verdict from another team must not
@@ -576,8 +638,8 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     verdictWaitExpired,
                 }),
         ],
-        // A config or count request is in flight. While true, the verdict must not commit to the
-        // takeover: the wizard may just have finished, and the loaded values are about to change.
+        // Any config or count request is in flight. Watched only to tell when a refresh this logic
+        // asked for has finished; the verdict itself reads `refreshInFlight`.
         isRefetching: [
             (s) => [s.sourceConfigsLoading, s.scoutConfigsLoading, s.pullsCountLoading, s.reportsCountLoading],
             (
@@ -604,7 +666,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 s.bannerDismissed,
                 s.isWizardRunning,
                 s.isWizardStateResolved,
-                s.isRefetching,
+                s.refreshInFlight,
                 s.manualSetupRequested,
             ],
             (
@@ -615,7 +677,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 bannerDismissed: boolean,
                 isWizardRunning: boolean,
                 isWizardStateResolved: boolean,
-                isRefetching: boolean,
+                isRefreshing: boolean,
                 manualSetupRequested: boolean
             ): InboxOnboardingDecision =>
                 computeOnboardingDecision({
@@ -626,13 +688,22 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     bannerDismissed,
                     isWizardRunning,
                     isWizardStateResolved,
-                    isRefetching,
+                    isRefreshing,
                     manualSetupRequested,
                 }),
         ],
+        // The verdict everything downstream reads: the live one, or the one that already settled
+        // this visit when the live one has fallen back to a hold.
+        stableDecision: [
+            (s) => [s.onboardingDecision, s.settledDecision],
+            (
+                onboardingDecision: InboxOnboardingDecision,
+                settledDecision: InboxOnboardingDecision | null
+            ): InboxOnboardingDecision => applyVerdictLatch(onboardingDecision, settledDecision),
+        ],
         resolvedOnboardingMode: [
-            (s) => [s.onboardingDecision],
-            (onboardingDecision: InboxOnboardingDecision): InboxOnboardingMode => onboardingDecision.mode,
+            (s) => [s.stableDecision],
+            (stableDecision: InboxOnboardingDecision): InboxOnboardingMode => stableDecision.mode,
         ],
         lastSettledUiState: [
             (s) => [s.lastSettledUiStateByTeam, s.currentTeamId],
@@ -671,13 +742,37 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // One event per distinct verdict per mount. The decision settles through several
         // intermediate holds as its inputs load, so reporting every transition would drown the
         // real answer; deduping on the pair keeps the loading states as the trail that explains it.
-        onboardingDecision: (decision: InboxOnboardingDecision) => {
+        stableDecision: (decision: InboxOnboardingDecision) => {
             const key = `${decision.mode}:${decision.reason ?? 'shown'}`
             if (cache.reportedDecisions?.has(key)) {
                 return
             }
             cache.reportedDecisions = (cache.reportedDecisions ?? new Set<string>()).add(key)
-            captureInboxOnboardingDecided({ mode: decision.mode, reason: decision.reason })
+            captureInboxOnboardingDecided({
+                mode: decision.mode,
+                reason: decision.reason,
+                // The verdict alone cannot say whether anyone saw a skeleton: a hold falls back to
+                // this team's last-settled UI, and only a team with no history lands on `pending`.
+                displayedMode: values.onboardingMode,
+            })
+        },
+        // Latch the verdict the moment it settles. Watches the live decision, not `stableDecision`,
+        // so the latch is only ever written from inputs that resolved on their own.
+        onboardingDecision: (decision: InboxOnboardingDecision) => {
+            if (decision.mode !== 'pending') {
+                actions.setSettledDecision(decision)
+            }
+        },
+        // A different team is a different question, so the latch starts empty rather than
+        // answering for the team that was open a moment ago.
+        currentTeamId: () => {
+            actions.clearSettledDecision()
+        },
+        // The refresh this logic asked for has landed, so the verdict may commit again.
+        isRefetching: (isRefetching: boolean, previousIsRefetching: boolean | undefined) => {
+            if (previousIsRefetching === true && !isRefetching) {
+                actions.settleRefresh()
+            }
         },
         // Remember what this team's verdict rendered as, so the next visit can paint it
         // immediately while the checks re-run. Watches the resolved mode (not the display mode)

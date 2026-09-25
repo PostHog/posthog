@@ -877,10 +877,14 @@ export function captureInboxRunSummaryViewed(params: {
 export function captureInboxOnboardingDecided(params: {
     mode: 'takeover' | 'banner' | 'none' | 'pending'
     reason: string | null
+    /** What the inbox actually painted for this verdict. `pending` is the neutral skeleton; any
+     * other value means the team's last-settled UI covered the wait. */
+    displayedMode: 'takeover' | 'banner' | 'none' | 'pending'
 }): void {
     captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
         mode: params.mode,
         suppression_reason: params.reason,
+        displayed_mode: params.displayedMode,
     })
 }
 
