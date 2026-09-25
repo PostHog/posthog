@@ -48,6 +48,16 @@ const audienceFailureReason = (error: unknown): string => {
     return `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
 }
 
+type TerminalStatus = NonNullable<BatchResolverState['pendingTerminal']>
+
+// The metric's `canceled` label predates the `cancelled` state name; keep both spellings here
+// rather than renaming a label that existing dashboards read.
+const TERMINAL_JOB_OUTCOME: Record<TerminalStatus, string> = {
+    completed: 'completed',
+    failed: 'failed',
+    cancelled: 'canceled',
+}
+
 const RETRY_BACKOFF_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 10_000
 
@@ -73,7 +83,7 @@ const counterBatchHogFlowResolverJobs = new Counter({
  * State machine carried in `cyclotron_jobs.state` per resolver job:
  *   cursor=null, pendingTerminal=undefined → fetch first page
  *   cursor=X,    pendingTerminal=undefined → fetch next page
- *   pendingTerminal='completed'|'failed'   → PUT Django, ack on 200
+ *   pendingTerminal set                    → PUT Django, ack on 200
  *
  * Resolver only acks after terminal Django write succeeds — Django down
  * means the job parks via cyclotron retry, no progress is lost.
@@ -269,6 +279,24 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             })
             counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: state.hogFlowId, reason: 'missing_entity' }).inc()
             await this.transitionToFailedTerminal(job, state, 'Workflow or team was deleted mid-run')
+            return
+        }
+
+        // A workflow disabled or archived mid-run stops the resolver here, so no further
+        // audience page is queried and no further child run is enqueued. The sibling hogflow
+        // consumer already cancels children that wake while the workflow is not active, so
+        // this changes cost, not delivery. The stop is final: re-enabling the workflow does
+        // not resume a run that already reached this branch, because the next dequeue writes
+        // the terminal status. Re-enabling within a page, before this branch is reached,
+        // leaves the run untouched.
+        if (hogFlow.status !== 'active') {
+            logger.info('⏭️', `${this.name} - workflow is no longer active, stopping resolver`, {
+                hogFlowId: state.hogFlowId,
+                status: hogFlow.status,
+                batchJobId: state.batchJobId,
+                pagesProcessed: state.pagesProcessed,
+            })
+            await this.transitionToCancelledTerminal(job, state)
             return
         }
 
@@ -504,6 +532,37 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
 
+    /**
+     * Stop a resolver whose workflow is no longer active. Unlike the cancel-request path,
+     * nothing else moves the batch job row out of its non-terminal status here, so this
+     * goes through the terminal write and its retry budget rather than through
+     * `cancelResolverJob` — otherwise the run stays `queued` in the UI forever.
+     */
+    private async transitionToCancelledTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: state.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: state.batchJobId,
+                    instance_id: state.batchJobId,
+                    ...logEntry(
+                        'info',
+                        'Batch run stopped because the workflow is no longer active. The remaining audience did not receive this workflow.'
+                    ),
+                },
+            ],
+            'hog_flow'
+        )
+
+        const newState: BatchResolverState = {
+            ...state,
+            pendingTerminal: 'cancelled',
+            attempts: 0, // give the terminal write a fresh retry budget
+        }
+        await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
+    }
+
     private async transitionToFailedTerminal(
         job: CyclotronV2DequeuedJob,
         state: BatchResolverState,
@@ -569,9 +628,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        counterBatchHogFlowResolverJobs
-            .labels({ outcome: state.pendingTerminal === 'completed' ? 'completed' : 'failed' })
-            .inc()
+        counterBatchHogFlowResolverJobs.labels({ outcome: TERMINAL_JOB_OUTCOME[state.pendingTerminal] }).inc()
 
         // Monitoring flush happens in processResolverJob's finally block so every
         // dequeue clears its own queued logs/metrics, not just terminal writes.
@@ -582,7 +639,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         })
     }
 
-    private async putBatchJobStatus(teamId: number, batchJobId: string, status: 'completed' | 'failed'): Promise<void> {
+    private async putBatchJobStatus(teamId: number, batchJobId: string, status: TerminalStatus): Promise<void> {
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
 
         const { fetchResponse, fetchError } = await this.internalFetchService.fetch({

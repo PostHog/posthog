@@ -49,7 +49,7 @@ export const BatchResolverStateSchema = z.object({
     // without this field default to 0 via the zod parse.
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
-    pendingTerminal: z.enum(['completed', 'failed']).optional(),
+    pendingTerminal: z.enum(['completed', 'failed', 'cancelled']).optional(),
 })
 
 export type BatchResolverState = z.infer<typeof BatchResolverStateSchema>

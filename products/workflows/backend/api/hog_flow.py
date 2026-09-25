@@ -6341,7 +6341,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         terminal status, returns 200 without re-writing — the resolver retries
         this call via cyclotron retry semantics, so safe repeats are required.
 
-        Accepts: { status: "completed" | "failed" }
+        Accepts: { status: "completed" | "failed" | "cancelled" }
         """
         from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
 
@@ -6353,10 +6353,18 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         except (Team.DoesNotExist, ValueError):
             return Response({"error": "Team not found"}, status=404)
 
+        terminal_states = {
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.FAILED,
+            # Written by the resolver when it stops a run whose workflow was disabled or
+            # archived mid-run. The cancel-request route flips this status itself.
+            HogFlowBatchJob.State.CANCELLED,
+        }
+
         new_status = request.data.get("status")
-        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+        if new_status not in terminal_states:
             return Response(
-                {"error": "status must be one of: completed, failed"},
+                {"error": f"status must be one of: {', '.join(sorted(terminal_states))}"},
                 status=400,
             )
 
@@ -6369,11 +6377,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             # other backends. Either way, surface as 404, not 500.
             return Response({"error": "Batch job not found"}, status=404)
 
-        terminal_states = {
-            HogFlowBatchJob.State.COMPLETED,
-            HogFlowBatchJob.State.FAILED,
-            HogFlowBatchJob.State.CANCELLED,
-        }
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(

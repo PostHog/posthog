@@ -3921,26 +3921,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Unsupported dedupe_key" in response.json().get("error", "")
 
+    @parameterized.expand([("completed",), ("failed",), ("cancelled",)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_marks_terminal(self, new_status, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "completed"},
+            {"status": new_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == new_status
         assert response.json()["no_op"] is False
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == new_status
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
