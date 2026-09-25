@@ -92,41 +92,47 @@ export function ReportReviewersSectionView({
       title="Suggested reviewers"
       collapsible
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="About suggested reviewers"
-                  className="rounded-sm p-0.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
-                />
-              }
-            >
-              <InfoIcon size={12} />
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-80">
-              PostHog uses these suggestions to route the report. Add reviewers
-              on the pull request to request a GitHub review.
-            </TooltipContent>
-          </Tooltip>
-          <span className="text-[12px] text-gray-10 tabular-nums">
-            {reviewers.length}
-          </span>
-        </div>
+      {reviewers.length === 0 ? (
+        <p className="m-0 text-muted-foreground text-xs">
+          No suggested reviewers yet.
+        </p>
+      ) : (
+        <SuggestedReviewersList
+          reviewers={reviewers}
+          disabled={disabled}
+          onRemove={onRemove}
+        />
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label="About suggested reviewers"
+                className="rounded-sm p-0.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+              />
+            }
+          >
+            <InfoIcon size={12} />
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-80">
+            PostHog uses these suggestions to route the report. Add reviewers on
+            the pull request to request a GitHub review.
+          </TooltipContent>
+        </Tooltip>
         <Popover open={addOpen} onOpenChange={setAddOpen}>
           <PopoverTrigger
             render={
               <Button
                 type="button"
-                variant="link-muted"
-                size="xs"
+                variant="outline"
+                size="sm"
                 disabled={disabled}
                 data-attr="inbox-report-add-reviewer"
               >
-                {disabled ? <Spinner /> : <PlusIcon size={12} />}
-                Add
+                {disabled ? <Spinner /> : <PlusIcon size={14} />}
+                Add Reviewer
               </Button>
             }
           />
@@ -144,17 +150,6 @@ export function ReportReviewersSectionView({
           </PopoverContent>
         </Popover>
       </div>
-      {reviewers.length === 0 ? (
-        <p className="m-0 text-muted-foreground text-xs">
-          No suggested reviewers. Select Add to suggest one.
-        </p>
-      ) : (
-        <SuggestedReviewersList
-          reviewers={reviewers}
-          disabled={disabled}
-          onRemove={onRemove}
-        />
-      )}
     </DetailSection>
   );
 }
