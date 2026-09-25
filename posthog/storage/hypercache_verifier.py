@@ -17,13 +17,16 @@ from django.db import InterfaceError, OperationalError, close_old_connections
 from django.db.models import QuerySet
 
 import structlog
+import redis.exceptions
 from celery.exceptions import SoftTimeLimitExceeded
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter
 from tenacity import RetryCallState, Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.models.team.team import Team
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig, batch_check_expiry_tracking
+from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -51,8 +54,22 @@ VerifyFailureReason = Literal["dependency_unavailable", "data_error", "unknown"]
 FixFailureReason = Literal["update_fn_returned_false", "dependency_unavailable", "data_error", "unknown"]
 
 
+# Outages of the stores the sweep reads and writes. django-redis wraps redis connection and
+# timeout errors in ConnectionInterrupted, but a raw redis client raises them unwrapped.
+# OperationalError and InterfaceError are the connection drops that _fetch_team_batch retries.
+_DEPENDENCY_ERRORS = (
+    HyperCacheDependencyUnavailable,
+    ConnectionInterrupted,
+    redis.exceptions.ConnectionError,
+    redis.exceptions.TimeoutError,
+    ObjectStorageError,
+    OperationalError,
+    InterfaceError,
+)
+
+
 def classify_failure(error: Exception) -> VerifyFailureReason:
-    if isinstance(error, HyperCacheDependencyUnavailable):
+    if isinstance(error, _DEPENDENCY_ERRORS):
         return "dependency_unavailable"
     # json.JSONDecodeError and UnicodeDecodeError both subclass ValueError.
     if isinstance(error, ValueError):

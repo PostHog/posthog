@@ -21,7 +21,9 @@ from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
 import zstd
+import redis.exceptions
 from celery.exceptions import SoftTimeLimitExceeded
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
 from posthog.caching.zstd_compressor import ZstdCompressor
@@ -39,6 +41,7 @@ from posthog.storage.hypercache_verifier import (
     classify_failure,
     verify_and_fix_all_teams,
 )
+from posthog.storage.object_storage import ObjectStorageError
 
 
 class TestVerificationResult(TestCase):
@@ -1376,6 +1379,14 @@ class TestClassifyFailure(SimpleTestCase):
         [
             ("an_empty_stored_value", EOFError("Ran out of input"), "data_error"),
             ("a_bug_in_the_sweep", AttributeError("'NoneType' object has no attribute 'get'"), "unknown"),
+            ("a_redis_write_during_an_outage", ConnectionInterrupted(connection=None), "dependency_unavailable"),
+            (
+                "a_raw_redis_timeout",
+                redis.exceptions.TimeoutError("Timeout reading from socket"),
+                "dependency_unavailable",
+            ),
+            ("an_s3_write_during_an_outage", ObjectStorageError("write failed"), "dependency_unavailable"),
+            ("a_dropped_db_connection", OperationalError("server closed the connection"), "dependency_unavailable"),
         ]
     )
     def test_reason_separates_a_bad_entry_from_a_bug(self, _name, error, expected_reason):
