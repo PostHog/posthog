@@ -31,6 +31,7 @@ TOPHOG_TO_RESTRICTION_PIPELINE = {
     "sessionreplay": "session_recordings",
     "errortracking": "errortracking",
     "clientwarnings": "clientwarnings",
+    "heatmaps": "heatmaps",
 }
 
 PRESETS = OrderedDict(
@@ -125,7 +126,7 @@ def _restriction_matches(
     Key fields absent from the tophog entry don't disqualify a restriction.
 
     Pipelines require full coverage: every one of the entry's pipelines must map to a
-    restriction pipeline the restriction applies to. Unmapped pipelines (e.g. ai, heatmaps)
+    restriction pipeline the restriction applies to. Unmapped pipelines (e.g. ai)
     can't be restricted at all, so an entry that includes one is never covered.
     """
     if _extendable_fields(restriction, key):

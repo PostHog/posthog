@@ -295,32 +295,25 @@ class TestEventIngestionRestrictionConfig(BaseTest):
             ],
         )
 
-    def test_pipeline_fields_in_redis(self):
+    @parameterized.expand(
+        [
+            ("session_recordings", "session_recordings"),
+            ("heatmaps", "heatmaps"),
+        ]
+    )
+    def test_pipeline_fields_in_redis(self, _name, pipeline):
         """Test that pipelines field is correctly stored in Redis"""
         config = EventIngestionRestrictionConfig.objects.create(
             token="test_token",
             restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
-            pipelines=["session_recordings"],
+            pipelines=[pipeline],
         )
 
         redis_key = config.get_redis_key()
         redis_data = self.redis_client.get(redis_key)
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
-        self.assertEqual(data[0]["pipelines"], ["session_recordings"])
-
-    def test_heatmaps_pipeline_reaches_redis(self):
-        """The heatmaps consumer filters rules on pipeline == "heatmaps", so the admin must be able to select it."""
-        config = EventIngestionRestrictionConfig.objects.create(
-            token="test_token",
-            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
-            pipelines=["heatmaps"],
-        )
-
-        redis_data = self.redis_client.get(config.get_redis_key())
-        data = json.loads(redis_data if redis_data is not None else b"[]")
-
-        self.assertEqual(data[0]["pipelines"], ["heatmaps"])
+        self.assertEqual(data[0]["pipelines"], [pipeline])
 
     def test_unknown_pipeline_is_rejected(self):
         with self.assertRaises(ValidationError):
