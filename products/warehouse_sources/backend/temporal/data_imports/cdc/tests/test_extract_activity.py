@@ -2739,6 +2739,49 @@ class TestSlotInvalidationRecovery:
         assert "cannot recreate slot" not in schema.latest_error
         mock_reader.close.assert_called_once()
 
+    @parameterized.expand([("recreation_failed", True), ("recreation_succeeded", False)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_a_reset_waits_for_the_new_slot_before_a_later_run_can_finish_it(
+        self,
+        _name,
+        awaits_slot,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # A reset left pending by recovery must stay paused while the slot is missing: its snapshot
+        # would start with no consistent point for capture to resume from.
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        if awaits_slot:
+            mock_adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+        else:
+            mock_adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value="users-snapshot",
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            if awaits_slot:
+                with pytest.raises(RuntimeError, match="cannot recreate slot"):
+                    cdc_extract_activity(inputs)
+            else:
+                cdc_extract_activity(inputs)
+
+        unpause.assert_not_called()
+        assert schema.sync_type_config["cdc_reset_pending"]["awaiting_slot"] is awaits_slot
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
@@ -3989,6 +4032,30 @@ class TestBufferedIngressCapture:
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
         assert MockBufferWriter.return_value.write_batch.called is not waits
         reader.confirm_position.assert_called_once_with("0/100")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_reset_still_waiting_on_a_slot_is_left_to_the_recovery(self, MockBufferWriter, mock_purge):
+        # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here
+        # would unpause the schedule, and the snapshot would start with no slot to resume from.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        pending = {"clear_deferred_runs": True, "awaiting_slot": True}
+        schema.sync_type_config["cdc_reset_pending"] = pending
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync"
+            ) as cancel,
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            self._run(MockBufferWriter, events, [schema], source)
+
+        cancel.assert_not_called()
+        unpause.assert_not_called()
+        assert mock_purge.called is False
+        assert schema.sync_type_config["cdc_reset_pending"] == pending
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
