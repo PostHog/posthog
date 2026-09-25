@@ -8103,7 +8103,7 @@
         }
     },
     "logs-alerts-destinations-create": {
-        "description": "Attach a Slack, webhook, or Microsoft Teams notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. The returned hog_function_ids identify the destination group.",
+        "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination only gets firing and resolved: firing triggers an incident and resolved resolves it. The returned hog_function_ids identify the destination group.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Attach alert destination",

@@ -252,7 +252,7 @@ export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string
 }
 
 /**
- * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination only gets the firing and resolved kinds: firing triggers an incident and resolved resolves it.
  */
 export const logsAlertsDestinationsCreate = async (
     projectId: string,

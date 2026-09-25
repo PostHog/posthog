@@ -237,6 +237,7 @@ class DestinationType(StrEnum):
     DISCORD = "discord"
     WEBHOOK = "webhook"
     TEAMS = "teams"
+    PAGERDUTY = "pagerduty"
 
     @property
     def label(self) -> str:
@@ -249,6 +250,7 @@ _DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
     DestinationType.DISCORD: "Discord",
     DestinationType.WEBHOOK: "Webhook",
     DestinationType.TEAMS: "Microsoft Teams",
+    DestinationType.PAGERDUTY: "PagerDuty",
 }
 
 # A type without a label would only surface as a KeyError inside a validation message a
@@ -257,12 +259,34 @@ if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
     raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
 
 
+class PagerDutySeverity(StrEnum):
+    CRITICAL = "critical"
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class PagerDutyRegion(StrEnum):
+    US = "us"
+    EU = "eu"
+
+
+class IncidentAction(StrEnum):
+    """What one event kind does to the incident an alert holds open in an incident manager."""
+
+    TRIGGER = "trigger"
+    RESOLVE = "resolve"
+
+
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    pagerduty_routing_key: NotRequired[str]
+    pagerduty_severity: NotRequired[str]
+    pagerduty_region: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):
@@ -295,6 +319,9 @@ class EventKindSpec:
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
     additional_actions: tuple[AlertDestinationAction, ...] = ()
+    # Only the kinds that open or close an incident set this. An incident manager destination
+    # sends nothing for the other kinds, because it has no way to close what they would open.
+    incident_action: IncidentAction | None = None
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -340,6 +367,6 @@ class AlertDelivery:
     channel: str  # "email" | "hog_function"
     target: str  # email address or destination name
     target_id: str | None = None  # hog function id
-    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp

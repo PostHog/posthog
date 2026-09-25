@@ -33,6 +33,7 @@ TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
     "template-slack",
     "template-webhook",
+    "template-pagerduty",
     "template-geoip",
     "plugin-posthog-plugin-geoip",
     "plugin-taxonomy-plugin",
