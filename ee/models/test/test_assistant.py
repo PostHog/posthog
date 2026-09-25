@@ -114,13 +114,19 @@ class TestCoreMemory(BaseTest):
         self.assertEqual(self.core_memory.text, "x" * CORE_MEMORY_MAX_CHARACTERS)
 
     async def test_formatted_text(self):
-        # Test formatted text with short content
         short_text = "Short text"
         await self.core_memory.aset_core_memory(short_text)
         self.assertEqual(self.core_memory.formatted_text, short_text)
 
-        # Test formatted text with long content
-        long_text = "x" * 6000
-        await self.core_memory.aset_core_memory(long_text)
-        self.assertEqual(len(self.core_memory.formatted_text), 5001)
-        self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])
+        # Anything the write cap accepts is read back whole, so the middle of a memory that fits is
+        # never dropped.
+        at_limit_text = "x" * CORE_MEMORY_MAX_CHARACTERS
+        await self.core_memory.aset_core_memory(at_limit_text)
+        self.assertEqual(self.core_memory.formatted_text, at_limit_text)
+
+    async def test_formatted_text_truncates_a_row_stored_over_the_limit(self):
+        over_limit_text = "a" * 6000 + "b" * 6000
+        await CoreMemory.objects.filter(pk=self.core_memory.pk).aupdate(text=over_limit_text)
+        await self.core_memory.arefresh_from_db()
+        half = CORE_MEMORY_MAX_CHARACTERS // 2
+        self.assertEqual(self.core_memory.formatted_text, over_limit_text[:half] + "…" + over_limit_text[-half:])

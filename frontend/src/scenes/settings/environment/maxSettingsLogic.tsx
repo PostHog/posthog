@@ -11,6 +11,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { CoreMemory } from '~/types'
 
 export const CORE_MEMORY_MAX_CHARACTERS = 10000
+// Below this much free space an append from chat has almost no chance of fitting, so the user is
+// warned before the memory goes fully silent rather than after.
+export const CORE_MEMORY_LOW_SPACE_CHARACTERS = 500
 
 export type CoreMemoryForm = {
     text: string
@@ -30,7 +33,9 @@ export interface maxSettingsLogicValues {
     coreMemoryFormValidationErrors: DeepPartialMap<CoreMemoryForm, ValidationErrorType>
     coreMemoryLoadError: string | null
     coreMemoryLoading: boolean
+    coreMemoryLowOnSpace: boolean
     coreMemoryOverLimit: boolean
+    coreMemorySpaceLeft: number
     isCoreMemoryFormSubmitting: boolean
     isCoreMemoryFormValid: boolean
     isLoading: boolean
@@ -206,6 +211,16 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
         coreMemoryOverLimit: [
             (s) => [s.coreMemoryForm],
             (coreMemoryForm: CoreMemoryForm) => (coreMemoryForm?.text?.length ?? 0) > CORE_MEMORY_MAX_CHARACTERS,
+        ],
+        coreMemorySpaceLeft: [
+            (s) => [s.coreMemory],
+            // Measured against the saved memory, because that is what the agent writes into from chat.
+            (coreMemory: CoreMemory | null) =>
+                Math.max(0, CORE_MEMORY_MAX_CHARACTERS - (coreMemory?.text?.length ?? 0)),
+        ],
+        coreMemoryLowOnSpace: [
+            (s) => [s.coreMemorySpaceLeft],
+            (coreMemorySpaceLeft: number) => coreMemorySpaceLeft <= CORE_MEMORY_LOW_SPACE_CHARACTERS,
         ],
     }),
 
