@@ -443,7 +443,9 @@ async def test_loop_failure_keeps_best_report_and_tool_count(
         patch(
             "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.fetch_metric_series",
             new_callable=AsyncMock,
-            return_value="Error: no insight bound to this investigation." if tool_error == "result" else "New metric evidence",
+            return_value="Error: no insight bound to this investigation."
+            if tool_error == "result"
+            else "New metric evidence",
             side_effect=RuntimeError("tool failed") if tool_error is True else None,
         ),
     ):
