@@ -94,10 +94,35 @@ describe('webhook template', () => {
         `)
     })
 
-    it('should throw an error if the webhook fails', async () => {
+    // A workflow step branches on the response status, so a status the author accepts has to survive
+    // as the step result instead of failing the step.
+    it.each([
+        ['an exact code', [404], 404],
+        ['the 4xx wildcard', ['4xx'], 404],
+        ['the 5xx wildcard in upper case', ['5XX'], 503],
+    ])('returns the response status for a code listed as non-failure with %s', async (_, codes, status) => {
+        let response = await tester.invoke({
+            url: 'https://example.com',
+            non_failure_status_codes: codes,
+        })
+
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status,
+            body: { message: 'Not Found' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.execResult).toEqual({ status, body: { message: 'Not Found' } })
+    })
+
+    it.each([
+        ['no codes are listed', {}],
+        ['the status is not in the list', { non_failure_status_codes: [404, '5xx'] }],
+    ])('should throw an error if the webhook fails and %s', async (_, extraInputs) => {
         let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',
             debug: true,
+            ...extraInputs,
         })
 
         response = await tester.invokeFetchResponse(response.invocation, {
@@ -105,11 +130,9 @@ describe('webhook template', () => {
             body: { message: 'Bad Request' },
         })
 
-        expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)
-        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
-            [
-              "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
-            ]
-        `)
+        expect(response.error).toEqual("Webhook failed with status 400: {'message': 'Bad Request'}")
+        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toEqual([
+            "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
+        ])
     })
 })

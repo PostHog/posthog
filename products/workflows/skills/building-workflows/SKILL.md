@@ -134,6 +134,24 @@ The snapshot is one-way: editing the library template later does not change step
 
 Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
+## Reacting to what a step returned
+
+A step stores its result in a run-scoped **workflow variable** (`output_variable`), and a later `conditional_branch` reads that variable. That is how a workflow notifies someone only when an HTTP call did not work, without moving the whole job into a destination with custom code.
+
+Build it in this order, on the workflow's own nodes:
+
+1. **Store only the field you need.** `"output_variable": {"key": "signup_status", "result_path": "status"}` on the `function` step that uses `template-webhook`. The step returns `{status, body}`, and all variables of a run share a 5 KB budget, so store the status rather than the body.
+2. **Declare the key** in the workflow's top-level `variables` with `workflows-update`, with no default. Storing works without it, but the editor's branch picker only offers declared variables.
+3. **Branch on success, not on one code.** A `conditional_branch` condition with two filters on `signup_status`, `gte 200` and `lt 400`, which must both match. Its `branch` edge at `index: 0` is the success path; its `continue` edge is everything else, which is where the Slack step goes. Never branch on `exact 200`: many endpoints answer 201, 202, or 204 when they succeed, and those runs would send a false alert.
+4. **Keep the step's `on_error` at its default, `continue`.** A step that fails (a 4xx or 5xx, a timeout, a connection error) stores nothing, so the variable stays `null`, the run continues to the branch, and the branch takes the `continue` edge. With `on_error: abort` the run stops at the failed step and nobody gets notified.
+5. **Test both paths.** `workflows-test-run` with `mock_async_functions=false` against a URL that answers the status you want to see, then read the variable in the step result and the branch taken in `workflows-logs`.
+
+To route one error status on its own path (for example, a 404 means "create the record"), list it in the step's `non_failure_status_codes` input (`{"value": [404]}`). A listed status finishes the step instead of failing it, so the variable holds that status and a condition with `exact 404` can match it.
+
+Full shapes for `output_variable` and the `workflow_variable` condition: [references/graph-schema.md](references/graph-schema.md).
+
+The same pattern covers any step whose result matters later: read the returned fields from a test run, store one of them, branch on it.
+
 ## Hard rules to surface to the user, not work around
 
 - **Behavioral targeting is unsupported.** "Did event X at least N times over the last M days" can't be expressed as a trigger or a batch/schedule audience. If asked, reject it and explain; don't approximate it with a broken filter. (The backend rejects behavioral cohorts in batch audiences outright.)

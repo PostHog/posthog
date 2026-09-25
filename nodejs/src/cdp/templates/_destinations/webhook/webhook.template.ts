@@ -29,13 +29,27 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
+// A listed status must reach the return below, so a workflow step can store it and branch on it.
+// The match follows the executor's rules (exact codes, and the 4xx and 5xx wildcards). The executor
+// also fails an unlisted status, but only this throw puts the response body in the step error.
 if (res.status >= 400) {
-  throw Error(f'Webhook failed with status {res.status}: {res.body}');
+  let nonFailure := false
+  for (let code in inputs.non_failure_status_codes ?? []) {
+    let entry := lower(toString(code))
+    if (entry == toString(res.status) or (entry == '4xx' and res.status < 500) or (entry == '5xx' and res.status >= 500 and res.status < 600)) {
+      nonFailure := true
+    }
+  }
+  if (not nonFailure) {
+    throw Error(f'Webhook failed with status {res.status}: {res.body}');
+  }
 }
 
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }
+
+return { 'status': res.status, 'body': res.body }
 `,
     inputs_schema: [
         {
@@ -102,6 +116,15 @@ if (inputs.debug) {
             secret: true,
             required: false,
             description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
+        },
+        {
+            key: 'non_failure_status_codes',
+            type: 'non_failure_status_codes',
+            label: 'Non-failure status codes',
+            secret: false,
+            required: false,
+            description:
+                'Status codes that should not fail this step. Accepts exact codes such as 404, or the wildcards 4xx and 5xx. Store the response in a workflow variable to branch on one of these codes instead of failing.',
         },
         {
             key: 'debug',
