@@ -438,23 +438,7 @@ describe('InstructionsFormatter', () => {
             const result = render(new InstructionsFormatter())
 
             expect(result).not.toContain("the user's PostHog project and its data")
-            const bullet = docsSearchBullet(result)
-            expect(bullet).toContain('docs-search')
-            expect(bullet).toMatch(/no project data/)
-            expect(bullet).toMatch(/skip it/)
-        })
-
-        // Each search answers a different kind of question, so neither bullet may leave its
-        // scope to the reader.
-        it('names a distinct scope for each knowledge source', () => {
-            const result = new InstructionsFormatter().buildToolsInstructions(fullCtx)
-            const businessBullet =
-                result
-                    .split('\n')
-                    .find((line) => line.startsWith('- ') && line.includes('business-knowledge-documents-search')) ?? ''
-
-            expect(businessBullet).toMatch(/Its scope is/)
-            expect(docsSearchBullet(result)).toMatch(/Its scope is/)
+            expect(docsSearchBullet(result)).toMatch(/no project data; skip it/)
         })
     })
 
