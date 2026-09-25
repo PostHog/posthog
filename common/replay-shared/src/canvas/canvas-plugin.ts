@@ -55,7 +55,12 @@ const PRELOAD_BUFFER_SIZE = 20
 const BUFFER_TIME = 30000 // 30 seconds
 const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
-export type CanvasPluginErrorHandler = (error: unknown) => void
+export interface CanvasPluginErrorContext {
+    canvasNodeId?: number
+    eventTimestamp?: number
+}
+
+export type CanvasPluginErrorHandler = (error: unknown, context?: CanvasPluginErrorContext) => void
 
 const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
 
@@ -227,8 +232,13 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
-            errorHandler: (error: unknown) => {
-                onError(error)
+            // rrweb calls this handler with the mutation payload first and the error second,
+            // so the payload is not the failure and must not be reported as one.
+            errorHandler: (mutationOrError: unknown, maybeError?: unknown) => {
+                onError(maybeError === undefined ? mutationOrError : maybeError, {
+                    canvasNodeId: data.id,
+                    eventTimestamp: e.timestamp,
+                })
             },
         })
 

@@ -416,6 +416,58 @@ describe('CanvasReplayerPlugin', () => {
         })
     })
 
+    describe('canvas mutation errors', () => {
+        const failingEvent = {
+            type: EventType.IncrementalSnapshot as const,
+            data: {
+                source: IncrementalSource.CanvasMutation as const,
+                id: 7,
+                type: 0,
+                commands: [{ property: 'drawImage', args: [{}, 0, 0] }],
+            },
+            timestamp: 1234,
+        }
+
+        const runFailingMutation = async (
+            callErrorHandler: (errorHandler: (...args: any[]) => void) => void
+        ): Promise<jest.Mock> => {
+            const onError = jest.fn()
+            const canvas = document.createElement('canvas')
+            const replayer = {
+                getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }),
+            }
+
+            ;(canvasMutation as jest.Mock).mockImplementationOnce(({ errorHandler }: any) => {
+                callErrorHandler(errorHandler)
+                return Promise.resolve()
+            })
+
+            const plugin = CanvasReplayerPlugin([failingEvent], onError)
+            plugin.onBuild?.(canvas, { id: 7, replayer } as any)
+            plugin.handler!(failingEvent, false, { replayer } as any)
+
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            return onError
+        }
+
+        it('reports the error rrweb passes second, not the mutation payload', async () => {
+            const error = new Error('could not replay canvas')
+
+            const onError = await runFailingMutation((errorHandler) => errorHandler(failingEvent.data, error))
+
+            expect(onError).toHaveBeenCalledWith(error, { canvasNodeId: 7, eventTimestamp: 1234 })
+        })
+
+        it('reports a single argument as the error', async () => {
+            const error = new Error('could not replay canvas')
+
+            const onError = await runFailingMutation((errorHandler) => errorHandler(error))
+
+            expect(onError).toHaveBeenCalledWith(error, expect.objectContaining({ canvasNodeId: 7 }))
+        })
+    })
+
     describe('target canvas sizing from snapshot mutations', () => {
         const makeCanvasEvent = (
             id: number,
