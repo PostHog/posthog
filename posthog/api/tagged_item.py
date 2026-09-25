@@ -59,7 +59,7 @@ def add_tags_to_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """
     for tag in normalize_tag_names(tags):
         tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        obj.tagged_items.get_or_create(tag=tag_instance)
     return list(obj.tagged_items.select_related("tag"))
 
 
