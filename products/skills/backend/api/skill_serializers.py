@@ -45,13 +45,12 @@ MAX_SKILL_FILE_COUNT = 200
 # Ownership is a short routing list, not an ACL — cap it so a create/update can't resolve membership,
 # clear the owner set, and insert an owner row per entry for an oversized input before being rejected.
 MAX_SKILL_OWNERS = 25
-# skill-get and skill-file-get return the whole text when the caller doesn't page, but a large
-# body or file is truncated by the MCP transport before it reaches an agent — and an un-paged
-# response reported body_next_offset as null, so the agent had no valid offset to continue from
-# and would treat a cut-off text as complete. get_by_name and get_file cap the first page at this
-# length so body_next_offset is always a real continuation offset the caller can page from until
-# it is null, never a guess. Sized to sit under observed transport truncation with room for the
-# response envelope (outline, file manifest, metadata).
+# The MCP transport truncates a large skill body or bundled file before it reaches an agent. A
+# response that returns the whole text has body_next_offset null, so the agent has no valid offset
+# to continue from and treats a cut-off text as complete. When the caller doesn't page, get_by_name
+# and get_file cap the first page at this length, so body_next_offset is always a real continuation
+# offset the caller can page from until it is null, never a guess. Sized to sit under observed
+# transport truncation with room for the response envelope (outline, file manifest, metadata).
 DEFAULT_BODY_PAGE_LENGTH = 8000
 # Tools that opt a scout skill into the report channel. Local copy of
 # products/signals/backend/scout_harness/skill_loader.REPORT_CHANNEL_TOOLS — skills must not
@@ -181,9 +180,10 @@ class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
     body_length = serializers.IntegerField(
         min_value=1,
         required=False,
-        help_text="Maximum number of characters to return starting at body_offset. Omit to return the whole skill "
-        "body or bundled file from the offset onwards. When the slice stops before the end, body_next_offset is the "
-        "offset to request next.",
+        help_text="Maximum number of characters to return starting at body_offset. Defaults to "
+        f"{DEFAULT_BODY_PAGE_LENGTH} when omitted, so a long skill body or bundled file comes back in pages. When the "
+        "slice stops before the end, body_next_offset is the offset to request next. Keep requesting until "
+        "body_next_offset is null.",
     )
 
 

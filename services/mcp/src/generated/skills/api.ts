@@ -160,7 +160,7 @@ export const LlmSkillsNameRetrieveQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Maximum number of characters to return starting at body_offset. Omit to return the whole skill body or bundled file from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.'
+            'Maximum number of characters to return starting at body_offset. Defaults to 8000 when omitted, so a long skill body or bundled file comes back in pages. When the slice stops before the end, body_next_offset is the offset to request next. Keep requesting until body_next_offset is null.'
         ),
     body_offset: zod
         .number()
@@ -425,7 +425,7 @@ export const LlmSkillsNameFilesRetrieveQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Maximum number of characters to return starting at body_offset. Omit to return the whole skill body or bundled file from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.'
+            'Maximum number of characters to return starting at body_offset. Defaults to 8000 when omitted, so a long skill body or bundled file comes back in pages. When the slice stops before the end, body_next_offset is the offset to request next. Keep requesting until body_next_offset is null.'
         ),
     body_offset: zod
         .number()
