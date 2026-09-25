@@ -132,6 +132,11 @@ func makeEventPropertyRules() *pathRule {
 	return root
 }
 
+// The typed map stores every flag value as a string, so a variant named "false" would read the same as a flag that
+// was evaluated and switched off (JSON false). The variant is stored under this sentinel instead. The query layer
+// maps it back to "false" and the flag API refuses it as a variant key.
+const falseVariantSentinel = "$false"
+
 type valueKind byte
 
 const (
@@ -346,6 +351,12 @@ func (p *processor) cleanEventProperties(v *value) (*value, error) {
 	}
 	for _, property := range cleaned.entries {
 		if property.key == "$feature_flags" && property.value.kind == kindObject {
+			for _, flag := range property.value.entries {
+				if flag.value.kind == kindString && flag.value.s == "false" {
+					flag.value.s = falseVariantSentinel
+					p.mutated = true
+				}
+			}
 			compare := func(a, b entry) int { return strings.Compare(a.key, b.key) }
 			if !slices.IsSortedFunc(property.value.entries, compare) {
 				slices.SortFunc(property.value.entries, compare)

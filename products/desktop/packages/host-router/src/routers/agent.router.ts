@@ -6,12 +6,14 @@ import type { AgentService } from "@posthog/workspace-server/services/agent/agen
 import { AGENT_SERVICE } from "@posthog/workspace-server/services/agent/identifiers";
 import {
   AgentServiceEvent,
+  authTerminalOutput,
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
   claudeAuthTerminalInput,
-  claudeAuthTerminalOutput,
   claudeSubscriptionStatusOutput,
+  codexCloudAuthAttemptInput,
+  codexCloudAuthTokensOutput,
   codexSubscriptionLoginOutput,
   codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
@@ -107,7 +109,7 @@ export const agentRouter = router({
 
   claudeAuthTerminal: publicProcedure
     .input(claudeAuthTerminalInput)
-    .output(claudeAuthTerminalOutput)
+    .output(authTerminalOutput)
     .query(({ ctx, input }) =>
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
@@ -120,6 +122,40 @@ export const agentRouter = router({
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
         .startCodexSubscriptionLogin(),
+    ),
+
+  codexCloudAuthTerminal: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .output(authTerminalOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexCloudAuthTerminal(input.attemptId),
+    ),
+
+  codexCloudAuthFileRead: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .output(codexCloudAuthTokensOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .readCodexCloudAuthFile(input.attemptId),
+    ),
+
+  codexCloudAuthFileRemove: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .removeCodexCloudAuthFile(input.attemptId),
+    ),
+
+  codexCloudAuthFinish: publicProcedure
+    .input(codexCloudAuthAttemptInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .finishCodexCloudAuth(input.attemptId),
     ),
 
   codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>

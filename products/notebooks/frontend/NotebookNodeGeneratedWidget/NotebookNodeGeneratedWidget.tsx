@@ -4,8 +4,10 @@ import { type ReactNode, useEffect } from 'react'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { UnsupportedNodePlaceholder } from 'scenes/notebooks/Nodes/sharedNodeSupport'
@@ -23,6 +25,8 @@ import {
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
 import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
+import { notebookWidgetDashboardLogic } from './notebookWidgetDashboardLogic'
+import { NotebookWidgetDashboardModal } from './NotebookWidgetDashboardModal'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
@@ -67,6 +71,7 @@ function ExpandedWidget({
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const notebookShortId = notebookLogic.props.shortId
     // Markdown props are cast without runtime validation, so a hand-written or legacy
     // tag can supply a non-string prompt or an unsupported model. Coerce both here, the
@@ -133,6 +138,23 @@ function ExpandedWidget({
     } = useActions(logic)
     const { trustBuild } = useActions(trustLogic)
     const { setMenuItems, updateAttributes } = useActions(nodeLogic)
+    const dashboardProps = {
+        notebookShortId,
+        nodeId: attributes.nodeId,
+        versionId: selectedVersionId ?? '',
+        title: attributes.title || 'Notebook widget',
+        persistNotebook: logicProps.persistNotebook,
+    }
+    const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const selectedArtifactUrl =
+        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
+    const canAddToDashboard =
+        isEditable &&
+        selectedVersionId &&
+        selectedArtifactUrl &&
+        currentTeamId &&
+        !artifactUnavailable &&
+        featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
     const selectedBuildHash =
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)
@@ -144,6 +166,7 @@ function ExpandedWidget({
 
     useEffect(() => {
         setMenuItems([
+            canAddToDashboard ? { label: 'Add to dashboard', onClick: openDashboardModal } : null,
             status?.is_reusable && status.widget_id
                 ? { label: 'Open reusable widget', to: urls.reusableWidget(status.widget_id) }
                 : null,
@@ -172,6 +195,8 @@ function ExpandedWidget({
         ])
     }, [
         isEditable,
+        canAddToDashboard,
+        openDashboardModal,
         openSourceModal,
         selectedBuildHash,
         selectedSecurityReview,
@@ -203,8 +228,6 @@ function ExpandedWidget({
     }
 
     const initialPrompt = prompt.trim()
-    const selectedArtifactUrl =
-        selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const widgetTrust = getNotebookWidgetTrust({
         trustByUser,
         sessionBuildHashes,
@@ -251,6 +274,7 @@ function ExpandedWidget({
             return (
                 <>
                     {trustControls('gate')}
+                    <NotebookWidgetDashboardModal {...dashboardProps} />
                     {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
                 </>
             )
@@ -258,6 +282,7 @@ function ExpandedWidget({
         return (
             <>
                 <div className="flex h-full min-h-0 w-full flex-col">
+                    <NotebookWidgetDashboardModal {...dashboardProps} />
                     {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
                         <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
                             <span className="flex items-center gap-2" role="status" aria-live="polite">

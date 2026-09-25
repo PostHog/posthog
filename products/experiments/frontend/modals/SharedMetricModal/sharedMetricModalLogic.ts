@@ -248,7 +248,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         offset: 0,
                         search: values.searchTerm || undefined,
                     })
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentSavedMetricsList() from 'products/experiments/frontend/generated/api' instead.
                     let page = (await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
@@ -257,7 +257,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                     // Keep paging so the tag filter and tag chips cover every shared metric, not only page 1.
                     const results = [...(page.results ?? [])]
                     while (page.next) {
-                        // nosemgrep: prefer-codegen-api
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         page = await api.get(page.next)
                         breakpoint()
                         results.push(...page.results)

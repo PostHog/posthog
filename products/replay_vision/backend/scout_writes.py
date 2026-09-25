@@ -21,7 +21,7 @@ DELETE_REFUSED = "Scouts cannot delete scanners. Set `enabled: false` to stop th
 CREDIT_LIMIT_REQUIRED = (
     "Set a credit limit on a scanner you create. A scanner spends credits on every session it "
     "observes, so without one it can use up the organization's whole Replay vision budget. "
-    "`vision-scanners-estimate-create` projects what a scanner will spend per month."
+    "`vision-scanners-estimate` projects what a scanner will spend per month."
 )
 
 CREDIT_LIMIT_NOT_CLEARABLE = (

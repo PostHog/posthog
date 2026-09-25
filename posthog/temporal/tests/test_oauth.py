@@ -417,6 +417,18 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_withheld_scopes_are_dropped_after_internal_scopes_are_added(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, withhold_scopes=["llm_gateway:read"])
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert "llm_gateway:read" not in scopes
+        assert "internal_run:read" in scopes
+        assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
         self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
         user, team = self._create_user_and_team()

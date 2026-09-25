@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -77,6 +78,8 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
+    "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
 }
 
@@ -867,7 +870,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant whose objects spend money as they run, and the only one whose delete the API
     # refuses rather than the token.
     scanner_reach = (
-        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-retrieve` and `vision-scanners-estimate-create` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
+        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-get` and `vision-scanners-estimate` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
         if "replay_scanner:write" in write_scopes
         else ""
     )
@@ -922,25 +925,26 @@ You run this tooling end to end on a schedule, so your experience is how PostHog
 - **At most one submission per run, near close-out, mentioned in your summary.** This is a side report to the PostHog team, never a way to end your turn or skip work: finish the run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
-_LINKING_HEAD = """# Linking what you reference
+_LINKING_HEAD = f"""# Linking what you reference
 
-A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
+A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity, pull request, and issue you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
 
 - **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
 - **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
 - **Never assemble an `/insights/new#q=…` link yourself.** Wrapping a query you ran into an insight URL only renders for the query kinds the insight editor accepts as a source; a trace, log, or session query wrapped that way opens a blank new insight with no error, so the reader sees an empty chart and has no way to tell the link is broken. Link the entity's own page instead.
 - **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
 - **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
-- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
+- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query.
+{PULL_REQUEST_LINK_RULE}"""
 
 # Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
 # collision the first warns about (writing a real URL where a `chart:` target belongs, or the
 # reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
 # the signal channel would dangle. The second names report fields (`title`, the report `summary`)
 # the signal channel never writes.
-_LINKING_REPORT_CLAUSES = """
+_LINKING_REPORT_CLAUSES = f"""
 - **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
-- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
+{PLAIN_TEXT_FIELDS_RULE}"""
 
 
 def _linking_section(*, report_channel: bool) -> str:

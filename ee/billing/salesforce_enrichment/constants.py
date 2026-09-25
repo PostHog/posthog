@@ -131,6 +131,9 @@ POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
 POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
 POSTHOG_FETCH_MAPPINGS_PAGE_SIZE = 10_000  # Page size for fetching org mappings, kept under Temporal's 4 MB gRPC limit
 
+POSTHOG_ORG_REGION_FIELD = "Posthog_Org_Region__c"
+ORG_REGION_BY_LICENSE_ID: dict[int, str] = {1: "EU", 2: "US"}
+
 # Salesforce field mappings for PostHog usage signals
 # Format: internal_field_name -> salesforce_custom_field_name
 POSTHOG_USAGE_FIELD_MAPPINGS = {

@@ -12,6 +12,8 @@ import { hogFlowsList } from '../generated/api'
 export const workflowsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.WORKFLOWS,
     path: ['products', 'workflows', 'frontend', 'emptyState', 'workflowsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await hogFlowsList(projectId, { limit: 1 })

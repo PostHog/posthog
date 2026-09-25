@@ -1,3 +1,5 @@
+from typing import Any, Optional
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +36,17 @@ def _webhook_action(action_id: str = "action_1", url: str = "https://example.com
         "type": "function",
         "config": {"template_id": "template-webhook", "inputs": {"url": {"value": url}}},
     }
+
+
+def _restamp(node: Any, contract: Optional[str]) -> Any:
+    if isinstance(node, dict):
+        restamped = {key: _restamp(value, contract) for key, value in node.items() if key != "bytecode_contract"}
+        if "bytecode_contract" in node and contract is not None:
+            restamped["bytecode_contract"] = contract
+        return restamped
+    if isinstance(node, list):
+        return [_restamp(item, contract) for item in node]
+    return node
 
 
 class TestHogFlowRevisions(APIBaseTest):
@@ -188,6 +201,43 @@ class TestHogFlowRevisions(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert self._list_revisions(flow_id) == []
         assert response.json()["version"] == 1
+
+    @parameterized.expand([("stored_before_stamping", None), ("stamped_by_an_older_runtime", "0000000000000000")])
+    def test_activation_after_a_runtime_change_does_not_append_revision(self, _name, stored_contract):
+        flow_id = self._create_active_flow()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        HogFlow.objects.filter(pk=flow_id).update(
+            actions=_restamp(flow.actions, stored_contract), trigger=_restamp(flow.trigger, stored_contract)
+        )
+
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        assert activate.json()["version"] == 1
+        assert self._list_revisions(flow_id) == []
+
+    def test_an_authored_key_named_like_the_stamp_still_versions_the_flow(self):
+        # The stamp is stripped from the comparison only where it sits beside a bytecode. A person's
+        # own JSON body can carry a key with the same name, and editing it is a real change.
+        flow_id = self._create_active_flow()
+
+        def body_action(marker: str) -> dict:
+            action = _webhook_action()
+            action["config"]["inputs"]["body"] = {"value": {"bytecode_contract": marker}}
+            return action
+
+        first = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": [_trigger_action(), body_action("one")]}
+        )
+        assert first.status_code == 200, first.json()
+        version_after_first = first.json()["version"]
+
+        second = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": [_trigger_action(), body_action("two")]}
+        )
+        assert second.status_code == 200, second.json()
+        assert second.json()["version"] == version_after_first + 1
 
     def test_no_op_live_edit_does_not_append_revision(self):
         # Two identical saves in a row: the first may change stored shape (create vs update
