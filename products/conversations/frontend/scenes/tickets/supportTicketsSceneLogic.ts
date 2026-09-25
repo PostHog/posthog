@@ -2,7 +2,6 @@ import {
     MakeLogicType,
     actions,
     afterMount,
-    beforeUnmount,
     isBreakpoint,
     kea,
     key,
@@ -185,12 +184,16 @@ function hasFilterParams(searchParams: Record<string, any>): boolean {
     return FILTER_URL_PARAM_KEYS.some((paramKey) => searchParams[paramKey] !== undefined)
 }
 
+function isTicketListPath(pathname: string): boolean {
+    // A pathname still carries the project prefix and any trailing slash that the route paths drop.
+    return stripTrailingSlash(removeProjectIdIfPresent(pathname)) === TICKET_LIST_PATH
+}
+
 // Other scenes connect to this logic, so it also mounts on pages that show no ticket list:
 // the ticket detail scene reuses its loadTickets action, and a notebook node mounts it
 // through the saved views menu. Only the list the user looks at owns the page URL.
 function isOnTicketListPage(): boolean {
-    // location.pathname still carries the project prefix and any trailing slash that the route paths drop.
-    return stripTrailingSlash(removeProjectIdIfPresent(router.values.location.pathname)) === TICKET_LIST_PATH
+    return isTicketListPath(router.values.location.pathname)
 }
 
 // Compare a URL against the current filters via their canonical encodings, so
@@ -426,8 +429,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
         applyView: (view: SavedTicketView) => ({ view }),
-        // `restored` marks a view the scene puts back by itself, rather than one the user
-        // asked for through the URL.
+        // `restored` marks a view the scene puts back by itself, not one the URL asked for.
         loadSavedView: (shortId: string, restored: boolean = false) => ({ shortId, restored }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
@@ -1001,15 +1003,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         }
     }),
     urlToAction(({ actions, values, props, cache }) => ({
-        [TICKET_LIST_PATH]: (_, searchParams) => {
+        [TICKET_LIST_PATH]: (_, searchParams, __, { initial }, previousLocation) => {
             if (props.distinctIds?.length) {
                 return
             }
-            // kea-router replays the current URL when the scene mounts. The replay is not a
-            // navigation, so on a bare URL it must not detach the saved view restored from the
-            // last session. afterMount owns the initial state instead.
-            const isMountReplay = !cache.urlHandled
-            cache.urlHandled = true
+            // Two ways to arrive on the page rather than move around inside it: the URL replay
+            // kea-router runs when the logic mounts, and a navigation from another page. The
+            // detail scene connects to this logic, so it stays mounted while the user reads a
+            // ticket and the trip back to the list is the second kind. Neither arrival means the
+            // user left the saved view, so a bare URL must not detach it.
+            const isMountReplay = !!initial
+            const navigatedInFromAnotherPage = !isMountReplay && !isTicketListPath(previousLocation.pathname)
+            const arrivingOnPage = isMountReplay || navigatedInFromAnotherPage
             // A URL change we wrote ourselves already matches state — re-applying it would
             // clobber filters not encoded in the URL. External navigations don't set this.
             if (cache.selfNavigating) {
@@ -1033,12 +1038,19 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             // would replace those filter params with ?view=<short_id>, and the link the user
             // shares would no longer say what they picked.
             const leavingSavedView =
-                (!isMountReplay || hasFilterParams(searchParams)) && (!!values.activeView || !!cache.latestViewShortId)
+                (!arrivingOnPage || hasFilterParams(searchParams)) && (!!values.activeView || !!cache.latestViewShortId)
             if (
                 leavingSavedView ||
                 (hasFilterParams(searchParams) && !urlFiltersMatchState(searchParams, values.currentFilters))
             ) {
                 actions.applyUrlFilters(urlParamsToFilters(searchParams))
+                return
+            }
+            // The sidebar link, the scene tab and the back button all land here with a bare URL.
+            // afterMount restores the view on a mount replay, and only runs once, so a navigation
+            // in repeats that restore: the button keeps its name and the URL names the view again.
+            if (navigatedInFromAnotherPage && values.activeView) {
+                actions.loadSavedView(values.activeView.short_id, true)
             }
         },
     })),
@@ -1076,10 +1088,5 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
         }
         actions.loadTickets()
-    }),
-    beforeUnmount(({ cache }) => {
-        // kea keeps the cache when the scene unmounts, so the next mount must start again
-        // with no URL handled.
-        cache.urlHandled = false
     }),
 ])

@@ -264,9 +264,7 @@ describe('supportTicketsSceneLogic', () => {
         const SAVED_VIEW = makeSavedView('view-a', { status: ['open'] })
 
         // Applies a view, then rebuilds the kea context the way a new browser session does:
-        // the persisted view and filters survive, the mounted logic does not. The page that
-        // follows carries no query params unless the caller passes some, like the sidebar link
-        // and a bookmark do.
+        // the persisted view and filters survive, the mounted logic does not.
         async function applyViewThenReopenAt(path: string, searchParams?: Record<string, any>): Promise<void> {
             router.actions.push(urls.supportTickets())
             logic = supportTicketsSceneLogic()
@@ -344,6 +342,29 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.location.pathname).toContain(urls.supportTicketDetail('ticket-1'))
             expect(router.values.searchParams).toEqual({})
             expect(logic.values.activeView?.short_id).toBe('view-a')
+        })
+
+        it('keeps the saved view when the user comes back to the list from a ticket', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+            })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(SAVED_VIEW)
+            }).toFinishAllListeners()
+
+            // The logic stays mounted for the whole trip, so the return is a navigation and not
+            // a new mount. The sidebar link, the scene tab and the back button all land bare.
+            router.actions.push(urls.supportTicketDetail('ticket-1'))
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(urls.supportTickets())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('view-a')
         })
 
         it('ignores a saved view response after navigating to explicit filters', async () => {
