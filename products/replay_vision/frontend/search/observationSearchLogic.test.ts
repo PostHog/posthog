@@ -77,6 +77,92 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
+    it('sends the date range with the search, re-searches on change, and syncs it with the URL', async () => {
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setDateRange('-30d', null)
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+        const requestUrl = new URL(searchSpy.mock.calls[0][0].request.url)
+        expect(requestUrl.searchParams.get('date_from')).toBe('-30d')
+        expect(requestUrl.searchParams.get('date_to')).toBeNull()
+        expect(router.values.searchParams.date_from).toBe('-30d')
+
+        // A range change re-runs the shown search, like a scanner scope change does.
+        await expectLogic(logic, () => logic.actions.setDateRange('-7d', '-1d')).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(2)
+        const secondRequest = new URL(searchSpy.mock.calls[1][0].request.url).searchParams
+        expect([secondRequest.get('date_from'), secondRequest.get('date_to')]).toEqual(['-7d', '-1d'])
+
+        // "All time" arrives as the DateFilter's `all` sentinel, which the search API rejects as a bound.
+        await expectLogic(logic, () => logic.actions.setDateRange('all', null)).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(3)
+        expect(new URL(searchSpy.mock.calls[2][0].request.url).searchParams.get('date_from')).toBeNull()
+        expect(logic.values.dateFrom).toBeNull()
+
+        router.actions.push(urls.replayVision(), { tab: 'search', q: 'confused users', date_from: '-90d' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.dateFrom).toBe('-90d')
+        expect(logic.values.dateTo).toBeNull()
+        logic.unmount()
+    })
+
+    it('checks every result and tags only the sessions whose recording the API omits', async () => {
+        // created_at is analysis time, so it cannot rule expiry out for a backfilled scan of an old
+        // session; every result's session goes in the one batched check, and only omitted ones are tagged.
+        searchSpy.mockImplementation(() => [
+            200,
+            {
+                results: [
+                    { observation: { id: 'obs-1', session_id: 's-deleted' }, distance: 0.1 },
+                    { observation: { id: 'obs-2', session_id: 's-playable' }, distance: 0.11 },
+                ],
+            },
+        ])
+        const recordingsSpy: jest.Mock = jest.fn(() => [200, { results: [{ id: 's-playable' }], has_next: false }])
+        useMocks({ get: { '/api/environments/:team_id/session_recordings': recordingsSpy } })
+
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(recordingsSpy).toHaveBeenCalledTimes(1)
+        const requested = JSON.parse(
+            new URL(recordingsSpy.mock.calls[0][0].request.url).searchParams.get('session_ids') ?? '[]'
+        )
+        expect(requested).toEqual(['s-deleted', 's-playable'])
+        expect(logic.values.expiredSessionIds).toEqual(new Set(['s-deleted']))
+        logic.unmount()
+    })
+
+    it('shows no expired tags and no error toast when the recordings check is forbidden', async () => {
+        // A user with Replay Vision access but no session-recording access gets a 403 here; the check
+        // must degrade to no tags rather than toast after every search.
+        searchSpy.mockImplementation(() => [
+            200,
+            { results: [{ observation: { id: 'obs-1', session_id: 's-1' }, distance: 0.1 }] },
+        ])
+        useMocks({ get: { '/api/environments/:team_id/session_recordings': () => [403, { detail: 'forbidden' }] } })
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(logic.values.results?.map((r) => r.observation.id)).toEqual(['obs-1'])
+        expect(logic.values.expiredSessionIds).toEqual(new Set())
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
+        logic.unmount()
+    })
+
     it.each([
         ['spread distances split off a top tier', [0.1, 0.12, 0.4], expect.closeTo(0.15)],
         ['clustered distances stay one tier', [0.1, 0.12, 0.14], null],
