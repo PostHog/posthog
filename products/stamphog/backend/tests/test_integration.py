@@ -225,9 +225,7 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     recorder.author_history["src"] = [commit("c-author", author)]
 
     capture_fn = MagicMock()
-    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
-        mock_capture_cm.return_value.__enter__.return_value = capture_fn
-        mock_capture_cm.return_value.__exit__.return_value = False
+    with patch.object(activities, "ph_background_capture", return_value=capture_fn):
         status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
     assert status == 202
 

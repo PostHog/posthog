@@ -49,7 +49,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ph_background_capture, ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 
 from products.stamphog.backend.facade.enums import (
@@ -78,6 +78,7 @@ from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
     build_reviewer_invocation,
+    parse_engine_timings,
     parse_reviewer_output,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
@@ -418,13 +419,20 @@ def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int,
         return None
 
 
-def _timed(timings_ms: dict[str, int], name: str, fetch: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Run one context read and record its wall-clock milliseconds under ``name``."""
-    started = time.monotonic()
-    try:
-        return fetch(*args, **kwargs)
-    finally:
-        timings_ms[name] = int((time.monotonic() - started) * 1000)
+class _StepTimer:
+    """Wall-clock milliseconds per named step, for the run output and the worker log."""
+
+    def __init__(self) -> None:
+        self.timings_ms: dict[str, int] = {}
+
+    @contextmanager
+    def step(self, name: str) -> Iterator[None]:
+        # Recorded on failure too, so the log line shows how long the failing step ran.
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.timings_ms[name] = int((time.monotonic() - started) * 1000)
 
 
 @activity.defn
@@ -446,13 +454,17 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity from its merged PRs would read to the engine as human trust. Without facts the
     # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
-    timings_ms: dict[str, int] = {}
+    timer = _StepTimer()
     started = time.monotonic()
     executor = ThreadPoolExecutor(max_workers=_CONTEXT_FETCH_WORKERS, thread_name_prefix="stamphog-context")
     try:
 
         def submit(name: str, fetch: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:
-            return executor.submit(_timed, timings_ms, name, fetch, *args, **kwargs)
+            def timed_fetch() -> Any:
+                with timer.step(name):
+                    return fetch(*args, **kwargs)
+
+            return executor.submit(timed_fetch)
 
         pr_future = submit("pr", client.get_pr, repo, number)
         files_future = submit("files", client.get_pr_files, repo, number)
@@ -531,7 +543,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
             # Read at the PR head, unlike policy_files: the sandbox checkout is the head, and the pre-check
             # must budget the size gate as the sandbox does. None means unknown.
             "folder_policy_files": folder_policy_future.result(),
-            "context_timings_ms": {**timings_ms, "total": int((time.monotonic() - started) * 1000)},
+            "context_timings_ms": {**timer.timings_ms, "total": int((time.monotonic() - started) * 1000)},
         }
     finally:
         # A failed read raises out of its result() above and fails the activity, which retries. The
@@ -702,34 +714,6 @@ def _step_timeout(deadline: float, ceiling_seconds: int) -> int:
     if remaining <= 0:
         raise RuntimeError("the review budget ran out before the sandbox phase finished")
     return min(ceiling_seconds, remaining)
-
-
-class _StepTimer:
-    """Wall-clock milliseconds per sandbox step, for the run output and the worker log."""
-
-    def __init__(self) -> None:
-        self.timings_ms: dict[str, int] = {}
-
-    @contextmanager
-    def step(self, name: str) -> Iterator[None]:
-        # Recorded on failure too, so the log line shows how long the failing step ran.
-        started = time.monotonic()
-        try:
-            yield
-        finally:
-            self.timings_ms[name] = int((time.monotonic() - started) * 1000)
-
-
-def _engine_timings(stdout: str) -> dict[str, int]:
-    """The engine's own phase timings from its last stdout line, or {} when it printed none."""
-    lines = [line for line in stdout.splitlines() if line.strip()]
-    try:
-        timings = json.loads(lines[-1]).get("timings_ms") if lines else None
-    except (ValueError, AttributeError):
-        return {}
-    if not isinstance(timings, dict):
-        return {}
-    return {str(name): value for name, value in timings.items() if isinstance(value, int)}
 
 
 def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
@@ -1032,7 +1016,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
                 "reviewer_exit_code": result.exit_code,
                 "timings_ms": timer.timings_ms,
-                "engine_timings_ms": _engine_timings(result.stdout),
+                "engine_timings_ms": parse_engine_timings(result.stdout),
             }
             run.save(update_fields=["output", "updated_at"])
 
@@ -1246,14 +1230,17 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
 
 
 def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) -> None:
-    """Emit ``stamphog_review_timings``. Best effort: the verdict is already posted and saved."""
+    """Emit ``stamphog_review_timings``. Best effort: the verdict is already posted and saved.
+
+    The background client, because a per-call client and its synchronous flush would block every
+    review's last activity for seconds.
+    """
     try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=run.pull_request.author_login or run.pull_request.repo_config.repository,
-                event="stamphog_review_timings",
-                properties=_review_timing_properties(run, verdict, post_verdict_ms),
-            )
+        ph_background_capture()(
+            distinct_id=run.pull_request.author_login or run.pull_request.repo_config.repository,
+            event="stamphog_review_timings",
+            properties=_review_timing_properties(run, verdict, post_verdict_ms),
+        )
     except Exception:
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 

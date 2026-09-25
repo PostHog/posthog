@@ -285,12 +285,16 @@ class FamiliarityFactsCollector:
             commits[fact[0]] = fact[1]
             return fact[0]
 
+        futures = [*blame_futures.values(), *history_futures]
+        if any(
+            isinstance(future.exception(), GitHubRateLimitError | GitHubEgressBudgetExhausted) for future in futures
+        ):
+            logger.warning("stamphog_familiarity_facts_rate_limited", repo=self.repo)
+            return None, FamiliarityStatus.RATE_LIMITED
+
         blame: dict[str, list[dict]] = {}
         for path, future in blame_futures.items():
             error = future.exception()
-            if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
-                logger.warning("stamphog_familiarity_facts_rate_limited", repo=self.repo)
-                return None, FamiliarityStatus.RATE_LIMITED
             if error is not None:
                 logger.info("stamphog_familiarity_blame_failed", repo=self.repo, error=type(error).__name__)
                 status = FamiliarityStatus.PARTIAL_BLAME
@@ -306,9 +310,6 @@ class FamiliarityFactsCollector:
         wanted_directories = set(directories)
         for history_future in history_futures:
             error = history_future.exception()
-            if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
-                logger.warning("stamphog_familiarity_facts_rate_limited", repo=self.repo)
-                return None, FamiliarityStatus.RATE_LIMITED
             if error is not None:
                 logger.warning("stamphog_familiarity_history_failed", repo=self.repo, error=type(error).__name__)
                 return None, FamiliarityStatus.HISTORY_FAILED
