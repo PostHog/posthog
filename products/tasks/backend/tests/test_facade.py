@@ -1204,20 +1204,34 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
-    @parameterized.expand([(False, None), (True, "implementation")])
+    @parameterized.expand(
+        [
+            ("manual_implementation", False, "implementation", "implementation", None),
+            ("pipeline_after_manual", True, "implementation", None, "implementation"),
+            ("pipeline_discussion", True, "discussion", "implementation", None),
+        ]
+    )
     def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
-        self, pipeline_rerun: bool, expected_stage: str | None
+        self,
+        _name: str,
+        pipeline_rerun: bool,
+        relationship: str,
+        previous_stage: str | None,
+        expected_stage: str | None,
     ):
         from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import record_report_task
 
-        # The report link is present so only `internal` can withhold the stamp here.
         report = SignalReport.objects.create(team=self.team)
         task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"ai_stage": "implementation"},
+            state={"ai_stage": previous_stage} if previous_stage else {},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1227,6 +1241,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 self.user.id,
                 validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
                 pipeline_rerun=pipeline_rerun,
+                free_trial_enabled=False,
             )
 
         assert result is not None and result.error is None

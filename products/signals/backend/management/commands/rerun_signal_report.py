@@ -19,6 +19,7 @@ from posthog.models import User
 from posthog.temporal.common.client import async_connect
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import self_driving_quota_gate
@@ -97,6 +98,8 @@ class Command(BaseCommand):
             raise CommandError("An implementation replacement is already in progress")
         if self_driving_quota_gate(report.team).enforced:
             raise CommandError("The organization's self-driving credits quota blocks research")
+        if daily_report_limit_gate(report.team).limited:
+            raise CommandError("The project's daily report limit blocks research")
         if self_driving_free_trial_enabled(report.team):
             raise CommandError("This organization's free trial does not allow a new implementation run")
         linked_tasks = {

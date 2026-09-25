@@ -8090,7 +8090,7 @@ def run_task(
     gate (429) is applied by the view before calling this. A report implementation raises
     ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
     ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
-    fresh run and retains the predecessor's protected implementation stage.
+    fresh run and stamps the protected implementation stage from the verified report-task link.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -8130,13 +8130,17 @@ def run_task(
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
+    is_implementation = False
     if report_id_for_slot_check is not None:
         # Free trial gate: the create-time gate refuses a new implementation, but a task created
         # before sales turned the flag on can still be started or retried from here, and its pull
         # request bills the trial org. Only the implementation relationship opens one, so a
         # discussion keeps running. Outside the transaction below, because the flag read does
         # network I/O and must not hold the report row lock.
-        if is_report_implementation_task(team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)):
+        is_implementation = is_report_implementation_task(
+            team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+        )
+        if is_implementation:
             enforce_self_driving_free_trial(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,
@@ -8404,10 +8408,8 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
-        if pipeline_rerun and task.internal and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            previous_ai_stage = (previous_run.state or {}).get("ai_stage")
-            if previous_ai_stage == "implementation":
-                extra_state["ai_stage"] = previous_ai_stage
+        if pipeline_rerun and task.internal and is_implementation:
+            extra_state["ai_stage"] = "implementation"
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the

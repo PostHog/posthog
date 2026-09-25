@@ -32,6 +32,12 @@ class TestRerunSignalReportCommand(BaseTest):
         )
         quota_patch.start()
         self.addCleanup(quota_patch.stop)
+        daily_limit_patch = patch(
+            "products.signals.backend.management.commands.rerun_signal_report.daily_report_limit_gate",
+            return_value=SimpleNamespace(limited=False),
+        )
+        daily_limit_patch.start()
+        self.addCleanup(daily_limit_patch.stop)
         usage_patch = patch(
             "products.signals.backend.management.commands.rerun_signal_report.task_run_usage_limited",
             return_value=False,
@@ -105,6 +111,22 @@ class TestRerunSignalReportCommand(BaseTest):
             raise AssertionError("The command started alongside an active summary workflow")
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
+
+    @patch.object(Command, "_start_workflow", new_callable=AsyncMock)
+    @patch(
+        "products.signals.backend.management.commands.rerun_signal_report.daily_report_limit_gate",
+        return_value=SimpleNamespace(limited=True),
+    )
+    def test_daily_limit_blocks_before_report_promotion(self, _limit: object, start: AsyncMock) -> None:
+        try:
+            self.command(execute=True)
+        except CommandError as error:
+            assert "daily report limit blocks research" in str(error)
+        else:
+            raise AssertionError("A limited team started research")
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
+        start.assert_not_awaited()
 
     @parameterized.expand(
         [
