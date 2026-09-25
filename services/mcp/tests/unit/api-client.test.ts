@@ -290,22 +290,30 @@ describe('ApiClient', () => {
             return { client, mockFetch }
         }
 
-        it('hits the retrieve endpoint with no query string when called by numeric id and no overrides', async () => {
+        // Every id form goes to the same endpoint: the API reads a purely numeric value
+        // as the primary key and falls back to short_id. An 8-digit id fits both shapes,
+        // so guessing the kind client-side sent primary keys down the short_id path.
+        it.each([
+            ['numeric id', '42'],
+            ['8-digit numeric id', '10298320'],
+            ['short_id', 'abc12345'],
+        ])('resolves a %s through the retrieve endpoint', async (_label, insightId) => {
             const { client, mockFetch } = setupClient()
             mockFetch.mockResolvedValueOnce(
                 new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
             )
 
-            await client.insights({ projectId: '1' }).get({ insightId: '42' })
+            const result = await client.insights({ projectId: '1' }).get({ insightId })
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
             const [url] = mockFetch.mock.calls[0]!
-            expect(url).toBe('https://example.com/api/projects/1/insights/42/')
+            expect(url).toBe(`https://example.com/api/projects/1/insights/${insightId}/`)
+            expect(result.success).toBe(true)
 
             vi.unstubAllGlobals()
         })
 
-        it('hits the retrieve endpoint with the override query string when called by numeric id with overrides', async () => {
+        it('carries the overrides on the retrieve call', async () => {
             const { client, mockFetch } = setupClient()
             mockFetch.mockResolvedValueOnce(
                 new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
@@ -322,45 +330,6 @@ describe('ApiClient', () => {
             expect(url).toContain('https://example.com/api/projects/1/insights/42/?')
             expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
             expect(url).toContain(`filters_override=${encodeURIComponent(filtersOverride)}`)
-
-            vi.unstubAllGlobals()
-        })
-
-        it('resolves short_id via the list endpoint in one hop when no overrides are provided', async () => {
-            const { client, mockFetch } = setupClient()
-            mockFetch.mockResolvedValueOnce(
-                new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
-            )
-
-            const result = await client.insights({ projectId: '1' }).get({ insightId: 'abc12345' })
-
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            const [url] = mockFetch.mock.calls[0]!
-            expect(url).toContain('/api/projects/1/insights/?short_id=abc12345')
-            expect(result.success).toBe(true)
-
-            vi.unstubAllGlobals()
-        })
-
-        it('resolves short_id and applies overrides in a single list call', async () => {
-            const { client, mockFetch } = setupClient()
-            mockFetch.mockResolvedValueOnce(
-                new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
-            )
-
-            await client.insights({ projectId: '1' }).get({
-                insightId: 'abc12345',
-                variables_override: variablesOverride,
-            })
-
-            // The list endpoint runs the same InsightSerializer.to_representation
-            // and applies overrides from query_params, so a single hop suffices.
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            const [url] = mockFetch.mock.calls[0]!
-            expect(url).toContain('/api/projects/1/insights/?')
-            expect(url).toContain('short_id=abc12345')
-            expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
-            expect(url).not.toContain('filters_override')
 
             vi.unstubAllGlobals()
         })
