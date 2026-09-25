@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from functools import partial
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -35,6 +36,9 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_claims import get_active_claim
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 MAX_HANDOVER_ATTEMPTS = 5
@@ -138,21 +142,47 @@ def canonical_pr_url(url: str) -> str | None:
 
 def _automation_receipts(team_id: int, report_id: str) -> dict[UUID, SignalReportArtefact]:
     receipts: dict[UUID, SignalReportArtefact] = {}
+    legacy_receipts: dict[UUID, SignalReportArtefact] = {}
     for row in SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type="task_run"):
         try:
             content = TaskRunArtefact.model_validate_json(row.content)
             if (
                 content.product == "signals"
                 and content.type == "implementation"
-                and content.automation_branch
                 and content.run_id
-                and row.actor_kind == "task"
                 and str(row.task_id) == content.task_id
             ):
-                receipts[UUID(content.run_id)] = row
+                if row.actor_kind == "task" and content.automation_branch:
+                    receipts[UUID(content.run_id)] = row
+                elif row.actor_kind is None and content.automation_branch is None:
+                    legacy_receipts[UUID(content.run_id)] = row
         except (ValidationError, ValueError):
             continue
-    return receipts
+    return {**legacy_receipts, **receipts}
+
+
+def _legacy_timeout_branch(
+    receipt: SignalReportArtefact, content: TaskRunArtefact, run: TaskRunDTO, pr_url: str
+) -> str | None:
+    if receipt.actor_kind is not None or content.automation_branch is not None:
+        return None
+    branch = run.state.get("self_driving_head_branch")
+    verified_urls = run.state.get("verified_pr_urls") or []
+    if (
+        content.run_id != str(run.id)
+        or content.task_id != str(run.task_id)
+        or run.task_origin_product != tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+        or run.status != "failed"
+        or run.environment != "cloud"
+        or run.mode != "background"
+        or run.state.get("ai_stage") != "implementation"
+        or run.state.get("timed_out_wall_clock") is not True
+        or not isinstance(branch, str)
+        or not branch.startswith("posthog-self-driving/")
+        or pr_url not in {canonical_pr_url(url) for url in verified_urls if isinstance(url, str)}
+    ):
+        return None
+    return branch
 
 
 def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget]:
@@ -186,11 +216,7 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
         ):
             continue
         content = TaskRunArtefact.model_validate_json(receipt.content)
-        if (
-            str(run.task_id) != content.task_id
-            or run.state.get("ai_stage") != "implementation"
-            or run.state.get("self_driving_head_branch") != content.automation_branch
-        ):
+        if str(run.task_id) != content.task_id or run.state.get("ai_stage") != "implementation":
             continue
         verified_urls = (
             {
@@ -203,10 +229,15 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
         )
         for raw_url in tasks_facade.read_pr_urls(run.output):
             url = canonical_pr_url(raw_url)
+            branch = content.automation_branch if receipt.actor_kind == "task" else None
+            if url and branch is None:
+                branch = _legacy_timeout_branch(receipt, content, run, url)
             if (
                 not url
                 or url not in eligible_urls
                 or url in targets
+                or not branch
+                or run.state.get("self_driving_head_branch") != branch
                 or (run.status == "failed" and url not in verified_urls)
             ):
                 continue
@@ -229,7 +260,13 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
         return None
     content = TaskRunArtefact.model_validate_json(receipt.content)
     parsed = GitHubIntegrationBase.parse_pull_request_url(target.pr_url)
-    if parsed is None or not content.automation_branch or content.run_id != str(target.run_id):
+    if parsed is None or content.run_id != str(target.run_id):
+        return None
+    branch = content.automation_branch if receipt.actor_kind == "task" else None
+    if branch is None:
+        run = tasks_facade.get_task_run(target.run_id, team_id)
+        branch = _legacy_timeout_branch(receipt, content, run, target.pr_url) if run is not None else None
+    if not branch:
         return None
     tasks = tasks_facade.get_tasks_by_ids([target.task_id], [team_id])
     if not tasks or (tasks[0].repository or "").lower() != parsed.repository.lower():
@@ -246,7 +283,7 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
         or pr.get("merged")
         or not isinstance(sha, str)
         or not sha
-        or pr.get("head_branch") != content.automation_branch
+        or pr.get("head_branch") != branch
         or str(pr.get("head_repository", "")).lower() != parsed.repository.lower()
         or (check_sha and sha != target.head_sha)
     ):

@@ -18,6 +18,7 @@ from products.signals.backend.artefact_schemas import (
     ImplementationDispatch,
     ImplementationHandover,
     ImplementationReplacement,
+    TaskRunArtefact,
 )
 from products.signals.backend.auto_start import (
     ImplementationReportContent,
@@ -48,6 +49,7 @@ from products.tasks.backend.models import Task, TaskRun
 OLD_PR = "https://github.com/example/repo/pull/1"
 KEPT_PR = "https://github.com/example/repo/pull/2"
 NEW_PR = "https://github.com/example/repo/pull/3"
+LEGACY_BRANCH = "posthog-self-driving/automated-original"
 
 
 class TestSupersedeHandover(BaseTest):
@@ -113,6 +115,20 @@ class TestSupersedeHandover(BaseTest):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def make_legacy_receipt(self) -> None:
+        receipt = SignalReportArtefact.objects.get(report=self.report, type="task_run", task=self.task)
+        content = TaskRunArtefact.model_validate_json(receipt.content)
+        receipt.content = content.model_copy(update={"automation_branch": None}).model_dump_json(exclude_none=True)
+        receipt.actor_kind = None
+        receipt.save(update_fields=["content", "actor_kind"])
+        self.implementation_run.state = {
+            **self.implementation_run.state,
+            "self_driving_head_branch": LEGACY_BRANCH,
+        }
+        self.implementation_run.save(update_fields=["state"])
+        self.prs[1]["head_branch"] = LEGACY_BRANCH
+        self.prs[2]["head_branch"] = LEGACY_BRANCH
 
     def current_claim(self) -> ReportClaim:
         claim = get_active_claim(team_id=self.team.id, report_id=self.report.id)
@@ -324,6 +340,45 @@ class TestSupersedeHandover(BaseTest):
 
         assert {target.pr_url for target in automated_targets(self.team.id, str(self.report.id))} == {OLD_PR}
         assert _resolve_supersede(self.report, self.decision()).allowed
+
+    def test_legacy_receipt_uses_protected_timeout_and_pr_evidence(self) -> None:
+        self.make_legacy_receipt()
+        self.implementation_run.status = "failed"
+        self.implementation_run.state = {
+            **self.implementation_run.state,
+            "timed_out_wall_clock": True,
+            "verified_pr_urls": [OLD_PR],
+        }
+        self.implementation_run.save(update_fields=["status", "state"])
+
+        assert {target.pr_url for target in automated_targets(self.team.id, str(self.report.id))} == {OLD_PR}
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.prs[1]["state"] == "closed"
+        assert self.prs[2]["state"] == "open"
+
+    @parameterized.expand(
+        [
+            ("unverified_pr", "verified_pr_urls", []),
+            ("missing_branch", "self_driving_head_branch", None),
+            ("other_failure", "timed_out_wall_clock", False),
+        ]
+    )
+    def test_legacy_receipt_without_protected_evidence_is_ineligible(
+        self, _name: str, state_key: str, state_value: object
+    ) -> None:
+        self.make_legacy_receipt()
+        self.implementation_run.status = "failed"
+        self.implementation_run.state = {
+            **self.implementation_run.state,
+            "timed_out_wall_clock": True,
+            "verified_pr_urls": [OLD_PR],
+            state_key: state_value,
+        }
+        self.implementation_run.save(update_fields=["status", "state"])
+
+        assert not automated_targets(self.team.id, str(self.report.id))
 
     @parameterized.expand(
         [
