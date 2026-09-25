@@ -53,6 +53,30 @@ class TestTypesafeSuggestionCandidates(SimpleTestCase):
         assert "Pageviews over the last 7 days" in candidates
         assert len(candidates) == len({c.lower() for c in candidates})
 
+    def test_formula_trends_lead_with_the_ratio_and_keep_series_distinct(self) -> None:
+        context = SubjectContext(
+            subject="insight",
+            query=_viz(
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                        {"kind": "EventsNode", "event": "$pageview", "math": "dau"},
+                    ],
+                    "trendsFilter": {"formulaNodes": [{"formula": "A/B"}]},
+                }
+            ),
+        )
+        titles = title_candidates(context)
+
+        assert titles[0] == "Total pageviews per user"
+        assert "Pageviews and pageviews" not in titles
+        assert "Total pageviews and unique users for pageviews" in titles
+        assert any(
+            candidate.startswith("Divides total pageviews by the number of unique users")
+            for candidate in description_candidates(context)
+        )
+
     def test_funnel_description_candidates_name_the_first_and_last_step(self) -> None:
         context = SubjectContext(
             subject="insight",
@@ -105,6 +129,7 @@ class TestTypesafeSuggestionRanking(SimpleTestCase):
         # The current name is user text: it must travel in state, never in the instructions.
         sent = system_one.call_args.kwargs
         assert sent["state"]["subject"]["name"] == ""
+        assert sent["state"]["subject"]["summary"][0] == "Type: Trends"
         assert "Pageviews" not in sent["questions"]["title"].instructions
 
     def test_tags_keep_only_confident_matches_and_never_invent_one(self) -> None:

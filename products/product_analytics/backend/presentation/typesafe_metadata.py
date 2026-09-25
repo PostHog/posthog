@@ -232,6 +232,119 @@ def _series_math(item: object) -> str | None:
     return label
 
 
+# How a series reads when its math has to be spelled out to tell it apart from a sibling series.
+_MATH_PHRASES: dict[str, str] = {
+    "total": "total {label}",
+    "dau": "unique users for {label}",
+    "weekly_active": "weekly active users for {label}",
+    "monthly_active": "monthly active users for {label}",
+    "unique_session": "unique sessions with {label}",
+    "first_time_for_user": "first-time users for {label}",
+}
+
+# What one unit of a series is called when another series is divided by it.
+_PER_UNITS: dict[str, str] = {
+    "dau": "user",
+    "weekly_active": "weekly active user",
+    "monthly_active": "monthly active user",
+    "unique_session": "session",
+    "first_time_for_user": "new user",
+}
+
+_BINARY_FORMULA = re.compile(r"^\s*([A-Z])\s*([/*+\-])\s*([A-Z])\s*(\*\s*100)?\s*$")
+
+
+def _series_labels(source: object) -> list[str]:
+    """Labels for every series. Two series on the same event get their math spelled out so a title
+    never reads 'pageviews and pageviews'."""
+    items = list(getattr(source, "series", None) or [])
+    labels = [_series_label(item) for item in items]
+    duplicates = {label for label in labels if labels.count(label) > 1}
+    if not duplicates:
+        return labels
+    distinct: list[str] = []
+    for item, label in zip(items, labels):
+        if label in duplicates:
+            math = str(getattr(item, "math", None) or "total")
+            phrase = _MATH_PHRASES.get(math)
+            math_label = _series_math(item)
+            if phrase:
+                label = phrase.format(label=label)
+            elif math_label:
+                label = f"{math_label} of {label}"
+        distinct.append(label)
+    return distinct
+
+
+@frozen
+class FormulaReading:
+    """A trends formula turned into words: what it computes and how to say it in a title."""
+
+    formula: str
+    custom_name: str | None
+    titles: tuple[str, ...]
+    descriptions: tuple[str, ...]
+
+
+def _formulas(source: object) -> list[tuple[str, str | None]]:
+    trends_filter = getattr(source, "trendsFilter", None)
+    if trends_filter is None:
+        return []
+    found: list[tuple[str, str | None]] = []
+    for node in getattr(trends_filter, "formulaNodes", None) or []:
+        found.append((str(node.formula), node.custom_name or None))
+    if not found:
+        for formula in getattr(trends_filter, "formulas", None) or []:
+            found.append((str(formula), None))
+    if not found and getattr(trends_filter, "formula", None):
+        found.append((str(trends_filter.formula), None))
+    return found
+
+
+def _read_formula(source: object, formula: str, custom_name: str | None, range_text: str | None) -> FormulaReading:
+    items = list(getattr(source, "series", None) or [])
+    labels = [_series_label(item) for item in items]
+    over_range = f" over {range_text}" if range_text else ""
+    titles: list[str] = [custom_name] if custom_name else []
+    descriptions: list[str] = []
+    match = _BINARY_FORMULA.match(formula)
+    if match:
+        left, operator, right, percent = match.groups()
+        left_index, right_index = ord(left) - ord("A"), ord(right) - ord("A")
+        if 0 <= left_index < len(items) and 0 <= right_index < len(items):
+            x, y = labels[left_index], labels[right_index]
+            y_math = str(getattr(items[right_index], "math", None) or "total")
+            unit = _PER_UNITS.get(y_math)
+            if operator == "/" and percent:
+                titles += [f"{sentence_case(x)} as a percentage of {y}", f"{sentence_case(x)} rate"]
+                descriptions += [f"Shows {x} as a percentage of {y}{over_range}."]
+            elif operator == "/" and unit:
+                titles += [f"Total {x} per {unit}", f"{sentence_case(x)} per {unit}", f"Average {x} per {unit}"]
+                descriptions += [
+                    f"Divides total {x} by the number of unique {unit}s to show {x} per {unit}{over_range}.",
+                    f"Shows how many {x} each {unit} generates{over_range}.",
+                ]
+            elif operator == "/":
+                titles += [f"{sentence_case(x)} per {y}", f"Ratio of {x} to {y}"]
+                descriptions += [f"Divides {x} by {y}{over_range}."]
+            elif operator == "-":
+                titles += [f"{sentence_case(x)} minus {y}", f"Difference between {x} and {y}"]
+                descriptions += [f"Subtracts {y} from {x}{over_range}."]
+            elif operator == "+":
+                titles += [f"{sentence_case(x)} plus {y}", f"Combined {x} and {y}"]
+                descriptions += [f"Adds {x} and {y} together{over_range}."]
+            elif operator == "*":
+                titles += [f"{sentence_case(x)} times {y}"]
+                descriptions += [f"Multiplies {x} by {y}{over_range}."]
+    if not titles:
+        titles.append(f"Formula {formula}")
+    if not descriptions:
+        descriptions.append(f"Plots the formula {formula} over the series{over_range}.")
+    return FormulaReading(
+        formula=formula, custom_name=custom_name, titles=tuple(titles), descriptions=tuple(descriptions)
+    )
+
+
 def _entity_label(entity: object) -> str:
     if entity is None:
         return "an event"
@@ -272,7 +385,7 @@ def _dedupe(candidates: Iterable[str | None], limit: int = MAX_TEXT_CANDIDATES) 
 def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
     source = query.source
     kind = source.kind
-    series = [_series_label(item) for item in getattr(source, "series", None) or []]
+    series = _series_labels(source)
     maths = [_series_math(item) for item in getattr(source, "series", None) or []]
     breakdown = _breakdown_label(source)
     date_range = getattr(source, "dateRange", None)
@@ -325,7 +438,13 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
         ]
     if series:
         notable_math = join_words([math for math in maths if math])
+        formula_titles = [
+            title
+            for formula, custom_name in _formulas(source)
+            for title in _read_formula(source, formula, custom_name, range_text).titles
+        ]
         return [
+            *formula_titles,
             sentence_case(joined),
             f"{sentence_case(joined)} by {breakdown}" if breakdown else None,
             f"{_INTERVAL_ADJECTIVES[str(interval)]} {joined}"
@@ -342,7 +461,7 @@ def _viz_title_candidates(query: InsightVizNode) -> list[str | None]:
 def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
     source = query.source
     kind = source.kind
-    series = [_series_label(item) for item in getattr(source, "series", None) or []]
+    series = _series_labels(source)
     maths = [_series_math(item) for item in getattr(source, "series", None) or []]
     breakdown = _breakdown_label(source)
     date_range = getattr(source, "dateRange", None)
@@ -390,7 +509,13 @@ def _viz_description_candidates(query: InsightVizNode) -> list[str | None]:
     if series:
         notable_math = join_words([math for math in maths if math])
         adverb = f" {str(interval)} by {str(interval)}" if interval else ""
+        formula_descriptions = [
+            description
+            for formula, custom_name in _formulas(source)
+            for description in _read_formula(source, formula, custom_name, range_text).descriptions
+        ]
         return [
+            *formula_descriptions,
             f"Shows {joined}{adverb}{over_range}{by_breakdown}.",
             f"Tracks how {joined} changes over time{f' for each {breakdown}' if breakdown else ''}.",
             f"Counts {notable_math} for {joined}{by_breakdown}." if notable_math else None,
@@ -482,9 +607,38 @@ def description_candidates(context: SubjectContext) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _query_summary(query: MetadataQuery) -> list[str]:
+    """Plain-language lines about the query. Jev reads these next to the raw query JSON, and the
+    formula line is what lets it prefer 'pageviews per user' over a list of the series."""
+    if not isinstance(query, InsightVizNode):
+        return [f"Type: {query.kind}"]
+    source = query.source
+    lines = [f"Type: {source.kind.replace('Query', '')}"]
+    items = list(getattr(source, "series", None) or [])
+    labels = _series_labels(source)
+    for index, (item, label) in enumerate(zip(items, labels)):
+        math = _series_math(item) or ("total count" if getattr(item, "math", None) in (None, "total") else None)
+        lines.append(f"Series {chr(ord('A') + index)}: {label}" + (f" ({math})" if math else ""))
+    for formula, custom_name in _formulas(source):
+        reading = _read_formula(source, formula, custom_name, None)
+        lines.append(f"Formula: {formula}, which means {reading.titles[0].lower()}. Only the formula is plotted.")
+    breakdown = _breakdown_label(source)
+    if breakdown:
+        lines.append(f"Broken down by: {breakdown}")
+    interval = getattr(source, "interval", None)
+    if interval:
+        lines.append(f"Interval: {interval}")
+    date_range = getattr(source, "dateRange", None)
+    range_text = humanize_date_range(getattr(date_range, "date_from", None)) if date_range else None
+    if range_text:
+        lines.append(f"Date range: {range_text}")
+    return lines
+
+
 def _state(context: SubjectContext) -> dict[str, object]:
     subject: dict[str, object] = {"kind": context.subject, "name": context.name, "description": context.description}
     if context.query is not None:
+        subject["summary"] = _query_summary(context.query)
         subject["query"] = context.query.model_dump(exclude_none=True, mode="json")
     if context.tile_names:
         subject["tiles"] = list(context.tile_names)
@@ -498,7 +652,8 @@ def _choose_text(context: SubjectContext, candidates: Sequence[str], *, field: s
     question = ChoiceQuestion(
         instructions=(
             f"`subject` describes a saved {context.subject} in a product analytics tool: its current name and "
-            f"description, and its query or the names of the insights on it. Which option is the best {field} "
+            f"description, a plain-language `summary` of what it plots, and its query or the names of the "
+            f"insights on it. Read `summary` first. Which option is the best {field} "
             f"for it? {guidance} Judge only on how well the option fits `subject`; do not prefer an option "
             "because it is longer or because it is the current value."
         ),
@@ -520,7 +675,9 @@ def suggest_title(context: SubjectContext) -> TextSuggestion:
         field="title",
         guidance=(
             "A good title is short and specific: a teammate scanning a list should know what it shows "
-            "without opening it. Prefer the specific metric or step names over a generic theme when the "
+            "without opening it. When the summary has a formula, only the formula's result is plotted, so "
+            "the title must name that result (a rate, a ratio, an amount per user) and must not list the "
+            "series it is built from. Prefer the specific metric or step names over a generic theme when the "
             "query supports them, and prefer a theme overview only when the tiles clearly share one theme."
         ),
     )
