@@ -25,6 +25,7 @@ export interface modelsLineageLogicValues {
     legendCollapsed: boolean
     parsedSearch: ParsedLineageSearch
     highlightedNodeIds: Set<string>
+    focusNodeIds: Set<string>
     visibleNodes: DataModelingNode[]
     visibleEdges: DataModelingEdge[]
     isFiltered: boolean
@@ -100,6 +101,25 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                     return new Set()
                 }
                 return new Set(matchNodesByName(nodes, parsedSearch.term).map((node) => node.id))
+            },
+        ],
+
+        // The viewport flies here. A plain term matches by substring, so on a big DAG it hits many
+        // scattered nodes; fitting all of them zooms back out to the unreadable overview. Fly to the
+        // single closest match instead - the rest keep their ring and show in the minimap. Lineage
+        // selectors have already pruned the graph, so there we fit the whole surviving cone.
+        focusNodeIds: [
+            (s) => [s.nodes, s.parsedSearch, s.visibleNodes],
+            (
+                nodes: DataModelingNode[],
+                parsedSearch: ParsedLineageSearch,
+                visibleNodes: DataModelingNode[]
+            ): Set<string> => {
+                if (parsedSearch.mode === 'search') {
+                    const best = matchNodesByName(nodes, parsedSearch.term)[0]
+                    return best ? new Set([best.id]) : new Set()
+                }
+                return new Set(visibleNodes.map((node) => node.id))
             },
         ],
 
