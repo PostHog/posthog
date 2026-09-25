@@ -13,7 +13,8 @@ describe('getBroadcastStatus', () => {
         ['a draft, whatever its runs say', flow('draft'), withJob('completed'), 'draft'],
         ['an archived broadcast', flow('archived'), withJob('completed'), 'archived'],
         ['a run still going', flow('active'), withJob('active'), 'sending'],
-        ['a run that finished', flow('active'), withJob('completed'), 'sent'],
+        ['a run that finished', flow('active'), { ...withJob('completed'), hasPendingSchedule: false }, 'sent'],
+        ['a finished run whose schedules did not load', flow('active'), withJob('completed'), 'unknown'],
         // A terminal run used to fall through to the no-run fallback and read as "scheduled",
         // telling the sender another send was pending when nothing was coming.
         ['a run that failed', flow('active'), withJob('failed'), 'failed'],
