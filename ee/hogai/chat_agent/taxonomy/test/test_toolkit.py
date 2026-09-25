@@ -290,9 +290,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         self.assertEqual(len(tools), len(expected_default_tools) + len(expected_custom_tools))
 
-    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
-    async def test_handle_entity_properties_excludes_restricted(self, mock_restricted):
-        mock_restricted.return_value = {"secret"}
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.excluded_property_names")
+    async def test_handle_entity_properties_excludes_restricted(self, mock_excluded):
+        mock_excluded.return_value = {"secret"}
         await PropertyDefinition.objects.acreate(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
         )
@@ -323,9 +323,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
         # Sanitization collapses the newline so a description can't break out of its line.
         self.assertIn("<description>Subscription tier of the account</description>", result.result)
 
-    @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
-    async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):
-        mock_restricted.return_value = {"secret"}
+    @patch("ee.hogai.chat_agent.taxonomy.toolkit.excluded_property_names")
+    async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_excluded):
+        mock_excluded.return_value = {"secret"}
         results = await self.toolkit._retrieve_multiple_entity_property_values("person", ["secret"])
         self.assertEqual(len(results), 1)
         self.assertIn("No values found for property secret", results[0])

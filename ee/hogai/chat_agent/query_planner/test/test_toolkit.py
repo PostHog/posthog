@@ -183,6 +183,31 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn("This list stops at 1 properties and group has more.", result)
 
+    def test_retrieve_entity_properties_pages_past_hidden_definitions(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        for i in range(2):
+            EnterprisePropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"hidden_prop_{i}",
+                property_type=PropertyType.String,
+                hidden=True,
+            )
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"visible_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person", max_properties=3)
+
+        self.assertIn("- visible_prop_0", result)
+        self.assertIn("- visible_prop_1", result)
+        self.assertNotIn("This list stops at", result)
+
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("person")
@@ -605,9 +630,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("- test_prop – This is a description with multiple lines", output)
         self.assertNotIn("description\nwith", output)
 
-    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
-    def test_retrieve_entity_properties_excludes_restricted_properties(self, mock_restricted):
-        mock_restricted.return_value = {"secret"}
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.excluded_property_names")
+    def test_retrieve_entity_properties_excludes_restricted_properties(self, mock_excluded):
+        mock_excluded.return_value = {"secret"}
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
         )
@@ -619,9 +644,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("- visible", result)
         self.assertNotIn("- secret", result)
 
-    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
-    def test_retrieve_entity_property_values_hides_restricted_property(self, mock_restricted):
-        mock_restricted.return_value = {"secret"}
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.excluded_property_names")
+    def test_retrieve_entity_property_values_hides_restricted_property(self, mock_excluded):
+        mock_excluded.return_value = {"secret"}
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
         )
@@ -629,12 +654,58 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         result = toolkit.retrieve_entity_property_values("person", "secret")
         self.assertIn("does not exist", result)
 
-    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
-    def test_retrieve_event_property_values_hides_restricted_property(self, mock_restricted):
-        mock_restricted.return_value = {"$browser"}
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.excluded_property_names")
+    def test_retrieve_event_property_values_hides_restricted_property(self, mock_excluded):
+        mock_excluded.return_value = {"$browser"}
         # The restriction guard short-circuits before any taxonomy query, so no stored data is needed.
         toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_event_or_action_property_values("event1", "$browser")
+        self.assertIn("does not exist", result)
+
+    def test_retrieve_entity_properties_excludes_hidden_properties(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="postal_code",
+            property_type="String",
+            hidden=True,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="visible", property_type="String"
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_properties("person")
+        self.assertIn("- visible", result)
+        self.assertNotIn("postal_code", result)
+
+    def test_retrieve_entity_property_values_hides_hidden_property(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="postal_code",
+            property_type="String",
+            hidden=True,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_property_values("person", "postal_code")
+        self.assertIn("does not exist", result)
+
+    def test_retrieve_event_property_values_hides_hidden_property(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="postal_code",
+            property_type="String",
+            hidden=True,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_event_or_action_property_values("event1", "postal_code")
         self.assertIn("does not exist", result)
 
 

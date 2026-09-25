@@ -2,6 +2,8 @@ from datetime import datetime
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
+from posthog.schema import AssistantToolCall
+
 from posthog.models.group.util import raw_create_group_ch
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -141,6 +143,36 @@ class TestGroups(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "<name>$virt_revenue</name>" in result["no_properties"]
         assert "project" in result
         assert "<properties>" in result["project"]
+
+    async def test_retrieve_group_properties_pages_past_hidden_definitions(self):
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        # Interleaved so a hidden row sits inside the window the shared row limit leaves.
+        for i in range(2):
+            await EnterprisePropertyDefinition.objects.acreate(
+                team=self.team,
+                name=f"hidden_prop_{i}",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=2,
+                hidden=True,
+            )
+            await PropertyDefinition.objects.acreate(
+                team=self.team,
+                name=f"visible_prop_{i}",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=2,
+            )
+        self.toolkit.MAX_PROPERTIES = 2
+        task = AssistantToolCall(id="1", name="retrieve_group_properties", args={"groups": ["no_properties"]})
+
+        result = await self.toolkit._handle_group_properties_task({"task": task})
+
+        content = result.artifacts[0].content
+        self.assertIn("<name>visible_prop_0</name>", content)
+        self.assertIn("<name>visible_prop_1</name>", content)
+        self.assertNotIn("hidden_prop", content)
 
     async def test_retrieve_entity_property_values_virtual_group_property(self):
         property_vals = await self.toolkit.retrieve_entity_property_values({"organization": ["$virt_mrr"]})
