@@ -80,6 +80,24 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
     assert is_transient_db_error(error) is expected
 
 
+@pytest.mark.parametrize("suppress_context", [False, True])
+def test_is_transient_db_error_ignores_context(suppress_context: bool) -> None:
+    error = KeyError("team_id")
+    error.__context__ = OperationalError("server closed the connection unexpectedly")
+    error.__suppress_context__ = suppress_context
+
+    assert not is_transient_db_error(error)
+
+
+@pytest.mark.parametrize("cycle_length", [1, 2])
+def test_is_transient_db_error_handles_cyclic_causes(cycle_length: int) -> None:
+    errors = [ValueError("not a database error") for _ in range(cycle_length)]
+    for index, error in enumerate(errors):
+        error.__cause__ = errors[(index + 1) % cycle_length]
+
+    assert not is_transient_db_error(errors[0])
+
+
 @pytest.mark.parametrize(
     "error_cls,sqlstate,expected",
     [

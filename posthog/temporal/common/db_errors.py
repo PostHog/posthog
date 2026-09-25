@@ -83,18 +83,14 @@ def _is_transient_db_error_directly(error: BaseException) -> bool:
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
 
 
-# A real wrap is one or two links deep, so this cap only stops a self-referencing chain.
+# Count the raised error toward the limit so cyclic or very long chains stay bounded.
 _MAX_CAUSE_CHAIN_DEPTH = 10
 
 
 def is_transient_db_error(error: BaseException) -> bool:
-    """True if this failure, or anything it was raised from, is a self-healing database condition.
+    """Check this error and its explicit causes for a transient database failure.
 
-    An activity that catches a database failure and re-raises it as its own typed error keeps the
-    transient condition in `__cause__` only. A check on the raised object alone then reports an
-    issue that nobody can action, while Temporal quietly retries past the condition. Only the
-    explicit `raise ... from` chain is walked, not `__context__`: an unrelated failure raised inside
-    an `except` block for a pooler drop is still a defect.
+    Ignore `__context__`: an unrelated failure inside an `except` block must stay reportable.
     """
     current: BaseException | None = error
     for _ in range(_MAX_CAUSE_CHAIN_DEPTH):
