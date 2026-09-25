@@ -4,7 +4,7 @@ import path from 'path'
 
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import committedOpenRouterCostsRaw from '~/ingestion/pipelines/ai/costs/providers/llm-costs.json'
-import type { ModelCost, ModelCostRow } from '~/ingestion/pipelines/ai/costs/providers/types'
+import type { ModelCost, ModelCostRateField, ModelCostRow } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 interface ModelRow {
     model: string
@@ -14,8 +14,11 @@ interface ModelRow {
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 const OPENROUTER_COSTS_FILENAME = 'llm-costs.json'
 const ENDPOINT_REQUEST_TIMEOUT_MS = 10_000
-const COMMITTED_DEFAULT_COSTS = new Map<string, ModelCost>(
-    (committedOpenRouterCostsRaw as ModelCostRow[]).map((row) => [row.model.toLowerCase(), row.cost.default])
+const COMMITTED_COSTS = new Map<string, Record<string, ModelCost>>(
+    (committedOpenRouterCostsRaw as ModelCostRow[]).map((row) => [
+        row.model.toLowerCase(),
+        row.cost as Record<string, ModelCost>,
+    ])
 )
 
 const parsePricingNumber = (value: unknown): number | undefined => {
@@ -52,13 +55,13 @@ const parsePricingNumber = (value: unknown): number | undefined => {
  * where promotional routes serve the same fee as their undiscounted siblings. It
  * corroborates neither `request` (no model in the feed carries a non-zero fee)
  * nor a markup route (a negative rate has no sibling); both stay flat by policy. */
-export const FLAT_FEE_FIELDS: ReadonlySet<keyof ModelCost> = new Set(['request', 'web_search'])
+export const FLAT_FEE_FIELDS: ReadonlySet<ModelCostRateField> = new Set(['request', 'web_search'])
 
 /** A field added here and not to `FLAT_FEE_FIELDS` is de-discounted by default.
  * `cache_write_1h_token` has no pair on purpose: OpenRouter serves no 1h write
  * rate. Book-priced events fall back to 2x `prompt_token` (input-costs.ts); only
  * the custom-pricing path reads it from event properties. */
-export const OPTIONAL_PRICING_FIELDS: ReadonlyArray<[keyof ModelCost, string]> = [
+export const OPTIONAL_PRICING_FIELDS: ReadonlyArray<[ModelCostRateField, string]> = [
     ['cache_read_token', 'input_cache_read'],
     ['cache_write_token', 'input_cache_write'],
     ['request', 'request'],
@@ -221,7 +224,7 @@ export interface EndpointCandidate {
     listPrompt: number | undefined
 }
 
-export const MODALITY_OUTPUT_FIELDS: ReadonlyArray<keyof ModelCost> = ['image_output', 'audio_output']
+export const MODALITY_OUTPUT_FIELDS: ReadonlyArray<ModelCostRateField> = ['image_output', 'audio_output']
 
 export const backfillDefaultModalityRates = (defaultCost: ModelCost, candidates: EndpointCandidate[]): void => {
     for (const field of MODALITY_OUTPUT_FIELDS) {
@@ -526,13 +529,15 @@ export const foldModelIntoTotals = (
     modelId: string,
     modelPricing: Record<string, unknown> | undefined,
     endpoints: unknown[],
-    totals: RunTotals
+    totals: RunTotals,
+    committedCost?: Record<string, ModelCost>
 ): RunTotals => {
     const built = buildModelRow(modelId, modelPricing, endpoints)
     if (!built) {
         console.warn('Skipping model without valid pricing:', modelId)
         return totals
     }
+    preserveCommittedContextTiers(built.cost, committedCost)
     return accumulateModelRow(built, modelId, totals)
 }
 
@@ -574,6 +579,27 @@ interface ListedModel {
     pricing?: Record<string, unknown>
 }
 
+/** The feed publishes no long-context rates, so every tier in the catalog was
+ * pinned by hand. Carry them across a run, per provider key, or a regeneration
+ * silently puts long prompts back on the short-context rate. */
+export const preserveCommittedContextTiers = (
+    cost: Record<string, ModelCost>,
+    committed: Record<string, ModelCost> | undefined
+): Record<string, ModelCost> => {
+    if (!committed) {
+        return cost
+    }
+
+    for (const [providerKey, providerCost] of Object.entries(cost)) {
+        const tiers = committed[providerKey]?.context_tiers
+        if (tiers && !providerCost.context_tiers) {
+            providerCost.context_tiers = tiers
+        }
+    }
+
+    return cost
+}
+
 const preservePreviousDefaultModalityRates = (
     pricing: Record<string, unknown> | undefined,
     previousDefault: ModelCost | undefined
@@ -597,7 +623,7 @@ const preservePreviousDefaultModalityRates = (
 export const collectModelRows = async (
     models: ListedModel[],
     readEndpoints: EndpointFetcher,
-    previousDefaults: ReadonlyMap<string, ModelCost> = new Map()
+    previousCosts: ReadonlyMap<string, Record<string, ModelCost>> = new Map()
 ): Promise<RunTotals> => {
     let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
 
@@ -608,15 +634,16 @@ export const collectModelRows = async (
         }
 
         console.log(`Fetching endpoint pricing for ${modelIndex + 1}/${models.length} ${model.id}...`)
+        const committedCost = previousCosts.get(model.id.toLowerCase())
         let endpoints: unknown[]
         let pricing = model.pricing
         try {
             endpoints = await readEndpoints(model.id)
         } catch {
             endpoints = []
-            pricing = preservePreviousDefaultModalityRates(pricing, previousDefaults.get(model.id.toLowerCase()))
+            pricing = preservePreviousDefaultModalityRates(pricing, committedCost?.default)
         }
-        totals = foldModelIntoTotals(model.id, pricing, endpoints, totals)
+        totals = foldModelIntoTotals(model.id, pricing, endpoints, totals, committedCost)
     }
 
     if (totals.uncheckedModels > 0) {
@@ -680,7 +707,7 @@ export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     }
 
     console.log('OpenRouter models:', data.data.length)
-    return collectModelRows(data.data, readEndpointsFromOpenRouter, COMMITTED_DEFAULT_COSTS)
+    return collectModelRows(data.data, readEndpointsFromOpenRouter, COMMITTED_COSTS)
 }
 
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {

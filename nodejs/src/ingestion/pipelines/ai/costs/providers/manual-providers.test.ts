@@ -20,14 +20,6 @@ describe('manualCosts', () => {
             },
         },
         {
-            model: 'gemini-2.5-pro-preview:large',
-            expected: {
-                prompt_token: 0.0000025,
-                completion_token: 0.000015,
-                cache_read_token: 0.000000625,
-            },
-        },
-        {
             model: 'deepseek-v3-fireworks',
             expected: {
                 prompt_token: 0.0000009,

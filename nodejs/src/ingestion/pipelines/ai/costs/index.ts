@@ -3,13 +3,8 @@ import bigDecimal from 'js-big-decimal'
 import { aiCostLookupCounter, aiCostTotalOutcomeCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import {
-    CostModelResult,
-    CostModelSource,
-    findCostFromModel,
-    getNewModelName,
-    requireSpecialCost,
-} from './cost-model-matching'
+import { applyContextTier, promptTokensForTier } from './context-tiers'
+import { CostModelResult, CostModelSource, findCostFromModel } from './cost-model-matching'
 import { finiteNumberOrUndefined } from './cost-utils'
 import { calculateInputCost } from './input-costs'
 import { extractModalityTokens } from './modality-tokens'
@@ -267,19 +262,11 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
     const model: unknown = event.properties['$ai_model']
 
-    let parsedModel: string
-
     if (!isString(model)) {
         return event
     }
 
-    parsedModel = model
-
-    if (requireSpecialCost(parsedModel)) {
-        parsedModel = getNewModelName(parsedModel, event.properties['$ai_input_tokens'])
-    }
-
-    const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
+    const costResult: CostModelResult | undefined = findCostFromModel(model, event.properties)
 
     if (!costResult) {
         aiCostLookupCounter.labels({ status: 'not_found' }).inc()
@@ -288,7 +275,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
     const { cost, source } = costResult
 
-    setCostsOnEvent(event, cost)
+    setCostsOnEvent(event, applyContextTier(cost, promptTokensForTier(event)))
 
     event.properties['$ai_model_cost_used'] = cost.model
     event.properties['$ai_cost_model_source'] = source

@@ -1364,17 +1364,38 @@ describe('collectModelRows()', () => {
         { field: 'audio_output' as const, rate: 0.00006 },
     ])('preserves the previous default $field rate when endpoint fetching fails', async ({ field, rate }) => {
         jest.spyOn(console, 'warn').mockImplementation(() => {})
-        const previousDefaults = new Map<string, ModelCost>([
-            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, [field]: rate }],
+        const previousCosts = new Map<string, Record<string, ModelCost>>([
+            ['a/a', { default: { prompt_token: 0.0000005, completion_token: 0.0000005, [field]: rate } }],
         ])
 
         const totals = await collectModelRows(
             [priced('a/a')],
             () => Promise.reject(new Error('socket hang up')),
-            previousDefaults
+            previousCosts
         )
 
         expect(totals.models[0].cost.default[field]).toBe(rate)
+    })
+
+    it('carries a committed context tier onto the route it was pinned to', async () => {
+        const tiers = [{ min_input_tokens: 200000, prompt_token: 0.000001 }]
+        const previousCosts = new Map<string, Record<string, ModelCost>>([
+            ['a/a', { default: { prompt_token: 0.0000005, completion_token: 0.0000005, context_tiers: tiers } }],
+        ])
+
+        const totals = await collectModelRows([priced('a/a')], () => Promise.resolve([]), previousCosts)
+
+        expect(totals.models[0].cost.default.context_tiers).toStrictEqual(tiers)
+    })
+
+    it('leaves a route the feed priced without a committed tier untiered', async () => {
+        const previousCosts = new Map<string, Record<string, ModelCost>>([
+            ['a/a', { default: { prompt_token: 0.0000005, completion_token: 0.0000005 } }],
+        ])
+
+        const totals = await collectModelRows([priced('a/a')], () => Promise.resolve([]), previousCosts)
+
+        expect(totals.models[0].cost.default.context_tiers).toBeUndefined()
     })
 
     it('keeps collecting other models after an endpoint fetch fails', async () => {
@@ -1388,23 +1409,23 @@ describe('collectModelRows()', () => {
 
     it('keeps a current model-level modality rate when endpoint fetching fails', async () => {
         jest.spyOn(console, 'warn').mockImplementation(() => {})
-        const previousDefaults = new Map<string, ModelCost>([
-            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 }],
+        const previousCosts = new Map<string, Record<string, ModelCost>>([
+            ['a/a', { default: { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 } }],
         ])
         const totals = await collectModelRows(
             [{ ...priced('a/a'), pricing: { ...priced('a/a').pricing, image_output: '0.00009' } }],
             () => Promise.reject(new Error('socket hang up')),
-            previousDefaults
+            previousCosts
         )
 
         expect(totals.models[0].cost.default.image_output).toBe(0.00009)
     })
 
     it('does not preserve a previous modality rate after a successful empty response', async () => {
-        const previousDefaults = new Map<string, ModelCost>([
-            ['a/a', { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 }],
+        const previousCosts = new Map<string, Record<string, ModelCost>>([
+            ['a/a', { default: { prompt_token: 0.0000005, completion_token: 0.0000005, image_output: 0.00012 } }],
         ])
-        const totals = await collectModelRows([priced('a/a')], noEndpoints, previousDefaults)
+        const totals = await collectModelRows([priced('a/a')], noEndpoints, previousCosts)
 
         expect(totals.models[0].cost.default.image_output).toBeUndefined()
     })

@@ -19,17 +19,6 @@ const manualProviderCosts: ModelCostRow[] = [
             },
         },
     },
-    // Pricing for >200k for Gemini 2.5 Pro
-    {
-        model: 'gemini-2.5-pro-preview:large',
-        cost: {
-            default: {
-                prompt_token: 0.0000025,
-                completion_token: 0.000015,
-                cache_read_token: 0.000000625,
-            },
-        },
-    },
     // Other
     {
         model: 'deepseek-v3-fireworks',
