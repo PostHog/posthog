@@ -7,7 +7,7 @@
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
@@ -69,9 +69,103 @@ async fn read_committed_count(topic: &str) -> usize {
     seen
 }
 
+/// Read partition 0 with the same isolation, until the record carrying
+/// `watermark` is visible, and answer with the versions seen on the way
+/// to it.
+///
+/// A record an earlier transaction committed sits at a lower offset than
+/// a later one, so a read that reaches the watermark has already passed
+/// it. That makes "nothing else is there" something the read proves,
+/// rather than a quiet period sized by guess.
+async fn read_committed_versions_through(topic: &str, watermark: i64) -> Vec<i64> {
+    use prost::Message as _;
+    use rdkafka::consumer::{Consumer, StreamConsumer};
+    use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
+
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set(
+            "group.id",
+            format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
+        )
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("isolation.level", "read_committed")
+        .create()
+        .expect("probe consumer");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(topic, 0, Offset::Beginning)
+        .expect("assign");
+    consumer.assign(&tpl).expect("assign");
+
+    let mut seen = Vec::new();
+    let deadline = Instant::now() + WAIT_BUDGET;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(Ok(message)) = tokio::time::timeout(left, consumer.recv()).await else {
+            break;
+        };
+        let Some(payload) = message.payload() else {
+            continue;
+        };
+        let version = Person::decode(payload)
+            .expect("a changelog record decodes")
+            .version;
+        seen.push(version);
+        if version == watermark {
+            return seen;
+        }
+    }
+    panic!(
+        "the watermark record (version {watermark}) never became readable on {topic}; saw {seen:?}"
+    );
+}
+
+/// Poll until `ready` holds, so a loaded runner waits longer instead of
+/// reading the state before it settles.
+async fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
+    let start = Instant::now();
+    while !ready() {
+        assert!(
+            start.elapsed() < WAIT_BUDGET,
+            "timed out waiting for {what}"
+        );
+        sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// Enqueue a record into the partition's open window, then abandon it
+/// exactly as a cancelled request does.
+///
+/// The waiter appears only once the broker has acked the send, so this
+/// returns when the record is in the window — not when a slice of time
+/// says it probably is.
+async fn abandon_a_record_in_the_open_window(
+    producers: &Arc<FencedChangelogProducers>,
+    version: i64,
+) {
+    let p = Arc::clone(producers);
+    let inflight = tokio::spawn(async move { p.produce(0, &test_person(version)).await });
+    wait_for("the record to join the open window", || {
+        producers.waiting_writers_for_test(0, 0) == 1
+    })
+    .await;
+    inflight.abort();
+    // Awaited so the future is dropped before the caller moves on.
+    drop(inflight.await);
+}
+
 /// Comfortably above the test config's 5s `message.timeout.ms`, which
 /// librdkafka requires the broker bound to cover.
 const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Longer than these tests run, so a window closes only where a test
+/// closes it. A timed window closes wherever the runner schedules it,
+/// which is the difference between a scenario and a race.
+const HELD_WINDOW: Duration = Duration::from_secs(600);
+
+/// Every wait below is a failure path, not time the passing case spends,
+/// so the budget is sized for a busy runner rather than an idle one.
+const WAIT_BUDGET: Duration = Duration::from_secs(60);
 
 fn fenced_producers_with(
     topic: &str,
@@ -747,27 +841,27 @@ async fn a_cancelled_produce_does_not_wedge_the_partition() {
 /// Without this guarantee the drain would have to wait out every open
 /// window before acking, so the assertion is load-bearing rather than
 /// incidental.
+///
+/// Each step waits for the state it needs rather than for a slice of
+/// time, so a loaded runner takes longer instead of a different path.
 #[tokio::test]
 async fn a_successors_init_aborts_the_predecessors_open_window() {
+    // Versions, so a read can tell the predecessor's abandoned record
+    // from the successor's watermark.
+    const ABANDONED: i64 = 1;
+    const WATERMARK: i64 = 2;
+
     let topic = format!("fence_abort_{}", uuid::Uuid::new_v4().simple());
 
     // Predecessor: open a window and get a record enqueued into it, then
-    // abandon it exactly as a cancelled request would. The window is
-    // short on purpose — its committer must fire *after* the successor
-    // has taken the epoch, because "invisible while uncommitted" proves
-    // nothing. What has to be shown is that the record can never become
-    // visible once the successor owns the partition.
-    let first = Arc::new(fenced_producers_with(&topic, Duration::from_secs(1), 32, 1));
+    // abandon it exactly as a cancelled request would. Its committer
+    // must fire *after* the successor has taken the epoch, because
+    // "invisible while uncommitted" proves nothing. What has to be shown
+    // is that the record can never become visible once the successor
+    // owns the partition.
+    let first = Arc::new(fenced_producers_with(&topic, HELD_WINDOW, 32, 1));
     first.acquire(0).await.expect("first owner acquires");
-    {
-        let p = Arc::clone(&first);
-        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
-        // Long enough for the send to reach the broker, far too short
-        // for the window to close.
-        tokio::time::timeout(Duration::from_millis(200), &mut inflight)
-            .await
-            .ok();
-    }
+    abandon_a_record_in_the_open_window(&first, ABANDONED).await;
 
     // Successor takes the partition before that window closes, as a
     // warming new owner does.
@@ -777,39 +871,42 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     // Now let the predecessor's committer run. This is the moment the
     // drain's wait exists to prevent: an abandoned record committing
     // after the successor is already the owner.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    first.close_window_for_test(0, 0);
+    wait_for("the predecessor's committer to report", || {
+        first
+            .lane_commit_marks_for_test(0)
+            .first()
+            .is_some_and(|mark| *mark != 0)
+    })
+    .await;
 
-    // Read the partition the way warming does.
-    let visible = read_committed_count(&topic).await;
+    // The successor's own write is the watermark. It commits after the
+    // predecessor's attempt has reported, so a record that attempt
+    // landed sits at a lower offset and the read below passes over it
+    // on the way.
+    second
+        .produce(0, &test_person(WATERMARK))
+        .await
+        .expect("the successor writes");
+
     assert_eq!(
-        visible, 0,
+        read_committed_versions_through(&topic, WATERMARK).await,
+        vec![WATERMARK],
         "an abandoned record must not become readable after the successor's init — \
          if this fails, the drain must wait for open windows before acking"
     );
 
-    // Zero is also what a partition nothing was ever produced to looks
-    // like, so the same sequence without a successor has to show the
-    // record arriving. Otherwise this test passes just as well when the
-    // send never left the client.
+    // A watermark on its own is also what a partition whose send never
+    // left the client looks like, so the same sequence without a
+    // successor has to show the record arriving.
     let control_topic = format!("fence_abort_control_{}", uuid::Uuid::new_v4().simple());
-    let lone = Arc::new(fenced_producers_with(
-        &control_topic,
-        Duration::from_secs(1),
-        32,
-        1,
-    ));
+    let lone = Arc::new(fenced_producers_with(&control_topic, HELD_WINDOW, 32, 1));
     lone.acquire(0).await.expect("control owner acquires");
-    {
-        let p = Arc::clone(&lone);
-        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
-        tokio::time::timeout(Duration::from_millis(200), &mut inflight)
-            .await
-            .ok();
-    }
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    abandon_a_record_in_the_open_window(&lone, ABANDONED).await;
+    lone.close_window_for_test(0, 0);
     assert_eq!(
-        read_committed_count(&control_topic).await,
-        1,
+        read_committed_versions_through(&control_topic, ABANDONED).await,
+        vec![ABANDONED],
         "with no successor the abandoned record commits — without this the assertion \
          above cannot tell an aborted window from a send that never happened"
     );
