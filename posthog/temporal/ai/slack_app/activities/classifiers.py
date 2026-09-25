@@ -134,6 +134,9 @@ def classify_task_needs_repo(
         "survey",
         "dashboard",
         "insight",
+        "alert",
+        "spike",
+        "anomal",
         "recording",
         "mcp",
         "webhook",
@@ -158,8 +161,7 @@ def classify_task_needs_repo(
         r"\brepository\b",
         r"\brepo\b",
         r"\bpull request\b",
-        r"\bopen a pr\b",
-        r"\bcreate a pr\b",
+        r"\bprs?\b",
         r"\bcommit\b",
         r"\bbranch\b",
         r"\bmodify code\b",
@@ -178,6 +180,13 @@ def classify_task_needs_repo(
         # whole thread, and a bare "ci" would also catch confidence intervals.
         r"\bflak(?:y|e|es|iness)\b",
         r"\bmerge queue\b",
+        # An infrastructure alert names a failure in the team's own systems, where the
+        # "alert" product term would otherwise answer no-repo.
+        r"\binfrastructure\b",
+        # An order to change a thing the team ships names no code, so the product terms
+        # elsewhere in the thread would answer no-repo first.
+        r"\b(?:update|fix|change|edit)\s+(?:the|this|our)\s+(?:scout|bot|agent)\b",
+        r"\bfix (?:this|it) in\b",
     )
 
     if (

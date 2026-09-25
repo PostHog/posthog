@@ -4,6 +4,14 @@ Return needs_repo=false for tasks that are primarily about debugging or investig
 
 A complaint about something the team's own app, site, or SDK does (crashes, broken pages, wrong rendering, slow loads of a site they ship) is a code change in a repo they own → needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not the team's code → no_repo. Important exception: 'wrong data', 'missing events', or 'numbers look off' in PostHog usually means the team's tracking code is broken (wrong event names, identification logic, SDK setup) — that's a code fix in their repo → needs_repo.
 
+A root-cause question about a PostHog alert, anomaly, or spike on an insight, metric, or event ('alert fired, what's the root cause', 'spikes detected, dive deeper', 'why did this jump') is an investigation in PostHog data → no_repo. The tracking exception above applies only when the user says the tracking itself is broken: events that stop firing, have wrong names, or never arrive.
+
+An alert about the team's own infrastructure, deploys, or CI (failed runs, crashed workers, an alert named after infrastructure) is an operational failure in their code → needs_repo.
+
+An explicit ask to update, fix, or build something the team ships (their bot, scout, agent, internal tool, or a named app such as 'fix this in <app>') is work in their repo → needs_repo, even with no file names or code words.
+
+A question about pull requests or branches (find the PR for a branch, link the PR, count merged PRs) needs the repository → needs_repo.
+
 A failing, broken, or flaky CI run, test suite, or build is work in the team's own repository → needs_repo, including when the test is named after a PostHog feature ('the experiment insight test is flaky'): the subject is their test, not our product.
 
 {% if routing_rules %}
@@ -11,7 +19,7 @@ This team configured routing rules that map kinds of requests to code repositori
 {{ routing_rules | join("\n") }}
 
 {% endif %}
-When in doubt, lean needs_repo=false — code-focused tasks usually carry explicit signals (file extensions, 'PR', 'commit', framework names, function or class names). Analytics, data, and configuration asks are the common case and should not send us hunting for a repository on a guess.
+When in doubt, lean needs_repo=false — code-focused tasks usually carry explicit signals (file extensions, 'PR', 'commit', 'branch', framework names, function or class names, or an order to fix or update a named thing the team ships). Analytics, data, and configuration asks are the common case and should not send us hunting for a repository on a guess.
 
 Conversation:
 {{ conversation }}

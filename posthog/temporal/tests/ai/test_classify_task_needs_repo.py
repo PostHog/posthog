@@ -57,6 +57,9 @@ class TestClassifyTaskNeedsRepo:
             ("analytics_hogql", "write a hogql query to count signups by country", False),
             ("flag_search", "find the feature flag for the new onboarding", False),
             ("replay_question", "show me session replays of failed checkouts", False),
+            ("alert_root_cause", "Alert 'Signup rate' is firing, whats the root cause here?", False),
+            ("spike_dive_deeper", "Spikes detected on 2026-09-23 for signup_completed, can you dive deeper?", False),
+            ("anomaly_explain", "explain the anomaly in yesterday's pageviews", False),
         ]
     )
     def test_heuristic_classification(self, _name, text, expected):
@@ -66,12 +69,16 @@ class TestClassifyTaskNeedsRepo:
     @parameterized.expand(
         [
             # Each ask carries a product noun that short-circuits the heuristic to
-            # no-repo unless the CI vocabulary vetoes it first.
+            # no-repo unless the code vocabulary vetoes it first.
             ("flaky_test_named_after_a_feature", "the experiment insight test is flaky"),
             ("merge_queue", "the merge queue keeps failing on the experiment insight tests"),
+            ("infrastructure_alert", "Alert triggered: Tasks: runs failed - infrastructure"),
+            ("pr_lookup", "link the PR for the dashboard fix, I can't find it from the branch"),
+            ("update_the_scout", "update the scout here so its insight reports split long threads"),
+            ("fix_in_named_app", "the survey link breaks out of the ticket view, please fix this in HogDesk"),
         ]
     )
-    def test_ci_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
+    def test_code_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
         assert self._run_with_llm_content(text, '{"needs_repo": true}') is True
 
     @parameterized.expand(

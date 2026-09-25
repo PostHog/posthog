@@ -251,6 +251,18 @@ CASES: list[Case] = [
         expected_stage="haiku",
         expected_outcome="no_repo",
     ),
+    Case(
+        name="alert_root_cause",
+        description="Root-cause question about a PostHog insight alert — an investigation in PostHog data, not a tracking bug.",
+        text_template="@PostHog Alert 'Signup rate' is firing again, whats the root cause here?",
+        thread_messages=[
+            SlackThreadMessage(
+                user="tester", text="@PostHog Alert 'Signup rate' is firing again, whats the root cause here?"
+            )
+        ],
+        expected_stage="haiku",
+        expected_outcome="no_repo",
+    ),
     # --- Agent path (the new logic this PR introduces) -------------------------
     Case(
         name="sdk_instrumentation_on_own_site",
@@ -323,6 +335,31 @@ CASES: list[Case] = [
         thread_messages=[
             SlackThreadMessage(
                 user="tester", text="@PostHog please refactor the user permission check into a single helper"
+            )
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+    ),
+    Case(
+        name="infrastructure_alert",
+        description="Alert about the team's own infrastructure — 'alert' is a product term, but the failure is in their code.",
+        text_template="@PostHog Alert triggered: task runs failed - infrastructure. can you look?",
+        thread_messages=[
+            SlackThreadMessage(
+                user="tester", text="@PostHog Alert triggered: task runs failed - infrastructure. can you look?"
+            )
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+    ),
+    Case(
+        name="fix_in_named_app",
+        description="Explicit order to fix a named app the team ships, with no code words — Haiku should allow.",
+        text_template="@PostHog long links break out of the ticket view, please fix this in the support desk app",
+        thread_messages=[
+            SlackThreadMessage(
+                user="tester",
+                text="@PostHog long links break out of the ticket view, please fix this in the support desk app",
             )
         ],
         expected_stage="agent",
