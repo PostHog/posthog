@@ -39,7 +39,8 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters } = useValues(broadcastsLogic)
+    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending } =
+        useValues(broadcastsLogic)
     const { setFilters } = useActions(broadcastsLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
@@ -98,7 +99,7 @@ export function BroadcastsTable(): JSX.Element {
         createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
     ]
 
-    const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && !isFiltered && broadcasts.results.length === 0
+    const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && !isFiltered && broadcasts.count === 0
 
     if (isEmpty) {
         return (
@@ -159,7 +160,7 @@ export function BroadcastsTable(): JSX.Element {
                     onForward: broadcasts.next ? () => setFilters({ page: page + 1 }) : undefined,
                     onBackward: page > 1 ? () => setFilters({ page: page - 1 }) : undefined,
                 }}
-                loading={broadcastsLoading}
+                loading={broadcastsLoading || filtersPending}
                 rowKey="id"
                 columns={columns}
                 nouns={['broadcast', 'broadcasts']}
