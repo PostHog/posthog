@@ -79,7 +79,8 @@ describe('PostHog filesystem projection', () => {
         { folder: '', name: 'Blank.md', flags: 1, text: '' },
         { folder: 'Research', name: 'Notes.md', flags: 577, text: '' },
         { folder: 'Research', name: 'Notes%2Fdraft.md', flags: 577, text: '# New notes\n' },
-    ])('creates and reopens $folder/$name with content "$text"', async ({ folder, name, flags, text }) => {
+        { folder: 'Research', name: 'Draft.md', flags: 577, text: '# New notes\n', concurrent: true },
+    ])('creates and reopens $folder/$name with content "$text"', async ({ folder, name, flags, text, concurrent }) => {
         const title = decodeURIComponent(name)
         const createdEntry = entry('created', folder ? `${folder}/${title.replaceAll('/', '\\/')}` : title)
         let current = {
@@ -92,10 +93,11 @@ describe('PostHog filesystem projection', () => {
         }
         jest.mocked(fileSystemList).mockResolvedValue({ count: 0, results: [] })
         jest.mocked(notebooksCreate).mockImplementation(async () => {
-            jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [createdEntry] })
+            const entries = concurrent ? [entry('another', createdEntry.path), createdEntry] : [createdEntry]
+            jest.mocked(fileSystemList).mockResolvedValue({ count: entries.length, results: entries })
             return current
         })
-        jest.mocked(notebooksRetrieve).mockImplementation(async () => current)
+        jest.mocked(notebooksRetrieve).mockImplementation(async (_, id) => (id === 'another' ? notebook : current))
         jest.mocked(notebooksPartialUpdate).mockImplementation(async (_, __, body) => {
             current = { ...current, content: body!.content as typeof current.content, version: current.version! + 1 }
             return current
@@ -148,10 +150,23 @@ describe('PostHog filesystem projection', () => {
         expect(fs.writers.size).toBe(0)
         await fs.load()
         const parent = folder ? files.children!.get(folder)! : files
-        const file = await parent.children!.get(name)!.open!()
+        const createdName = concurrent ? `${name}~created.md` : name
+        const file = await parent.children!.get(createdName)!.open!()
         expect(decoder.decode(file.bytes)).toBe(text)
-        expect(fs.resolveReference(name, fs.folderPath(folder), 'notebook')).toBe('created')
-        expect(await fs.navigationUrl(name, fs.folderPath(folder))).toBe('/notebooks/created')
+        expect(fs.resolveReference(createdName, fs.folderPath(folder), 'notebook')).toBe('created')
+        expect(await fs.navigationUrl(createdName, fs.folderPath(folder))).toBe('/notebooks/created')
+        if (concurrent) {
+            expect(fs.resolveReference(name, fs.folderPath(folder), 'notebook')).toBe('another')
+            await file.save!(new TextEncoder().encode('Edit after refresh'))
+            expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+                '42',
+                'created',
+                expect.objectContaining({ text_content: 'Edit after refresh' }),
+                expect.anything()
+            )
+            const other = await parent.children!.get(name)!.open!()
+            expect(decoder.decode(other.bytes)).toBe('# Hello 🦔')
+        }
     })
 
     it.each([

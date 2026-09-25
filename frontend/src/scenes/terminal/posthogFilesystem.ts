@@ -149,6 +149,8 @@ Removing the last file reference deletes the PostHog object, using your permissi
 Files open for writing must be closed before removal. Use touch Notes.md or save a
 new .md file in an editor to create a blank markdown notebook in the current folder.
 Other new file types and editor backup files are not supported under /posthog/files.
+Notebook names are not unique across clients. If another client creates the same
+name, run ph refresh to see both notebooks with distinct filenames.
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
