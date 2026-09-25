@@ -29,7 +29,6 @@ from dataclasses import field, fields
 from datetime import datetime
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
@@ -38,6 +37,9 @@ from posthog.dataclasses import frozen
 
 # Below this the window is too short for the narrowed scan to save anything.
 _MIN_WINDOW_HOURS = 2
+# 90 days. Detector windows beyond this are senseless, and the ceiling bounds what one alert
+# can materialize in the cache to ~2.2k rows, whatever quota a team has.
+_MAX_WINDOW_HOURS = 24 * 90
 
 # Rule 6: aliases that would shadow a column the narrowing predicates or HogQL resolution rely on.
 _RESERVED_ALIASES = {"timestamp", "event", "distinct_id", "person_id", "properties", "events"}
@@ -337,7 +339,7 @@ class _HourlySeriesMatcher:
                 return None
         if not has_end or hours is None:
             return None
-        if not _MIN_WINDOW_HOURS < hours < MAX_SELECT_RETURNED_ROWS:
+        if not _MIN_WINDOW_HOURS < hours <= _MAX_WINDOW_HOURS:
             return None
         return hours
 

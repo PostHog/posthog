@@ -85,7 +85,7 @@ def test_rejects_a_column_that_is_not_the_aggregate() -> None:
     assert match_detector_series_query(_query(), column="bucket") is None
 
 
-@pytest.mark.parametrize("hours,eligible", [(48, True), (336, True), (49_999, True), (50_000, False)])
+@pytest.mark.parametrize("hours,eligible", [(48, True), (336, True), (2_160, True), (2_161, False)])
 def test_the_window_is_bounded_by_a_sanity_ceiling_not_by_limits(hours: int, eligible: bool) -> None:
     sql = SQL.replace("48 HOUR", f"{hours} HOUR")
     matched = match_detector_series_query(_query(sql), column="value")
