@@ -159,7 +159,16 @@ def verify_delete_enrichment(
     # Narrow before materializing: a wide table would otherwise pull every data column of the whole
     # batch into Python to inspect a capped handful of rows.
     ops = table.column(CDC_OP_COLUMN).to_pylist()
-    delete_indices = [i for i, op in enumerate(ops) if op == "D"][:MAX_VERIFIED_DELETE_ROWS]
+    batch_keys = _pk_tuples(table, present_pks)
+    # A delete that follows another change to its key in this batch takes its values from that
+    # change, not from the target, so a column that change set to NULL stays NULL correctly.
+    changed_in_batch: set[tuple] = set()
+    delete_indices: list[int] = []
+    for i, op in enumerate(ops):
+        if op != "D":
+            changed_in_batch.add(batch_keys[i])
+        elif batch_keys[i] not in changed_in_batch and len(delete_indices) < MAX_VERIFIED_DELETE_ROWS:
+            delete_indices.append(i)
     if not delete_indices:
         return empty
     deletes = table.take(pa.array(delete_indices, type=pa.int64()))
