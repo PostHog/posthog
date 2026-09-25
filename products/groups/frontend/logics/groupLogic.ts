@@ -277,6 +277,13 @@ export const groupLogic = kea<groupLogicType>([
             null as { mrr: number | null; lifetimeValue: number | null } | null,
             {
                 loadGroupRevenueAnalyticsData: async () => {
+                    // Notebook group cards mount this logic from node attributes, which can carry an
+                    // empty key. `JSON.stringify` drops the empty value, so the backend gets no
+                    // placeholder and rejects the query.
+                    if (!props.groupKey) {
+                        return null
+                    }
+
                     try {
                         const response = await api.query<HogQLQuery>({
                             kind: NodeKind.HogQLQuery,
