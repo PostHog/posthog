@@ -149,6 +149,7 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         pause_external_data_schedule,
+        sync_cdc_extraction_schedule,
         trigger_cdc_extraction_schedule,
     )
 
@@ -174,7 +175,9 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
     # source is left alone, because Repair CDC or a resumed capture restarts capture itself.
     if not schema.cdc_halted:
         try:
-            trigger_cdc_extraction_schedule(schema.source)
+            if not trigger_cdc_extraction_schedule(str(schema.source_id)):
+                # The schedule is gone, and creating it fires its first run.
+                sync_cdc_extraction_schedule(schema.source, create=True)
         except Exception:
             # The capture schedule's next tick still finishes the reset.
             logger.warning("cdc_reset_capture_trigger_failed", schema_id=str(schema.id), exc_info=True)

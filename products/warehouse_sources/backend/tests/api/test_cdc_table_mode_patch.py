@@ -44,6 +44,8 @@ _PATCH_TARGETS = {
         "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
     ),
     "cancel_external_data_workflow": "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
+    # The hand-over reaches the facade directly, so the view's own name is a different object.
+    "facade_sync_cdc_extraction_schedule": "products.data_warehouse.backend.facade.api.sync_cdc_extraction_schedule",
     "pause_external_data_schedule": "products.data_warehouse.backend.facade.api.pause_external_data_schedule",
     "trigger_cdc_extraction_schedule": "products.data_warehouse.backend.facade.api.trigger_cdc_extraction_schedule",
     # The load queue lives in the warehouse-sources database, which these tests do not create. Left
@@ -242,7 +244,7 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
     mock_pause.assert_called_once_with(str(schema.id))
     mock_view_unpause.assert_not_called()
     mock_trigger.assert_not_called()
-    mock_trigger_capture.assert_called_once_with(source)
+    mock_trigger_capture.assert_called_once_with(str(source.id))
 
 
 def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, client: HttpClient):
@@ -281,6 +283,35 @@ def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, c
         "awaiting_slot": True,
         "generation": 1,
     }
+
+
+def test_a_hand_over_recreates_a_capture_schedule_that_is_gone(team, user, client: HttpClient):
+    # Triggering a schedule that is gone starts no run, so the pending reset would wait for a tick
+    # that never comes. Creating the schedule fires its first run, which finishes the reset.
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=ExternalDataJob.Status.RUNNING,
+        workflow_id="running-workflow-id",
+    )
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["trigger_cdc_extraction_schedule"], return_value=False),
+        mock.patch(_PATCH_TARGETS["facade_sync_cdc_extraction_schedule"]) as mock_create_capture,
+    ):
+        response = client.post(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/resync")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_reset_pending"]["trigger"] is True
+    mock_create_capture.assert_called_once_with(source, create=True)
 
 
 @pytest.mark.parametrize(("should_sync_before", "should_sync_after"), [(True, False), (False, True)])

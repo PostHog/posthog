@@ -580,17 +580,21 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
                 raise
 
 
-def trigger_cdc_extraction_schedule(source: ExternalDataSource) -> None:
-    """Start a CDC extraction run for a source now, and create its schedule if it is gone."""
-    schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+def trigger_cdc_extraction_schedule(source_id: str) -> bool:
+    """Start a CDC extraction run for a source now. Returns False when the schedule is gone.
+
+    Recreating it is the caller's job, because building a schedule reads the source row and this
+    boundary takes ids: `sync_cdc_extraction_schedule(source, create=True)` fires its first run.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
     temporal = sync_connect()
     try:
         trigger_schedule(temporal, schedule_id=schedule_id)
     except temporalio.service.RPCError as e:
         if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
             raise
-        # Creating the schedule fires its first run.
-        sync_cdc_extraction_schedule(source, create=True)
+        return False
+    return True
 
 
 def delete_cdc_extraction_schedule(source_id: str) -> None:
