@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
@@ -11,6 +13,44 @@ describe('navFilesTabLogic', () => {
     beforeEach(() => {
         initKeaTests()
         navFilesTabLogic.mount()
+    })
+
+    afterEach(() => jest.restoreAllMocks())
+
+    it.each([false, true])('loads nested folder contents with cached expansion: %s', async (expanded) => {
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://', isActiveInPanel: true })
+        const folder = { id: 'reports', path: 'Unfiled/Reports', type: 'folder', ref: 'Unfiled/Reports' }
+        const note = { id: 'note', path: 'Unfiled/Reports/Notes', type: 'notebook', ref: 'note' }
+        let resolveRoot!: (response: { count: number; results: (typeof folder)[]; users: [] }) => void
+        jest.spyOn(api.fileSystem, 'list').mockImplementation(({ parent } = {}) => {
+            if (parent === '') {
+                return new Promise((resolve) => {
+                    resolveRoot = resolve
+                })
+            }
+            const results = parent === 'Unfiled' ? [folder] : parent === folder.path ? [note] : []
+            return Promise.resolve({ count: results.length, results, users: [] })
+        })
+        files.actions.setExpandedFolders(
+            expanded ? ['project://', 'project://Unfiled', 'project://Unfiled/Reports'] : ['project://']
+        )
+        projectTreeDataLogic.actions.loadFolder('', true)
+
+        navFilesTabLogic.actions.openFolder(folder.path)
+        await expectLogic(projectTreeDataLogic, () => {
+            resolveRoot({
+                count: 1,
+                results: [{ ...folder, id: 'unfiled', path: 'Unfiled', ref: 'Unfiled' }],
+                users: [],
+            })
+        }).toFinishAllListeners()
+
+        expect(files.values.expandedFolders).toEqual(
+            expect.arrayContaining(['project://Unfiled', 'project://Unfiled/Reports'])
+        )
+        expect(files.values.folders.Unfiled).toEqual([folder])
+        expect(files.values.folders[folder.path]).toEqual([note])
     })
 
     it('filters starred files with the file search and restores them when cleared', () => {

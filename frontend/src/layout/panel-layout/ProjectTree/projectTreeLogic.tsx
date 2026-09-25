@@ -1295,7 +1295,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderSuccess: ({ folder }) => {
             if (props.root?.startsWith('project://') && props.isActiveInPanel === true && folder === '') {
                 const rootItems = values.folders['']
-                if (rootItems.length < 5) {
+                if (rootItems.length < 5 && !values.expandedFolders.includes('project://Unfiled')) {
                     actions.toggleFolderOpen('project://Unfiled', true)
                 }
             }
@@ -1370,7 +1370,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const allFolders = splitPath(path).slice(0, -1)
             const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
             const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project://' + f))
-            for (const folder of nonExpandedFolders) {
+            for (const folder of allFullFolders) {
                 if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
                     actions.loadFolder(folder)
                 }

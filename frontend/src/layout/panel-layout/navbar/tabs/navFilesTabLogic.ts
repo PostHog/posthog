@@ -63,6 +63,7 @@ export const navFilesTabLogic = kea<navFilesTabLogicType>([
             if (!tree.values.expandedFolders.includes(`project://${folder}`)) {
                 tree.actions.toggleFolderOpen(`project://${folder}`, true)
             }
+            tree.actions.loadFolder(folder)
         },
         [projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actionTypes.setSearchTerm]: ({
             searchTerm,
