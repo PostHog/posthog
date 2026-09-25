@@ -13,11 +13,13 @@ threshold-tuned consumers migrate) and the ICP fit score on its own `icp_fit_*` 
 The two never share a key, so neither can misattribute the other's values.
 """
 
+import hashlib
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, Optional, Union
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from posthoganalytics.client import Client
 
@@ -29,6 +31,18 @@ from products.growth.backend.enrichment.score import SCORE_VERSION
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
 ORGANIZATION_GROUP_TYPE = "organization"
+
+
+@contextmanager
+def lock_organization_enrichment(organization_id: str) -> Iterator[None]:
+    lock_key = int.from_bytes(
+        hashlib.sha256(f"growth-enrichment:{organization_id}".encode()).digest()[:8], "big", signed=True
+    )
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
+        yield
+
 
 # Published in org_icp_fit_current, so these names are a contract and must stay spelled out
 # as constants rather than inlined.
@@ -108,30 +122,27 @@ def _fit_record_writes(
     }
     if fit.lists_version:
         values["icp_fit_lists_version"] = fit.lists_version
+    values["icp_fit_input_versions"] = fit.input_versions
+    values["icp_fit_input_hash"] = fit.input_hash
+    signup = fit.input_values.get("signup")
+    if isinstance(signup, dict):
+        values["icp_fit_signup"] = signup
 
     if fit.score is not None:
         values["icp_fit_score"] = fit.score
         if fit.components:
             values["icp_fit_components"] = fit.components
-        flags = {
-            key: value
-            for key, value in {
-                "quality_investor": fit.quality_investor,
-                "data_coverage": fit.data_coverage,
-                "low_confidence": fit.low_confidence,
-                "agency_flag": fit.agency_flag,
-                "nonprofit_flag": fit.nonprofit_flag,
-                "wizard_ai_sdk": fit.wizard_ai_sdk,
-                "ai_pilled_source": fit.ai_pilled_source,
-            }.items()
-            if value is not None
-        }
+        flags = dict(fit.flags)
+        if isinstance(signup, dict):
+            flags["wizard_ai_sdk"] = signup.get("wizard_ai_sdk") is True
         if flags:
             values["icp_fit_flags"] = flags
         if fit.dq_reason:
             values["icp_fit_dq_reason"] = fit.dq_reason
 
-    return values, [key for key in _FIT_NUMERIC_KEYS if key not in values]
+    return values, [
+        key for key in (*_FIT_NUMERIC_KEYS, "icp_fit_projected_input_hash", "icp_fit_signup") if key not in values
+    ]
 
 
 def _fit_projection(fit: IcpFitResult) -> dict[str, Any]:
@@ -160,6 +171,7 @@ def write_organization_enrichment(
     fit_evaluation_kind: Optional[str] = None,
     fit_evaluated_at: Optional[dt.datetime] = None,
     fit_mirror_distinct_id: Optional[str] = None,
+    project: bool = True,
 ) -> None:
     """Persist enrichment to Postgres and project it onto the organization group.
 
@@ -183,7 +195,7 @@ def write_organization_enrichment(
     field backfill, a fit-only write (fields=None) is the score backfill and the
     miss-path status stamp.
 
-    `fit_evaluation_kind` (initial | recheck | backfill | sweep) is required whenever
+    `fit_evaluation_kind` (initial | recheck | backfill | sweep | enrichment) is required whenever
     `fit` is given. It and `fit_evaluated_at` (defaulting to now) land on every evaluation,
     including score-less ones, because the sweep overwrites scores in place and the record
     must say which run wrote the current value. Both ride the Postgres record only, not the
@@ -209,7 +221,76 @@ def write_organization_enrichment(
         return
 
     merge_into_record(organization_id, values, remove=remove)
+    if project:
+        project_organization_enrichment(
+            organization_id=organization_id,
+            fields=fields,
+            pha_client=pha_client,
+            icp_score=icp_score,
+            mirror_distinct_id=mirror_distinct_id,
+            fit=fit,
+            fit_mirror_distinct_id=fit_mirror_distinct_id,
+        )
 
+
+def invalidate_fit_projection(organization_id: str) -> None:
+    with lock_organization_enrichment(organization_id):
+        if OrganizationEnrichment.objects.filter(organization_id=organization_id).exists():
+            merge_into_record(organization_id, {}, remove=["icp_fit_projected_input_hash"])
+
+
+def fit_projection_is_current(organization_id: str, fit: IcpFitResult) -> bool:
+    record = OrganizationEnrichment.objects.filter(organization_id=organization_id).first()
+    return (
+        record is not None
+        and record.data.get("icp_fit_lists_version") == fit.lists_version
+        and record.data.get("icp_fit_input_hash") == fit.input_hash
+        and all(record.data.get(key) == value for key, value in _fit_projection(fit).items())
+    )
+
+
+def project_organization_enrichment(
+    *,
+    organization_id: str,
+    fields: Optional[EnrichmentFields],
+    pha_client: Client,
+    icp_score: Optional[int] = None,
+    mirror_distinct_id: Optional[str] = None,
+    fit: Optional[IcpFitResult] = None,
+    fit_mirror_distinct_id: Optional[str] = None,
+) -> bool:
+    try:
+        _enqueue_enrichment_projection(
+            organization_id=organization_id,
+            fields=fields,
+            pha_client=pha_client,
+            icp_score=icp_score,
+            mirror_distinct_id=mirror_distinct_id,
+            fit=fit,
+            fit_mirror_distinct_id=fit_mirror_distinct_id,
+        )
+    except Exception:
+        if fit is not None:
+            invalidate_fit_projection(organization_id)
+        raise
+    if fit is not None:
+        with lock_organization_enrichment(organization_id):
+            if not fit_projection_is_current(organization_id, fit):
+                invalidate_fit_projection(organization_id)
+                return False
+    return True
+
+
+def _enqueue_enrichment_projection(
+    *,
+    organization_id: str,
+    fields: Optional[EnrichmentFields],
+    pha_client: Client,
+    icp_score: Optional[int] = None,
+    mirror_distinct_id: Optional[str] = None,
+    fit: Optional[IcpFitResult] = None,
+    fit_mirror_distinct_id: Optional[str] = None,
+) -> None:
     properties = fields.to_group_properties() if fields is not None else {}
     if icp_score is not None:
         properties = {**properties, "icp_score": icp_score, "icp_score_version": SCORE_VERSION}
@@ -217,11 +298,13 @@ def write_organization_enrichment(
         properties = {**properties, **_fit_projection(fit)}
 
     if properties:
-        pha_client.group_identify(
+        event_id = pha_client.group_identify(
             ORGANIZATION_GROUP_TYPE,
             str(organization_id),
             properties=properties,
         )
+        if fit is not None and event_id is None:
+            raise RuntimeError("ICP fit group projection was not queued")
 
     if icp_score is not None and mirror_distinct_id:
         pha_client.set(
@@ -230,27 +313,33 @@ def write_organization_enrichment(
         )
 
     if fit is not None and fit_mirror_distinct_id:
-        pha_client.set(
+        event_id = pha_client.set(
             distinct_id=fit_mirror_distinct_id,
             properties=_fit_projection(fit),
         )
+        if event_id is None:
+            raise RuntimeError("ICP fit person projection was not queued")
 
 
-def archive_provider_fetch(*, organization_id: str, provider: str, payload: dict[str, Any], is_recheck: bool) -> None:
+def archive_provider_fetch(
+    *, organization_id: str, provider: str, payload: dict[str, Any], is_recheck: bool
+) -> OrganizationEnrichmentFetch | None:
     """Append one raw provider-response row to the fetch archive.
 
     Never raises: a raw-archive failure must not break enrichment — the live-store write and
     the caller's return still happen. One row per fetch, so signup and recheck stay distinct.
     """
     try:
-        OrganizationEnrichmentFetch.objects.create(
-            organization_id=organization_id,
-            provider=provider,
-            is_recheck=is_recheck,
-            payload=payload,
-        )
+        with lock_organization_enrichment(organization_id):
+            return OrganizationEnrichmentFetch.objects.create(
+                organization_id=organization_id,
+                provider=provider,
+                is_recheck=is_recheck,
+                payload=payload,
+            )
     except Exception as e:
         capture_exception(e)
+        return None
 
 
 def record_signup_work_email(*, organization_id: str, work_email: bool, signup_role: Optional[str] = None) -> None:

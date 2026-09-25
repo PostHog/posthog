@@ -109,13 +109,27 @@ class TestRunToolFetchPage(SimpleTestCase):
             priority=Priority.BATCH,
         )
 
-    def test_markdown_over_the_cap_is_truncated_with_a_marker(self):
-        markdown = "x" * 4500
+    @parameterized.expand(
+        [
+            ("text_only", ""),
+            ("base64_logo", f"![Logo](data:image/png;base64,{'A' * 6000})\n\n"),
+            ("svg_logo", f"![Logo](data:image/svg+xml,%3csvg%20width='1'%3e{'%20' * 2000}%3c/svg%3e)\n\n"),
+        ]
+    )
+    def test_markdown_over_the_cap_keeps_text_before_truncating(self, _name, image_prefix):
+        content = (
+            "We build AI assistants.\n\n"
+            "[Learn more](https://acme.example/product)\n"
+            "![Product](https://acme.example/product.png)\n"
+        )
+        markdown = image_prefix + content + "x" * 4500
         scraped = FirecrawlScrape(url="https://acme.example/pricing", markdown=markdown)
         with patch(f"{_TOOLS_MODULE}.scrape", return_value=scraped):
             outcome = run_tool("fetch_page", {"url": "https://acme.example/pricing"})
 
         stored = outcome.result["markdown"]
+        assert content in stored
+        assert "data:image/" not in stored
         assert stored.endswith("…")
         assert len(stored) == 4001
 
