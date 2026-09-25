@@ -10,6 +10,7 @@ import {
 import Animated, { FadeIn } from "react-native-reanimated";
 import { Glass } from "@/components/Glass";
 import { Markdown } from "@/components/Markdown";
+import { appResourceUri, McpAppHost } from "@/components/McpAppHost";
 import { ShimmerText } from "@/components/ShimmerText";
 import type { TaskSession } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -33,7 +34,10 @@ interface Activity {
   end: number;
 }
 
-type Row = { kind: "block"; block: Block } | Activity;
+type Row =
+  | { kind: "block"; block: Block }
+  | { kind: "app"; block: ToolBlock }
+  | Activity;
 
 // Consecutive tool calls and thoughts collapse into one activity row, so the
 // transcript reads as messages with a "Working" line between them.
@@ -53,6 +57,11 @@ function arrange(
   let open: Activity | null = null;
   for (const block of blocks) {
     if (block.kind === "tool" && block.parentId) continue;
+    if (block.kind === "tool" && appResourceUri(block.output)) {
+      open = null;
+      rows.push({ kind: "app", block });
+      continue;
+    }
     if (block.kind === "tool" || block.kind === "thought") {
       if (!open) {
         open = {
@@ -86,6 +95,7 @@ function arrange(
 
 export type TranscriptRow =
   | { kind: "block"; id: string; block: Block }
+  | { kind: "app"; id: string; block: ToolBlock }
   | (Activity & { active: boolean })
   | { kind: "permission"; id: string; request: PermissionRequest }
   | { kind: "status"; id: string; label: string };
@@ -101,7 +111,9 @@ export function buildTranscriptRows(
   const rows: TranscriptRow[] = arranged.map((row) =>
     row.kind === "activity"
       ? { ...row, active: session.turnActive && row === last }
-      : { kind: "block", id: row.block.id, block: row.block },
+      : row.kind === "app"
+        ? { kind: "app", id: `app-${row.block.id}`, block: row.block }
+        : { kind: "block", id: row.block.id, block: row.block },
   );
   for (const request of Object.values(session.permissions)) {
     if (!session.blocks.some((block) => block.id === request.toolCallId)) {
@@ -125,6 +137,8 @@ export const TranscriptRowView = memo(
     switch (row.kind) {
       case "block":
         return <BlockView block={row.block} />;
+      case "app":
+        return <McpAppHost block={row.block} />;
       case "activity":
         return (
           <ActivityRow
@@ -147,7 +161,10 @@ export const TranscriptRowView = memo(
     if (prev.row.kind !== next.row.kind || prev.row.id !== next.row.id) {
       return false;
     }
-    if (prev.row.kind === "block" && next.row.kind === "block") {
+    if (
+      (prev.row.kind === "block" && next.row.kind === "block") ||
+      (prev.row.kind === "app" && next.row.kind === "app")
+    ) {
       return prev.row.block === next.row.block;
     }
     if (prev.row.kind === "activity" && next.row.kind === "activity") {
