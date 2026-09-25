@@ -59,6 +59,9 @@ rules:
       owners: team-web-analytics
     - match: '/max/'
       owners: team-self-driving
+    # The topic list the AI homepage renders, so growth reviews it alongside Max.
+    - match: '/max/suggestionTopics.tsx'
+      owners: [team-self-driving, team-growth]
     - match: '/models/'
       owners: team-data-modeling
     - match: '/notebooks/'
@@ -71,6 +74,8 @@ rules:
       owners: conversations
     - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
       owners: team-product-analytics
+    - match: '/project-homepage/'
+      owners: team-growth
     - match: '/resource-transfer/'
       owners: team-platform-features
     - match: ['/retention/', '/saved-insights/']

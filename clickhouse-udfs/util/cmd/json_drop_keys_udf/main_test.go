@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -180,6 +183,100 @@ func TestDropKeysStreamErrors(t *testing.T) {
 	}
 	if err := run(strings.NewReader(`{}`), failingWriter{}, nil); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("write error lost: %v", err)
+	}
+}
+
+type rowBinaryRow struct {
+	json string
+	keys []string
+}
+
+func encodeRowBinaryChunks(chunks ...[]rowBinaryRow) []byte {
+	var out []byte
+	appendString := func(value string) {
+		out = binary.AppendUvarint(out, uint64(len(value)))
+		out = append(out, value...)
+	}
+	for _, chunk := range chunks {
+		out = fmt.Appendf(out, "%d\n", len(chunk))
+		for _, row := range chunk {
+			appendString(row.json)
+			out = binary.AppendUvarint(out, uint64(len(row.keys)))
+			for _, key := range row.keys {
+				appendString(key)
+			}
+		}
+	}
+	return out
+}
+
+func decodeRowBinaryStrings(t *testing.T, data []byte) []string {
+	t.Helper()
+	reader := bufio.NewReader(bytes.NewReader(data))
+	var values []string
+	for {
+		size, err := binary.ReadUvarint(reader)
+		if err == io.EOF {
+			return values
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		value := make([]byte, size)
+		if _, err := io.ReadFull(reader, value); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, string(value))
+	}
+}
+
+func TestRunRowBinary(t *testing.T) {
+	input := encodeRowBinaryChunks(
+		[]rowBinaryRow{
+			{json: `{"a":1,"b":2}`, keys: []string{"a"}},
+			{json: `{"a":1,"b":2}`, keys: []string{"a"}},
+			{json: `{"a":1,"b":2}`, keys: []string{"b"}},
+			{json: "{\n\"a\":1,\t\"b\":\"x\\ny\"}", keys: []string{"a"}},
+			{json: `{"a":{"s":1,"k":2}}`, keys: []string{"a.s", "missing"}},
+			{json: `{"a":1}`, keys: nil},
+		},
+		[]rowBinaryRow{
+			{json: `{"a":1,"b":2}`, keys: []string{"a"}},
+		},
+	)
+	var output bytes.Buffer
+	if err := runRowBinary(bytes.NewReader(input), &output); err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, []string{
+		`{"b":2}`,
+		`{"b":2}`,
+		`{"a":1}`,
+		`{"b":"x\ny"}`,
+		`{"a":{"k":2}}`,
+		`{"a":1}`,
+		`{"b":2}`,
+	}, decodeRowBinaryStrings(t, output.Bytes()))
+}
+
+func TestRunRowBinaryErrors(t *testing.T) {
+	valid := encodeRowBinaryChunks([]rowBinaryRow{{json: `{"a":1}`, keys: []string{"a"}}})
+	cases := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{"missing row", append([]byte("2\n"), valid[2:]...), "unexpected EOF"},
+		{"truncated keys", valid[:len(valid)-1], "unexpected EOF"},
+		{"malformed JSON", encodeRowBinaryChunks([]rowBinaryRow{{json: `{"a":`, keys: nil}}), "json parse error"},
+		{"invalid header", []byte("x\n"), "invalid chunk header"},
+		{"oversized key array", binary.AppendUvarint([]byte("1\n\x02{}"), maxRowBinaryKeyCount+1), "key array length"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runRowBinary(bytes.NewReader(tc.input), io.Discard)
+			assert.ErrorContains(t, err, tc.want)
+		})
 	}
 }
 

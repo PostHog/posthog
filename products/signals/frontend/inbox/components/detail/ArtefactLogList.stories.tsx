@@ -12,7 +12,7 @@ const replacement = 'https://github.com/exampleorg/exampleplatformservice/pull/4
 const meta: Meta<typeof ArtefactLogList> = {
     title: 'Scenes-App/Signals/ArtefactLogList',
     component: ArtefactLogList,
-    parameters: { layout: 'padded' },
+    parameters: { layout: 'padded', mockDate: '2026-09-17T10:00:00Z' },
     args: {
         reportId: 'example-report',
         knownTasks: new Map([
@@ -79,7 +79,6 @@ type Story = StoryObj<typeof meta>
 
 export const ReplacementLifecycle: Story = {}
 export const RevisionLimit: Story = {
-    parameters: { mockDate: '2026-09-17T10:00:00Z' },
     args: {
         artefacts: [
             {

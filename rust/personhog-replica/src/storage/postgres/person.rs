@@ -13,8 +13,8 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, SplitResult, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -516,6 +516,13 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        sqlx::query!(
+            "DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
+            team_id as i32
+        )
+        .execute(&self.bulk_primary_pool)
+        .await?;
+
         // Team teardown always removes the rows, tombstoned ones included: nothing
         // sweeps a deleted team's tombstones into the cleanup queue.
         let mut person_ids: Vec<i64> = sqlx::query_scalar!(
@@ -565,6 +572,134 @@ impl PersonLookup for PostgresStorage {
             .await?;
 
         Ok(results.iter().sum())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<TombstonedPerson>> {
+        if uuids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = [
+            ("operation".to_string(), "get_person_tombstones".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT id::bigint as "id!", uuid as "uuid!",
+                   COALESCE(version, 0)::bigint as "version!"
+            FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = true
+            "#,
+            team_id as i32,
+            uuids
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let persons = rows
+            .into_iter()
+            .map(|row| (row.id, row.uuid, row.version))
+            .collect();
+        let mut tombstones = with_tombstoned_distinct_ids(&mut tx, team_id, persons).await?;
+        tx.commit().await?;
+        tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, tombstones.len() as f64);
+        Ok(tombstones)
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        team_id: i64,
+        acked: &[(Uuid, i64)],
+    ) -> StorageResult<i64> {
+        if acked.is_empty() {
+            return Ok(0);
+        }
+        let labels = [
+            ("operation".to_string(), "ack_person_tombstones".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let uuids: Vec<Uuid> = acked.iter().map(|(uuid, _)| *uuid).collect();
+        let versions: Vec<i64> = acked.iter().map(|(_, version)| *version).collect();
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM person_tombstone_publish_queue q
+            USING UNNEST($2::uuid[], $3::bigint[]) AS a(person_uuid, person_version)
+            WHERE q.team_id = $1
+              AND q.person_uuid = a.person_uuid
+              AND q.person_version <= a.person_version
+            "#,
+            team_id as i32,
+            &uuids,
+            &versions
+        )
+        .execute(&mut *conn)
+        .await?;
+        Ok(result.rows_affected() as i64)
+    }
+
+    async fn list_person_tombstone_queue(
+        &self,
+        after: (i64, Uuid),
+        team_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonTombstoneQueueEntry>> {
+        let labels = [
+            (
+                "operation".to_string(),
+                "list_person_tombstone_queue".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT team_id::bigint as "team_id!", person_uuid as "person_uuid!",
+                   person_version as "person_version!",
+                   (EXTRACT(EPOCH FROM tombstoned_at) * 1000)::bigint as "tombstoned_at_ms!"
+            FROM person_tombstone_publish_queue
+            WHERE (team_id, person_uuid) > ($1::int, $2::uuid)
+              AND ($3::int IS NULL OR team_id = $3)
+            ORDER BY team_id, person_uuid
+            LIMIT $4
+            "#,
+            after.0 as i32,
+            after.1,
+            team_id.map(|t| t as i32),
+            limit
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows
+            .into_iter()
+            .map(|row| PersonTombstoneQueueEntry {
+                team_id: row.team_id,
+                person_uuid: row.person_uuid,
+                person_version: row.person_version,
+                tombstoned_at_ms: row.tombstoned_at_ms,
+            })
+            .collect())
     }
 
     async fn delete_tombstoned_persons(
@@ -1268,27 +1403,32 @@ async fn tombstone_persons_by_uuids(
     }
     let deleted = tombstones.len() as i64;
 
-    if !already.is_empty() {
-        let already_ids: Vec<i64> = already.iter().map(|(id, _, _)| *id).collect();
-        let dids = sqlx::query!(
+    if !tombstones.is_empty() {
+        let queued_uuids: Vec<Uuid> = tombstones.iter().map(|t| t.uuid).collect();
+        let queued_versions: Vec<i64> = tombstones.iter().map(|t| t.version).collect();
+        sqlx::query!(
             r#"
-            SELECT person_id as "person_id!", distinct_id as "distinct_id!",
-                   COALESCE(version, 0)::bigint as "version!"
-            FROM posthog_persondistinctid
-            WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true
+            INSERT INTO person_tombstone_publish_queue (team_id, person_uuid, person_version)
+            SELECT $1, t.person_uuid, t.person_version
+            FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)
+            ON CONFLICT (team_id, person_uuid) DO UPDATE
+            SET person_version = EXCLUDED.person_version,
+                tombstoned_at = now(),
+                attempts = 0,
+                last_attempt_at = NULL,
+                last_error = NULL,
+                given_up_at = NULL
+            WHERE EXCLUDED.person_version > person_tombstone_publish_queue.person_version
             "#,
             team_id as i32,
-            &already_ids
+            &queued_uuids,
+            &queued_versions
         )
-        .fetch_all(&mut *tx)
+        .execute(&mut *tx)
         .await?;
-        tombstones.extend(build_tombstones(
-            already,
-            dids.into_iter()
-                .map(|row| (row.person_id, row.distinct_id, row.version))
-                .collect(),
-        ));
     }
+
+    tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
     tx.commit().await?;
     tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
@@ -1424,6 +1564,35 @@ async fn tombstone_persons_by_ids_in_tx(
             .collect(),
         tombstoned_dids
             .into_iter()
+            .map(|row| (row.person_id, row.distinct_id, row.version))
+            .collect(),
+    ))
+}
+
+async fn with_tombstoned_distinct_ids(
+    conn: &mut sqlx::PgConnection,
+    team_id: i64,
+    persons: Vec<(i64, Uuid, i64)>,
+) -> StorageResult<Vec<TombstonedPerson>> {
+    if persons.is_empty() {
+        return Ok(Vec::new());
+    }
+    let person_ids: Vec<i64> = persons.iter().map(|(id, _, _)| *id).collect();
+    let dids = sqlx::query!(
+        r#"
+        SELECT person_id as "person_id!", distinct_id as "distinct_id!",
+               COALESCE(version, 0)::bigint as "version!"
+        FROM posthog_persondistinctid
+        WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = true
+        "#,
+        team_id as i32,
+        &person_ids
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(build_tombstones(
+        persons,
+        dids.into_iter()
             .map(|row| (row.person_id, row.distinct_id, row.version))
             .collect(),
     ))

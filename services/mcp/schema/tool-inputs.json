@@ -62,7 +62,7 @@
             ]
         },
         "BillingUsageTypesSchema": {
-            "description": "Usage type identifiers to filter by, e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types.",
+            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
             "anyOf": [
                 {
                     "type": "array",
@@ -539,6 +539,10 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The final SQL query to be executed."
+                },
+                "context": {
+                    "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+                    "type": "string"
                 },
                 "truncate": {
                     "default": true,
@@ -1342,6 +1346,28 @@
                             "type": "null"
                         }
                     ]
+                },
+                "scheduled_at": {
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "model": {
+                    "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "reasoning_effort": {
+                    "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"]
                 }
             },
             "required": ["description"]
@@ -1376,6 +1402,28 @@
                 "pending_user_message": {
                     "description": "Initial or follow-up message for the run.",
                     "type": "string"
+                },
+                "scheduled_at": {
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "model": {
+                    "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "reasoning_effort": {
+                    "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"]
                 }
             },
             "required": ["id"]

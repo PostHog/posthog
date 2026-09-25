@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { RunAlertActivity } from './RunAlertActivity'
 
@@ -10,7 +10,7 @@ describe('RunAlertActivity', () => {
     it('shows the reconnect attempt counter while reconnecting', () => {
         render(<RunAlertActivity kind="reconnecting" attempt={2} maxAttempts={10} />)
 
-        expect(screen.getByText('Reconnecting to agent')).toBeInTheDocument()
+        expect(screen.getByText('Restoring conversation')).toBeInTheDocument()
         expect(screen.getByText('Attempt 2 of 10')).toBeInTheDocument()
     })
 
@@ -31,5 +31,15 @@ describe('RunAlertActivity', () => {
         render(<RunAlertActivity kind="agent_error" message="boom" undeliveredMessage />)
 
         expect(screen.getByText('Your last message was not delivered.')).toBeInTheDocument()
+    })
+    it.each([true, false])('only offers Retry for a retryable connection failure: %s', (retryable) => {
+        const onRetry = jest.fn()
+        render(<RunAlertActivity kind="connection_failed" retryable={retryable} onRetry={onRetry} />)
+        const retry = screen.queryByText('Retry')
+        expect(retry !== null).toBe(retryable)
+        if (retry) {
+            fireEvent.click(retry)
+        }
+        expect(onRetry).toHaveBeenCalledTimes(Number(retryable))
     })
 })

@@ -32,6 +32,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
@@ -70,8 +71,10 @@ from github import (
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
-from reviewer import Reviewer
 from version import STAMPHOG_VERSION
+
+if TYPE_CHECKING:
+    from reviewer import Reviewer
 
 try:
     import posthoganalytics
@@ -193,6 +196,7 @@ class Pipeline:
         self_driving: bool = False,
         review_trigger: str = "",
         head_checkout: bool = False,
+        checkout: bool = True,
     ) -> None:
         self.pr_number = pr_number
         self.repo = repo
@@ -210,10 +214,18 @@ class Pipeline:
         # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
         # needs a separate head worktree there — see _pr_head_worktree.
         self.head_checkout = head_checkout
+        # False only for the hosted server's gate-only pre-check, which runs on the PR context with no
+        # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
+        # can only miss a deny, never add one, and the sandbox review runs the scan again.
+        self.checkout = checkout
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
         self.familiarity: AuthorFamiliarity | None = None
+        # Where the familiarity signal came from: "git" (local history), "server" (GitHub facts the
+        # hosted server injected), or "absent". Telemetry only, so a band shift can be traced to
+        # its source.
+        self.familiarity_source = "absent"
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
         self._diff_path: Path | None = None
@@ -401,7 +413,9 @@ class Pipeline:
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
         risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT) if dep_manifests else []
+            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
+            if dep_manifests and self.checkout
+            else []
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
@@ -526,6 +540,8 @@ class Pipeline:
         trended per subsystem, not just where the reviewer consumes it.
         """
         self.familiarity = self._compute_familiarity()
+        if self.familiarity is not None:
+            self.familiarity_source = "git"
         if self.classification.get("tier") == "T1-agent":
             self.classification["familiarity"] = self.familiarity
 
@@ -552,7 +568,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT, self.pr.merge_base_sha)
         return self._diff_path
 
     def _run_gates(self) -> None:
@@ -807,7 +823,7 @@ class Pipeline:
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
 
-    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+    def _run_reviewer_with_retries(self, reviewer: "Reviewer", gate_context: dict, diff_path: Path) -> bool:
         """Call the reviewer with backoff; set self.reviewer_output.
 
         Returns True when the reviewer never produced a verdict (an ERROR
@@ -884,6 +900,9 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
+        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
+        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         try:
             with self._pr_head_worktree() as explore_root:
                 reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
@@ -971,6 +990,7 @@ class Pipeline:
                 "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
                 "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
                 "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+                "stamphog_familiarity_source": self.familiarity_source,
                 "stamphog_agent_authored": prov.agent_authored if prov else None,
                 "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
                 "stamphog_commit_count": prov.commit_count if prov else None,
@@ -979,6 +999,8 @@ class Pipeline:
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,
+                # Empty on a local run: only the hosted runtime knows why the review started.
+                "stamphog_review_trigger": self.review_trigger,
                 "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),

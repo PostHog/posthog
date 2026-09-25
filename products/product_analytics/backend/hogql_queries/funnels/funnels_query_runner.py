@@ -1,7 +1,7 @@
 import json
-import threading
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
+from functools import partial
 from math import ceil
 from typing import Any, Optional, TypeVar, cast
 
@@ -25,15 +25,12 @@ from posthog.schema import (
     ResolvedDateRangeResponse,
 )
 
-from posthog.hogql import ast, query_stats
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.query_stats import QueryStats
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
@@ -43,6 +40,7 @@ from posthog.hogql_queries.utils.breakdowns import (
     has_breakdown_filter,
     humanize_breakdown_label,
 )
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -331,20 +329,9 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         results: list[Optional[_T]] = [None] * len(tasks)
         errors: list[Exception] = []
 
-        def run(
-            index: int,
-            timings: HogQLTimings,
-            query_tags: Optional[QueryTags] = None,
-            stats: Optional[QueryStats] = None,
-        ) -> None:
+        def run(index: int, timings: HogQLTimings) -> None:
             try:
-                # Worker threads start with an empty QueryTags ContextVar — restore the parent's
-                # snapshot so execute_hogql_query has the required feature/product tags.
-                if query_tags is not None:
-                    query_tagging.update_tags(query_tags)
-                # The query scan accumulator is another ContextVar the thread does not inherit.
-                with query_stats.use(stats):
-                    results[index] = tasks[index](timings)
+                results[index] = tasks[index](timings)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
             finally:
@@ -358,19 +345,12 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             for index in range(len(tasks)):
                 run(index, self.timings.clone_for_subquery(index_offset + index))
         else:
-            parent_tags = query_tagging.get_query_tags().model_copy(deep=True)
-            parent_stats = query_stats.get_active()
-            jobs = [
-                threading.Thread(
-                    target=run,
-                    args=(index, self.timings.clone_for_subquery(index_offset + index), parent_tags, parent_stats),
-                )
-                for index in range(len(tasks))
-            ]
-            for job in jobs:
-                job.start()
-            for job in jobs:
-                job.join()
+            run_in_parallel_threads(
+                [
+                    partial(run, index, self.timings.clone_for_subquery(index_offset + index))
+                    for index in range(len(tasks))
+                ]
+            )
 
         if errors:
             # Surface every secondary error with its traceback before re-raising the first,

@@ -9,9 +9,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
+import { Navigation } from '~/layout/navigation-3000/Navigation'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ScenePanel } from '~/layout/scenes/SceneLayout'
 import { useStorybookMocks } from '~/mocks/browser'
+import { SidePanelTab } from '~/types'
 
-import { expect, spyOn, userEvent, waitFor } from 'storybook/test'
+import { expect, spyOn, userEvent, waitFor, within } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -24,19 +28,31 @@ function DockedTerminalPreview(): JSX.Element {
     const { location } = useValues(router)
     return (
         <>
-            <div className="app-layout">
-                <div className="left-nav flex flex-col gap-2 p-4">
+            <Navigation sceneConfig={null}>
+                <div className="flex gap-2 mb-4">
                     <LemonButton to="/notebooks/demonote">Notebook page</LemonButton>
                     <LemonButton to="/terminal">Full terminal</LemonButton>
                 </div>
-                <div className="main-content-container flex min-h-0 flex-col p-4">
+                <div className="flex min-h-0 flex-col">
                     {removeProjectIdIfPresent(location.pathname) === '/terminal' ? (
                         <TerminalScene />
                     ) : (
-                        <p>Press Ctrl+backtick or use Toggle terminal in Cmd+K.</p>
+                        <>
+                            <p>Press Ctrl+backtick or use Toggle terminal in Cmd+K.</p>
+                            {Array.from({ length: 30 }, (_, index) => (
+                                <p key={index}>Page row {index + 1}</p>
+                            ))}
+                            <p>End of page</p>
+                            <ScenePanel>
+                                {Array.from({ length: 30 }, (_, index) => (
+                                    <p key={index}>Panel row {index + 1}</p>
+                                ))}
+                                <p>End of panel</p>
+                            </ScenePanel>
+                        </>
                     )}
                 </div>
-            </div>
+            </Navigation>
             <GlobalShortcuts />
             <Command />
             <TerminalDock />
@@ -51,6 +67,10 @@ const meta: Meta<typeof TerminalScene> = {
     beforeEach: ({ parameters }) => {
         if (parameters.liveRuntime) {
             return
+        }
+        // Dock resizing needs the app's viewport height, not the expanded snapshot layout.
+        if (parameters.docked) {
+            document.body.classList.add('storybook-viewport-layout')
         }
         // Visual snapshots must not depend on firmware downloads or Linux boot timing.
         const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
@@ -69,7 +89,10 @@ const meta: Meta<typeof TerminalScene> = {
                 onReady()
             }
         )
-        return () => start.mockRestore()
+        return () => {
+            start.mockRestore()
+            document.body.classList.remove('storybook-viewport-layout')
+        }
     },
     render: (_, { parameters }) => {
         const notebook = {
@@ -134,6 +157,7 @@ const meta: Meta<typeof TerminalScene> = {
                                 type: 'notebook',
                                 ref: item.short_id,
                                 user_access_level: 'editor',
+                                meta: { content_type: 'text/markdown' },
                             }))
                             .concat(
                                 [...folders].map(([id, path]) => ({
@@ -142,6 +166,7 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: 'folder',
                                     ref: '',
                                     user_access_level: 'editor',
+                                    meta: { content_type: 'inode/directory' },
                                 }))
                             )
                             .concat(
@@ -151,6 +176,9 @@ const meta: Meta<typeof TerminalScene> = {
                                     type: item.type,
                                     ref: item.ref,
                                     user_access_level: 'editor',
+                                    meta: {
+                                        content_type: item.type === 'insight' ? 'application/sql' : 'application/json',
+                                    },
                                 }))
                             ),
                     },
@@ -308,6 +336,25 @@ export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
 
+export const RendererContextLoss: StoryObj<typeof TerminalScene> = {
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const canvas = canvasElement.querySelector<HTMLCanvasElement>('.xterm-screen canvas:not(.xterm-link-layer)')
+        const gl = canvas?.getContext('webgl2')
+        if (gl) {
+            const extension = gl.getExtension('WEBGL_lose_context')
+            expect(extension).not.toBeNull()
+            extension!.loseContext()
+            await waitFor(() => expect(canvas!.isConnected).toBe(false), { timeout: 5000 })
+        }
+        const { view } = terminalLogic.cache.session as TerminalSession
+        await new Promise<void>((resolve) => view.write('\r\nRenderer fallback ready', resolve))
+        await waitFor(() =>
+            expect(canvasElement.querySelector('.xterm-rows')?.textContent).toContain('Renderer fallback ready')
+        )
+    },
+}
+
 export const LiveRuntime: StoryObj<typeof TerminalScene> = {
     tags: ['!test'],
     parameters: { liveRuntime: true },
@@ -318,13 +365,61 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         pageUrl: '/notebooks/demonote',
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
+        testOptions: { viewport: { width: 1100, height: 900 }, includeNavigationInSnapshot: true },
     },
-    play: async () => {
+    play: async ({ canvasElement }) => {
         await waitFor(() => expect(terminalDockLogic.isMounted()).toBe(true))
         terminalDockLogic.actions.setDockOpen(true)
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Info)
+
+        const canvas = within(canvasElement)
+        const dock = canvasElement.querySelector<HTMLElement>('[data-attr="terminal-dock"]')!
+        const main = canvas.getByRole('main')
+        const nav = canvasElement.querySelector<HTMLElement>('#project-panel-layout nav')!
+        const navSettings = canvasElement.querySelector<HTMLElement>('[data-attr="navbar-settings"]')!
+        await canvas.findByText('End of panel')
+        const panel = canvasElement.querySelector<HTMLElement>('#side-panel')!
+        const panelScroll = panel.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        const expectContentAboveDock = async (): Promise<void> => {
+            await waitFor(() => {
+                const dockTop = dock.getBoundingClientRect().top
+                expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(nav.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(navSettings.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                main.scrollTop = main.scrollHeight
+                panelScroll.scrollTop = panelScroll.scrollHeight
+                for (const label of ['End of page', 'End of panel']) {
+                    const bottom = canvas.getByText(label).getBoundingClientRect().bottom
+                    expect(bottom).toBeGreaterThan(0)
+                    expect(bottom).toBeLessThanOrEqual(dockTop)
+                }
+            })
+        }
+        await expectContentAboveDock()
+        const resize = canvas.getByRole('separator', { name: 'Resize terminal' })
+        const initialHeight = dock.getBoundingClientRect().height
+        resize.focus()
+        await userEvent.keyboard('{ArrowUp}{ArrowUp}')
+        await waitFor(() => expect(dock.getBoundingClientRect().height).toBeGreaterThan(initialHeight))
+        await expectContentAboveDock()
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide terminal' }))
+        await waitFor(() => expect(main.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight - 16))
+        await waitFor(() => expect(nav.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight - 16))
+        terminalDockLogic.actions.setDockOpen(true)
+        await expectContentAboveDock()
     },
 }
+export const DockedWide: StoryObj<typeof TerminalScene> = {
+    ...Docked,
+    parameters: {
+        ...Docked.parameters,
+        featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL, FEATURE_FLAGS.SIMPLE_SIDEPANEL],
+        testOptions: { viewport: { width: 1440, height: 900 }, includeNavigationInSnapshot: true },
+    },
+}
+
 export const DockDisabled: StoryObj<typeof TerminalScene> = {
     parameters: {
         docked: true,
@@ -369,6 +464,7 @@ export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
 }
 
 export const Framebuffer: StoryObj<typeof TerminalScene> = {
+    parameters: { testOptions: { snapshotTargetSelector: 'body' } },
     play: async () => {
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
         terminalLogic.actions.setDisplayOpen(true)
@@ -381,5 +477,14 @@ export const LiveDoom: StoryObj<typeof TerminalScene> = {
     play: async () => {
         await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
         window.posthogTerminal?.write('doom\n')
+    },
+}
+
+export const LiveClassics: StoryObj<typeof TerminalScene> = {
+    tags: ['!test'],
+    parameters: { liveRuntime: true },
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'), { timeout: 120_000 })
+        window.posthogTerminal?.write('figlet PostHog\n')
     },
 }

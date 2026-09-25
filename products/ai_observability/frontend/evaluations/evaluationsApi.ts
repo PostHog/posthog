@@ -65,21 +65,21 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
 
     if (
         evaluation.evaluation_type === 'llm_judge' &&
-        evaluation.output_type === 'boolean' &&
+        (evaluation.output_type === 'boolean' || evaluation.output_type === 'numeric') &&
         evaluation.evaluation_config &&
         'prompt' in evaluation.evaluation_config
     ) {
         return {
             ...baseEvaluation,
             evaluation_type: 'llm_judge',
-            output_type: 'boolean',
+            output_type: evaluation.output_type,
             evaluation_config: { prompt: evaluation.evaluation_config.prompt },
         }
     }
 
     if (
         evaluation.evaluation_type === 'hog' &&
-        evaluation.output_type === 'boolean' &&
+        (evaluation.output_type === 'boolean' || evaluation.output_type === 'numeric') &&
         evaluation.evaluation_config &&
         'source' in evaluation.evaluation_config &&
         typeof evaluation.evaluation_config.source === 'string'
@@ -87,7 +87,7 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig |
         return {
             ...baseEvaluation,
             evaluation_type: 'hog',
-            output_type: 'boolean',
+            output_type: evaluation.output_type,
             evaluation_config: { source: evaluation.evaluation_config.source },
         }
     }

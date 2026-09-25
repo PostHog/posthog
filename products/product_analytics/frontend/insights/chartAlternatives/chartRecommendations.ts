@@ -7,7 +7,7 @@ import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayCategory, ChartDisplayType, PropertyMathType } from '~/types'
 import type { AnyPropertyFilter } from '~/types'
 
-import { breakdownProperties, isCountryProperty } from './chartDisplayOptions'
+import { breakdownProperties, hasTrendsFormula, isCountryProperty } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 
 const DEFAULT_RECOMMENDATION_ORDER = [
@@ -25,8 +25,16 @@ const DEFAULT_RECOMMENDATION_ORDER = [
     ChartDisplayType.WorldMap,
 ]
 
-// Vertical bars get crowded once every bucket holds one bar per breakdown value.
-const BREAKDOWN_DEMOTED_DISPLAYS = [ChartDisplayType.ActionsUnstackedBar, ChartDisplayType.ActionsBar]
+const BREAKDOWN_BOOSTED_DISPLAYS = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
+]
+const BREAKDOWN_DEMOTED_DISPLAYS = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsUnstackedBar,
+]
 
 function isSingleCountryBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {
     const properties = breakdownProperties(breakdownFilter)
@@ -51,9 +59,21 @@ function isStatistical(query: TrendsQuery): boolean {
     )
 }
 
+function hasMultipleParts(query: TrendsQuery): boolean {
+    if (hasBreakdownFilter(query.breakdownFilter)) {
+        return true
+    }
+    const trendsFilter = query.trendsFilter
+    if (hasTrendsFormula(trendsFilter)) {
+        return (trendsFilter?.formulaNodes?.length || trendsFilter?.formulas?.length || 1) > 1
+    }
+    return (query.series?.length ?? 0) > 1
+}
+
 function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDisplayType): ChartDisplayType[] {
     const boosted: ChartDisplayType[] = []
-    const demoted = query && hasBreakdownFilter(query.breakdownFilter) ? BREAKDOWN_DEMOTED_DISPLAYS : []
+    const hasBreakdown = !!query && hasBreakdownFilter(query.breakdownFilter)
+    const demoted = hasBreakdown ? BREAKDOWN_DEMOTED_DISPLAYS : []
     if (query) {
         if (hasCountryContext(query)) {
             boosted.push(ChartDisplayType.WorldMap)
@@ -61,9 +81,15 @@ function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDis
         if (isStatistical(query)) {
             boosted.push(ChartDisplayType.BoxPlot)
         }
-    }
-    if (DISPLAY_TYPES_TO_CATEGORIES[currentDisplay] === ChartDisplayCategory.TotalValue) {
-        boosted.push(...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsBarValue)
+        if (hasBreakdown) {
+            boosted.push(...BREAKDOWN_BOOSTED_DISPLAYS)
+        }
+        if (
+            DISPLAY_TYPES_TO_CATEGORIES[currentDisplay] === ChartDisplayCategory.TotalValue &&
+            hasMultipleParts(query)
+        ) {
+            boosted.push(...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsBarValue)
+        }
     }
     const ranked = [...new Set([...boosted, ...DEFAULT_RECOMMENDATION_ORDER])]
     return [...ranked.filter((display) => !demoted.includes(display)), ...demoted]
