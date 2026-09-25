@@ -2,7 +2,6 @@ import json
 from datetime import datetime, timedelta
 from typing import cast
 
-import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -186,7 +185,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
         self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
 
-    @pytest.mark.flaky(reruns=9)
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()

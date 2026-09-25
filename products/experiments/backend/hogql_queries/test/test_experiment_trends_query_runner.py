@@ -2,7 +2,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -1118,7 +1117,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0],
         )
 
-    @pytest.mark.flaky(reruns=9)
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
