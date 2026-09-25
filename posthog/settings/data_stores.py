@@ -128,6 +128,11 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
+# lock_timeout for every direct (migration) connection, main and product, so a migration that
+# loses a lock race fails fast and bin/migrate retries it, instead of queueing all later
+# queries on the table behind it.
+_migration_lock_timeout_option = f"-c lock_timeout={os.getenv('MIGRATE_LOCK_TIMEOUT', '20000')}"
+
 # Configure a direct database connection bypassing PgBouncer.
 # This allows using PGOPTIONS like lock_timeout which PgBouncer doesn't support.
 # Used for migrations: python manage.py migrate --database=default_direct
@@ -140,9 +145,7 @@ if direct_host:
     DATABASES["default_direct"]["PORT"] = os.getenv("POSTHOG_POSTGRES_DIRECT_PORT", "5432")
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
-    # Set lock_timeout for migrations to fail fast on lock contention
-    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
-    DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
+    DATABASES["default_direct"]["OPTIONS"] = {"options": _migration_lock_timeout_option}
 
 # The persons database is not a Django connection. Person/group/cohort data lives behind
 # the personhog service and is reached through the personhog client or off-Django psycopg
@@ -254,9 +257,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
-        # Same lock_timeout as default_direct: without it a migration that waits for a lock
-        # queues every later query on the table behind it until the lock comes free.
-        DATABASES[direct_alias]["OPTIONS"]["options"] = f"-c lock_timeout={os.getenv('MIGRATE_LOCK_TIMEOUT', '20000')}"
+        DATABASES[direct_alias]["OPTIONS"]["options"] = _migration_lock_timeout_option
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
