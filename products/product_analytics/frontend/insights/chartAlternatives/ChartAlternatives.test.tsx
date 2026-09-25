@@ -55,7 +55,7 @@ describe('ChartAlternatives', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: true,
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'test',
         })
 
         insightLogic(insightProps).mount()
