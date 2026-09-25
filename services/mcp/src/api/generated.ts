@@ -86525,6 +86525,11 @@ export namespace Schemas {
       detail: string;
     }
 
+    export interface ReverseProxyCheck {
+      /** Whether a $pageview or $screen event from the last day came through a custom API host, such as a reverse proxy. True when the reverse proxy setup task is already completed. */
+      has_reverse_proxy: boolean;
+    }
+
     export interface ReviewBlindSpotsConfig {
       /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
       skill_name: string;
