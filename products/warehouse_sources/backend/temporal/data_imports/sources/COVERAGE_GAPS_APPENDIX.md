@@ -2710,9 +2710,11 @@ Today (7): `sandbox_metrics`, `sandbox_metrics_latest`, `sandboxes`, `snapshots`
 Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/openapi.yml>
 
 - [x] `GET /sandboxes/metrics and GET /sandboxes/{sandboxID}/metrics` — CPU/memory/disk timeseries per sandbox - the usage metric everyone charts, and the only quantitative data E2B exposes (high)
-- [x] `GET /teams/{teamID}/metrics and /teams/{teamID}/metrics/max` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [x] `GET /teams/{teamID}/metrics` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [ ] `GET /teams/{teamID}/metrics/max` — one scalar per metric enum value, not a table; see the reasons below (high)
 - [ ] `GET /teams` — team lookup resolving the teamID stamped on sandboxes, templates and snapshots (medium)
-- [x] `GET /templates/{templateID} (returns the template's build list) and /templates/{templateID}/builds/{buildID}/status` — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [x] `GET /templates/{templateID}` (returns the template's build list) — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [ ] `GET /templates/{templateID}/builds/{buildID}/status` — per-build status and logs; see the reasons below (medium)
 - [ ] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
 - [ ] `GET /volumes` — persistent volume inventory and their sandbox attachments (low)
 - [ ] `GET /v2/sandboxes/{sandboxID}/logs` — per-sandbox logs for failure analysis; high volume and per-ID fetch, so nice to have (low)

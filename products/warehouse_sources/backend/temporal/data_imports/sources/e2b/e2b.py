@@ -1,10 +1,11 @@
 import re
 import functools
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -99,7 +100,7 @@ def _require_team_id(e2b_team_id: str | None) -> str:
     return cleaned
 
 
-@dataclasses.dataclass
+@frozen
 class E2BResumeConfig:
     # Opaque cursor to fetch the next page from (E2B's `nextToken`). `None` starts at the first page.
     # A job only ever syncs one endpoint, so a single token slot is unambiguous.
