@@ -185,10 +185,21 @@ export const taskLogic = kea<taskLogicType>([
             },
         ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         loadTaskSuccess: () => {
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
+        // The sidebar rename writes through tasksLogic, so mirror the result onto this detail
+        // logic. Without it the header keeps the old title until the next full load.
+        [tasksLogic.actionTypes.renameTaskSuccess]: ({ tasks, payload }) => {
+            if (payload?.taskId !== props.taskId) {
+                return
+            }
+            const renamed = tasks.find((task) => task.id === props.taskId)
+            if (renamed) {
+                actions.loadTaskSuccess(renamed)
             }
         },
         runTaskSuccess: () => {

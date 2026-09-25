@@ -349,7 +349,7 @@ export function SceneTitleSection({
                     data-editable={canEdit}
                 >
                     <div
-                        className={cn('flex gap-1 flex-1 min-w-0', {
+                        className={cn('flex items-center gap-1 flex-1 min-w-0', {
                             '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
                         })}
                     >
