@@ -282,8 +282,9 @@ struct CacheEntry {
 
 `local_pending` is reset to 0 when fresh data arrives from Redis.
 Since `estimated_count` already includes the events this node wrote via INCRBY, preserving `local_pending` would double-count them.
-Events counted after the tick takes its write batch, and before the read lands, drop out of the local estimate.
-They reach Redis on a later tick and appear in the next read.
+Events whose write has not landed when the read does drop out of the local estimate.
+That covers events counted after the tick took its write batch, and writes deferred past the per-tick cap.
+They appear in a later read once their write lands, unless their epoch ages out first and the tick purges them.
 
 ### Redis Key Model
 
