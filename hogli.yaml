@@ -538,6 +538,10 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:openapi-scope-objects:
+        bin_script: build-scope-objects.py
+        description: Generate the frontend scope object lists (all, internal, OAuth-hidden)
+            from posthog/scopes.py
     build:task-model-catalog:
         cmd: python products/tasks/scripts/build_model_catalog.py
         description: Generate the web and desktop views of the task run model catalog
@@ -600,6 +604,7 @@ build:
                   trap - INT TERM
                   exit "$generation_status"
             - build:openapi-mcp-scopes
+            - build:openapi-scope-objects
             - build:openapi-cli-agent-scopes
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts

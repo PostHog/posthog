@@ -6,9 +6,12 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# WARNING: Make sure to keep in sync with the frontend!
-# - frontend/src/lib/scopes.tsx
-# - frontend/src/types.ts (`export type APIScopeObject`)
+# WARNING: A new scope object also needs a row in `API_SCOPES` in frontend/src/lib/scopes.tsx,
+# or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`. frontend/src/lib/scopes.test.ts
+# fails until one of them exists.
+#
+# `bin/build-scope-objects.py` writes the object list and the internal and OAuth-hidden sets
+# below to `frontend/src/lib/scopeObjects.generated.ts`. It runs as part of `hogli build:openapi`.
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
