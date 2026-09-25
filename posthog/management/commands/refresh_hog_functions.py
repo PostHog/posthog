@@ -34,10 +34,12 @@ def _compilable_value(value: Any, item_type: str | None) -> Any:
     return value
 
 
-def _item_types(inputs_schema: Any) -> dict[str, str | None]:
+def _item_types(inputs_schema: object) -> dict[str, str | None]:
+    if not isinstance(inputs_schema, list):
+        return {}
     return {
         entry["key"]: entry.get("type")
-        for entry in (inputs_schema or [])
+        for entry in inputs_schema
         if isinstance(entry, dict) and isinstance(entry.get("key"), str)
     }
 
