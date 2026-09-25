@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/react'
 import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -8,6 +7,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, DashboardBasicType, DashboardPlacement, DashboardTile } from '~/types'
 
 import { DashboardWidgetItem } from 'products/dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
+
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 
 import { notebookWidgetDashboardLogic } from '../NotebookNodeGeneratedWidget/notebookWidgetDashboardLogic'
 import { NotebookWidgetDashboardModal } from '../NotebookNodeGeneratedWidget/NotebookWidgetDashboardModal'
@@ -182,8 +183,8 @@ export const AddToDashboard: Story = {
                                     id: index + 1,
                                     uuid: `example-creator-${index + 1}`,
                                     distinct_id: `example-creator-${index + 1}`,
-                                    first_name:
-                                        index === 0 ? 'Avery Stone' : index === 249 ? 'Jules Parker' : 'Morgan Reed',
+                                    first_name: index === 0 ? 'Avery' : index === 249 ? 'Jules' : 'Morgan',
+                                    last_name: index === 0 ? 'Stone' : index === 249 ? 'Parker' : 'Reed',
                                     email:
                                         index === 0
                                             ? 'avery@example.com'
@@ -210,13 +211,11 @@ export const AddToDashboard: Story = {
     },
     play: async () => {
         const screen = within(document.body)
-        fireEvent.click(screen.getByText('Add to dashboard'))
+        await userEvent.click(screen.getByRole('button', { name: 'Add to dashboard' }))
         await waitFor(() => {
-            if (screen.getByText('Choose a dashboard').closest('button')?.classList.contains('LemonButton--loading')) {
-                throw new Error('Dashboards are still loading')
-            }
+            expect(screen.getByRole('button', { name: 'Choose a dashboard' })).not.toHaveClass('LemonButton--loading')
         })
-        fireEvent.click(await screen.findByText('Choose a dashboard'))
+        await userEvent.click(screen.getByRole('button', { name: 'Choose a dashboard' }))
         await screen.findByText('Activation overview')
     },
 }
@@ -225,8 +224,17 @@ export const SearchDashboardByCreator: Story = {
     ...AddToDashboard,
     play: async (context) => {
         await AddToDashboard.play?.(context)
-        fireEvent.change(within(document.body).getByPlaceholderText('Search by name, description, or creator'), {
-            target: { value: 'Jules' },
-        })
+        const screen = within(document.body)
+        for (const searchTerm of ['Parker', 'Jules Parker', 'jules@example.com', 'Jules']) {
+            await userEvent.clear(screen.getByPlaceholderText('Search by name, description, or creator'))
+            await userEvent.type(screen.getByPlaceholderText('Search by name, description, or creator'), searchTerm)
+            await waitFor(() => {
+                expect(screen.getByText('Revenue overview')).toBeVisible()
+                expect(screen.getByText('Created by Jules Parker')).toBeVisible()
+                expect(screen.queryByText('Activation overview')).not.toBeInTheDocument()
+                expect(screen.queryByText('Board review')).not.toBeInTheDocument()
+                expect(screen.queryByText('Metrics report 3')).not.toBeInTheDocument()
+            })
+        }
     },
 }

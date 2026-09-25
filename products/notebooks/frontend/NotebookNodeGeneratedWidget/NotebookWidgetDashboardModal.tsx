@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonSearchableSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { fullName, fullNameOrEmail } from 'lib/utils/strings'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AccessControlLevel } from '~/types'
 
@@ -59,7 +61,7 @@ export function NotebookWidgetDashboardModal(props: NotebookWidgetDashboardProps
                             label: dashboard.name || 'Untitled',
                             description: dashboard.description,
                             creator: dashboard.created_by
-                                ? `${dashboard.created_by.first_name} ${dashboard.created_by.email}`
+                                ? `${fullName(dashboard.created_by)} ${dashboard.created_by.email}`
                                 : '',
                             labelInMenu: (
                                 <span className="flex min-w-0 flex-1 flex-col gap-1 text-left">
@@ -80,7 +82,7 @@ export function NotebookWidgetDashboardModal(props: NotebookWidgetDashboardProps
                                     )}
                                     <span className="truncate text-xs font-normal text-secondary">
                                         {dashboard.created_by
-                                            ? `Created by ${dashboard.created_by.first_name || dashboard.created_by.email}`
+                                            ? `Created by ${fullNameOrEmail(dashboard.created_by)}`
                                             : 'Creator unavailable'}
                                     </span>
                                 </span>
