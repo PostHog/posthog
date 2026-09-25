@@ -1,4 +1,6 @@
 import time
+from copy import deepcopy
+from typing import Any
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
@@ -7,10 +9,26 @@ from django.test import RequestFactory
 
 import structlog
 
-from products.workflows.backend.api.hog_flow import HogFlowSerializer
+from products.workflows.backend.api.hog_flow import (
+    HogFlowSerializer,
+    TemplateCache,
+    mask_secret_action_inputs,
+    merge_secret_maps,
+    partition_flow_secrets,
+    plaintext_secret_map,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
+
+
+def _secret_values(secrets: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    # Compare secrets by value only. The save recompiles each input, so its bytecode can change.
+    return {
+        action_id: {key: value.get("value") if isinstance(value, dict) else value for key, value in inputs.items()}
+        for action_id, inputs in secrets.items()
+        if inputs
+    }
 
 
 class Command(BaseCommand):
@@ -101,6 +119,16 @@ class Command(BaseCommand):
                             "get_team": get_team_func,
                         }
 
+                        # Stored actions hold no secret inputs. Resend each live secret as the
+                        # {"secret": true} marker, so validation recovers it as it does for an editor save.
+                        template_cache: TemplateCache = {}
+                        live_secrets = merge_secret_maps(
+                            plaintext_secret_map(hog_flow.actions, template_cache), hog_flow.encrypted_inputs
+                        )
+                        actions = mask_secret_action_inputs(
+                            deepcopy(hog_flow.actions or []), live_secrets, template_cache
+                        )
+
                         # Get the current data from the HogFlow
                         data = {
                             "name": hog_flow.name,
@@ -111,7 +139,7 @@ class Command(BaseCommand):
                             "conversion": hog_flow.conversion,
                             "exit_condition": hog_flow.exit_condition,
                             "edges": hog_flow.edges,
-                            "actions": hog_flow.actions,
+                            "actions": actions,
                             "variables": hog_flow.variables,
                         }
 
@@ -120,7 +148,28 @@ class Command(BaseCommand):
                             instance=hog_flow, data=data, context=serializer_context, partial=True
                         )
 
-                        if serializer.is_valid():
+                        # Validation recovers secrets with the draft first, because an editor saw the
+                        # draft. A refresh writes the live store, so it must recover the live secrets.
+                        draft_secrets = hog_flow.draft_encrypted_inputs
+                        hog_flow.draft_encrypted_inputs = None
+                        try:
+                            is_valid = serializer.is_valid()
+                        finally:
+                            hog_flow.draft_encrypted_inputs = draft_secrets
+
+                        if is_valid:
+                            _, written_secrets = partition_flow_secrets(
+                                serializer.validated_data.get("actions") or [], template_cache
+                            )
+                            if _secret_values(written_secrets) != _secret_values(live_secrets):
+                                # A save that changes a secret can delete a credential that nobody can
+                                # enter again. Skip the workflow and name it.
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f"Secrets would change: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name!r})"
+                                    )
+                                )
+                                raise Exception("Refresh would change the stored secrets")
                             if not dry_run:
                                 serializer.save()
                             total_updated += 1

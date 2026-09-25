@@ -1,3 +1,4 @@
+from copy import deepcopy
 from io import StringIO
 from typing import Any
 
@@ -9,8 +10,10 @@ from django.core.management import call_command
 from parameterized import parameterized
 
 from posthog.cdp.filters import RUNTIME_CONTRACT
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import Team
 
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -379,3 +382,56 @@ class TestRefreshHogFlows(BaseTest):
         assert "bytecode_contract" not in (flow.trigger or {})["filters"]
         assert f"workflow {flow.id}" in out.getvalue()
         assert "Errors: 1" in out.getvalue()
+
+    @parameterized.expand(
+        [
+            # The draft secret must not reach the live store before a publish.
+            ("active_flow_with_a_draft_secret", HogFlow.State.ACTIVE, "https://example.com", True),
+            # Lenient validation keeps the invalid input, and nothing restores the stripped secret.
+            ("draft_flow_with_an_invalid_input", HogFlow.State.DRAFT, "", False),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_leaves_the_stored_secrets_unchanged(self, _name, status, url, has_draft, mock_reload):
+        template = deepcopy(MOCK_NODE_TEMPLATES[0])
+        template["id"] = "template-secret-webhook"
+        template["inputs_schema"] = [
+            {"key": "url", "type": "string", "label": "URL", "secret": False, "required": True},
+            {"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": False},
+        ]
+        sync_template_to_db(template)
+        trigger_config = {"type": "event", "filters": {"events": [{"id": "$pageview", "type": "events"}]}}
+        actions: list[dict[str, Any]] = [
+            {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
+            {
+                "id": "action_1",
+                "name": "webhook",
+                "type": "function",
+                "config": {"template_id": "template-secret-webhook", "inputs": {"url": {"value": url}}},
+            },
+        ]
+        live_secrets = {"action_1": {"api_key": {"value": "fake-live-key"}}}
+        draft_secrets = {"action_1": {"api_key": {"value": "fake-draft-key"}}} if has_draft else None
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Secret flow",
+            status=status,
+            trigger=trigger_config,
+            edges=[{"from": "trigger_node", "to": "action_1", "type": "continue"}],
+            actions=actions,
+            encrypted_inputs=live_secrets,
+            draft={"actions": actions} if has_draft else None,
+            draft_encrypted_inputs=draft_secrets,
+        )
+
+        out = StringIO()
+        call_command("refresh_hog_flows", hog_flow_id=str(flow.id), stdout=out)
+
+        assert "Updated: 1" in out.getvalue()
+        flow.refresh_from_db()
+        live_values = {
+            action_id: {key: value.get("value") for key, value in inputs.items()}
+            for action_id, inputs in (flow.encrypted_inputs or {}).items()
+        }
+        assert live_values == {"action_1": {"api_key": "fake-live-key"}}
+        assert flow.draft_encrypted_inputs == draft_secrets
