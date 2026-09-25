@@ -294,6 +294,15 @@ def classify_failure_type(exception: Exception | str) -> str:
     return FAILURE_TYPE_UNKNOWN
 
 
+def is_non_reportable_export_failure(exception: Exception) -> bool:
+    """Whether a failed export is the user's to fix, so error tracking must not report it.
+
+    The person who asked for the export already gets a message that says what to change, and no
+    PostHog engineer can action the failure. SLO attribution still records it.
+    """
+    return classify_failure_type(exception) == FAILURE_TYPE_USER
+
+
 def is_user_query_error_type(exception_type: str | None) -> bool:
     if exception_type is None:
         return False

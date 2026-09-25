@@ -48,7 +48,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import ExcelColumnLimitExceeded
+from .failure_handler import ExcelColumnLimitExceeded, is_non_reportable_export_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -793,6 +793,8 @@ def export_tabular(
                     "dashboard_id": exported_asset.dashboard_id,
                 },
             )
-        else:
+        # A user-classified failure (e.g. too many columns for XLSX) already reached the person
+        # who asked for the export as a message they can act on, so an issue is only noise.
+        elif not is_non_reportable_export_failure(e):
             capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise
