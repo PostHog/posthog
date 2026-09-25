@@ -564,8 +564,8 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         ]
     )
     def test_create_requires_caller_to_hold_requested_scopes(
-        self, _name, caller_scopes, requested_scopes, missing_scopes
-    ):
+        self, _name: str, caller_scopes: list[str], requested_scopes: list[str], missing_scopes: list[str]
+    ) -> None:
         token = self.create_personal_api_key_with_scopes(caller_scopes)
 
         response = self.client.post(
@@ -601,8 +601,8 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         ]
     )
     def test_update_requires_caller_to_hold_added_scopes(
-        self, _name, key_scopes, caller_scopes, new_scopes, expected_status
-    ):
+        self, _name: str, key_scopes: list[str], caller_scopes: list[str], new_scopes: list[str], expected_status: int
+    ) -> None:
         key = ProjectSecretAPIKey.objects.create(
             team=self.team,
             label="existing",
@@ -623,7 +623,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         key.refresh_from_db()
         assert key.scopes == (new_scopes if expected_status == 200 else key_scopes)
 
-    def test_roll_rejected_when_caller_lacks_key_scopes(self):
+    def test_roll_rejected_when_caller_lacks_key_scopes(self) -> None:
         secure_value = hash_key_value(generate_random_token_secret())
         key = ProjectSecretAPIKey.objects.create(
             team=self.team,
