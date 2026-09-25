@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
+from uuid import UUID
 
 import structlog
 
@@ -25,10 +26,11 @@ from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
-    CheckOutcomeReason,
     GroupTransition,
+    MuteReason,
     PlatformAlertCheck,
     PlatformAlertOutcome,
+    SkipReason,
     SourceBatchEvaluation,
     SourceKind,
 )
@@ -55,11 +57,7 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import (
-    is_local_minute_blocked,
-    local_minute_of,
-    parse_blocked_windows_tuples,
-)
+from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -115,14 +113,15 @@ def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: dat
     )
 
 
-def _is_in_quiet_hours(check: PlatformAlertCheck, local_minute: int) -> bool:
-    """True when the alert's schedule restriction mutes an announcement at the batch's local minute.
+def _is_in_quiet_hours(check: PlatformAlertCheck, now: datetime, tz_name: str) -> bool:
+    """True when the alert's schedule restriction mutes an announcement at the batch instant.
 
     The check still runs, so an incident wholly inside the window is still recorded.
     """
+    if not check.schedule_restriction:
+        return False
     try:
-        windows = parse_blocked_windows_tuples(check.schedule_restriction)
-        return windows is not None and is_local_minute_blocked(local_minute, windows)
+        return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(check.schedule_restriction))
     except Exception as error:
         # A restriction we cannot parse must not decide the alert either way, so the check
         # proceeds and the production stack keeps ownership of the broken configuration.
@@ -150,20 +149,21 @@ Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
 
 def _record_check_metrics(
     check: PlatformAlertCheck,
-    outcome: AlertCheckOutcome,
-    reason: CheckOutcomeReason,
     *,
-    muted_by_quiet_hours: bool,
+    new_state: str,
+    notification: NotificationAction,
+    muted_notification: NotificationAction = NotificationAction.NONE,
+    skip: SkipReason | None = None,
+    muted_by_quiet_hours: bool = False,
     now: datetime,
 ) -> None:
-    new_state = outcome.new_state.value
-    safe_record(increment_checks, SourceKind.LOGS.value, outcome.notification.value)
-    if reason != CheckOutcomeReason.EVALUATED:
-        safe_record(increment_checks_skipped, SourceKind.LOGS.value, reason)
-    if outcome.muted_notification != NotificationAction.NONE:
+    safe_record(increment_checks, SourceKind.LOGS.value, notification.value)
+    if skip is not None:
+        safe_record(increment_checks_skipped, SourceKind.LOGS.value, skip.value)
+    if muted_notification != NotificationAction.NONE:
         # The machine owns the snooze predicate, so the source's flag is what separates the two.
-        mute_reason = CheckOutcomeReason.QUIET_HOURS if muted_by_quiet_hours else CheckOutcomeReason.SNOOZE
-        safe_record(increment_notifications_muted, SourceKind.LOGS.value, mute_reason)
+        mute_reason = MuteReason.QUIET_HOURS if muted_by_quiet_hours else MuteReason.SNOOZE
+        safe_record(increment_notifications_muted, SourceKind.LOGS.value, mute_reason.value)
     if check.state != new_state:
         safe_record(increment_state_transition, SourceKind.LOGS.value, check.state, new_state)
     if check.next_check_at is not None:
@@ -178,7 +178,7 @@ def _verdict(
     prior_breached: tuple[bool, ...],
     *,
     now: datetime,
-    reason: CheckOutcomeReason,
+    skip: SkipReason | None,
 ) -> AlertCheckOutcome:
     """Runs one check through the shared machine.
 
@@ -193,14 +193,34 @@ def _verdict(
     outcome = evaluate_alert_check(
         _snapshot(check, prior_breached), check_input, now, policy=PLATFORM_LOGS_ALERT_POLICY
     )
-    _record_check_metrics(check, outcome, reason, muted_by_quiet_hours=check_input.muted, now=now)
+    _record_check_metrics(
+        check,
+        new_state=outcome.new_state.value,
+        notification=outcome.notification,
+        muted_notification=outcome.muted_notification,
+        skip=skip,
+        muted_by_quiet_hours=check_input.muted,
+        now=now,
+    )
     return outcome
+
+
+def _recorded(
+    check: PlatformAlertCheck, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+) -> PlatformAlertOutcome:
+    return PlatformAlertOutcome(
+        configuration_id=check.id,
+        new_state=new_state,
+        notified=notified,
+        consecutive_failures=consecutive_failures,
+        disable=disable,
+    )
 
 
 def _delivery(check: PlatformAlertCheck, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
-    recorded = PlatformAlertOutcome(
-        configuration_id=check.id,
+    recorded = _recorded(
+        check,
         new_state=outcome.new_state.value,
         notified=outcome.update_last_notified_at,
         consecutive_failures=outcome.consecutive_failures,
@@ -238,7 +258,7 @@ def _evaluate_one(
         CheckInput(threshold_breached=current_breached, muted=muted),
         tuple(prior_windows_breached),
         now=now,
-        reason=CheckOutcomeReason.EVALUATED,
+        skip=None,
     )
 
 
@@ -260,32 +280,20 @@ def _failed(check: PlatformAlertCheck, error: Exception, *, now: datetime, muted
         ),
         (),
         now=now,
-        reason=CheckOutcomeReason.QUERY_FAILED,
+        skip=SkipReason.QUERY_FAILED,
     )
 
 
-def _held(
-    check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, reason: CheckOutcomeReason, now: datetime
-) -> Decision:
+def _held(check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
-    recorded = PlatformAlertOutcome(
-        configuration_id=check.id,
+    recorded = _recorded(
+        check,
         new_state=outcome.new_state.value,
         notified=False,
         consecutive_failures=outcome.consecutive_failures,
     )
     _record_check_metrics(
-        check,
-        AlertCheckOutcome(
-            new_state=outcome.new_state,
-            notification=NotificationAction.NONE,
-            consecutive_failures=outcome.consecutive_failures,
-            update_last_notified_at=False,
-            error_message=None,
-        ),
-        reason,
-        muted_by_quiet_hours=False,
-        now=now,
+        check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
     return recorded, None
 
@@ -297,7 +305,7 @@ def _evaluate_cohort(
     *,
     now: datetime,
     query_seconds: int,
-    local_minute: int,
+    muted_ids: frozenset[UUID],
 ) -> list[Decision]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
@@ -324,17 +332,13 @@ def _evaluate_cohort(
         # batch would advance every other check's schedule and leave this one due with its failure
         # counter unmoved, never reaching the escalation that stops it.
         return [
-            _delivery(
-                check,
-                _failed(check, error, now=now, muted=_is_in_quiet_hours(check, local_minute)),
-                window_end=date_to,
-            )
+            _delivery(check, _failed(check, error, now=now, muted=check.id in muted_ids), window_end=date_to)
             for check in checks
         ]
 
     decided: list[Decision] = []
     for check in checks:
-        muted = _is_in_quiet_hours(check, local_minute)
+        muted = check.id in muted_ids
         try:
             outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now, muted=muted)
         except Exception as error:
@@ -346,17 +350,20 @@ def _evaluate_cohort(
     return decided
 
 
-def _triage(checks: Sequence[PlatformAlertCheck], *, now: datetime) -> tuple[list[Decision], list[PlatformAlertCheck]]:
-    """Splits a batch into the checks a query can answer and the ones already decided.
+def _triage(
+    checks: Sequence[PlatformAlertCheck], *, now: datetime, tz_name: str
+) -> tuple[list[Decision], list[PlatformAlertCheck], frozenset[UUID]]:
+    """Splits a batch into the checks a query can answer, the ones already decided, and the muted.
 
     A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
     where it was and discovery hands the same check back on the next tick, forever.
 
-    A schedule restriction decides nothing here. It mutes an announcement, so the check goes to
-    the query like any other.
+    A schedule restriction decides nothing here. It mutes an announcement, so the check goes to the
+    query like any other and its id lands in the muted set.
     """
     decided: list[Decision] = []
     evaluable: list[PlatformAlertCheck] = []
+    muted_ids: set[UUID] = set()
     for check in checks:
         broken_reason = _detect_broken_filter_config(check.source_config)
         if broken_reason is not None:
@@ -369,13 +376,15 @@ def _triage(checks: Sequence[PlatformAlertCheck], *, now: datetime) -> tuple[lis
                 _held(
                     check,
                     apply_broken_config(_snapshot(check, ())),
-                    reason=CheckOutcomeReason.BROKEN_CONFIG,
+                    skip=SkipReason.BROKEN_CONFIG,
                     now=now,
                 )
             )
             continue
+        if _is_in_quiet_hours(check, now, tz_name):
+            muted_ids.add(check.id)
         evaluable.append(check)
-    return decided, evaluable
+    return decided, evaluable, frozenset(muted_ids)
 
 
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
@@ -423,9 +432,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if team is None:
         return SourceBatchEvaluation(outcomes=(), previews=())
 
-    # One conversion for the batch: every check shares the tick instant and the team's timezone.
-    local_minute = local_minute_of(cutoff, team.timezone)
-    decided, evaluable = _triage(checks, now=cutoff)
+    decided, evaluable, muted_ids = _triage(checks, now=cutoff, tz_name=team.timezone)
     if not evaluable:
         # Returns before the checkpoint query below, which nothing left would use.
         return _collect(decided, team_id, slot, started_at)
@@ -466,9 +473,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             unqueried += len(chunk)
             continue
         decided.extend(
-            _evaluate_cohort(
-                team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, local_minute=local_minute
-            )
+            _evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=muted_ids)
         )
 
     if unqueried:
