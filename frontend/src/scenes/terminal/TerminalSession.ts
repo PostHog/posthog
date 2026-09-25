@@ -5,6 +5,54 @@ import { Terminal } from '@xterm/xterm'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+function guardInvalidRange(listener: EventListener): EventListener {
+    return (event: Event): void => {
+        try {
+            listener(event)
+        } catch (error) {
+            if (!(error instanceof Error) || error.message !== 'invalid range') {
+                throw error
+            }
+        }
+    }
+}
+
+/**
+ * @xterm/xterm 5.5.0's accessibility manager throws "invalid range" from a document-wide
+ * `selectionchange` listener when it maps a selection to an empty terminal range. Nothing catches a
+ * throw from an event listener, so it reaches error tracking as an unhandled exception. Wrap the
+ * listeners that `register` adds, and tie them to `signal`, because xterm removes its listener by
+ * the unwrapped function and can no longer reach the wrapper. Only `register` is covered, so a
+ * second `open()` or a runtime `screenReaderMode` change needs the same treatment.
+ */
+export function guardSelectionListeners(register: () => void, signal: AbortSignal): void {
+    const addEventListener = document.addEventListener.bind(document)
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'addEventListener')
+    document.addEventListener = (
+        type: string,
+        listener: EventListenerOrEventListenerObject,
+        options?: boolean | AddEventListenerOptions
+    ): void => {
+        if (type !== 'selectionchange' || typeof listener !== 'function') {
+            addEventListener(type, listener, options)
+            return
+        }
+        addEventListener(type, guardInvalidRange(listener), {
+            ...(typeof options === 'object' ? options : { capture: options }),
+            signal,
+        })
+    }
+    try {
+        register()
+    } finally {
+        if (descriptor) {
+            Object.defineProperty(document, 'addEventListener', descriptor)
+        } else {
+            Reflect.deleteProperty(document, 'addEventListener')
+        }
+    }
+}
+
 export class TerminalSession {
     private readonly colors = getComputedStyle(document.documentElement)
     readonly view = new Terminal({
@@ -41,6 +89,7 @@ export class TerminalSession {
     private readonly element = document.createElement('div')
     private readonly fit = new FitAddon()
     private readonly observer = new ResizeObserver(() => this.resize())
+    private readonly selectionGuard = new AbortController()
 
     constructor(
         write: (data: string) => void,
@@ -53,7 +102,7 @@ export class TerminalSession {
         this.element.dataset.shortcutsIgnore = 'ctrl'
         this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)
-        this.view.open(this.element)
+        guardSelectionListeners(() => this.view.open(this.element), this.selectionGuard.signal)
         this.view.onData(write)
         this.view.onResize(({ cols, rows }) => resize(cols, rows))
         this.view.onSelectionChange(() => {
@@ -106,6 +155,7 @@ export class TerminalSession {
 
     dispose(): void {
         this.observer.disconnect()
+        this.selectionGuard.abort()
         this.view.dispose()
         this.element.remove()
     }
