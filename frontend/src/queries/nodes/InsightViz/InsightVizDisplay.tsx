@@ -161,6 +161,36 @@ export function shouldShowDashboardInsightRefreshHint({
     return rawResult === null || rawResult === undefined
 }
 
+/**
+ * The metadata bar carries the refresh control, so a query that errored or timed out keeps it: that is
+ * the state people most want to retry from. The bar still goes away while the first load is in flight.
+ */
+export function shouldShowInsightMetadataBar({
+    embedded,
+    isFunnels,
+    hasFunnelResults,
+    isPaths,
+    showComputationMetadata,
+    hasBlockingEmptyState,
+    queryFailed,
+}: {
+    embedded: boolean
+    isFunnels: boolean
+    hasFunnelResults: boolean
+    isPaths: boolean
+    showComputationMetadata: boolean
+    hasBlockingEmptyState: boolean
+    queryFailed: boolean
+}): boolean {
+    if (embedded) {
+        return false
+    }
+    if (isPaths || (isFunnels && hasFunnelResults)) {
+        return true
+    }
+    return showComputationMetadata && (!hasBlockingEmptyState || queryFailed)
+}
+
 export function InsightVizDisplay({
     disableHeader,
     disableTable,
@@ -368,6 +398,8 @@ export function InsightVizDisplay({
         return null
     })()
 
+    const hasBlockingEmptyState = !!BlockingEmptyState
+
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
@@ -523,7 +555,7 @@ export function InsightVizDisplay({
             inSharedMode,
             hasQuerySource: !!querySource,
             insightDataLoading,
-            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasBlockingEmptyState,
             hasResults: hasResultRows(insightData),
         }) ? (
             <InsightAIAnalysis />
@@ -531,6 +563,7 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const queryFailed = !!erroredQueryId || !!timedOutQueryId
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -569,26 +602,31 @@ export function InsightVizDisplay({
                 )}
                 {showingResults && (
                     <>
-                        {!embedded &&
-                            ((isFunnels && hasFunnelResults) ||
-                                isPaths ||
-                                (showComputationMetadata && !BlockingEmptyState)) && (
-                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                    <div className="flex items-center gap-2">
-                                        {showComputationMetadata && (
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        )}
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        {isPaths && <PathCanvasLabel />}
-                                        {isFunnels && <FunnelCanvasLabel />}
-                                    </div>
+                        {shouldShowInsightMetadataBar({
+                            embedded,
+                            isFunnels,
+                            hasFunnelResults,
+                            isPaths,
+                            showComputationMetadata,
+                            hasBlockingEmptyState,
+                            queryFailed,
+                        }) && (
+                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                <div className="flex items-center gap-2">
+                                    {showComputationMetadata && (
+                                        <InsightResultMetadata
+                                            disableLastComputation={disableLastComputation}
+                                            disableLastComputationRefresh={disableLastComputationRefresh}
+                                        />
+                                    )}
                                 </div>
-                            )}
+
+                                <div className="flex items-center gap-2">
+                                    {isPaths && <PathCanvasLabel />}
+                                    {isFunnels && <FunnelCanvasLabel />}
+                                </div>
+                            </div>
+                        )}
 
                         <div
                             className={clsx(
