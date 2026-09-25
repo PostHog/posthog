@@ -359,6 +359,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
+        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 
         try:
             materialize_saved_query(self, triggered_by_id=triggered_by_id)
@@ -369,6 +370,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )
+            if isinstance(e, MissingDagNodeError):
+                # The node went away between scheduling and this deferred start, so the tiers have
+                # nothing to run either. Honor the same contract as schedule_materialization: a
+                # query left at is_materialized=True with no node reports itself fresh while it
+                # keeps serving whatever the last run wrote, and says nothing to its readers.
+                self.is_materialized = False
+                self.save(update_fields=["is_materialized"])
 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
