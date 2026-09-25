@@ -11,6 +11,16 @@ def _get_cache_key(organization_id: str) -> str:
     return f"{CACHE_KEY_PREFIX}:{organization_id}"
 
 
+def has_large_org_cache(organization_id: str) -> bool:
+    """Large orgs get a non-expiring entry, small orgs a 12h TTL, so the TTL tells the two apart."""
+    try:
+        client = get_client()
+        return client.ttl(_get_cache_key(organization_id)) == -1
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 def get_cached_fields(organization_id: str) -> Optional[dict]:
     try:
         client = get_client()
