@@ -33,13 +33,8 @@ export interface PageLoadTimeToSeeData extends TimeToSeeDataFields {
 
 export type TimeToSeeDataPayload =
     | (TimeToSeeDataFields & {
-          type:
-              | 'dashboard_load'
-              | 'insight_load'
-              | 'properties_timeline_load'
-              | 'property_values_load'
-              | 'properties_load'
-          context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
+          type: 'dashboard_load' | 'insight_load'
+          context: 'dashboard' | 'insight'
       })
     | PageLoadTimeToSeeData
 
