@@ -464,7 +464,7 @@ export const getAccountViewsCreateUrl = (projectId: string) => {
 }
 
 /**
- * @summary Create a private account view
+ * @summary Create a personal account view
  */
 export const accountViewsCreate = async (
     projectId: string,

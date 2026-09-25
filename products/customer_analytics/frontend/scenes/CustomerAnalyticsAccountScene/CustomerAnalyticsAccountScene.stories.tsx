@@ -45,6 +45,9 @@ const accountView = {
     last_modified_by: 1,
     created_at: '2026-05-10T10:00:00Z',
     updated_at: '2026-05-20T14:30:00Z',
+    can_edit: true,
+    can_delete: true,
+    can_change_visibility: true,
 }
 
 const account = {
@@ -104,6 +107,7 @@ const meta: Meta = {
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
             FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_TABS,
         ],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {
@@ -129,7 +133,15 @@ const meta: Meta = {
                         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#8f68d4"/></svg>',
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
-                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: {
+                    pinned_properties: [],
+                    task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+                    account_detail_tabs: {
+                        ordered_tab_ids: [`view:${ACCOUNT_VIEW_ID}`, 'system:notes', 'system:relationships'],
+                        hidden_tab_ids: [],
+                        default_tab_id: `view:${ACCOUNT_VIEW_ID}`,
+                    },
+                },
                 [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],

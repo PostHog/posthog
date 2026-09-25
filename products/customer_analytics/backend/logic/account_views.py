@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
@@ -50,6 +51,10 @@ class AccountViewVersionConflict(Exception):
     pass
 
 
+class AccountViewPermissionDenied(Exception):
+    pass
+
+
 def get_account_identity_props(value: object) -> set[str]:
     if isinstance(value, dict):
         return ACCOUNT_VIEW_IDENTITY_PROPS.intersection(value) | set().union(
@@ -60,25 +65,17 @@ def get_account_identity_props(value: object) -> set[str]:
     return set()
 
 
-def list_account_views(*, team_id: int, user_id: int) -> list[AccountView]:
-    return list(
+def list_account_views(*, team_id: int, user_id: int) -> QuerySet[AccountView]:
+    return (
         AccountView.objects.for_team(team_id)
-        .filter(created_by_id=user_id, deleted_at__isnull=True, visibility=AccountViewVisibility.PRIVATE)
+        .filter(deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .order_by("name", "created_at")
     )
 
 
 def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> AccountView | None:
-    return (
-        AccountView.objects.for_team(team_id)
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
-        .first()
-    )
+    return list_account_views(team_id=team_id, user_id=user_id).filter(id=view_id).first()
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -160,25 +157,35 @@ def update_account_view(
     user_id: int,
     view_id: UUID,
     expected_version: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
     name: str | None = None,
     content: dict[str, Any] | None = None,
+    visibility: str | None = None,
 ) -> AccountView | None:
     view = (
         AccountView.objects.for_team(team_id)
         .select_for_update()
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
+        .filter(id=view_id, deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .first()
     )
     if view is None:
         return None
     if view.version != expected_version:
         raise AccountViewVersionConflict("This view changed since you opened it.")
-    if name is None and content is None:
+    if view.visibility == AccountViewVisibility.PRIVATE and view.created_by_id != user_id:
+        raise AccountViewPermissionDenied("Only the creator can edit this personal view.")
+    if view.visibility == AccountViewVisibility.TEAM and not can_edit_team_views:
+        raise AccountViewPermissionDenied("You need editor access to change this team view.")
+    if (
+        visibility is not None
+        and visibility != view.visibility
+        and view.created_by_id != user_id
+        and not is_project_admin
+    ):
+        raise AccountViewPermissionDenied("Only the creator or a project admin can change visibility.")
+    if name is None and content is None and (visibility is None or visibility == view.visibility):
         return view
 
     update_fields = ["last_modified_by", "version", "updated_at"]
@@ -188,6 +195,12 @@ def update_account_view(
     if content is not None:
         view.content, view.text_content = validate_account_view_content(content)
         update_fields.extend(["content", "text_content"])
+    if visibility is not None and visibility != view.visibility:
+        view.visibility = AccountViewVisibility(visibility)
+        update_fields.append("visibility")
+        if view.visibility == AccountViewVisibility.PRIVATE and view.created_by_id != user_id:
+            view.created_by_id = user_id
+            update_fields.append("created_by")
 
     view.last_modified_by_id = user_id
     view.version += 1
@@ -196,22 +209,22 @@ def update_account_view(
 
 
 @transaction.atomic
-def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_version: int) -> bool:
+def delete_account_view(
+    *, team_id: int, user_id: int, view_id: UUID, expected_version: int, is_project_admin: bool
+) -> bool:
     view = (
         AccountView.objects.for_team(team_id)
         .select_for_update()
-        .filter(
-            id=view_id,
-            created_by_id=user_id,
-            deleted_at__isnull=True,
-            visibility=AccountViewVisibility.PRIVATE,
-        )
+        .filter(id=view_id, deleted_at__isnull=True)
+        .filter(Q(created_by_id=user_id) | Q(visibility=AccountViewVisibility.TEAM))
         .first()
     )
     if view is None:
         return False
     if view.version != expected_version:
         raise AccountViewVersionConflict("This view changed since you opened it.")
+    if view.created_by_id != user_id and not is_project_admin:
+        raise AccountViewPermissionDenied("Only the creator or a project admin can delete this view.")
 
     view.deleted_at = timezone.now()
     view.last_modified_by_id = user_id

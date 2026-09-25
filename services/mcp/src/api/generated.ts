@@ -1032,6 +1032,18 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface AccountDetailTabsConfig {
+      /** Tab identifiers in the user's preferred order. */
+      ordered_tab_ids: string[];
+      /** Tab identifiers hidden from the tab strip. */
+      hidden_tab_ids: string[];
+      /**
+         * Tab identifier opened by default. Null uses the first available system tab.
+         * @nullable
+         */
+      default_tab_id: string | null;
+    }
+
     export interface ConversationMessageSender {
       /** Display name of the message sender. */
       readonly name: string;
@@ -1507,6 +1519,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `private` - Personal
+     * * `team` - Team
+     */
+    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+
+
+    export const AccountViewVisibilityEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `doc` - doc
      */
     export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
@@ -1560,8 +1584,11 @@ export namespace Schemas {
       readonly id: string;
       /** Name shown in the account view. */
       readonly name: string;
-      /** Account views created through this API are private. */
-      readonly visibility: string;
+      /** Whether the view is personal or available to the project.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      readonly visibility: AccountViewVisibilityEnum;
       /** Validated Markdown notebook document. */
       readonly content: AccountViewContent;
       /** Searchable component labels extracted from content. */
@@ -1582,6 +1609,12 @@ export namespace Schemas {
       readonly created_at: string;
       /** When the view was last changed. */
       readonly updated_at: string;
+      /** Whether the requesting user can edit the view. */
+      readonly can_edit: boolean;
+      /** Whether the requesting user can delete the view. */
+      readonly can_delete: boolean;
+      /** Whether the requesting user can change the view visibility. */
+      readonly can_change_visibility: boolean;
     }
 
     export interface AccountViewCreate {
@@ -1593,16 +1626,6 @@ export namespace Schemas {
       /** Initial account view components. */
       content: AccountViewContent;
     }
-
-    /**
-     * * `private` - Personal
-     */
-    export type AccountViewUpdateVisibilityEnum = typeof AccountViewUpdateVisibilityEnum[keyof typeof AccountViewUpdateVisibilityEnum];
-
-
-    export const AccountViewUpdateVisibilityEnum = {
-      Private: 'private',
-    } as const;
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
@@ -70577,10 +70600,11 @@ export namespace Schemas {
       name?: string;
       /** Replacement account view components. Omit to keep current content. */
       content?: AccountViewContent;
-      /** Views can only be private.
+      /** New visibility. Only the creator or a project admin can change it.
        *
-       * * `private` - Personal */
-      visibility?: AccountViewUpdateVisibilityEnum;
+       * * `private` - Personal
+       * * `team` - Team */
+      visibility?: AccountViewVisibilityEnum;
       /**
          * Version returned by the last read.
          * @minimum 1
@@ -79031,6 +79055,8 @@ export namespace Schemas {
       pinned_properties?: PinnedAccountProperty[];
       /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
       task_digest?: TaskDigestPreferencesUpdate;
+      /** Complete personal account tab configuration. Omit to keep it unchanged. */
+      account_detail_tabs?: AccountDetailTabsConfig;
     }
 
     /**
@@ -100526,6 +100552,8 @@ export namespace Schemas {
       readonly pinned_properties: readonly PinnedAccountProperty[];
       /** Task digest email preferences. Disabled until the user turns the digest on. */
       readonly task_digest: TaskDigestPreferences;
+      /** Personal order, visibility, and default for account tabs. */
+      readonly account_detail_tabs: AccountDetailTabsConfig;
     }
 
     export interface UserFacetSettings {
