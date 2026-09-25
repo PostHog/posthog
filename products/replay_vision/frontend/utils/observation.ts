@@ -287,11 +287,6 @@ function observationHeadline(obs: ReplayObservationApi): string | null {
     return null
 }
 
-export function firstCitationMs(obs: ReplayObservationApi): number | null {
-    const citations = readCitations(obs)
-    return citations.length > 0 ? Math.min(...citations.map((c) => c.timestampMs)) : null
-}
-
 /** One mark per cited second; entries merged when scanners cite the same moment. */
 export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
     const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()

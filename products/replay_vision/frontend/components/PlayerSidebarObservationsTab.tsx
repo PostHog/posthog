@@ -222,10 +222,7 @@ function ObservationRuns({
                     const count = marksByRun.get(observation.id)?.length ?? 0
                     const scannerType = observation.scanner_snapshot?.scanner_type
                     return (
-                        <div
-                            key={observation.id}
-                            className="border-b border-[var(--color-posthog-3000-300)] dark:border-[var(--color-neutral-cool-700)]"
-                        >
+                        <div key={observation.id} className="border-b border-primary">
                             <LemonButton
                                 fullWidth
                                 size="small"
