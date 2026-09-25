@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,6 +18,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.presentation.serializers import RecalculateMetricsRequestSerializer
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -131,6 +133,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert "results" in latest
         assert latest["active_run"] == {"id": created["id"], "status": "pending"}
         assert {"is_existing", "trigger"}.isdisjoint(latest)
+
+    def test_post_rejects_server_only_trigger(self):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "timeseries_sync"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exists()
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
@@ -357,3 +365,22 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK
         assert not mock_connect.called
+
+
+class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (ExperimentMetricsRecalculation.Trigger.AGENT_MCP,),
+            (ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,),
+            (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH,),
+        ]
+    )
+    def test_rejects_server_only_trigger(self, trigger: str):
+        serializer = RecalculateMetricsRequestSerializer(data={"trigger": trigger})
+        assert not serializer.is_valid()
+        assert serializer.errors["trigger"][0].code == "invalid_choice"
+
+    def test_every_request_trigger_is_a_trigger(self):
+        assert set(ExperimentMetricsRecalculation.RequestTrigger.values) <= set(
+            ExperimentMetricsRecalculation.Trigger.values
+        )
