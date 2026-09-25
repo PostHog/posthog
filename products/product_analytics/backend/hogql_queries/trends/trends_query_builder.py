@@ -72,6 +72,62 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return self._outer_select_query(inner_query=inner_query)
 
+    def build_top_breakdown_values_query(self) -> ast.SelectQuery:
+        """The breakdown values that keep a bar of their own, ranked the way `build_query` ranks them.
+
+        Every other value is what the chart folds into the "Other" bar.
+        """
+        totals_query = parse_select(
+            """
+            SELECT
+                breakdown_value AS breakdown_value,
+                sum(count) AS total,
+                {breakdown_order_by} AS ordering
+            FROM {inner_query}
+            GROUP BY breakdown_value
+            """,
+            placeholders={
+                "inner_query": self._inner_select_query(inner_query=self._base_events_query()),
+                # A total-value chart ranks on the total alone, so the null values can hold a bar
+                # of their own there. Every other display ranks them after the real values.
+                "breakdown_order_by": (
+                    ast.Constant(value=0)
+                    if self._trends_display.is_total_value()
+                    else self._breakdown_query_order_by(self.breakdown)
+                ),
+            },
+        )
+
+        ranked_query = parse_select(
+            """
+            SELECT breakdown_value AS breakdown_value
+            FROM {totals_query}
+            ORDER BY ordering ASC, total DESC, breakdown_value ASC
+            LIMIT {breakdown_limit}
+            """,
+            placeholders={
+                "totals_query": totals_query,
+                "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),
+            },
+        )
+
+        # The null values are dropped after the limit, because they take a rank slot in
+        # `build_query` before the same filter drops them.
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT breakdown_value
+                FROM {ranked_query}
+                WHERE {breakdown_filter}
+                """,
+                placeholders={
+                    "ranked_query": ranked_query,
+                    "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                },
+            ),
+        )
+
     def _total_value_by_breakdown_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         rank_query = cast(
             ast.SelectQuery,
@@ -80,7 +136,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 SELECT
                     count as total,
                     breakdown_value as breakdown_value,
-                    row_number() OVER (ORDER BY total DESC) as row_number
+                    -- The tiebreak keeps this rank equal to the one `build_top_breakdown_values_query` derives,
+                    -- so the chart and the "Other" drill-down fold away the same values.
+                    row_number() OVER (ORDER BY total DESC, breakdown_value ASC) as row_number
                 FROM {inner_query}
                 ORDER BY
                     total DESC,
@@ -775,19 +833,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
         elif breakdown.is_multiple_breakdown:
-            breakdowns_list: list[ast.Expr] = []
+            alias_fields: list[ast.Expr] = []
             for alias in breakdown.multiple_breakdowns_aliases:
-                breakdowns_list.append(
-                    ast.Call(
-                        name="ifNull",
-                        args=[
-                            ast.Call(name="toString", args=[ast.Field(chain=[alias])]),
-                            ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
-                        ],
-                    )
-                )
+                alias_fields.append(ast.Field(chain=[alias]))
                 query.group_by.append(ast.Field(chain=[alias]))
-            query.select.append(ast.Alias(alias="breakdown_value", expr=ast.Array(exprs=breakdowns_list)))
+            query.select.append(
+                ast.Alias(alias="breakdown_value", expr=breakdown.get_breakdown_value_expr(alias_fields))
+            )
         else:
             query.select.append(ast.Field(chain=[breakdown.breakdown_alias]))
             query.group_by.append(ast.Field(chain=[breakdown.breakdown_alias]))
