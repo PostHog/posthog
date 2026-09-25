@@ -339,6 +339,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_IDENTIFIER (code 47): a column our extraction query references no longer
+            # resolves against the table at query time, even though `system.columns` listed it at
+            # discovery time — typically a View whose underlying table had a column renamed or
+            # dropped after the View was created (ClickHouse doesn't keep a View's column list in
+            # sync with the tables it selects from). The query reissues the same column list on
+            # every attempt, so it fails identically forever. We match the numeric code, like the
+            # other `Code: NNN` entries above, rather than the `(UNKNOWN_IDENTIFIER)` name suffix —
+            # that suffix comes from the server's own exception text, but the code itself is the
+            # more fundamental, guaranteed-present signal.
+            "Code: 47": "A column referenced during sync no longer exists in your ClickHouse table (UNKNOWN_IDENTIFIER). This usually means a column was renamed or dropped in the underlying table or view — refresh this table's schema, deselect the missing column, or update the incremental field or row filter that references it, then resync.",
             # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
             # query as Arrow: a selected column has a type ClickHouse can't serialize
             # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
