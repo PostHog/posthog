@@ -2599,21 +2599,21 @@ Note: Doppler publishes no OpenAPI file; the resource list was read from the doc
 
 ## Dovetail — gaps
 
-Today (8): `Contacts`, `Data`, `DocComments`, `Docs`, `Highlights`, `Projects`, `Tags`, `Users`
+Today (9): `Contacts`, `Data`, `DocComments`, `Docs`, `Fields`, `Highlights`, `Projects`, `Tags`, `Users`
 
 Diffed against: <https://developers.dovetail.com/llms.txt>
 
-- [ ] `GET /v1/insights` — insights are a first-class Dovetail object alongside docs and the main research output; entirely missing (high)
-- [ ] `GET /v1/notes` — notes are a top-level content type parallel to docs and are not synced at all (high)
-- [ ] `GET /v1/fields` — custom field definition lookup that resolves the field IDs carried on projects, data, and contacts (high)
-- [ ] `GET /v1/insights/{insightId}/comments` — insight comments; DocComments already syncs the doc-side equivalent, leaving half the comment corpus behind (medium)
+- [ ] `GET /v1/insights` — insights are a first-class Dovetail object alongside docs and the main research output; entirely missing (high) — not building: the vendor renamed insights to docs, the endpoint is marked `deprecated` and returns a `Deprecation` header, and `Docs` already syncs the same records
+- [ ] `GET /v1/notes` — notes are a top-level content type parallel to docs and are not synced at all (high) — not building: the vendor renamed notes to data, and `Data` already syncs the same records
+- [x] `GET /v1/fields` — custom field definition lookup that resolves the field IDs carried on projects, data, and contacts (high)
+- [ ] `GET /v1/insights/{insightId}/comments` — insight comments; DocComments already syncs the doc-side equivalent, leaving half the comment corpus behind (medium) — not building: deprecated alongside the insights resource, and `DocComments` already syncs the same comments
 - [ ] `GET /v1/channels` — feedback channel lookup for channel-sourced data records (medium)
 - [ ] `GET /v1/channels/{channelId}/themes` — aggregated themes per channel — the analytical breakdown dimension over feedback (medium)
 - [ ] `GET /v1/folders and /v1/folders/{folderId}/contents` — folder hierarchy that organizes projects and docs (medium)
 - [ ] `GET /v1/channels/{channelId}/data` — channel↔data-record junction linking feedback items to their source channel (low)
 - [ ] `GET /v1/projects/templates` — project template lookup (low)
 
-Note: The source already does per-doc fan-out for DocComments, so insight comments and channel sub-resources follow the same pattern. Dovetail publishes no OpenAPI file; the endpoint list came from the docs llms.txt reference index.
+Note: The source already does per-doc fan-out for DocComments, so insight comments and channel sub-resources follow the same pattern. Dovetail publishes no OpenAPI file; the endpoint list came from the docs llms.txt reference index. `insights` and `notes` are the vendor's former names for `docs` and `data`: both sets of endpoints are marked deprecated or superseded in the reference and return the records the source already syncs, so they stay unbuilt rather than duplicating two tables. `/v1/fields` takes no date filter and requires `filter[field_set_type]`, so `Fields` is a full-refresh fan-out over projects that runs one pass per field set type.
 
 ## Drata — gaps
 
