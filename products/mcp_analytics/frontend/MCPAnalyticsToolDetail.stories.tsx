@@ -127,6 +127,10 @@ const FAILURE_BUCKETS = [
     },
 ]
 
+interface MockQueryBody {
+    query?: { kind?: string; neighborDirection?: 'before' | 'after' }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/MCP Analytics/Tool Detail',
@@ -138,7 +142,7 @@ const meta: Meta = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, any>
+                    const body = (await request.json()) as MockQueryBody
                     switch (body?.query?.kind) {
                         case 'MCPToolStatsQuery':
                             return [200, { results: [STATS] }]
