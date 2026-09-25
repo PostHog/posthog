@@ -33,7 +33,6 @@ import {
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
@@ -47,7 +46,9 @@ import {
     mcpAnalyticsToolQualityLogic,
     mcpToolReportUrl,
 } from '../mcpAnalyticsToolQualityLogic'
-import { type QualityChange, errorRateChange, p95Change } from './qualityChange'
+import { errorRateChange, p95Change } from './qualityChange'
+import { QualityChangeMarker } from './QualityChangeMarker'
+import { SessionsCell } from './SessionsCell'
 import { TrendCell } from './TrendCell'
 
 const DESTRUCTIVE_ERROR_PCT = 5
@@ -94,25 +95,6 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
 
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
-function QualityChangeMarker({ change }: { change: QualityChange | null }): JSX.Element | null {
-    if (!change) {
-        return null
-    }
-    const Icon = change.worse ? IconArrowUp : IconArrowDown
-    const description = `${change.worse ? 'Up' : 'Down'} ${change.label} from ${change.previous} in the previous period`
-    return (
-        <Tooltip title={`Was ${change.previous} in the previous period`}>
-            <span
-                aria-label={description}
-                className={`ml-1 inline-flex items-center gap-0.5 text-xs tabular-nums ${change.worse ? 'text-danger' : 'text-success'}`}
-            >
-                <Icon />
-                {change.label}
-            </span>
-        </Tooltip>
-    )
-}
-
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
         return <Badge variant="success">0%</Badge>
@@ -122,34 +104,6 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
             {formatPercentage(pct, { compact: true })}
         </Badge>
     )
-}
-
-function SessionsCell({
-    sessions,
-    totalSessions,
-    previousSessions,
-    previousTotalSessions,
-}: {
-    sessions: number
-    totalSessions: number
-    previousSessions: number
-    previousTotalSessions: number
-}): JSX.Element {
-    const cell = (
-        <span className="whitespace-nowrap">
-            <span className="tabular-nums">{formatNumber(sessions)}</span>
-            {totalSessions > 0 ? (
-                <span className="text-secondary tabular-nums">
-                    {` · ${formatPercentage((sessions / totalSessions) * 100, { compact: true })}`}
-                </span>
-            ) : null}
-        </span>
-    )
-    if (previousSessions === 0 || previousTotalSessions === 0) {
-        return cell
-    }
-    const previousShare = formatPercentage((previousSessions / previousTotalSessions) * 100, { compact: true })
-    return <Tooltip title={`Was ${previousShare} of sessions in the previous period`}>{cell}</Tooltip>
 }
 
 function SortableHead({
