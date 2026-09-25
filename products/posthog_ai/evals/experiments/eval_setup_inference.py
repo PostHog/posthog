@@ -22,7 +22,6 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 from products.posthog_ai.evals.experiments.setup_scorers import (
     BUCKETING_DEFAULT,
-    BUCKETING_PERSIST_OR_DEVICE_ID,
     BucketingFitsSurface,
     MetricWindowsHaveUnits,
     PrimaryMetricShape,
@@ -54,8 +53,9 @@ _PRICING_PROMPT = (
 )
 _CROSSES_LOGIN_CALLOUT = (
     "The pricing page is seen by the same people both logged out and logged in, so default user-id "
-    "bucketing can switch their variant at login; persistence or device-id bucketing is needed, "
-    "and the user should confirm the choice."
+    "bucketing can switch their variant at login. The summary names that risk, gives device-id "
+    "bucketing and persistence as the alternatives with what each one needs, and leaves the choice "
+    "to the user rather than making it."
 )
 
 
@@ -73,8 +73,9 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
                 "primary_metric_shape": {"metric_types": ["funnel"], "event": "signed_up", "requires_window": True},
                 "running_time_stored": True,
                 "setup_summary_callouts": [
-                    "Almost all visitors to the landing page are logged out, so default bucketing "
-                    "without persistence fits.",
+                    "Almost all visitors to the landing page are logged out. The summary reports "
+                    "that mix, keeps default user-id bucketing, and does not offer the mix as the "
+                    "reason the default is right.",
                 ],
             },
         ),
@@ -83,7 +84,10 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
             prompt=_PRICING_PROMPT,
             setup=seed_pricing_crosses_login,
             expected={
-                "bucketing_fits_surface": BUCKETING_PERSIST_OR_DEVICE_ID,
+                # A surface that crosses login is no longer a reason to set a knob: the skill reports
+                # the identity mix and leaves the choice to the user. The agent reached for continuity
+                # here unprompted before, so this case checks that it stops.
+                "bucketing_fits_surface": BUCKETING_DEFAULT,
                 "primary_metric_shape": {"metric_types": ["funnel"], "event": "upgraded_plan"},
                 "running_time_stored": True,
                 "setup_summary_callouts": [_CROSSES_LOGIN_CALLOUT],
@@ -117,8 +121,9 @@ async def eval_setup_inference(ctx: EvalContext) -> None:
                 "primary_metric_shape": {"metric_types": ["funnel", "mean"], "event": "invited_team_member"},
                 "running_time_stored": True,
                 "setup_summary_callouts": [
-                    "Everyone who sees the team settings page is logged in, so default bucketing "
-                    "without persistence fits.",
+                    "Everyone who sees the team settings page is logged in. The summary reports "
+                    "that mix, keeps default user-id bucketing, and does not offer the mix as the "
+                    "reason the default is right.",
                 ],
             },
         ),
