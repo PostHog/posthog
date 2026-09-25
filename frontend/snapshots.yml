@@ -8672,6 +8672,14 @@ snapshots:
         hash: v1.k794b7964.71fdce87c3009faea6dd25e6ac817d5790ffed494cb15d66a7043b4ebe90cb60.rYWzblIjD-Ceyh15tkUkDm10Pu7exKRUm9n9TsB9B0Q
     scenes-app-errortracking-linkedreports--several-reports-across-states--light:
         hash: v1.k794b7964.fe2161a3bb0e898689ef58a342d071c353ded71ac270a62998ea566055359e7a.AnoCs1sNoTY6J1yl24yuZPh_1Jkjugz-jnYxHgY8ZyU
+    scenes-app-etl--healthy--dark:
+        hash: v1.k794b7964.6f9a746240c4bb66bf867ffdb0c0b4f2760968b7f6e6fefa3f09c87d3390b28a.cGt8qIGqmnOp8OGL0qZLsByWNj8WoodX4Swd4KYokpk
+    scenes-app-etl--healthy--light:
+        hash: v1.k794b7964.de906e2ee3c8242d49e0334bfcc090b0ca35e0d15fc20e1a97aa604a4218bae6.rNzE7RZnEnjOx2bH3oDTB4x0bD45FO6pDErTQ_4u2Gk
+    scenes-app-etl--needs-attention--dark:
+        hash: v1.k794b7964.6e2de088e9b72f27c86f7302dddff92548e44bdee770221ec8bb4f481ffbf5eb.vUqG_HSyPzcbYsHBx7m2SatCcQcx0LkZdne5fThy5uc
+    scenes-app-etl--needs-attention--light:
+        hash: v1.k794b7964.da980590bc87659d284578dcfe3778f9e9f68bbe218bedaef312f01a8847c625.sHm7R3KRP0yGxleUAjbXsqo6RxUjT5In5Gl9SVUIz_c
     scenes-app-events--event-explorer--dark:
         hash: v1.k794b7964.37b0783b0099a978beace09a9e97c9c24b4efd25eab561f7873494c40912f607.lhExCd9bHbFLYiVjEsoqKRUpnpYEv4pf0TAllwFc8jU
     scenes-app-events--event-explorer--light:
@@ -11501,9 +11509,9 @@ snapshots:
     scenes-app-settings-user--settings-user-danger-zone--light:
         hash: v1.k794b7964.a18b0b851dcc99fc9c512c6809bcd9408d2d7710a1af1232600a330dfff18ac7.1Eo9vX2Xbpx00k_YhM-UEEsRXSEThzmS94cEEjcsfBs
     scenes-app-settings-user--settings-user-navigation--dark:
-        hash: v1.k794b7964.c678fbe79cd06ec5d805bf89a26e0ee37b05431eb516ff8559af567ae3c66ca4.brOG9fmWbDonWDlGYqqxZF7Lb7pr9vqko9rDN3vqc0o
+        hash: v1.k794b7964.0d860c7697bade5285665e6a8bc7e7760acef2b33ba9289e1f768f7b61607f75._iI2Yq1rGkRhpRR39km7P65eAS3VBtMdhnQxPRDpTco
     scenes-app-settings-user--settings-user-navigation--light:
-        hash: v1.k794b7964.f472a9611f74c5cc61bde2b328bf70f507c3e7ab810f7fff84d5a7ad073add91.GUKjxOkcQwzja8QiApxYwXyyHFHtaXO6fZboZ7PvFQ0
+        hash: v1.k794b7964.32a8df72d47e852d3268ee907b156dead77ba2a6e1fcfdfffab70fd9a74baa4f.bzBKx3Q1p6S4NaceCWS24ljQ6qsYpYskL695hu7AY4c
     scenes-app-settings-user--settings-user-notifications--dark:
         hash: v1.k794b7964.1fc4163c567f18057b929328e07459c13277805442523070136233c17d5e633a.Tbp1Kb6RmIhrzsmp7CWml5LEnFyy9iY9-A-lTK-h76c
     scenes-app-settings-user--settings-user-notifications--light:
