@@ -2,6 +2,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CORRELATED_SUBQUERY_MESSAGE,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -74,6 +75,9 @@ class TestWrapClickhouseQueryError:
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),
+            # NOT_IMPLEMENTED (48) only exposes its correlated-subquery variant; the rest, such as
+            # Decimal-scale and RANGE OFFSET errors, echo the rendered query.
+            (48, "NOT_IMPLEMENTED"),
         ]
     )
     def test_codes_stay_internal(self, code: int, name: str) -> None:
@@ -83,3 +87,16 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    def test_correlated_subquery_is_exposed_with_a_fixed_message(self) -> None:
+        err = ServerException(
+            "DB::Exception: Correlated subqueries are not supported with remote tables. "
+            "(NOT_IMPLEMENTED) (query: SELECT secret FROM events)",
+            code=48,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert str(wrapped) == CORRELATED_SUBQUERY_MESSAGE
+        assert wrapped.code_name == "correlated_subquery"
