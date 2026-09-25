@@ -588,15 +588,23 @@ export function SceneName({
                             }}
                         />
                         {onGenerateMetadata && (
-                            <Tooltip title={isGeneratingMetadata ? 'Thinking...' : 'Generate name and description'}>
+                            <Tooltip
+                                title={
+                                    isGeneratingMetadata
+                                        ? 'Thinking...'
+                                        : isSuggestingName
+                                          ? 'Wait for the title suggestion to finish'
+                                          : 'Generate name and description'
+                                }
+                            >
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!isGeneratingMetadata) {
+                                        if (!isGeneratingMetadata && !isSuggestingName) {
                                             onGenerateMetadata()
                                         }
                                     }}
-                                    disabled={isGeneratingMetadata}
+                                    disabled={isGeneratingMetadata || isSuggestingName}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
@@ -611,6 +619,11 @@ export function SceneName({
                                 label="Suggest a title"
                                 onClick={onSuggestName}
                                 loading={isSuggestingName}
+                                disabledReason={
+                                    isGeneratingMetadata
+                                        ? 'Wait for the name and description to finish generating'
+                                        : undefined
+                                }
                                 dataAttr="scene-name-suggest-title"
                             />
                         )}
