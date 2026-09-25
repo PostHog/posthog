@@ -12,8 +12,11 @@ name: Auto Assign Reviewers
 # nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
-        # Only opened or when clicking ready otherwise you can never remove the reviewers
-        types: [opened, ready_for_review]
+        types: [opened, ready_for_review, synchronize]
+
+concurrency:
+    group: auto-assign-reviewers-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
 
 permissions:
     contents: read
@@ -75,5 +78,6 @@ jobs:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+                  ASSIGN_REVIEWERS_BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
               run: |
                   node .github/scripts/assign-reviewers.js

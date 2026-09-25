@@ -152,6 +152,92 @@ async function getChangedFiles() {
     return allFiles
 }
 
+async function getReviewRequestState() {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const headers = {
+        Authorization: `token ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+    }
+    const reviewersResponse = await fetch(
+        `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
+        { headers }
+    )
+    if (!reviewersResponse.ok) {
+        throw new Error(`GitHub API error listing requested reviewers: ${reviewersResponse.status}`)
+    }
+    const reviewers = await reviewersResponse.json()
+
+    const events = []
+    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/events?per_page=100`
+    let pages = 0
+    while (url) {
+        if (++pages > 20) {
+            throw new Error('Review request history exceeds 20 pages')
+        }
+        const response = await fetch(url, { headers })
+        if (!response.ok) {
+            throw new Error(`GitHub API error listing review request events: ${response.status}`)
+        }
+        events.push(...(await response.json()))
+        url = getNextPageUrl(response.headers.get('Link'))
+    }
+
+    return {
+        teams: reviewers.teams.map((team) => team.slug),
+        users: reviewers.users.map((user) => user.login),
+        events,
+    }
+}
+
+async function isCurrentHead() {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA } = process.env
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}`, {
+        headers: {
+            Authorization: `token ${GITHUB_TOKEN}`,
+            Accept: 'application/vnd.github.v3+json',
+        },
+    })
+    if (!response.ok) {
+        throw new Error(`GitHub API error checking PR head: ${response.status}`)
+    }
+    const pullRequest = await response.json()
+    return pullRequest.head.sha === HEAD_SHA && pullRequest.state === 'open'
+}
+
+function planReviewRequestChanges(teams, users, state, botLogin) {
+    const currentTeams = new Set(state.teams)
+    const currentUsers = new Set(state.users)
+    // A past request stays recorded after a review or removal, so it must not trigger another notification.
+    const requestedBefore = new Set()
+    const lastRequester = new Map()
+
+    for (const event of [...state.events].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)) {
+        if (event.event !== 'review_requested') {
+            continue
+        }
+        const team = event.requested_team?.slug
+        const user = event.requested_reviewer?.login
+        const key = team ? `team:${team}` : user ? `user:${user}` : null
+        if (key) {
+            requestedBefore.add(key)
+            lastRequester.set(key, event.actor?.login)
+        }
+    }
+
+    const desiredTeams = new Set(teams)
+    const desiredUsers = new Set(users)
+    return {
+        addTeams: teams.filter((team) => !currentTeams.has(team) && !requestedBefore.has(`team:${team}`)),
+        addUsers: users.filter((user) => !currentUsers.has(user) && !requestedBefore.has(`user:${user}`)),
+        removeTeams: state.teams.filter(
+            (team) => !desiredTeams.has(team) && lastRequester.get(`team:${team}`) === botLogin
+        ),
+        removeUsers: state.users.filter(
+            (user) => !desiredUsers.has(user) && lastRequester.get(`user:${user}`) === botLogin
+        ),
+    }
+}
+
 // On external PRs these teams are labelled instead of requested as reviewers, so
 // the team is surfaced without being pulled into the queue before triage. Names
 // are the part after `@PostHog/`.
@@ -201,11 +287,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
         // tree still changes future routing and must reach a reviewer.
         const basename = file.filename.split('/').pop()
         const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
-        if (
-            !isOwnershipFile &&
-            resolution &&
-            (resolution.status === 'generated' || resolution.status === 'vendored')
-        ) {
+        if (!isOwnershipFile && resolution && (resolution.status === 'generated' || resolution.status === 'vendored')) {
             continue
         }
         const owners = (resolution && resolution.owners) || []
@@ -398,7 +480,9 @@ async function assignReviewers(teams, users) {
             if (r.status === 422) {
                 dropped.push(`@${user}`)
             } else if (!r.ok) {
-                throw new Error(`GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`)
+                throw new Error(
+                    `GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`
+                )
             }
         }
 
@@ -429,6 +513,35 @@ async function assignReviewers(teams, users) {
     }
 
     console.info('✅ Reviewers assigned successfully')
+}
+
+async function removeReviewers(teams, users) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`
+
+    for (const [kind, names] of [
+        ['team_reviewers', teams],
+        ['reviewers', users],
+    ]) {
+        for (const name of names) {
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `token ${GITHUB_TOKEN}`,
+                    Accept: 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ [kind]: [name] }),
+            })
+            if (response.status === 422) {
+                console.warn(`Reviewer ${name} was already removed`)
+            } else if (!response.ok) {
+                throw new Error(
+                    `GitHub API error removing reviewer '${name}': ${response.status} ${await response.text()}`
+                )
+            }
+        }
+    }
 }
 
 // Best-effort: a label failure must never fail the job.
@@ -499,6 +612,9 @@ async function upsertReviewerComment(body) {
 
     try {
         const existing = await findExistingComment(CONFIG.commentMarker)
+        if (existing?.body === body) {
+            return
+        }
         const url = existing
             ? `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/comments/${existing.id}`
             : `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments`
@@ -580,13 +696,23 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
-        if (!isExternal) {
-            await assignReviewers(teams, users)
-        } else {
-            const { toLabel, toRequest } = partitionExternalTeams(teams)
-            await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
-            await assignReviewers(toRequest, users)
+        const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
+        const state = await getReviewRequestState()
+        const changes = planReviewRequestChanges(
+            toRequest,
+            users,
+            state,
+            process.env.ASSIGN_REVIEWERS_BOT_LOGIN || 'pr-assigner-resolver-posthog[bot]'
+        )
+
+        if (!(await isCurrentHead())) {
+            console.info('PR head changed or PR closed; skipping stale reviewer assignment')
+            return
         }
+
+        await removeReviewers(changes.removeTeams, changes.removeUsers)
+        await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
+        await assignReviewers(changes.addTeams, changes.addUsers)
 
         const commentBody = buildReviewerComment(requested, demoted)
         if (commentBody) {
@@ -611,6 +737,7 @@ module.exports = {
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,
+    planReviewRequestChanges,
     buildReviewerComment,
     fileMatchesPattern,
 }

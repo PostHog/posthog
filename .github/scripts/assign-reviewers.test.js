@@ -12,6 +12,7 @@ const {
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,
+    planReviewRequestChanges,
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
@@ -23,6 +24,13 @@ const file = (filename, additions = 0, deletions = 0) => ({
 })
 // A resolver result entry: bare team slugs / @handles plus the deciding source.
 const resolved = (owners, source) => ({ owners, source, status: 'active', slack: null })
+const reviewRequested = (team, actor, id = 1) => ({
+    id,
+    created_at: `2026-09-25T00:00:${String(id).padStart(2, '0')}Z`,
+    event: 'review_requested',
+    actor: { login: actor },
+    requested_team: { slug: team },
+})
 
 // Asserts that actual contains all key/value pairs from partial (shallow per key, deep per value).
 function assertMatchObject(actual, partial) {
@@ -145,7 +153,14 @@ test('computeOwnerFootprints: ignores generated/excluded files and maps bare slu
 test('computeOwnerFootprints: skips resolutions with generated/vendored status', () => {
     const resolution = {
         'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-        'some/generated/tree/file.ts': { ...resolved(['team-devex'], 'some/generated/owners.yaml'), status: 'generated' },
+        'services/mcp/src/api/generated.ts': {
+            ...resolved(['team-context-mcp'], 'services/mcp/src/owners.yaml'),
+            status: 'generated',
+        },
+        'some/generated/tree/file.ts': {
+            ...resolved(['team-devex'], 'some/generated/owners.yaml'),
+            status: 'generated',
+        },
         'vendor/lib/thing.js': { ...resolved(['team-devex'], 'vendor/owners.yaml'), status: 'vendored' },
     }
     // An ownership file inside a generated tree resolves with that status too,
@@ -156,6 +171,7 @@ test('computeOwnerFootprints: skips resolutions with generated/vendored status',
     }
     const files = [
         file('posthog/api/survey.py', 40, 10),
+        file('services/mcp/src/api/generated.ts', 1000, 1000),
         file('some/generated/tree/file.ts', 500, 500),
         file('vendor/lib/thing.js', 300, 0),
         file('some/generated/owners.yaml', 3, 0),
@@ -166,6 +182,98 @@ test('computeOwnerFootprints: skips resolutions with generated/vendored status',
     assert.equal(footprints.length, 2)
     assertMatchObject(footprints[0], { owner: '@PostHog/team-surveys', fileCount: 1, lines: 50 })
     assertMatchObject(footprints[1], { owner: '@PostHog/team-devex', fileCount: 1, lines: 3 })
+})
+
+test('planReviewRequestChanges: requests each newly eligible owner once', () => {
+    const state = {
+        teams: ['team-surveys'],
+        users: [],
+        events: [reviewRequested('team-surveys', 'pr-assigner-resolver-posthog[bot]')],
+    }
+
+    assert.deepEqual(
+        planReviewRequestChanges(
+            ['team-surveys', 'team-context-mcp'],
+            ['reviewer'],
+            state,
+            'pr-assigner-resolver-posthog[bot]'
+        ),
+        { addTeams: ['team-context-mcp'], addUsers: ['reviewer'], removeTeams: [], removeUsers: [] }
+    )
+})
+
+test('planReviewRequestChanges: never re-requests a removed or completed review', () => {
+    const state = {
+        teams: [],
+        users: [],
+        events: [reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]')],
+    }
+
+    assert.deepEqual(planReviewRequestChanges(['team-context-mcp'], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+        addTeams: [],
+        addUsers: [],
+        removeTeams: [],
+        removeUsers: [],
+    })
+})
+
+test('planReviewRequestChanges: removes only stale bot requests', () => {
+    const state = {
+        teams: ['team-context-mcp', 'team-surveys'],
+        users: [],
+        events: [
+            reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]'),
+            reviewRequested('team-surveys', 'human', 2),
+        ],
+    }
+
+    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+        addTeams: [],
+        addUsers: [],
+        removeTeams: ['team-context-mcp'],
+        removeUsers: [],
+    })
+})
+
+test('planReviewRequestChanges: preserves a bot request a person requested again', () => {
+    const state = {
+        teams: ['team-context-mcp'],
+        users: [],
+        events: [
+            reviewRequested('team-context-mcp', 'human', 2),
+            reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]'),
+        ],
+    }
+
+    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+        addTeams: [],
+        addUsers: [],
+        removeTeams: [],
+        removeUsers: [],
+    })
+})
+
+test('planReviewRequestChanges: removes a stale individual request from the bot', () => {
+    const state = {
+        teams: [],
+        users: ['reviewer'],
+        events: [
+            {
+                id: 1,
+                created_at: '2026-09-25T00:00:01Z',
+                event: 'review_requested',
+                actor: { login: 'pr-assigner-resolver-posthog[bot]' },
+                requested_reviewer: { login: 'reviewer' },
+            },
+        ],
+    }
+
+    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+        addTeams: [],
+        addUsers: [],
+        removeTeams: [],
+        removeUsers: ['reviewer'],
+    })
 })
 
 test('computeOwnerFootprints: accumulates files and sources per owner, and requests @handle individuals as users', () => {
@@ -244,9 +352,7 @@ test('classifyOwners: promotes the largest owner when all are below the bar', ()
 })
 
 test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the smallest', () => {
-    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const { requested, demoted } = classifyOwners(footprints)
 
     assert.equal(requested.filter((f) => f.type === 'team').length, CONFIG.maxTeamsRequested)
@@ -267,9 +373,7 @@ test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the sm
 
 test('classifyOwners: never caps explicit users even when teams overflow the cap', () => {
     // All substantive, so the cap (teams-only) is the only thing that can demote.
-    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const users = [fp('@user-a', 20, 1, 'user'), fp('@user-b', 20, 1, 'user')]
     const { requested, demoted } = classifyOwners([...teams, ...users])
 
