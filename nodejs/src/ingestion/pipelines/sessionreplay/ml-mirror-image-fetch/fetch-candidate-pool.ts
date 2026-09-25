@@ -99,6 +99,7 @@ export class FetchCandidatePool<T> {
     private expired: PoolEntry<T>[] = []
     private expiredHead = 0
     private waiters: (() => void)[] = []
+    private readonly owners: FetchCandidatePoolOwner[] = []
     private sequence = 0
     private queuedCount = 0
     private closed = false
@@ -119,7 +120,9 @@ export class FetchCandidatePool<T> {
     }
 
     public createOwner(): FetchCandidatePoolOwner {
-        return new FetchCandidatePoolOwner(this.options)
+        const owner = new FetchCandidatePoolOwner(this.options)
+        this.owners.push(owner)
+        return owner
     }
 
     public add(
@@ -171,6 +174,9 @@ export class FetchCandidatePool<T> {
                     this.wake(1)
                 }
                 return lease
+            }
+            for (const owner of this.owners) {
+                owner.recordIdleWorker()
             }
             await new Promise<void>((resolve) => this.waiters.push(resolve))
         }
@@ -542,6 +548,17 @@ export class FetchCandidatePoolOwner {
         this.notifyIfRoom()
     }
 
+    /**
+     * A fetch worker found no eligible candidate. Queued URLs that count as runnable can still be
+     * unable to run, for example behind a crawl delay or behind another member's hold on a domain,
+     * so the member reads more while it is under the queue limit.
+     */
+    public recordIdleWorker(): void {
+        if (this.pendingAdmissions === 0 && this.queued < this.options.maxQueuedUrlsPerOwner) {
+            this.releaseRoomWaiters()
+        }
+    }
+
     private changeDomainCount(registrableDomain: string, delta: number): void {
         const limit = this.options.maxConcurrentPerRegistrableDomain
         const before = this.queuedByDomain.get(registrableDomain) ?? 0
@@ -555,7 +572,13 @@ export class FetchCandidatePoolOwner {
     }
 
     private notifyIfRoom(): void {
-        if (this.roomWaiters.size === 0 || !this.hasRoom()) {
+        if (this.hasRoom()) {
+            this.releaseRoomWaiters()
+        }
+    }
+
+    private releaseRoomWaiters(): void {
+        if (this.roomWaiters.size === 0) {
             return
         }
         const waiters = [...this.roomWaiters]

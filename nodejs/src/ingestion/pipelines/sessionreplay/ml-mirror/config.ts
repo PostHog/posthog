@@ -109,7 +109,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL: boolean
     /** A group member reads its next batch once fewer of its queued URLs than this can run. */
     SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS: number
-    /** A group member also waits while this many of its URLs are queued, which bounds memory and crash replay. */
+    /** A group member also waits while this many of its URLs are queued. The wait stops after 30 s to keep the consumer loop healthy, so a member can pass this by about one batch until pass deadlines remove its queued URLs. */
     SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */

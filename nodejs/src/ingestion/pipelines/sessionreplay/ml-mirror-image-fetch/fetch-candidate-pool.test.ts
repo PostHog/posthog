@@ -196,4 +196,29 @@ describe('FetchCandidatePool', () => {
 
         expect(hadRoom).toBe(true)
     })
+
+    it('gives an owner room when a fetch worker finds nothing eligible, even with runnable URLs queued', async () => {
+        const pool = new FetchCandidatePool<string>(
+            { maxConcurrentPerRegistrableDomain: 2, refillRunnableUrls: 3, maxQueuedUrlsPerOwner: 100 },
+            { originCrawlDelayMs: () => 5_000, originNextImageStartAtMs: () => NOW_MS + 5_000 }
+        )
+        const owner = pool.createOwner()
+        const delayedCandidates = Array.from({ length: 5 }, (_unused, index) =>
+            candidate(`https://cdn.site${index}.com/a.png`, `site${index}.com`)
+        )
+        pool.add(delayedCandidates, 'partition-1', NOW_MS + 40_000, owner)
+        let hadRoom: boolean | undefined
+        void owner.waitForRoom(30_000).then((room) => {
+            hadRoom = room
+        })
+        await jest.advanceTimersByTimeAsync(0)
+        expect(owner.hasRoom()).toBe(false)
+        expect(hadRoom).toBeUndefined()
+
+        void pool.take()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(hadRoom).toBe(true)
+        pool.close()
+    })
 })
