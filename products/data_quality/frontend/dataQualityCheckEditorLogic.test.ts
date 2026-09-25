@@ -1,6 +1,5 @@
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { performQuery } from '~/queries/query'
@@ -12,7 +11,7 @@ import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '.
 import {
     dataQualityChecksCheckTypesList,
     dataQualityChecksCreate,
-    dataQualityChecksMetricSubjectsList,
+    dataQualityChecksSubjectsList,
     dataQualityChecksOutputSchemaRetrieve,
     dataQualityChecksPartialUpdate,
 } from './generated/api'
@@ -58,43 +57,55 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-// A real logic rather than a stub: the editor connects the catalog's values, and `loadCount` is how
-// these tests see whether it asked for them.
-jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
-    const { actions, kea, path, reducers } = jest.requireActual('kea')
-    return {
-        databaseTableListLogic: kea([
-            path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
-            actions({ ensureAllTableFields: true, loadDatabase: true }),
-            reducers({
-                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: { type: 'string' } } }]],
-                dataWarehouseTables: [
-                    [
-                        {
-                            id: 'table-9',
-                            name: 'stripe_charges',
-                            fields: { customer_id: { type: 'string' }, amount: { type: 'decimal' } },
-                        },
-                    ],
-                ],
-                databaseLoading: [false],
-                databaseLoadError: [null],
-                loadCount: [0, { ensureAllTableFields: (state: number) => state + 1 }],
-            }),
-        ]),
-    }
-})
-
 jest.mock('./generated/api', () => ({
     dataQualityChecksCheckTypesList: jest.fn(),
     dataQualityChecksCreate: jest.fn(),
-    dataQualityChecksMetricSubjectsList: jest.fn(),
+    dataQualityChecksSubjectsList: jest.fn(),
     dataQualityChecksOutputSchemaRetrieve: jest.fn(),
     dataQualityChecksPartialUpdate: jest.fn(),
 }))
 
 const VIEW_SUBJECT: DataQualitySubjectRef = { subjectType: 'view', subjectId: 'view-1' }
 const COLUMNS = ['customer_id', 'status', 'created_at', 'total']
+
+const SUBJECT_CATALOG = [
+    {
+        subject_type: 'view',
+        id: 'view-7',
+        name: 'orders_view',
+        display_name: '',
+        time_column: '',
+        columns: { order_id: 'string' },
+        editable: true,
+    },
+    {
+        subject_type: 'table',
+        id: 'table-9',
+        name: 'stripe_charges',
+        display_name: '',
+        time_column: '',
+        columns: { customer_id: 'string', amount: 'decimal' },
+        editable: false,
+    },
+    {
+        subject_type: 'metric',
+        id: 'metric-1',
+        name: 'daily_signups',
+        display_name: 'Daily signups',
+        time_column: '',
+        columns: {},
+        editable: true,
+    },
+    {
+        subject_type: 'posthog_table',
+        id: 'events-1',
+        name: 'events',
+        display_name: '',
+        time_column: 'timestamp',
+        columns: { distinct_id: 'string', timestamp: 'datetime' },
+        editable: true,
+    },
+]
 
 const CHECK_TYPE_CATALOG = [
     { check_type: 'not_null', description: '', requires_column: true, config_schema: {} },
@@ -159,10 +170,7 @@ describe('dataQualityCheckEditorLogic', () => {
         jest.clearAllMocks()
         silenceKeaLoadersErrors()
         ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
-        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
-        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([
-            { id: 'metric-1', name: 'daily_signups', display_name: 'Daily signups' },
-        ])
+        ;(dataQualityChecksSubjectsList as jest.Mock).mockResolvedValue(SUBJECT_CATALOG)
         ;(dataQualityChecksOutputSchemaRetrieve as jest.Mock).mockResolvedValue({
             columns: [
                 { name: 'day', type: 'Nullable(Date)' },
@@ -191,7 +199,7 @@ describe('dataQualityCheckEditorLogic', () => {
         })
         expect(logic.values.checkTypes.map((type) => type.check_type)).toEqual(['custom_sql'])
         expect(logic.values.requiresColumn).toBe(false)
-        expect(logic.values.needsWarehouseCatalog).toBe(false)
+        expect(logic.values.needsSubjectCatalog).toBe(false)
         expect(logic.values.isMetricSubject).toBe(true)
         expect(logic.values.availableOutputSchema).toEqual([
             { name: 'day', type: 'Nullable(Date)' },
@@ -406,6 +414,41 @@ describe('dataQualityCheckEditorLogic', () => {
         })
     })
 
+    it.each<[string, Partial<DataQualityCheckApi>]>([
+        [
+            'a relationships check with no target window',
+            {
+                check_type: CheckTypeEnumApi.Relationships,
+                config: {
+                    to_subject_type: 'table',
+                    to_subject_uuid: 'table-9',
+                    to_column: 'customer_id',
+                    to_lookback_hours: null,
+                },
+            },
+        ],
+        [
+            'a row_count check with only a minimum',
+            { check_type: CheckTypeEnumApi.RowCount, column_name: '', config: { min: 10, max: null } },
+        ],
+    ])('leaves the assertion out of a metadata-only edit of %s', async (_case, storedCheck) => {
+        // The stored config writes an unset value as null, so a comparison that counts keys reads
+        // every rename as an assertion edit and sends a definition the backend then revalidates.
+        ;(dataQualityChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        await openWith(buildCheck(storedCheck), { description: 'renamed' })
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksPartialUpdate).toHaveBeenCalledWith('1', 'check-1', {
+            severity: 'error',
+            name: '',
+            description: 'renamed',
+            tags: [],
+        })
+    })
+
     it('does not submit before the check-type catalog arrives', async () => {
         // Enter can submit while the catalog request is still pending. Without it there is no column
         // requirement to validate against, so the payload would omit column_name and be rejected.
@@ -456,6 +499,52 @@ describe('dataQualityCheckEditorLogic', () => {
 
         expect(dataQualityChecksCreate).not.toHaveBeenCalled()
         expect(logic.values.isOpen).toBe(true)
+    })
+
+    it.each<[string, Record<string, unknown>, 'lookbackHours' | 'toLookbackHours']>([
+        [
+            'a window of zero hours',
+            { checkType: 'not_null', columnName: 'customer_id', lookbackHours: 0 },
+            'lookbackHours',
+        ],
+        [
+            'a window of half an hour',
+            { checkType: 'not_null', columnName: 'customer_id', lookbackHours: 0.5 },
+            'lookbackHours',
+        ],
+        [
+            'a target window of zero hours',
+            {
+                checkType: 'relationships',
+                columnName: 'customer_id',
+                toSubjectUuid: 'table-9',
+                toColumn: 'customer_id',
+                toLookbackHours: 0,
+            },
+            'toLookbackHours',
+        ],
+    ])('refuses to submit %s and says so beside that window', async (_case, formValues, field) => {
+        await mountLogic()
+        await openWith(null, formValues)
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors[field as 'name']).toEqual('Set a whole number of hours, at least one.')
+    })
+
+    it('reads a cleared window as no window rather than a bad one', async () => {
+        ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        // What the number input emits once its content is deleted.
+        await openWith(null, { checkType: 'not_null', columnName: 'customer_id', lookbackHours: NaN })
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkFormErrors.lookbackHours).toBeUndefined()
+        expect(dataQualityChecksCreate).toHaveBeenCalledWith('1', expect.objectContaining({ config: {} }))
     })
 
     it('creates the check once when the form is submitted twice', async () => {
@@ -745,7 +834,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dataQualityChecksCheckTypesList).not.toHaveBeenCalled()
-        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(1)
 
         logic.actions.setSubject(subject)
         await expectLogic(logic).toFinishAllListeners()
@@ -883,18 +972,127 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkFormChanged).toBe(false)
     })
 
+    it('offers every editable subject as a parent and a read-only one only as a target', async () => {
+        await mountLogic({ surface: 'overview' })
+
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectableSubjects).toEqual([
+            { id: 'view-7', name: 'orders_view', type: 'view' },
+            { id: 'metric-1', name: 'Daily signups', type: 'metric' },
+            { id: 'events-1', name: 'events', type: 'posthog_table' },
+        ])
+        expect(logic.values.relationshipSubjects.map((subject) => subject.id)).toEqual([
+            'view-7',
+            'table-9',
+            'events-1',
+        ])
+    })
+
+    it.each<[Record<string, unknown>, string | null]>([
+        [{ subjectType: 'posthog_table', subjectId: 'events-1' }, 'timestamp'],
+        [{ subjectType: 'table', subjectId: 'table-9' }, null],
+    ])('offers a lookback window only for a subject with a time column (%o)', async (subject, expected) => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSubject(subject as never)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.subjectTimeColumn).toEqual(expected)
+    })
+
+    it('sends the window it was given, and drops it for custom SQL', async () => {
+        ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setSubject({ subjectType: 'posthog_table', subjectId: 'events-1' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setCheckFormValues({ checkType: 'not_null', columnName: 'distinct_id', lookbackHours: 24 })
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksCreate).toHaveBeenCalledWith(
+            '1',
+            expect.objectContaining({ config: { lookback_hours: 24 } })
+        )
+    })
+
+    it('offers a target window only when the referenced subject has a time column', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, { subjectType: 'view', subjectId: 'view-7' }, COLUMNS)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({ checkType: 'relationships' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setCheckFormValues({ toSubjectUuid: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.relationshipTargetTimeColumn).toBeNull()
+
+        logic.actions.setCheckFormValues({ toSubjectUuid: 'events-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.relationshipTargetTimeColumn).toEqual('timestamp')
+    })
+
+    it('asks again after a failed subject catalog load', async () => {
+        ;(dataQualityChecksSubjectsList as jest.Mock).mockRejectedValueOnce(new Error('down'))
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.checkSubjectsError).toEqual('down')
+
+        logic.actions.setCheckFormValues({ checkType: 'not_null' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(2)
+        expect(logic.values.checkSubjectsError).toBeNull()
+    })
+
+    it.each<[string, DataQualitySubjectRef, CheckTypeEnumApi, string[], string | null]>([
+        [
+            'a PostHog table not_null check',
+            { subjectType: 'posthog_table', subjectId: 'events-1' },
+            CheckTypeEnumApi.NotNull,
+            ['distinct_id', 'timestamp'],
+            'timestamp',
+        ],
+        [
+            'a PostHog table row_count check',
+            { subjectType: 'posthog_table', subjectId: 'events-1' },
+            CheckTypeEnumApi.RowCount,
+            ['distinct_id', 'timestamp'],
+            'timestamp',
+        ],
+        ['a view check', { subjectType: 'view', subjectId: 'view-7' }, CheckTypeEnumApi.NotNull, ['order_id'], null],
+    ])(
+        'resolves the columns and time column of %s opened for edit',
+        async (_case, subject, checkType, expectedColumns, expectedTimeColumn) => {
+            await mountLogic({ surface: 'overview' })
+
+            logic.actions.openEditor(buildCheck({ check_type: checkType, config: { lookback_hours: 24 } }), subject)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.availableColumns).toEqual(expectedColumns)
+            expect(logic.values.subjectTimeColumn).toEqual(expectedTimeColumn)
+        }
+    )
+
     it.each<[string, Record<string, unknown>, string[], number]>([
         ['a plain edit with known columns', { checkType: 'not_null', columnName: 'customer_id' }, COLUMNS, 0],
         ['a relationships check', { checkType: 'relationships' }, COLUMNS, 1],
         ['a subject whose columns the surface does not know', { checkType: 'not_null' }, [], 1],
-    ])('loads the warehouse catalog only for %s', async (_case, values, columns, expected) => {
+    ])('loads the subject catalog only for %s', async (_case, values, columns, expected) => {
         await mountLogic()
         await openWith(null, values, columns)
 
-        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(expected)
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(expected)
     })
 
-    it('loads the warehouse catalog once across type switches', async () => {
+    it('loads the subject catalog once across type switches', async () => {
         await mountLogic()
         await openWith(null, { checkType: 'relationships' })
 
@@ -902,10 +1100,10 @@ describe('dataQualityCheckEditorLogic', () => {
         logic.actions.setCheckFormValues({ checkType: 'relationships' })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(1)
     })
 
-    it('keeps the warehouse catalog loaded when reopening an unscoped draft', async () => {
+    it('reloads the subject catalog when reopening an unscoped draft', async () => {
         await mountLogic({ surface: 'overview' })
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
@@ -914,6 +1112,6 @@ describe('dataQualityCheckEditorLogic', () => {
         logic.actions.openEditor(null, null)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((databaseTableListLogic.values as unknown as { loadCount: number }).loadCount).toEqual(1)
+        expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(2)
     })
 })

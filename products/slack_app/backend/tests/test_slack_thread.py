@@ -6,8 +6,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
@@ -163,6 +163,36 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert actions[0]["text"]["text"] == "View PR"
         assert actions[1]["text"]["text"] == "Open in PostHog"
 
+    @parameterized.expand(
+        [
+            ("closed", False, "<@U456> *Pull request closed without merging*", True),
+            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_closed_replies_in_thread_and_keeps_progress(
+        self, _name, merged, expected_text, expects_retry_hint, mock_get_client
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context)
+
+        handler.post_pr_closed(
+            "https://github.com/org/repo/pull/1",
+            "https://posthog.com/task/1",
+            reply_target_slack_user_id="U456",
+            merged=merged,
+        )
+
+        mock_client.chat_delete.assert_not_called()
+        mock_client.chat_postMessage.assert_called_once()
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["thread_ts"] == "1234.5678"
+        assert kwargs["text"] == expected_text
+        assert _button_texts(_action_blocks(kwargs)[0]) == ["View PR", "Open in PostHog"]
+        assert any(block["type"] == "context" for block in kwargs["blocks"]) == expects_retry_hint
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_error_formats_upstream_provider_failure(self, mock_get_client, _mock_find_progress):
@@ -239,6 +269,24 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_or_update_progress_names_the_project_it_runs_against(self, mock_get_client, _mock_find_progress):
+        # A task that routed itself to another project says so while it works, not only
+        # in the footer of the answer minutes later.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(
+            self._make_context(),
+            RunFooter(model="claude-opus-5", reasoning_effort="high", project="Staging"),
+        )
+
+        handler.post_or_update_progress("Building", task_url=None)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        context_text = next(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
+        assert context_text == "Project: *Staging* · *Claude Opus 5* [High]"
+
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
@@ -282,18 +330,6 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         assert _action_blocks(kwargs) == []
         # The error body itself must still surface — only the action block is gated.
         assert kwargs["blocks"][1]["text"]["text"] == "boom"
-
-    @patch.object(SlackThreadHandler, "delete_progress")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_cancelled_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_cancelled(task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
 
 
 class TestPostPrOpenedReplyTarget(SimpleTestCase):

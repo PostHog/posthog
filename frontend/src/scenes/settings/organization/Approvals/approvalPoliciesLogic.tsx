@@ -75,8 +75,9 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                     if (!teamId || !values.hasAvailableFeature(AvailableFeature.APPROVALS)) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use approvalPoliciesList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get<{ results: ApprovalPolicy[] }>(
-                        `api/environments/${teamId}/approval_policies/`
+                        `api/projects/${teamId}/approval_policies/`
                     )
                     return response.results || []
                 },
@@ -97,7 +98,8 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.create(`api/environments/${teamId}/approval_policies/`, policy)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use approvalPoliciesCreate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.create(`api/projects/${teamId}/approval_policies/`, policy)
                 lemonToast.success('Approval policy created')
                 actions.loadPolicies()
             } catch (error: any) {
@@ -110,7 +112,8 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.update(`api/environments/${teamId}/approval_policies/${id}/`, policy)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use approvalPoliciesPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.update(`api/projects/${teamId}/approval_policies/${id}/`, policy)
                 lemonToast.success('Approval policy updated')
                 actions.loadPolicies()
             } catch (error: any) {
@@ -123,7 +126,8 @@ export const approvalPoliciesLogic = kea<approvalPoliciesLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                await api.delete(`api/environments/${teamId}/approval_policies/${id}/`)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. approvalPoliciesDestroy() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                await api.delete(`api/projects/${teamId}/approval_policies/${id}/`)
                 lemonToast.success('Approval policy deleted')
                 actions.loadPolicies()
             } catch (error: any) {

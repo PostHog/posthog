@@ -1,6 +1,25 @@
 from typing import Any, Optional
 
+from django.db.models import QuerySet
+
 from rest_framework.pagination import LimitOffsetPagination
+
+
+def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
+    """Add the primary key as a final ordering term for a paginated queryset."""
+    if queryset.query.is_sliced or queryset.query.group_by is not None:
+        return queryset
+
+    ordering = queryset.query.order_by or queryset.query.extra_order_by or queryset.model._meta.ordering
+    if not ordering:
+        return queryset.order_by("pk")
+
+    primary_key = queryset.model._meta.pk.name
+    if any(str(term).lstrip("-") in {"pk", primary_key} for term in ordering):
+        return queryset
+
+    direction = "-" if str(ordering[0]).startswith("-") else ""
+    return queryset.order_by(*ordering, f"{direction}pk")
 
 
 class PrecountedLimitOffsetPagination(LimitOffsetPagination):

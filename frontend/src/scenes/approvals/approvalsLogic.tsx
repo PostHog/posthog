@@ -139,7 +139,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
 
                     const actualUrl =
                         url ||
-                        `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
+                        `api/projects/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                             ...(values.filters.state && { state: values.filters.state }),
                             ...(values.filters.action_key && { action_key: values.filters.action_key }),
                             ...(values.filters.resource_type && { resource_type: values.filters.resource_type }),
@@ -147,6 +147,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
                             ...(values.filters.requester && { requester: values.filters.requester.toString() }),
                         }).toString()}`
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get<CountedPaginatedResponse<ChangeRequest>>(actualUrl)
                     breakpoint()
 
@@ -184,7 +185,7 @@ export const approvalsLogic = kea<approvalsLogicType>([
             actions.loadChangeRequests()
         },
         loadMore: async () => {
-            const nextUrl = `api/environments/${values.currentTeamId}/change_requests/?${new URLSearchParams({
+            const nextUrl = `api/projects/${values.currentTeamId}/change_requests/?${new URLSearchParams({
                 offset: values.changeRequests.length.toString(),
                 ...(values.filters.state && { state: values.filters.state }),
                 ...(values.filters.action_key && { action_key: values.filters.action_key }),
@@ -197,7 +198,8 @@ export const approvalsLogic = kea<approvalsLogicType>([
         },
         approveChangeRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/approve/`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsApproveCreate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/approve/`, {
                     reason: reason || '',
                 })
                 lemonToast.success('Change request approved')
@@ -208,7 +210,8 @@ export const approvalsLogic = kea<approvalsLogicType>([
         },
         rejectChangeRequest: async ({ id, reason }) => {
             try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${id}/reject/`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use changeRequestsRejectCreate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.create(`api/projects/${values.currentTeamId}/change_requests/${id}/reject/`, {
                     reason,
                 })
                 lemonToast.success('Change request rejected')

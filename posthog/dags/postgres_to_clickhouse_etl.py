@@ -172,7 +172,6 @@ _ORG_COLS = [
     "allow_publicly_shared_resources",
     "plugins_access_level",
     "for_internal_metrics",
-    "default_experiment_stats_method",
     "customer_id",
     "available_product_features",
     "usage",
@@ -227,7 +226,6 @@ def _organization_ddl() -> str:
             allow_publicly_shared_resources UInt8,
             plugins_access_level Int16,
             for_internal_metrics UInt8,
-            default_experiment_stats_method Nullable(String),
             customer_id Nullable(String),
             available_product_features Nullable(String),  -- JSON stored as String
             usage Nullable(String),  -- JSON stored as String

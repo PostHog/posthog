@@ -91,6 +91,15 @@ CREATE TABLE posthog.kafka_ingestion_warnings (
   details String CODEC(ZSTD(3)),
   timestamp DateTime64(6, 'UTC')
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_ingestion_warnings';
+CREATE TABLE posthog.kafka_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_aux', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'log_entries';
 CREATE TABLE posthog.kafka_log_entries_v3 (
   team_id UInt64,
   log_source LowCardinality(String),
@@ -430,6 +439,17 @@ CREATE TABLE posthog.writable_log_entries (
   _timestamp DateTime,
   _offset UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_log_entries', rand());
+CREATE TABLE posthog.writable_log_entries_aux (
+  team_id UInt64,
+  log_source LowCardinality(String),
+  log_source_id String,
+  instance_id String,
+  timestamp DateTime64(6, 'UTC'),
+  level LowCardinality(String),
+  message String,
+  _timestamp DateTime,
+  _offset UInt64
+) ENGINE = Distributed('aux', 'posthog', 'log_entries_data');
 CREATE TABLE posthog.writable_person (
   id UUID,
   created_at DateTime64(3),
@@ -664,6 +684,18 @@ CREATE MATERIALIZED VIEW posthog.ingestion_warnings_mv TO posthog.writable_inges
   _offset,
   _partition
 FROM posthog.kafka_ingestion_warnings;
+CREATE MATERIALIZED VIEW posthog.log_entries_aux_mv TO posthog.writable_log_entries_aux (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp DateTime, _offset UInt64) AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM kafka_log_entries_aux
+WHERE toDate(timestamp) <= today();
 CREATE MATERIALIZED VIEW posthog.log_entries_v3_mv TO posthog.writable_log_entries (team_id UInt64, log_source LowCardinality(String), log_source_id String, instance_id String, timestamp DateTime64(6, 'UTC'), level LowCardinality(String), message String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   team_id,
   log_source,

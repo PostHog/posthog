@@ -124,7 +124,7 @@ def _build_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {"per_page": config.page_size} if config.paginated else {}
     params.update(config.extra_params)
 
     if (

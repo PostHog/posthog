@@ -79,6 +79,11 @@ class CortexSource(SimpleSource[CortexSourceConfig]):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            incremental_field=inputs.incremental_field,
         )
 
     @property
@@ -87,9 +92,9 @@ class CortexSource(SimpleSource[CortexSourceConfig]):
             name=ExternalDataSourceType.CORTEX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cortex",
-            caption="""Enter your Cortex API key to sync your service catalog, scorecards, teams, and entity relationships into the PostHog Data warehouse.
+            caption="""Enter your Cortex API key to sync your service catalog, scorecards, initiatives, teams, users, deploys, dependencies, and entity relationships into the PostHog Data warehouse.
 
-Create an API key in your Cortex workspace under **Settings → API Keys**. The key needs read access to the catalog, scorecards, and teams you want to sync.""",
+Create an API key in your Cortex workspace under **Settings → API Keys**. The key needs read access to the catalog, scorecards, and teams you want to sync. The entity groups and team hierarchies tables need the `Edit entities` permission. Syncing the users table also needs the `View Roles` permission, which the built-in viewer, user, and manager key roles do not include. Syncing the initiatives table needs `View Initiatives`.""",
             docsUrl="https://posthog.com/docs/cdp/sources/cortex",
             iconPath="/static/services/cortex.png",
             keywords=["service catalog", "developer portal", "scorecards"],

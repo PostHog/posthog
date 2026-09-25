@@ -35,7 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     has_engine_seq,
-    is_cdc_write_resolution_enabled,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -711,6 +710,18 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         logger.info(
             "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    elif schema.should_use_incremental_field:
+        # The watermark stays where it was, so the next run re-reads this run's window. A source with
+        # no watermark at all re-reads its full history.
+        logger.warning(
+            "staged_cursor_missing",
+            run_uuid=export_signal.run_uuid,
+            team_id=export_signal.team_id,
+            external_data_job_id=export_signal.job_id,
             external_data_schema_id=export_signal.schema_id,
         )
 
@@ -947,9 +958,7 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
-            export_signal.team_id, schema_id_str, export_signal.run_uuid
-        )
+        resolution_enabled = cdc_write_mode is not None
 
         pa_table = _enrich_cdc_rows(
             pa_table,

@@ -18,13 +18,13 @@ from django.test.client import RequestFactory
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 SIGNING_SECRET = "posthog-code-test-secret"
@@ -150,6 +150,26 @@ class TestSlashCommandDispatch(_SlashCommandTestBase):
         # match the entry point so the strings tell users to type ``/posthog ...``.
         assert self.mock_start.call_args.kwargs["command_prefix"] == "/posthog"
         assert self.integration in self.mock_start.call_args.args[1]
+
+    def test_every_workspace_integration_is_forwarded(self) -> None:
+        """``project <id>`` can name any project the workspace is connected to, so the entry
+        point forwards the whole candidate set. Sending one would leave the others unreachable,
+        with no surface left to pick them from."""
+        from posthog.models.team.team import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        response = self._post_slash_command(self._default_payload(text="project 42"))
+
+        assert response.status_code == 200
+        forwarded = {i.id for i in self.mock_start.call_args.args[1]}
+        assert forwarded == {self.integration.id, other_integration.id}
 
     def test_unknown_sub_command_returns_help_text(self) -> None:
         response = self._post_slash_command(self._default_payload(text="frobnicate the widgets"))

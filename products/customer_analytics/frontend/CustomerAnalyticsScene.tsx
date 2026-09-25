@@ -42,6 +42,7 @@ import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -238,6 +239,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                             actions={
                                 <>
                                     <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                                    {activeTab === 'tasks' && <TaskDigestButton />}
                                     {isEditMode ? (
                                         <div className="flex items-center gap-2">
                                             <span className="text-sm text-muted font-medium whitespace-nowrap">

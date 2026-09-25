@@ -26,6 +26,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -169,6 +170,34 @@ class TestMetricCheckAPI(APIBaseTest):
         assert "definition" not in row and "values" not in row
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
         assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 200
+
+    def test_the_schedule_listing_covers_every_scheduled_subject_in_one_round_trip(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        self._create()
+        with self.captureOnCommitCallbacks(execute=True):
+            events_check = self.client.post(
+                f"{self.url}/",
+                {
+                    "subject_type": SubjectType.POSTHOG_TABLE,
+                    "subject_uuid": str(events.id),
+                    "check_type": CheckType.NOT_NULL,
+                    "column_name": "distinct_id",
+                    "config": {},
+                },
+            )
+        assert events_check.status_code == status.HTTP_201_CREATED, events_check.json()
+        self.connect.reset_mock()
+
+        response = self.client.get(f"{self.url}/schedules/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sorted((row["subject_type"], row["subject_uuid"]) for row in response.json()) == [
+            ("metric", str(self.metric.id)),
+            ("posthog_table", str(events.id)),
+        ]
+        assert {row["interval"] for row in response.json()} == {"24hour"}
+        assert self.connect.await_count == 1
 
     def test_schedule_patch_reuses_one_connection_and_records_snapshots(self) -> None:
         self._create()
@@ -2056,6 +2085,154 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "subject_type"
+
+    def test_a_posthog_table_takes_checks_a_schedule_and_a_window(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        subject = {"subject_type": SubjectType.POSTHOG_TABLE, "subject_uuid": str(events.id)}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(
+                f"{self.url}/",
+                {**subject, "check_type": CheckType.NOT_NULL, "column_name": "distinct_id", "config": {}},
+            )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["subject_uuid"] == str(events.id)
+        assert created.json()["subject_name"] == "events"
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        assert check.posthog_table == "events"
+
+        windowed = self.client.post(
+            f"{self.url}/",
+            {
+                **subject,
+                "check_type": CheckType.NOT_NULL,
+                "column_name": "distinct_id",
+                "config": {"lookback_hours": 24},
+            },
+        )
+        assert windowed.status_code == status.HTTP_201_CREATED, windowed.json()
+        assert windowed.json()["id"] != created.json()["id"]
+
+        assert [
+            row["subject_uuid"]
+            for row in self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE)).json()["results"]
+        ] == [
+            str(events.id),
+            str(events.id),
+        ]
+        assert self.client.get(
+            f"{self.url}/schedule/?{self._subject_query(events.id, SubjectType.POSTHOG_TABLE)}"
+        ).status_code in (
+            status.HTTP_200_OK,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    @parameterized.expand(
+        [
+            ("json_path", "properties.$browser", status.HTTP_201_CREATED),
+            ("join_path", "person.properties.email", status.HTTP_400_BAD_REQUEST),
+            ("lazy_table", "pdi.person_id", status.HTTP_400_BAD_REQUEST),
+            ("unknown_column", "stripe_customer", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_posthog_table_check_names_only_a_column_it_can_select(
+        self, _name: str, column_name: str, expected: int
+    ) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "subject_type": SubjectType.POSTHOG_TABLE,
+                "subject_uuid": str(events.id),
+                "check_type": CheckType.NOT_NULL,
+                "column_name": column_name,
+                "config": {},
+            },
+        )
+
+        assert response.status_code == expected, response.json()
+
+    def test_a_relationships_target_on_a_posthog_table_names_only_a_column_it_can_select(self) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                column_name="customer_id",
+                config={
+                    "to_subject_type": SubjectType.POSTHOG_TABLE,
+                    "to_subject_uuid": str(events.id),
+                    "to_column": "person.id",
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_a_restricted_member_still_lists_and_runs_a_posthog_table_check(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        check = self._create_check(
+            subject_type=SubjectType.POSTHOG_TABLE, subject_uuid=str(events.id), column_name="distinct_id"
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE))
+        health = self.client.get(f"{self.url}/health/")
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())) as connect:
+            started = self.client.post(f"{self.suites_url}/", {})
+
+        assert [row["id"] for row in listed.json()["results"]] == [str(check.id)]
+        assert [row["subject_uuid"] for row in health.json()] == [str(events.id)]
+        assert started.status_code == status.HTTP_200_OK, started.content
+        assert connect.return_value.start_workflow.call_args.args[1]["check_ids"] == [str(check.id)]
+
+    def test_running_a_posthog_table_subject_hands_the_worker_its_selector(self) -> None:
+        # Without the selector the worker reads the suite as naming nothing and runs none of the
+        # subject's checks, while still reporting the run as finished.
+        events = by_name("events")
+        assert events is not None
+
+        with patch(START_SUITE) as connect:
+            connect.return_value.start_workflow = AsyncMock()
+            suite = checks_logic.start_check_suite(
+                team=self.team,
+                user=self.user,
+                subject_type=SubjectType.POSTHOG_TABLE,
+                subject_uuids=[str(events.id)],
+            )
+
+        assert suite.subject_uuid == str(events.id)
+        assert connect.return_value.start_workflow.call_args.args[1]["posthog_table_ids"] == [str(events.id)]
+
+    def test_a_window_is_refused_on_a_subject_with_no_time_column(self) -> None:
+        response = self.client.post(f"{self.url}/", self._payload(config={"lookback_hours": 24}))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "lookback_hours" in response.json()["detail"]
+
+    def test_a_target_window_is_refused_on_a_target_with_no_time_column(self) -> None:
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                config={
+                    "to_subject_type": SubjectType.VIEW,
+                    "to_subject_uuid": str(self.view.id),
+                    "to_column": "id",
+                    "to_lookback_hours": 24,
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "to_lookback_hours" in response.json()["detail"]
 
     def test_the_check_type_catalog_needs_no_access_to_any_subject(self) -> None:
         self._deny_the_view()

@@ -111,7 +111,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         if key.provider == LLMProvider.TYPESAFE:
             return Response(
-                {"detail": "Select the TypeSafe key on an evaluation instead."},
+                {"detail": "Select the System One connection on an evaluation instead."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

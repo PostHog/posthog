@@ -23,7 +23,6 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
@@ -60,16 +59,29 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+
+
+def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team_id,
+        name="A batch export",
+        destination_type=DestinationType.AWS_S3,
+        destination_config={"bucket_name": "my_production_s3_bucket"},
+    )
+    now = dt.datetime.now()
+    batch_export_run_id = batch_exports_testing.create_batch_export_run(
+        batch_export_id=batch_export_id,
+        status=BatchExportRunStatus.FAILED,
+        data_interval_start=now - dt.timedelta(hours=1),
+        data_interval_end=now,
+    )
+    return batch_export_id, batch_export_run_id
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -615,21 +627,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        team_id = cast(Team, user.team).id
+        _, batch_export_run_id = _create_failed_batch_export_run(team_id)
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, team_id)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -637,44 +638,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            self.team.pk,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "my_production_s3_bucket"},
         )
-        with team_scope(team_id=self.team.pk, canonical=True):
-            on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
         now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export_on_demand=on_demand_export,
-            status=BatchExportRun.Status.FAILED,
+        batch_export_run_id = batch_exports_testing.create_batch_export_run(
+            on_demand_id=on_demand_id,
+            status=BatchExportRunStatus.FAILED,
             data_interval_start=now - dt.timedelta(hours=1),
             data_interval_end=now,
         )
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.pk)
 
         assert mocked_email_messages == []
 
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         user2 = self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # Should only be sent to user2
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
@@ -683,28 +672,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 
     def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Default threshold is 1% - failure rate 0.5 exceeds it, so notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
 
@@ -714,17 +691,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.6)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.6)
         assert len(mocked_email_messages) == 2
         assert mocked_email_messages[1].send.call_count == 1
 
         # Test with threshold 0.5 and failure rate 0.4 - should NOT notify
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.4)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.4)
         # Should still be 2 messages (no new message sent)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.5 and failure rate exactly 0.5 - should NOT notify (threshold is exclusive)
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 2
 
         # Test with threshold 0.0 explicitly set - should notify on any failure
@@ -733,25 +710,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.0,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=0.1)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=0.1)
         assert len(mocked_email_messages) == 3
         assert mocked_email_messages[2].send.call_count == 1
 
     def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        _, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
 
         # Test with plugin_disabled=False - should not notify even with high failure rate
         self.user.partial_notification_settings = {
@@ -759,7 +724,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "data_pipeline_error_threshold": 0.5,
         }
         self.user.save()
-        send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
 
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
@@ -1167,6 +1132,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ):
             assert fragment in html
 
+    def test_send_hog_function_filters_uncompilable_skips_a_destination_still_on_its_last_bytecode(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. The email says the listed destinations dropped events, which
+        # would be wrong for this one.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Still delivering", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": ["_H", 1, 29], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
     def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1334,28 +1317,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
-        )
-        batch_export = BatchExport.objects.create(  # type: ignore
-            team=self.user.team, name="A batch export", destination=batch_export_destination
-        )
-        now = dt.datetime.now()
-        batch_export_run = BatchExportRun.objects.create(
-            batch_export=batch_export,
-            status=BatchExportRun.Status.FAILED,
-            data_interval_start=now - dt.timedelta(hours=1),
-            data_interval_end=now,
-        )
+        batch_export_id, batch_export_run_id = _create_failed_batch_export_run(self.team.id)
         user2 = self._create_user("test2@posthog.com")
 
         self.user.partial_notification_settings = {
             "plugin_disabled": True,
-            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export_id}": True},
         }
         self.user.save()
 
-        send_batch_export_run_failure(batch_export_run.id)
+        send_batch_export_run_failure(batch_export_run_id, self.team.id)
 
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}

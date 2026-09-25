@@ -158,7 +158,6 @@ class ReportEvidence:
 
     description: str
     source_id: str
-    weight: float = SCOUT_SIGNAL_WEIGHT
 
 
 @dataclass(frozen=True)
@@ -1389,12 +1388,12 @@ def _capture_report_edited(
     # an empty encoding can't collide with another field's, for the reasons the prompts part below
     # gives. A genuinely identical re-send still hashes the same and stays one event, like the charts.
     #
-    # `source_id` and `weight` ride in the key with the description, because the same prose recorded
-    # under two source ids is two distinct rows on the report. Keyed on the description alone, the
-    # second append hashes like the first and ingestion drops its event.
+    # `source_id` rides in the key with the description, because the same prose recorded under two
+    # source ids is two distinct rows on the report. Keyed on the description alone, the second
+    # append hashes like the first and ingestion drops its event.
     appended_evidence = evidence if result.evidence_appended and evidence else None
     if appended_evidence:
-        observations = [[signal.description, signal.source_id, signal.weight] for signal in appended_evidence]
+        observations = [[signal.description, signal.source_id] for signal in appended_evidence]
         parts.append(f"evidence:{json.dumps(observations, separators=(',', ':'))}")
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —

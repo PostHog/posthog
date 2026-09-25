@@ -82,6 +82,15 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
     return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
 
 
+# The connected Google login granted PostHog an OAuth token without the adwords scope, so
+# nothing it asks for will be authorized. The wizard and the sync both surface this, and
+# reconnecting is the only fix, so both paths read from one string.
+_SCOPE_INSUFFICIENT_ERROR = (
+    "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads "
+    "account and allow access to your Google Ads data."
+)
+
+
 @SourceRegistry.register
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
@@ -118,7 +127,7 @@ class GoogleAdsSource(
         # `PERMISSION_DENIED` / `UNAUTHENTICATED` gRPC statuses. Specific codes therefore come first,
         # so a scope or deleted-account failure doesn't get the generic access message.
         return {
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads account and allow access to your Google Ads data.",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": _SCOPE_INSUFFICIENT_ERROR,
             "Account has been deleted": "The Google Ads account this source syncs from has been deleted, so there's nothing left to import. Point the source at an active customer ID, or delete the source.",
             "INVALID_CUSTOMER_ID": "The customer ID on this source isn't a valid Google Ads account. Update it to the 10-digit customer ID shown in your Google Ads account, then re-enable the sync.",
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
@@ -515,10 +524,7 @@ class GoogleAdsSource(
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
-                return (
-                    False,
-                    "Insufficient permissions. Please reconnect your Google Ads account with the required scopes.",
-                )
+                return False, _SCOPE_INSUFFICIENT_ERROR
             if "NOT_ADS_USER" in error_message:
                 return (
                     False,

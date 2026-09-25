@@ -419,6 +419,7 @@ async def test_worker_orchestrates_child_and_publishes_generated_document(team: 
                 analysis_version=ANALYSIS_VERSION,
                 title="Refund policy",
                 content="Refunds are available within 30 days.",
+                evidence_revision_at=evidence.revision_at,
             )
         )
         return AnalyzeLearningEvidenceOutput(

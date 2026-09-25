@@ -1,5 +1,3 @@
-import './SelfDrivingOnboarding.scss'
-
 import { Logo } from 'lib/brand'
 
 import { SelfDrivingOnboardingFlow } from './SelfDrivingOnboardingFlow'

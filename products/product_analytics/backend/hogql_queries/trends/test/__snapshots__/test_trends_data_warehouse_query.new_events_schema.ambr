@@ -1,0 +1,108 @@
+# serializer version: 1
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time[new_events_schema.1]
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events_json AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time[new_events_schema]
+  '''
+  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property[new_events_schema.1]
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events_json AS e
+        LEFT JOIN
+          (SELECT posthog_test_test_table_1.id AS id,
+                  posthog_test_test_table_1.prop_1 AS e__posthog_test_test_table_1___prop_1
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__posthog_test_test_table_1 ON equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.person_properties.^email)), if(isNull(nullIf(toString(e.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(e.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(e.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(e.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(e.person_properties.email), '[]'), '{}'), toString(e.person_properties.email))))), e__posthog_test_test_table_1.e__posthog_test_test_table_1___prop_1)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), equals(e__posthog_test_test_table_1.id, 'false'))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
+                       readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestTrendsDataWarehouseQuery.test_trends_events_filtering_on_warehouse_person_property[new_events_schema]
+  '''
+  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('1980-01-01 00:00:00.000000', 6, 'UTC')), equals(events.event, '$pageview'))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---

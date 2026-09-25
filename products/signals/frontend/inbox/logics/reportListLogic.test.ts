@@ -20,6 +20,10 @@ import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntir
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
 
+it('uses the needs-decision view without an actionability filter that hides failed reports', () => {
+    expect(INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision']).toEqual({ view: 'needs_decision' })
+})
+
 function makeReport(id: string): SignalReport {
     return {
         id,

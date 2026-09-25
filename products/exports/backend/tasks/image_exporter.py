@@ -591,10 +591,11 @@ def export_image(
                         analytics_props=export_analytics_props,
                     )
                 elif exported_asset.insight.query is None:
-                    # Nothing to warm: the insight stores only legacy filters, which the render
-                    # converts in the browser. Failing here would lose an export the browser can
-                    # still produce, so the render just starts without a warm cache. The dashboard
-                    # branch below skips such a tile for the same reason.
+                    # Nothing to warm: the insight stores only legacy filters, and nothing converts
+                    # those into a query, so the insight renders blank. Raising here would fail the
+                    # whole export instead of producing it with one blank insight, so the render
+                    # starts without a warm cache. The dashboard branch below skips such a tile for
+                    # the same reason.
                     logger.info(
                         "export_image.skip_warming_insight_without_query",
                         insight_id=exported_asset.insight.id,

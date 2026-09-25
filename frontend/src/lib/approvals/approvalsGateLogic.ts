@@ -73,9 +73,8 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
                     }
 
                     try {
-                        const response = await api.get(
-                            `api/environments/${values.currentTeamIdStrict}/approval_policies/`
-                        )
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use approvalPoliciesList() from 'products/platform_features/frontend/generated/api' instead.
+                        const response = await api.get(`api/projects/${values.currentTeamIdStrict}/approval_policies/`)
                         return (response.results || []).filter((p: ApprovalPolicy) => p.enabled)
                     } catch {
                         return []

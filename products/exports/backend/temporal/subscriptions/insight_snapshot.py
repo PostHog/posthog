@@ -29,7 +29,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
-from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.exports.backend.temporal.subscriptions.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -263,7 +263,7 @@ def build_insight_delivery_snapshot(
         base["query_results"] = None
         base["cache_key"] = None
         base["query_error"] = {
-            "type": "missing_query",
+            "type": MISSING_QUERY_ERROR_TYPE,
             "message": "Insight has no query",
             "human_readable_error": "This insight has no query to run.",
         }

@@ -55,9 +55,10 @@ For exact trace and session URLs, skip schema discovery for the standard `$ai_*`
 
 ### Step 2 — Browse trace summaries
 
-Explicitly set `detail: "summary"` when browsing traces. This keeps metadata and short content previews
-without spending context on full prompts and outputs. Omitting `detail` still returns full detail for
-compatibility with existing callers.
+Explicitly set `detail: "summary"` when browsing traces.
+This returns event metadata and leaves the conversation content out,
+so browsing does not spend context on prompts and outputs.
+Omitting `detail` still returns full detail for compatibility with existing callers.
 
 For a trace URL, call `posthog:query-llm-trace` with:
 
@@ -85,8 +86,11 @@ Use the URL's `date_from` / `date_to` values in the session query if present.
 If the URL only has `timestamp`, calculate the absolute date range from that timestamp instead of using a relative range like `-1h`.
 Set `filterTestAccounts: false` for an exact URL so the requested trace is not hidden by account filters.
 
-The result contains trace and event metadata with previews of prompts, outputs, span states, and custom properties.
-A trace with `_detail: { "mode": "summary" }` contains previews, not the complete content.
+The result contains trace and event metadata only.
+Prompts, outputs, span states, `$ai_error` and `$ai_feedback_text` are left out,
+and their names are listed in `_summaryOmittedKeys` beside the property bag.
+A trace with `_detail: { "mode": "summary" }` carries no conversation content at all.
+Read the content with `detail: "full"`.
 
 From the result you get:
 
@@ -113,9 +117,13 @@ Preserve the date range from the original URL or discovery query instead of copy
 Keep relevant property filters to narrow the read. If the user already identified the trace and needs
 exact content, you can request full detail directly.
 
-Both modes enforce response size limits. Check truncation markers before drawing conclusions: an omitted
-event or a keyword missing from a preview is not evidence that it was absent from the trace. If full detail
-is still truncated, narrow the query to the relevant events or open `_posthogUrl` for the complete data.
+Both modes enforce response size limits.
+Check the omission and truncation markers before drawing conclusions.
+A dropped event, a name listed in `_summaryOmittedKeys` or `_redactedKeys`,
+or a keyword missing from a summary is not evidence that it was absent from the trace.
+If full detail is still truncated, narrow the query to the relevant events or open `_posthogUrl` for the complete data.
+Both detail modes also withhold the properties that are not AI payload, described in
+[Withheld properties](#withheld-properties) below.
 
 ### Step 4 — Parse large full-detail results with scripts
 
@@ -137,11 +145,27 @@ SPAN="tool_name" python3 scripts/extract_span.py /path/to/persisted-file.json
 # 4. Full conversation with thinking blocks and tool calls
 python3 scripts/extract_conversation.py /path/to/persisted-file.json
 
-# 5. Search for a keyword across all properties
+# 5. Search for a keyword across the returned properties
 SEARCH="keyword" python3 scripts/search_traces.py /path/to/persisted-file.json
 ```
 
 All scripts support `MAX_LEN=N` env var to control truncation (0 = unlimited).
+
+## Withheld properties
+
+The two trace tools return the AI payload only.
+Only the `$ai_*` properties PostHog's taxonomy defines reach you,
+plus `$ai_generation_id`, `$ai_cache_read_cost_usd`, `$ai_cache_creation_cost_usd`, `$ai_effort`,
+`$session_id`, `$lib` and `$lib_version`.
+Every other event property, and every person property, is withheld in both detail modes,
+and its name is listed in `_redactedKeys` beside the property bag.
+`$ai_base_url` and `$ai_request_url` arrive without their query string.
+
+This covers a project's own custom properties, such as `project_id` or `conversation_id`.
+A withheld property is unchanged in PostHog.
+It still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
+A name in `_redactedKeys` means the property is on the event and only its value is withheld.
+`search_traces.py` cannot find a keyword that appears only in a withheld property.
 
 ## Investigation patterns
 
@@ -208,6 +232,7 @@ Before filtering traces, discover what's available:
 Only then construct the `query-llm-traces-list` call with property filters.
 
 This is especially important for custom properties like `project_id`, `conversation_id`, `user_tier`, etc. — these vary per project and cannot be guessed.
+A custom property works as a filter even though its value is withheld from the response.
 
 Do not confirm `$ai_*` properties, but confirm any other like `email` of a person.
 
@@ -283,8 +308,9 @@ For more complex SQL patterns, read these references:
 ## Parsing large trace results
 
 Trace tool results are JSON. When too large to read inline, Claude Code persists them to a file.
-Use a full-detail response for content extraction and keyword searches; the scripts cannot recover
-content omitted from a summary or a truncated response.
+Use a full-detail response for content extraction and keyword searches.
+The scripts cannot recover content omitted from a summary, withheld from a property bag,
+or dropped by truncation.
 
 ### Persisted file format
 

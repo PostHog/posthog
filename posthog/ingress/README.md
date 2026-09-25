@@ -2,9 +2,10 @@
 
 General-purpose controls for the webhooks third parties send _in_ to PostHog.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
+A verifier the vendor ships in its SDK is not hand-rolled and is not a migration: it stays, and a scheme here calls it rather than reimplementing the compare.
 Four lanes:
 
-- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check, and a bearer JWT checked against the issuer's published signing keys.
+- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check and the AWS SNS message signature it rests on, and a bearer JWT checked against the issuer's published signing keys.
 - **`dispatch/`** — the validated consumer registry, per-delivery dedup, the wall-clock budget, consumer isolation, and `bounded_statement_timeout()` for consumers that read the database.
 - **`observability/`** — Prometheus: delivery volume by transport outcome, and one metric set per consumer run.
 - **`views.py`** — the view that composes the other three: one request that is verified _and_ recorded by construction, so no incarnation can skip either.
@@ -52,7 +53,7 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 
 `verify/schemes.py` holds `HmacSignature` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
 Each class docstring carries its own reasoning.
-`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
+`HmacSha256` is `HmacSignature` with the default digest, and it is the name to reach for. Only a provider that signs with something else sets `digest`, which today is Vercel with SHA-1, and everything else about the scheme, `rejects_headers` included, behaves the same whichever digest it carries.
 
 A scheme also answers `rejects_headers(headers)`, the part of the check that needs no body: `HmacSha256` refuses a missing or malformed signature header and a missing, malformed or stale timestamp header there, and `BearerJwt` refuses a request that carries no bearer token. The answer is the same INVALID the full check would reach, with the same status, log line and metric outcome, so an unauthenticated caller cannot make an endpoint read a body of up to the request limit for it. A scheme that cannot decide from headers alone answers `False`, which is what `SnsSignature` does, and so does an HMAC scheme whose secret is unset, so an unconfigured endpoint still answers NOT_CONFIGURED.
 
@@ -64,25 +65,26 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 
 ## Endpoints
 
-| Provider     | Path                                                    | App                        | Consumers                                                                                                                                                                         | Product code                                                                           |
-| ------------ | ------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`                  | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `error_tracking_external_references`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,error_tracking,workflows}/backend/webhook_consumers.py` |
-| `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                                                                 | `products/stamphog/backend/webhook_consumers.py`                                       |
-| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                                                             | `products/conversations/backend/webhook_consumers.py`                                  |
-| `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                                                               | `products/conversations/backend/webhook_consumers.py`                                  |
-| `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                                                             | `products/conversations/backend/webhook_consumers.py`                                  |
-| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                                                      | `products/legal_documents/backend/webhook_consumers.py`                                |
-| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                                                            | `products/user_interviews/backend/webhook_consumers.py`                                |
-| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | `conversations_email_inbound`                                                                                                                                                     | `products/conversations/backend/webhook_consumers.py`                                  |
-| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | `conversations_email_outbound`                                                                                                                                                    | `products/conversations/backend/webhook_consumers.py`                                  |
-| `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                                                                     | `products/conversations/backend/webhook_consumers.py`                                  |
-| `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                                                            | `products/workflows/backend/webhook_consumers.py`                                      |
-| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                                                                  | `products/messaging/backend/api/customerio_webhook.py`                                 |
+| Provider     | Path                                                    | App                        | Consumers                                                                                                                                                                                                    | Product code                                                                                      |
+| ------------ | ------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`                  | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `error_tracking_external_references`, `loops`, `review_hog_authored_prs`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,error_tracking,review_hog,workflows}/backend/webhook_consumers.py` |
+| `github`     | `/webhooks/stamphog/github`                             | `stamphog`                 | `stamphog_review`                                                                                                                                                                                            | `products/stamphog/backend/webhook_consumers.py`                                                  |
+| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog`               | `conversations_slack`                                                                                                                                                                                        | `products/conversations/backend/webhook_consumers.py`                                             |
+| `slack`      | `/api/conversations/v1/slack/interactivity`             | `supporthog_interactivity` | `conversations_slack_interactivity`                                                                                                                                                                          | `products/conversations/backend/webhook_consumers.py`                                             |
+| `teams`      | `/api/conversations/v1/teams/events`                    | `supporthog`               | `conversations_teams`                                                                                                                                                                                        | `products/conversations/backend/webhook_consumers.py`                                             |
+| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`                  | `legal_documents_signatures`                                                                                                                                                                                 | `products/legal_documents/backend/webhook_consumers.py`                                           |
+| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`                  | `user_interviews_vapi`                                                                                                                                                                                       | `products/user_interviews/backend/webhook_consumers.py`                                           |
+| `mailgun`    | `/api/conversations/v1/email/inbound`                   | `inbound`                  | `conversations_email_inbound`                                                                                                                                                                                | `products/conversations/backend/webhook_consumers.py`                                             |
+| `mailgun`    | `/api/conversations/v1/email/outbound`                  | `outbound`                 | `conversations_email_outbound`                                                                                                                                                                               | `products/conversations/backend/webhook_consumers.py`                                             |
+| `mailgun`    | `/api/conversations/v1/email/capture`                   | `capture`                  | `conversations_email_capture`                                                                                                                                                                                | `products/conversations/backend/webhook_consumers.py`                                             |
+| `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                                                                                       | `products/workflows/backend/webhook_consumers.py`                                                 |
+| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                                                                                             | `products/messaging/backend/api/customerio_webhook.py`                                            |
+| `vercel`     | `/webhooks/vercel`                                      | `marketplace`              | `vercel_marketplace`                                                                                                                                                                                         | `ee/api/vercel/webhook_consumers.py`                                                              |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
-The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
+The Vercel Marketplace App is registered by `ee/`, which is not a product, so its route is declared in `ee/urls.py` and its consumer module is named in `posthog/ingress/dispatch/loading.py` rather than discovered.
 
 The Vapi endpoint is the only one that caps request volume: its provider sets `throttle_class` to a per-IP throttle, because the endpoint is public and Vapi's egress is shared across tenants.
 
@@ -105,6 +107,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
 A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
+`BearerJwt` answers it when the JWKS could not be fetched, and `SnsSignature` when its verifier raises `VerifierUnavailable` because the signing certificate could not be fetched.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
 It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.
@@ -186,8 +189,8 @@ Ingress carries both as general controls, so the next endpoint gets them without
 ## Regional forwarding
 
 A third party holds one callback URL, which points at one region, so a delivery about a resource the other region owns still arrives there first.
-For every App registered today that URL is the primary region (EU) and the forward runs to the secondary one (US).
-A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way.
+For almost every App that URL is the primary region (EU) and the forward runs to the secondary one (US).
+A provider whose App was registered against the secondary region instead overrides `receiving_region_domain()`, and the forward runs the other way; Vercel is the only one today.
 Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
 
 A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
@@ -202,6 +205,7 @@ Every delivery in the request is assessed first, and the request is then forward
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
 Only the receiving region forwards; on the region that receives forwards an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+A request whose host is neither region skips the forward and is receipted anyway, so the owning region never sees the delivery. That is logged as `ingress_delivery_host_matches_no_region` with the host, because the likely cause is a callback URL registered against a hostname no region names and nothing else reports it. It keys off an `ELSEWHERE` answer, so local development, where both domains resolve to localhost hosts, does not warn on every delivery.
 The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
 The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
@@ -228,23 +232,32 @@ The same attribute answers a delivery whose consumers did not accept it, under o
 
 ## Adding a provider
 
+A provider package holds only what is specific to its third party: header names, how it names event types and delivery ids, how its body parses, and the status codes its protocol fixes.
+A need that a second provider could share becomes shared code: a lane in `views.py`, part of `dispatch/`, a scheme or scheme option in `verify/`, or an attribute on `WebhookProvider`.
+`throttle_class`, `retry_status` and the HMAC digest option each started as one provider's need and became shared that way.
+A true one-off stays in the provider, marked with a `# One-off:` comment that says why no other provider needs it.
+Tracing and metrics in a provider package fail CI unless marked, see "Shared mechanisms" in [the egress README](../egress/README.md#shared-mechanisms).
+
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Three more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, and `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. The 500 suits an endpoint whose secret is always set, because an unconfigured one is then an operator fault; an endpoint that a deployment may legitimately never configure, such as Slack, Mailgun and Teams on a self-hosted instance, sets `unconfigured_status = 403` instead, or the URL answers a server error to every anonymous probe. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well, and so does one that must not tell an unauthenticated caller whether the secret is merely unset. The unconfigured case of an incarnation that answers a 4xx is logged as a warning rather than an error, because an endpoint that an operator may never configure sees probes of a public URL. Four more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted, and `reports_unconfigured`, which also sends a missing secret to error tracking. That last one is off by default, because an endpoint that answers an unconfigured request like an unknown route lets an unauthenticated prober fill error tracking from the outside; turn it on where the deliveries are lost while the secret is unset and nothing else would notice. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
+- A provider that lowers `unconfigured_status` to a 4xx, as Teams does, first checks that its scheme reaches `NOT_CONFIGURED` only for a value an operator sets, never for one a remote lookup produces. A 4xx the sender does not retry turns that lookup's outage into lost deliveries. This is why `BearerJwt` answers `UNAVAILABLE` for a signing-key URI it could not discover, and reads the values an operator sets before it.
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
   A builder that takes an `app` name checks it with `require_known_app(provider, app, SPECS)` before anything else, so a typo raises `UnknownApp` at import. Without that check the endpoint builds and serves: consumers register against the declared app names, so nothing matches and every delivery is receipted and dropped, or the app has no secret getter and every delivery answers `NOT_CONFIGURED`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
 Then mount the URL where the App registration lives.
-A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, in a `webhook_urlpatterns` list that core mounts at `webhooks/<product>/`:
 
 ```python
-urlpatterns: list[URLPattern] = [
-    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+webhook_urlpatterns: list[URLPattern] = [
+    opt_slash_path("github", build_webhook_view(build_github_provider("stamphog"))),
 ]
 ```
+
+The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
 The customer-facing GitHub App is the only one today.
@@ -265,6 +278,7 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
   It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
+- **The scheme-only caller.** An endpoint that must answer its sender synchronously cannot be a dispatched webhook, because dispatch answers a receipt. It keeps its view and calls the incarnation's scheme builder, so the window and the signed input still have one definition. `slack/` is the case: `build_slack_signature_scheme()` backs the `slack_app` product's endpoints through `posthog.models.integration.validate_slack_request`, while `build_slack_provider()` backs the dispatched conversations endpoints.
 
 ## Dedup
 

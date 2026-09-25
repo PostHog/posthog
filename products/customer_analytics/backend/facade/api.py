@@ -3094,7 +3094,7 @@ def _apply_account_table_sort(
         tag_values = (
             TaggedItem.objects.matching_outer(Account)
             .filter(tag__team_id=team_id)
-            .values("object_key")
+            .values("object_uuid")
             .annotate(value=ArrayAgg("tag__name", order_by="tag__name"))
             .values("value")
         )
@@ -3303,7 +3303,7 @@ def query_accounts_table(
         for account_id, tag_name in (
             TaggedItem.objects.for_objects(Account, account_ids)
             .order_by("tag__name")
-            .values_list("object_key", "tag__name")
+            .values_list("object_uuid", "tag__name")
         ):
             tags_by_account[account_id].append(tag_name)
 

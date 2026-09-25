@@ -1632,6 +1632,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         request=_LogsCountRangesRequestSerializer,
         responses={200: _LogsCountRangesResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1794,6 +1795,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsGroupByRequestSerializer, responses={200: _LogsGroupByResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="group-by")
     def group_by(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)

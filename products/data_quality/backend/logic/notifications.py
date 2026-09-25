@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from . import posthog_tables
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
@@ -127,6 +128,10 @@ class _WarehouseSubjectResolver(RecipientsResolver):
             "data_catalog", "viewer"
         ):
             return False
+        if self._subject_type == SubjectType.POSTHOG_TABLE and not access.check_access_level_for_resource(
+            posthog_tables.RESOURCE, "viewer"
+        ):
+            return False
         if self._object_gate_applies() and not self._has_object_access(access):
             return False
         if not self._reference_gate_applies():
@@ -163,6 +168,14 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         )
 
 
+def _source_url(team_id: int, subject_type: str, subject_name: str) -> str:
+    if subject_type == SubjectType.METRIC:
+        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+    if subject_type == SubjectType.POSTHOG_TABLE:
+        return f"/project/{team_id}/models?tab=data-quality"
+    return ""
+
+
 def notify_check_started_failing(
     check: DataQualityCheck,
     failed_row_count: int | None,
@@ -180,7 +193,8 @@ def notify_check_started_failing(
         if not subject.exists:
             return 0
         is_metric = check.subject_type == SubjectType.METRIC
-        subject_name = subject.name if is_metric else check.subject_name
+        is_posthog_table = check.subject_type == SubjectType.POSTHOG_TABLE
+        subject_name = subject.name if is_metric or is_posthog_table else check.subject_name
         event = create_notification(
             NotificationData(
                 team_id=check.team_id,
@@ -195,9 +209,7 @@ def notify_check_started_failing(
                 # members with object-level access to it, plus query access for the count.
                 resource_type="data_catalog" if is_metric else "warehouse_objects",
                 resource_id=str(check.subject_uuid),
-                source_url=f"/project/{team.id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
-                if is_metric
-                else "",
+                source_url=_source_url(team.id, check.subject_type, subject_name),
                 idempotency_key=idempotency_key,
                 resolver=_WarehouseSubjectResolver(
                     team,

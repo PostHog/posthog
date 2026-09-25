@@ -5,7 +5,7 @@ import grpc
 
 from . import service_pb2 as usage__ingestion_dot_v1_dot_service__pb2
 
-GRPC_GENERATED_VERSION = "1.71.2"
+GRPC_GENERATED_VERSION = "1.75.1"
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -28,8 +28,8 @@ if _version_not_supported:
 
 class UsageIngestionStub:
     """UsageIngestion accepts usage records for durable analytics. Producers must reuse
-    record_id when retrying a record. The service preserves producer-supplied event
-    time and assigns insertion time when it publishes.
+    record_id when retrying a record. The service preserves the producer's timestamp and
+    assigns insertion time when it publishes.
 
     IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
     indefinitely. Cost and resource metering is a separate RPC and table.
@@ -51,8 +51,8 @@ class UsageIngestionStub:
 
 class UsageIngestionServicer:
     """UsageIngestion accepts usage records for durable analytics. Producers must reuse
-    record_id when retrying a record. The service preserves producer-supplied event
-    time and assigns insertion time when it publishes.
+    record_id when retrying a record. The service preserves the producer's timestamp and
+    assigns insertion time when it publishes.
 
     IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
     indefinitely. Cost and resource metering is a separate RPC and table.
@@ -81,8 +81,8 @@ def add_UsageIngestionServicer_to_server(servicer, server):
 # This class is part of an EXPERIMENTAL API.
 class UsageIngestion:
     """UsageIngestion accepts usage records for durable analytics. Producers must reuse
-    record_id when retrying a record. The service preserves producer-supplied event
-    time and assigns insertion time when it publishes.
+    record_id when retrying a record. The service preserves the producer's timestamp and
+    assigns insertion time when it publishes.
 
     IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
     indefinitely. Cost and resource metering is a separate RPC and table.

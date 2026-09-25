@@ -1017,7 +1017,8 @@ class SessionRecordingViewSet(
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
         try:
-            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+            user = request.user if isinstance(request.user, User) else None
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team, user)
         except Exception as e:
             # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
             # it should just render empty like a session with no matching event would.

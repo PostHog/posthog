@@ -26,6 +26,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
     RecentIssueState,
+    issue_state_changed_within_window,
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
@@ -67,6 +68,9 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
+        # Defaults to reading, so an entry point that never builds a cache key keeps the overlay.
+        self._overlay_read_needed: bool = True
+
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
         return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
@@ -82,6 +86,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="watermark").inc()
             payload["error_tracking_issue_state_watermark"] = "unavailable"
         else:
+            self._overlay_read_needed = issue_state_changed_within_window(watermark)
             payload["error_tracking_issue_state_watermark"] = watermark.isoformat() if watermark is not None else None
         return payload
 
@@ -123,15 +128,20 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             ]
         return ctx
 
-    def _calculate(self):
+    def recent_issue_states(self) -> list[RecentIssueState]:
+        if not self._overlay_read_needed:
+            return []
         with self.timings.measure("error_tracking_query_recent_issue_state"):
             # Keep ClickHouse available when the primary read fails.
             try:
-                recent_issue_states = load_recent_issue_states(self.team.pk)
+                return load_recent_issue_states(self.team.pk)
             except OperationalError:
                 logger.warning("error_tracking_recent_issue_states_unavailable", team_id=self.team.pk, exc_info=True)
                 RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE.labels(read="recent_states").inc()
-                recent_issue_states = []
+                return []
+
+    def _calculate(self):
+        recent_issue_states = self.recent_issue_states()
         context = self._hogql_context(recent_issue_states)
         builder = ErrorTrackingQueryBuilder(
             self.query,

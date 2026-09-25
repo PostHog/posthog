@@ -47,6 +47,7 @@ export class FeedbackSubmissionService implements IFeedbackSubmissionService {
     const form = new FormData();
     form.append("response", input.response);
     form.append("source", input.source);
+    if (input.feedbackType) form.append("feedback_type", input.feedbackType);
     form.append("feedback_view", input.feedbackView);
     if (input.feedbackTaskId) {
       form.append("feedback_task_id", input.feedbackTaskId);

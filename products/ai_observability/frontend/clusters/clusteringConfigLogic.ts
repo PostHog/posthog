@@ -87,16 +87,16 @@ export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
             { event_filters: [], created_at: '', updated_at: '' } as ClusteringConfig,
             {
                 loadConfig: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use llmAnalyticsClusteringConfigList() from 'products/ai_observability/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/`
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_config/`
                     )
                     return response as ClusteringConfig
                 },
                 saveEventFilters: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsClusteringConfigSetEventFiltersCreate() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create(
-                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/set_event_filters/`,
+                        `api/projects/${values.currentTeamIdStrict}/llm_analytics/clustering_config/set_event_filters/`,
                         {
                             event_filters: values.localEventFilters,
                         }

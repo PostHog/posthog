@@ -1,6 +1,7 @@
 import json
 import time
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, Optional, cast
 
 import pytest
@@ -24,6 +25,7 @@ from common.hogvm.python.utils import (
     MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
     UncaughtHogVMException,
 )
 
@@ -118,8 +120,8 @@ class TestBytecodeExecute:
         assert self._run("1 != null") is True
 
     def test_ordering_comparison_type_error_raises_hogvm_exception(self):
-        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
-            self._run("properties.missing <= 1.0")
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'list' and 'float'"):
+            self._run("[1] <= 1.0")
 
     @parameterized.expand(
         [
@@ -415,6 +417,33 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
+
+    @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
+    def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_program("let retained := '" + "x" * 1000 + "'; return " + expression)).bytecode
+        with patch("common.hogvm.python.stl.list", side_effect=AssertionError("Allocated range"), create=True):
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, memory_limit=2048)
+
+    @parameterized.expand([("range(7)", 7), ("range(3, 10)", 7), ("range(-1)", 0), ("range(10, 3)", 0)])
+    def test_range_within_memory_limit(self, expression: str, expected_length: int) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert len(response.result) == expected_length
+
+    @parameterized.expand([(op.RETURN,), (None,), ()])
+    def test_peak_memory_includes_temporary_values(self, *ending: op | None) -> None:
+        bytecode = [_H, VERSION, op.INTEGER, 7, op.CALL_GLOBAL, "range", 1, op.CALL_GLOBAL, "length", 1, *ending]
+        response = execute_bytecode(bytecode, memory_limit=64)
+        assert response.result == 7
+        assert response.max_memory_used == 64
+
+    @parameterized.expand([("length('hello')",), ("(length)('hello')",)])
+    def test_stl_call_cannot_return_after_deadline(self, expression: str) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with patch("common.hogvm.python.execute.time.monotonic", side_effect=[0.0, 0.0, 0.0, 2.0]):
+            with pytest.raises(HogVMRuntimeExceededException):
+                execute_bytecode(bytecode, timeout=timedelta(seconds=1))
 
     def test_functions(self):
         def stringify(*args):
@@ -810,9 +839,32 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
-    def test_bytecode_length_null_raises_hogvm_exception(self):
-        with pytest.raises(HogVMException, match="Can not call length on null"):
-            self._run_program("return length(null);")
+    def test_bytecode_string_functions_return_null_for_null(self):
+        for program in (
+            "return length(null);",
+            "return upper(null);",
+            "return reverse(null);",
+            "return replaceOne(null, 'a', 'b');",
+            "return replaceAll(null, 'a', 'b');",
+            "return trim(null);",
+            "return splitByString(' ', null);",
+        ):
+            assert self._run_program(program) is None, program
+
+    def test_bytecode_ordering_with_a_null_operand_is_false(self):
+        # A filter comparing a missing value must not match, and must not fail either.
+        for program in (
+            "return length(null) > 3;",
+            "return length(null) < 3;",
+            "return null >= 0;",
+            "return 1 > null;",
+            "return null > true;",
+            "return null < null;",
+        ):
+            assert self._run_program(program) is False, program
+        # Equality does not coerce: a zero is not a null.
+        assert self._run_program("return 0 == null;") is False
+        assert self._run_program("return 0 != null;") is True
 
     @parameterized.expand(
         [

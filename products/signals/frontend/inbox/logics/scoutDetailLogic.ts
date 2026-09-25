@@ -2,9 +2,11 @@ import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
+
+import { signalsScoutRunsEmissionReports, signalsScoutRunsEmissions } from 'products/signals/frontend/generated/api'
 
 import {
     LinkedSignalReport,
@@ -198,8 +200,9 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     }
                     // allSettled, not all: one failed run's fetch (transient 500, deleted run)
                     // shouldn't discard every other run's findings — surface the partial set.
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissions(projectId, run.run_id))
                     )
                     const fulfilled = settled.filter(
                         (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
@@ -240,8 +243,9 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // all). source_id is `run:<run_id>:finding:<id>`, so prior links for a run are the
                     // ones prefixed with its run_id.
                     const previous = values.emissionReports
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissionReports(projectId, run.run_id))
                     )
                     const merged = runs.flatMap((run, index) => {
                         const result = settled[index]

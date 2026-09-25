@@ -63,6 +63,12 @@ class MailgunProvider(WebhookProvider):
     # A route delivery carries the whole mail message, including up to MAX_FILES attachments, and
     # the forward rebuilds and re-sends every part. Three seconds is not enough for that.
     forward_timeout_seconds = 10.0
+    # The status these endpoints answered before they moved here: an instance with no signing key
+    # reads as a request it refuses, not as a server that broke.
+    unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe.
+    explains_rejections = False
 
     def __init__(self, app: str, *, signing_key_getter: Callable[[], str | None]) -> None:
         require_known_app(self.provider, app, SPECS)

@@ -3,6 +3,7 @@ import { IntegrationType, SubscriptionType } from '~/types'
 
 import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { getNextDeliveryDate } from './nextDeliveryDate'
 import {
     canNudgeToSubscribe,
     coerceDeliveryConfigForScope,
@@ -10,7 +11,6 @@ import {
     getAiSubscriptionDisplayOptionState,
     getAiSubscriptionDisplaySummary,
     getAiSubscriptionGate,
-    getNextDeliveryDate,
     getSubscriptionAdvancedSettings,
     integrationHasFilesWrite,
     selectedDaysToDayPickerLabel,

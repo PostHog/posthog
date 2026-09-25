@@ -26,6 +26,7 @@ describe("FeedbackSubmissionService", () => {
       service.submitFeedback({
         response: "The page did not load",
         source: "Generic (Leave feedback button)",
+        feedbackType: "bug",
         feedbackView: "task-detail",
         feedbackTaskId: "task-123",
         appVersion: "1.2.3",
@@ -49,6 +50,7 @@ describe("FeedbackSubmissionService", () => {
     expect(init).toMatchObject({ method: "POST" });
     const form = init.body as FormData;
     expect(form.get("response")).toBe("The page did not load");
+    expect(form.get("feedback_type")).toBe("bug");
     expect(form.get("feedback_task_id")).toBe("task-123");
     expect(form.get("app_version")).toBe("1.2.3");
     const image = form.get("image_1");

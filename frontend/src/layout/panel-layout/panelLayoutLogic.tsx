@@ -15,7 +15,7 @@ export type PanelLayoutNavIdentifier =
     | 'DataAndPeople'
     | 'Chat'
     | 'Notifications'
-export type NavExperimentTab = 'home' | 'chat'
+export type NavExperimentTab = 'home' | 'files' | 'chat'
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
@@ -44,6 +44,7 @@ export interface panelLayoutLogicValues {
     isLayoutNavbarVisibleForMobile: boolean
     isLayoutPanelCloseable: boolean
     isLayoutPanelVisible: boolean
+    isNavOverlayOpen: boolean
     mainContentRect: DOMRect | null
     mainContentRef: PanelLayoutMainContentRef
     navExperimentActiveTab: NavExperimentTab
@@ -80,6 +81,9 @@ export interface panelLayoutLogicActions {
     }
     setNavExperimentTab: (tab: NavExperimentTab) => {
         tab: NavExperimentTab
+    }
+    setNavOverlayOpen: (open: boolean) => {
+        open: boolean
     }
     setNavbarWidth: (width: number) => {
         width: number
@@ -163,8 +167,19 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         toggleNavSection: (section: string) => ({ section }),
         setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
         setNavbarWidth: (width: number) => ({ width }),
+        setNavOverlayOpen: (open: boolean) => ({ open }),
     }),
     reducers({
+        isNavOverlayOpen: [
+            false,
+            {
+                setNavOverlayOpen: (_, { open }) => open,
+                toggleLayoutNavCollapsed: () => false,
+                resetPanelLayout: () => false,
+                mobileLayout: () => false,
+                showLayoutNavBar: () => false,
+            },
+        ],
         isLayoutNavbarVisibleForDesktop: [
             true,
             { persist: true },
@@ -401,6 +416,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         '*': () => {
+            if (values.isNavOverlayOpen) {
+                actions.setNavOverlayOpen(false)
+            }
             // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
             // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
             // navigating away from one leaves the panel and its dim mounted.

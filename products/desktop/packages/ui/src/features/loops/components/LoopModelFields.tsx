@@ -1,7 +1,6 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
-import { Flex } from "@radix-ui/themes";
 import { useMemo } from "react";
 import { useLoopModelConfigOptions } from "../hooks/useLoopModelConfigOptions";
 import {
@@ -102,7 +101,7 @@ export function LoopModelFields({
   };
 
   return (
-    <Flex direction="column" gap="4">
+    <div className="flex flex-col gap-4">
       <Field
         label="Model"
         hint="Default lets PostHog pick the model each run; choose one to pin it."
@@ -118,7 +117,7 @@ export function LoopModelFields({
         />
       </Field>
 
-      <Flex gap="4" wrap="wrap">
+      <div className="flex flex-wrap gap-4">
         {adapterEditable ? (
           <Field label="Adapter" className="min-w-[180px] flex-1">
             <SettingsOptionSelect
@@ -156,7 +155,7 @@ export function LoopModelFields({
             ariaLabel="Reasoning effort"
           />
         </Field>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }

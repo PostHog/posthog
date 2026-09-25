@@ -67,17 +67,31 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS: int = max(
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS", 120, type_cast=int),
 )
 
-# Feature flag cache refresh settings
+# Refresh sweep settings for the `flags` cache; `flag_definitions` has its own pair below.
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
     "FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS", 24, type_cast=int
 )
 
-# Maximum number of teams to refresh per cache refresh run to prevent memory spikes.
+# Maximum number of teams the `flags` sweep takes per run. A routed team counts when its
+# Kafka message is produced, so a routed run caps messages and not finished rebuilds.
 # With ~200k teams, 5000 is a starting point that processes all teams across ~40 runs.
 # Run `python manage.py analyze_flags_cache_sizes` to measure actual memory usage.
 # Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
 # See cache_expiry_manager.py for implementation details.
 FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
+
+# Refresh sweep settings for the `flag_definitions` cache, which binds no `route_refresh_fn`
+# and so always builds inline and always caps finished rebuilds. Each defaults to the
+# `flags` value, which means raising the `flags` setting still raises this sweep until an
+# operator pins these.
+FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
+    "FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS",
+    FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+    type_cast=int,
+)
+FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT: int = get_from_env(
+    "FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT", FLAGS_CACHE_REFRESH_LIMIT, type_cast=int
+)
 
 # Pacing for the teams the refresh sweep routes to the Kafka cache builder instead of
 # building itself. The builder drains a batch sequentially, so a whole run produced at

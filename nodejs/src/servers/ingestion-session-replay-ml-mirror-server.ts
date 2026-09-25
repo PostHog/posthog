@@ -15,6 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
@@ -74,10 +75,24 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         const s3Client = buildSessionRecordingS3Client(this.config)
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
         const prefix = this.config.AI_RESEARCH_REPLAY_S3_PREFIX
+        const v3Bucket = this.config.AI_RESEARCH_REPLAY_S3_BUCKET
+        const v3Prefix = this.config.AI_RESEARCH_REPLAY_S3_V3_PREFIX
+        if (!v3Bucket) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: sessions started after the v3 cutoff write there'
+            )
+        }
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 
         // A session keeps its storage prefix across flushes and late arrivals.
+        const rawStorage = (month?: string) =>
+            new S3SessionBatchFileStorage(
+                s3Client!,
+                bucket,
+                month ? `${prefix}/${month}` : prefix,
+                this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+            )
         const fileStorage = s3Client
             ? new SessionFormatFileStorage(
                   new S3SessionBatchFileStorage(
@@ -86,11 +101,12 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                       this.config.SESSION_RECORDING_V2_S3_PREFIX,
                       this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                   ),
+                  rawStorage,
                   (month) =>
                       new S3SessionBatchFileStorage(
                           s3Client,
-                          bucket,
-                          month ? `${prefix}/${month}` : prefix,
+                          v3Bucket,
+                          month ? `${v3Prefix}/${month}` : v3Prefix,
                           this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                       )
               )
@@ -126,6 +142,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
+            compression: ML_BLOCK_COMPRESSION,
             runner: new MlMirrorStagedBatchRunner(
                 {
                     keyManager,
