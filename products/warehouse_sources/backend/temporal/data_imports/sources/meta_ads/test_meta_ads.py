@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _fetch_integration_row,
     _is_invalid_cursor_error,
     _is_permanent_auth_error,
+    _is_timeout_error,
     _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
@@ -49,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _next_smaller_limit,
     _override_limit,
     _raise_meta_api_error,
+    _should_shrink_request,
     _strip_access_token,
     get_integration,
     get_schemas as get_meta_ads_schemas,
@@ -81,6 +83,18 @@ def _mock_truncated_response() -> mock.MagicMock:
     response.status_code = 200
     response.json.side_effect = RequestsJSONDecodeError("Unterminated string starting at", "{", 98254)
     response.text = '{"data": [{"id": "1"'
+    return response
+
+
+def _mock_response_with_trailing_garbage(status: int, body: dict) -> mock.MagicMock:
+    # Meta has been observed appending a second, unrelated error object right after the real
+    # one in the same error response body. `.json()` rejects the extra data ("Extra data"
+    # JSONDecodeError), even though the leading object is well-formed.
+    text = json.dumps(body) + '{"error":{"code":1,"message":"An unknown error occurred","error_subcode":99}}'
+    response = mock.MagicMock()
+    response.status_code = status
+    response.json.side_effect = RequestsJSONDecodeError("Extra data", text, len(json.dumps(body)))
+    response.text = text
     return response
 
 
@@ -443,6 +457,27 @@ class TestIsTransientError:
         response.status_code = 400
         response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
         assert _is_transient_error(response) is False
+
+    def test_trailing_garbage_after_body_still_reads_leading_error(self) -> None:
+        # Real-world shape: Meta returns a well-formed error object followed by a second,
+        # unrelated one in the same body. `response.json()` rejects the extra data outright,
+        # which must not make an otherwise-classifiable transient error read as unclassifiable.
+        response = _mock_response_with_trailing_garbage(
+            400, {"error": {"message": "Service temporarily unavailable", "code": 2, "is_transient": False}}
+        )
+        assert _is_transient_error(response) is True
+
+
+class TestNonIntErrorSubcode:
+    def test_list_valued_subcode_does_not_crash_timeout_check(self) -> None:
+        # error_subcode is not contractually typed; a list value would raise TypeError on
+        # set-membership (`in`) if tested unguarded, aborting classification entirely.
+        body = {"error": {"error_subcode": [1504018], "message": "timeout"}}
+        assert _is_timeout_error(_mock_response(500, body)) is False
+
+    def test_list_valued_subcode_does_not_crash_shrink_check(self) -> None:
+        body = {"error": {"error_subcode": [1504044], "code": 2}}
+        assert _should_shrink_request(_mock_response(400, body)) is False
 
 
 class TestTransientErrorRetry:
@@ -844,6 +879,47 @@ class TestTimeRangePagination:
         calls = mock_get.return_value.get.call_args_list
         for call in calls[:META_TRANSIENT_ERROR_MAX_ATTEMPTS]:
             assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-03-01", "until": "2026-03-30"}
+        assert json.loads(calls[META_TRANSIENT_ERROR_MAX_ATTEMPTS].kwargs["params"]["time_range"]) == {
+            "since": "2026-03-01",
+            "until": "2026-03-07",
+        }
+
+    def test_heavy_query_subcode_with_trailing_garbage_retries_then_shrinks_chunk(self, monkeypatch) -> None:
+        # Same production shape as test_heavy_query_subcode_retries_unchanged_then_shrinks_chunk,
+        # but Meta appended a second, unrelated error object after the real one in the body. That
+        # extra data must not stop the request from retrying and shrinking like the clean case —
+        # without the fix this raised an unclassified, non-retrying exception on the first attempt.
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        heavy_body = {
+            "error": {
+                "message": "Service temporarily unavailable",
+                "type": "OAuthException",
+                "is_transient": False,
+                "code": 2,
+                "error_subcode": 1504044,
+            }
+        }
+        responses = [
+            _mock_response_with_trailing_garbage(400, heavy_body) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)
+        ] + [_mock_response(200, {"data": [{"ad_id": str(i)}], "paging": {}}) for i in range(1, 6)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-03-01", "until": "2026-03-30"},
+                    None,
+                    manager,
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3", "4", "5"]
+        calls = mock_get.return_value.get.call_args_list
         assert json.loads(calls[META_TRANSIENT_ERROR_MAX_ATTEMPTS].kwargs["params"]["time_range"]) == {
             "since": "2026-03-01",
             "until": "2026-03-07",

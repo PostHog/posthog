@@ -251,9 +251,10 @@ Without those keys (a manual `review_pr.py` run) the engine reads git history in
 The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
 Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
 
-The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy and the PR head's `AGENT_APPROVALS.md` files.
 It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
-Its fast refusal may only cover what the sandbox review would also refuse, because nothing re-reviews it.
+Its fast verdict (a gate refusal, or the pending-migration WAIT) may only be one the sandbox review would also reach, because nothing re-reviews it.
+Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-migration case undecided.
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
 
