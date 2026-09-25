@@ -154,7 +154,7 @@ src/  (production — ships)
   src-image.ts    decode the source once to raw RGB, to the size the plan asked for
   geometry.ts     shared Box type + grid rounding
   safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
-  smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
+  smoke.ts        image-build-time smoke test: models load + text and face fixtures scrubbed, with networking disabled
   env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
   metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
   image-input.ts  accepted image decoders, pixel limits, and embedded metadata policy
@@ -183,7 +183,7 @@ npm run setup        # download ONNX models + sample test images, generate the c
 npm run test:unit    # fast unit tests (no models/network)
 npm run eval         # scrub-quality suite (text + face) over real images
 npm run bench        # latency + per-stage breakdown
-npm run smoke        # models load + one scrub end to end (what the image build runs)
+npm run smoke        # models load + text and face fixtures scrubbed end to end (what the image build runs)
 npm run start        # the sidecar server (needs `npm run setup` for the models)
 ```
 
@@ -240,7 +240,7 @@ Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (
 
 The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
 zxing's wasm loads from `node_modules`.
-A build-time smoke test (`src/smoke.ts`) then loads the models and runs one scrub with networking disabled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
+A build-time smoke test (`src/smoke.ts`) then loads the models and scrubs a text fixture and a face fixture with networking disabled. It checks that text is found and that the face is filled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
 The sidecar makes no network fetches at startup.
 
 ## Observability
