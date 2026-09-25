@@ -49,4 +49,4 @@ posthog.1383_taggeditem_untrack_legacy_keys
 
 # Builds replacement view-context uniqueness before concurrently dropping the old anonymous index.
 # Existing consumers must be fully deployed from PR106552 first; both index operations are retry-safe.
-product_analytics.0012_insight_viewed_context_uniqueness
+product_analytics.0013_insight_viewed_context_uniqueness

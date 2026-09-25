@@ -25,6 +25,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
+from posthog.event_usage import EventSource
 from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSerializer
@@ -1170,7 +1171,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             record_insight_view(insight_id=resource.insight.pk)
             record_insight_view_context(
                 user_id=None,
-                source="shared",
+                source=EventSource.SHARED,
                 team_id=resource.insight.team_id,
                 insight_ids=[resource.insight.pk],
                 dashboard_id=resource.dashboard.pk if resource.dashboard else None,
@@ -1202,7 +1203,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             ]
             record_insight_view_context(
                 user_id=None,
-                source="shared",
+                source=EventSource.SHARED,
                 team_id=resource.dashboard.team_id,
                 insight_ids=[insight.pk for insight in dashboard_insights],
                 dashboard_id=resource.dashboard.pk,
@@ -1451,7 +1452,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 for insight in referenced_insights:
                     record_insight_view(insight_id=insight.pk)
                     record_insight_view_context(
-                        team_id=insight.team_id, insight_ids=[insight.pk], user_id=None, source="shared"
+                        team_id=insight.team_id, insight_ids=[insight.pk], user_id=None, source=EventSource.SHARED
                     )
             exported_data.update({"insights": insights_by_short_id})
             # Pre-compute every inline (non-saved-insight) `ph-query` node so the shared viewer

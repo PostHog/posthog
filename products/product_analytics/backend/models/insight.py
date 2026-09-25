@@ -473,6 +473,9 @@ class InsightViewed(models.Model):
             )
         ]
         indexes = [
+            models.Index(
+                fields=["dashboard"], condition=models.Q(dashboard__isnull=False), name="insightviewed_dashboard_idx"
+            ),
             models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
             models.Index(fields=["insight_id", "-last_viewed_at"], name="insightviewed_insight_lva_idx"),
         ]

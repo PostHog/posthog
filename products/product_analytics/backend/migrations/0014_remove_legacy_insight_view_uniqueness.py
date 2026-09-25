@@ -8,7 +8,7 @@ def lock_view_history(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("product_analytics", "0012_insight_viewed_context_uniqueness")]
+    dependencies = [("product_analytics", "0013_insight_viewed_context_uniqueness")]
 
     operations = [
         migrations.RunPython(lock_view_history, migrations.RunPython.noop),
