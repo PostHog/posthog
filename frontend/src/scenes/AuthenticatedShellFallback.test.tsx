@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 
@@ -12,7 +13,14 @@ describe('AuthenticatedShellFallback', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        setPageHidden(false)
+        jest.restoreAllMocks()
     })
+
+    function setPageHidden(hidden: boolean): void {
+        Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+        document.dispatchEvent(new Event('visibilitychange'))
+    }
 
     it('takes spinner visibility from the app-level delay instead of restarting it', () => {
         const { container, rerender } = render(<AuthenticatedShellFallback showSpinner={false} />)
@@ -36,6 +44,46 @@ describe('AuthenticatedShellFallback', () => {
         })
 
         expect(screen.getByText('Reload')).toBeInTheDocument()
+    })
+
+    it('counts only visible time before it shows the reload prompt', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        setPageHidden(true)
+        render(<AuthenticatedShellFallback showSpinner />)
+
+        act(() => {
+            jest.advanceTimersByTime(30000)
+        })
+        expect(screen.queryByText('Reload')).not.toBeInTheDocument()
+
+        act(() => {
+            setPageHidden(false)
+        })
+        act(() => {
+            jest.advanceTimersByTime(5000)
+        })
+        act(() => {
+            setPageHidden(true)
+        })
+        act(() => {
+            jest.advanceTimersByTime(30000)
+        })
+        act(() => {
+            setPageHidden(false)
+        })
+        act(() => {
+            jest.advanceTimersByTime(2999)
+        })
+        expect(screen.queryByText('Reload')).not.toBeInTheDocument()
+
+        act(() => {
+            jest.advanceTimersByTime(1)
+        })
+        expect(screen.getByText('Reload')).toBeInTheDocument()
+        expect(capture).toHaveBeenCalledWith(
+            'authenticated shell reload prompt shown',
+            expect.objectContaining({ page_was_hidden: true })
+        )
     })
 
     it('reloads the page when the person clicks reload', () => {
