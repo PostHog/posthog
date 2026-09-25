@@ -90,7 +90,7 @@ jobs:
 
     wait_for_agent:
         needs: changes
-        name: Wait for npm to serve the pinned agent
+        name: Wait for the pinned agent to be published
         if: |
             github.repository_owner == 'PostHog' &&
             (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
@@ -108,22 +108,28 @@ jobs:
                   sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   sparse-checkout-cone-mode: false
 
-            - name: Poll npm for the pinned version
+            - name: Poll GitHub and npm for the pinned version
               run: |
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  sha=$(sed -n 's/^ARG AGENT_TARBALL_SHA256=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
                   if [ -z "$pinned" ]; then
                     echo "::error::no ARG AGENT_VERSION line in Dockerfile.sandbox-base"
                     exit 1
                   fi
+                  tarball="https://github.com/${GITHUB_REPOSITORY}/releases/download/agent-v${pinned}/posthog-agent-${pinned}.tgz"
                   for attempt in $(seq 1 120); do
+                    if [ -n "$sha" ] && curl -fsIL --connect-timeout 10 -o /dev/null "$tarball"; then
+                      echo "GitHub serves $tarball (attempt $attempt)"
+                      exit 0
+                    fi
                     if [ "$(npm view "@posthog/agent@${pinned}" version 2>/dev/null)" = "$pinned" ]; then
                       echo "npm serves @posthog/agent@${pinned} (attempt $attempt)"
                       exit 0
                     fi
-                    echo "npm does not serve @posthog/agent@${pinned} yet (attempt $attempt)"
+                    echo "neither GitHub nor npm serves @posthog/agent@${pinned} yet (attempt $attempt)"
                     sleep 10
                   done
-                  echo "::error::npm did not serve @posthog/agent@${pinned} within 20 minutes"
+                  echo "::error::@posthog/agent@${pinned} was not published within 20 minutes"
                   exit 1
 
     build_skills:

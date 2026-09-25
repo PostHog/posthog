@@ -162,11 +162,20 @@ RUN set -eux; \
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
 ARG AGENT_VERSION=2.4.225
+ARG AGENT_TARBALL_SHA256=
+ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"
+    if [ -n "${AGENT_TARBALL_SHA256}" ] && curl -fsSL --retry 3 --retry-all-errors -o /tmp/posthog-agent.tgz "${AGENT_TARBALL_URL}"; then \
+      echo "${AGENT_TARBALL_SHA256}  /tmp/posthog-agent.tgz" | sha256sum -c - && \
+      CACHE_BUST=${COMMIT_HASH} npm install /tmp/posthog-agent.tgz && \
+      rm /tmp/posthog-agent.tgz; \
+    else \
+      CACHE_BUST=${COMMIT_HASH} npm install "@posthog/agent@${AGENT_VERSION}"; \
+    fi && \
+    npm pkg set "dependencies.@posthog/agent=${AGENT_VERSION}"
 
 # Install pre-built skills (PostHog + context-mill) into the plugin directory.
 # The dist/skills/ directory is populated by the CD workflow's build_skills job.

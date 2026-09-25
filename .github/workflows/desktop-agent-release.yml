@@ -27,6 +27,7 @@ jobs:
             id-token: write
         outputs:
             version: ${{ steps.version.outputs.version }}
+            tarball_sha256: ${{ steps.pack.outputs.tarball_sha256 }}
         defaults:
             run:
                 working-directory: products/desktop
@@ -66,6 +67,25 @@ jobs:
 
             - name: Build and test agent release
               uses: ./.github/actions/desktop-build-agent-release
+
+            - name: Pack the release tarball
+              id: pack
+              working-directory: products/desktop/packages/agent
+              env:
+                  AGENT_VERSION: ${{ steps.version.outputs.version }}
+              run: |
+                  pnpm pack --pack-destination "$RUNNER_TEMP"
+                  cd "$RUNNER_TEMP"
+                  sha256sum "posthog-agent-${AGENT_VERSION}.tgz" > "posthog-agent-${AGENT_VERSION}.tgz.sha256"
+                  echo "tarball_sha256=$(cut -d' ' -f1 "posthog-agent-${AGENT_VERSION}.tgz.sha256")" >> "$GITHUB_OUTPUT"
+
+            - name: Upload the tarball for the release job
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: agent-tarball
+                  path: ${{ runner.temp }}/posthog-agent-*.tgz*
+                  if-no-files-found: error
+                  retention-days: 1
 
             - name: Publish the package to npm registry
               working-directory: products/desktop/packages/agent
@@ -146,9 +166,58 @@ jobs:
                             - type: "mrkdwn"
                               text: "*Run*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Desktop Agent Release #${{ github.run_number }}>"
 
+    attach-tarball:
+        name: Attach the tarball to a GitHub release
+        needs: release
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: write
+        outputs:
+            tarball_sha256: ${{ steps.attach.outputs.tarball_sha256 }}
+        steps:
+            - name: Download the tarball
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: agent-tarball
+                  path: ${{ runner.temp }}
+
+            - name: Create the release
+              id: attach
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TAG: ${{ github.ref_name }}
+                  AGENT_VERSION: ${{ needs.release.outputs.version }}
+                  TARBALL_SHA256: ${{ needs.release.outputs.tarball_sha256 }}
+              run: |
+                  tarball="$RUNNER_TEMP/posthog-agent-${AGENT_VERSION}.tgz"
+                  checksum="${tarball}.sha256"
+                  if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                    existing=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+                    for asset in "$tarball" "$checksum"; do
+                      name=$(basename "$asset")
+                      if printf '%s\n' "$existing" | grep -qxF "$name"; then
+                        gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$name" --output "$RUNNER_TEMP/existing-$name"
+                        if ! cmp -s "$asset" "$RUNNER_TEMP/existing-$name"; then
+                          echo "::error::$name on the $TAG release differs from the one this run built"
+                          exit 1
+                        fi
+                        echo "$name is already attached to $TAG and matches this run's build"
+                      else
+                        gh release upload "$TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+                      fi
+                    done
+                  else
+                    gh release create "$TAG" "$tarball" "$checksum" --repo "$GITHUB_REPOSITORY" \
+                      --title "@posthog/agent ${AGENT_VERSION}" \
+                      --notes "https://www.npmjs.com/package/@posthog/agent/v/${AGENT_VERSION}" \
+                      --latest=false
+                  fi
+                  echo "tarball_sha256=$TARBALL_SHA256" >> "$GITHUB_OUTPUT"
+
     bump-sandbox-agent-pin:
         name: Open a PR bumping the sandbox agent pin
-        needs: [release, notify-release]
+        needs: [release, notify-release, attach-tarball]
         # notify-release runs on !cancelled(), so this job restates the release gate it used to inherit.
         if: ${{ !cancelled() && needs.release.result == 'success' }}
         runs-on: ubuntu-24.04
@@ -161,6 +230,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   AGENT_VERSION: ${{ needs.release.outputs.version }}
+                  TARBALL_SHA256: ${{ needs.attach-tarball.outputs.tarball_sha256 }}
                   SLACK_THREAD_TS: ${{ needs.notify-release.outputs.thread_ts }}
               run: |
                   echo "Dispatching sandbox agent pin bump to $AGENT_VERSION"
@@ -168,4 +238,5 @@ jobs:
                     --repo PostHog/posthog \
                     --ref master \
                     -f version="$AGENT_VERSION" \
+                    -f tarball_sha256="$TARBALL_SHA256" \
                     -f slack_thread_ts="$SLACK_THREAD_TS"
