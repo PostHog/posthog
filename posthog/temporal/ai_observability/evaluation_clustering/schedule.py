@@ -41,7 +41,12 @@ async def create_evaluation_sampler_schedule(client: Client) -> None:
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=SAMPLER_COORDINATOR_EXECUTION_TIMEOUT,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SAMPLER_SCHEDULE_INTERVAL_HOURS))]),
+        spec=ScheduleSpec(
+            intervals=[
+                # nosemgrep: schedule-must-avoid-minute-zero -- the rolling one-hour sample window has no cursor, so shifting the schedule skips data
+                ScheduleIntervalSpec(every=timedelta(hours=SAMPLER_SCHEDULE_INTERVAL_HOURS))
+            ],
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, SAMPLER_COORDINATOR_SCHEDULE_ID):
