@@ -146,10 +146,15 @@ class PropertySwapper(CloningVisitor):
     }
 
     # These always return a DateTime or DateTime64, which ClickHouse compares with the bare column as an instant.
+    # Wrapping them again with toDateTime64(..., 6, tz) would also truncate a bound with more than 6 decimals.
     _INSTANT_FUNCTIONS: set[str] = {
         "now",
         "now64",
         "toTimeZone",
+        "toDateTime",
+        "toDateTime64",
+        "fromUnixTimestamp",
+        "fromUnixTimestamp64Milli",
         "parseDateTimeBestEffort",
         "parseDateTimeBestEffortOrNull",
         "parseDateTime64BestEffort",
@@ -612,12 +617,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
-        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
         if isinstance(inner, ast.Call):
-            if inner.name == "toDateTime64" and len(inner.args) == 3:
-                return expr
-            if inner.name == "toDateTime" and len(inner.args) == 2:
-                return expr
             if inner.name in PropertySwapper._INSTANT_FUNCTIONS:
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))

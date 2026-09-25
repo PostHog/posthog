@@ -1633,6 +1633,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
         self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
 
+    def test_nanosecond_bound_keeps_its_precision(self):
+        # The bound is 500 ns after the first event, so only the second event is at or after it.
+        for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
+            _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = "SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= toDateTime64('2024-03-01 12:00:00.000000500', 9)"
+        self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
+
     def test_positive_utc_offset_does_not_drop_events(self):
         """Asia/Tokyo (UTC+9): midnight Tokyo = 15:00 UTC the previous day."""
         _create_event(
