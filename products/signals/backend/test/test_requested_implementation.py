@@ -95,7 +95,7 @@ class TestRequestedImplementation(BaseTest):
             return SimpleNamespace(task=SimpleNamespace(latest_run_id=new_run.id), error=None, run_error=None)
 
         with (
-            patch("products.signals.backend.auto_start.usage_limit_response", return_value=None),
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "run_task", side_effect=fake_run_task) as run_task,
         ):
@@ -123,7 +123,7 @@ class TestRequestedImplementation(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
         with (
-            patch("products.signals.backend.auto_start.usage_limit_response", return_value=None),
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "run_task") as run_task,
         ):
@@ -173,7 +173,7 @@ class TestRequestedImplementation(BaseTest):
             return SimpleNamespace(task_id=task.id, latest_run=SimpleNamespace(id=run.id))
 
         with (
-            patch("products.signals.backend.auto_start.usage_limit_response", return_value=None),
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "create_and_run_task", side_effect=fake_create_and_run_task),
             patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
@@ -224,7 +224,7 @@ class TestRequestedImplementation(BaseTest):
             return SimpleNamespace(task_id=task.id, latest_run=SimpleNamespace(id=run.id))
 
         with (
-            patch("products.signals.backend.auto_start.usage_limit_response", return_value=None),
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "create_and_run_task", side_effect=fake_create_and_run_task),
             patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),

@@ -29,8 +29,8 @@ class TestRerunSignalReportCommand(BaseTest):
         quota_patch.start()
         self.addCleanup(quota_patch.stop)
         usage_patch = patch(
-            "products.signals.backend.management.commands.rerun_signal_report.usage_limit_response",
-            return_value=None,
+            "products.signals.backend.management.commands.rerun_signal_report.task_run_usage_limited",
+            return_value=False,
         )
         usage_patch.start()
         self.addCleanup(usage_patch.stop)

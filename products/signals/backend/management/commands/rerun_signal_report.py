@@ -26,7 +26,7 @@ from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RU
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import IMPLEMENTATION_DEBOUNCE_SECONDS, SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.facade.usage import task_run_usage_limited
 
 
 class Command(BaseCommand):
@@ -77,7 +77,7 @@ class Command(BaseCommand):
         user = User.objects.filter(id=user_id, is_active=True, organization__id=report.team.organization_id).first()
         if user is None or UserPermissions(user=user, team=report.team).current_team.effective_membership_level is None:
             raise CommandError("The requested user cannot access the report's project")
-        if usage_limit_response(user, team_id) is not None:
+        if task_run_usage_limited(user, team_id):
             raise CommandError("The requested user cannot start another task run")
         if pending_replacement(team_id, report_id) is not None:
             raise CommandError("An implementation replacement is already in progress")

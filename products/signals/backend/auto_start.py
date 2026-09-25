@@ -81,7 +81,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
 
@@ -748,7 +748,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
         raise RequestedImplementationUnavailable("The requested research did not finish with a ready report")
     if report.implemented_at_run_count is not None and report.implemented_at_run_count >= report.run_count:
         return "already_started"
-    if usage_limit_response(user, request.team_id) is not None:
+    if task_run_usage_limited(user, request.team_id):
         raise RequestedImplementationUnavailable("The requested user cannot start another task run")
     tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
     if pending_replacement(request.team_id, request.report_id) is not None:
