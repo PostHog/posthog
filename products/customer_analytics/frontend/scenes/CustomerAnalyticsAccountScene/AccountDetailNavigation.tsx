@@ -77,17 +77,19 @@ export function AccountDetailNavigation({
           : visibleTabs
 
     const displayedTab = tabDefinitions.find((tab) => tab.id === activeTabId)
-    const rightSlot = activeTab?.view?.can_edit ? (
-        <LemonButton
-            size="xsmall"
-            type="secondary"
-            icon={<IconPencil />}
-            onClick={() => openEditEditor(activeTab.view!)}
-            data-attr="account-view-edit"
-        >
-            Edit view
-        </LemonButton>
-    ) : undefined
+    const editableView = activeTab?.view
+    const rightSlot =
+        editableView && (editableView.can_edit || editableView.can_change_visibility) ? (
+            <LemonButton
+                size="xsmall"
+                type="secondary"
+                icon={<IconPencil />}
+                onClick={() => openEditEditor(editableView)}
+                data-attr="account-view-edit"
+            >
+                {editableView.can_edit ? 'Edit view' : 'Change visibility'}
+            </LemonButton>
+        ) : undefined
 
     return (
         <div className="min-w-0">

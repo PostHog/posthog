@@ -176,7 +176,11 @@ def update_account_view(
         raise AccountViewVersionConflict("This view changed since you opened it.")
     if view.visibility == AccountViewVisibility.PRIVATE and view.created_by_id != user_id:
         raise AccountViewPermissionDenied("Only the creator can edit this personal view.")
-    if view.visibility == AccountViewVisibility.TEAM and not can_edit_team_views:
+    if (
+        view.visibility == AccountViewVisibility.TEAM
+        and (name is not None or content is not None)
+        and not can_edit_team_views
+    ):
         raise AccountViewPermissionDenied("You need editor access to change this team view.")
     if (
         visibility is not None
