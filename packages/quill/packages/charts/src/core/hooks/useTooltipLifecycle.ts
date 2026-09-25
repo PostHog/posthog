@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 
+import { HOG_CHARTS_DISMISS_TOOLTIPS_EVENT } from '../tooltip-dismiss'
 import type { TooltipContext } from '../types'
 
 /** Value-equality check used by the pinned-rebuild effect to skip no-op updates. Compares
@@ -61,9 +62,9 @@ export interface UseTooltipLifecycleResult<Meta> {
 
 /** Geometry-independent tooltip state and dismiss lifecycle.
  *
- *  Owns: tooltipCtx (and the boolean `isPinned`), hoverIndex/hoverPosition, the three dismiss
- *  effects (scroll outside the chart, pointer-down outside, Escape), and the pinned-rebuild
- *  effect with its value-equivalence bail.
+ *  Owns: tooltipCtx (and the boolean `isPinned`), hoverIndex/hoverPosition, the dismiss
+ *  effects (scroll outside the chart, pointer-down outside, Escape, host teardown signal), and
+ *  the pinned-rebuild effect with its value-equivalence bail.
  *
  *  Does NOT own: cursor → index hit-testing (cartesian or radial), or anchor positioning. Geometry
  *  hooks compute those and call `setHover` + `setTooltipCtx` to publish results, and pass a
@@ -153,6 +154,18 @@ export function useTooltipLifecycle<Meta = unknown>({
             window.removeEventListener('scroll', handleScroll, true)
         }
     }, [tooltipShown, wrapperRef, clearTooltip])
+
+    // Dismiss on the host's teardown signal — pinned or not. The tooltip lives in a portal on
+    // the body, so it survives a host that hides the chart's page without unmounting the chart.
+    useEffect(() => {
+        if (!tooltipShown) {
+            return
+        }
+        document.addEventListener(HOG_CHARTS_DISMISS_TOOLTIPS_EVENT, clearTooltip)
+        return () => {
+            document.removeEventListener(HOG_CHARTS_DISMISS_TOOLTIPS_EVENT, clearTooltip)
+        }
+    }, [tooltipShown, clearTooltip])
 
     // Dismiss listeners for pinned tooltip (pointer-down outside, Escape). Outside-ness is
     // decided at pointerdown — where the press *started* — not at click: a text-selection drag

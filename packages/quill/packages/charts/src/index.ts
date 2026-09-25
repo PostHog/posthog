@@ -52,6 +52,9 @@ export { computeFallbackChangePercent } from './components/MetricCard/internals'
 export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
+// Tooltip teardown (hosts call this when a page goes away without unmounting its charts)
+export { dismissChartTooltips } from './core/tooltip-dismiss'
+
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
