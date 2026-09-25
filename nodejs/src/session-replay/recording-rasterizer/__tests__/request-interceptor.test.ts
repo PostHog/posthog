@@ -220,6 +220,7 @@ describe('RequestInterceptor', () => {
             expect(req.respond).toHaveBeenCalledWith({
                 status: 200,
                 contentType: 'text/css',
+                headers: { 'access-control-allow-origin': '*' },
                 body: 'body { color: red }',
             })
         })
