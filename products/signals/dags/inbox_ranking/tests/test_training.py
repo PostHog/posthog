@@ -2334,6 +2334,12 @@ def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on
 
     assert store.objects[serving_manifest_key(prefix)] == previous
 
+    store.fail_on = None
+    _run_serving_manifest(monkeypatch, store)
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    for entry in manifest.models:
+        assert store.objects[f"{entry.prefix}/open.ubj"] == f"booster-{entry.model_version}".encode()
+
 
 def test_no_manifest_is_written_when_the_served_family_has_no_champion(monkeypatch):
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX

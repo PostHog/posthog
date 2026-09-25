@@ -53,6 +53,7 @@ import pyarrow.compute as pc
 from botocore.exceptions import ClientError
 
 from posthog import settings
+from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
 from products.signals.backend.ranking.features import (
@@ -855,7 +856,7 @@ def _publish_manifest(
 
     manifest = decision.manifest
     manifest_key = serving_manifest_key(prefix)
-    copied, present, bytes_copied = publish_serving_models(context, client, bucket, prefix, manifest)
+    publication = publish_serving_models(context, client, bucket, prefix, manifest)
     object_storage.write(
         manifest_key,
         manifest.model_dump_json(indent=2),
@@ -872,9 +873,9 @@ def _publish_manifest(
                 served_family=served_family,
                 manifest=manifest,
                 reason=decision.reason,
-                copied_keys=copied,
-                present_keys=present,
-                bytes_copied=bytes_copied,
+                copied_keys=publication.copied,
+                present_keys=publication.present,
+                bytes_copied=publication.bytes_copied,
             )
         ],
     )
@@ -886,10 +887,17 @@ def _publish_manifest(
         "models": dagster.MetadataValue.json(
             [{"key": entry.key, "roles": entry.roles, "heads": entry.heads} for entry in manifest.models]
         ),
-        "entries_copied": dagster.MetadataValue.int(len(copied)),
-        "entries_already_present": dagster.MetadataValue.int(len(present)),
-        "bytes_copied": dagster.MetadataValue.int(bytes_copied),
+        "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
+        "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
+        "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
     }
+
+
+@frozen
+class _ModelPublication:
+    copied: list[str]
+    present: list[str]
+    bytes_copied: int
 
 
 def publish_serving_models(
@@ -898,7 +906,7 @@ def publish_serving_models(
     bucket: str,
     prefix: str,
     manifest: ServingManifest,
-) -> tuple[list[str], list[str], int]:
+) -> _ModelPublication:
     """Copy every model the manifest names from the dataset bucket into the app object store.
 
     Returns the keys copied, the keys already there, and the bytes moved. A missing source object
@@ -915,7 +923,8 @@ def publish_serving_models(
         if object_storage.head_object(target_metadata) is not None:
             present.append(entry.key)
             continue
-        for name in (METADATA_FILE, *(f"{head}.ubj" for head in entry.heads)):
+        # Metadata marks a complete copy, so write it after every booster to make retries safe.
+        for name in (*(f"{head}.ubj" for head in entry.heads), METADATA_FILE):
             body = _read_bytes_if_exists(
                 client, bucket, model_object_key(prefix, entry.model_name, entry.model_version, name)
             )
@@ -925,7 +934,7 @@ def publish_serving_models(
             bytes_copied += len(body)
         copied.append(entry.key)
         context.log.info(f"copied {entry.key} to {entry.prefix}")
-    return copied, present, bytes_copied
+    return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 
 # dt=D grades the scores written on D - horizon_days, so the mapping reaches back as far as the
