@@ -53,6 +53,7 @@ The Starred section's menu opens **Configure starred**, a flat app picker that s
 Drag starred items in the sidebar to change their order.
 
 The app-level terminal lives in `src/scenes/terminal`.
+While the terminal is open, folder menus in Files offer **Open in terminal** to change its working directory.
 SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
 Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
 `run report.sql` executes a SQL file in the current project and prints a Markdown table; `--json`, `--csv`, and `--tsv` select export formats.
