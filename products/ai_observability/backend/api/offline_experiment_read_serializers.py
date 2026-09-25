@@ -199,10 +199,9 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
     config = ScoreDefinitionConfigField(help_text="Pinned immutable configuration used to interpret these results.")
 
 
-class OfflineResultReadSerializer(serializers.Serializer):
+class OfflineResultFieldsSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Stable result UUID.")
     item_id = serializers.UUIDField(help_text="Item evaluated by this result.")
-    scorer = OfflineScorerVersionReadSerializer(help_text="Pinned scorer version.")
     status = serializers.ChoiceField(choices=OfflineEvaluationResult.Status.choices, help_text="Evaluation outcome.")
     value = ResultValueField(allow_null=True, help_text="Typed score for ok outcomes; null for other outcomes.")
     error_code = serializers.CharField(allow_null=True, help_text="Optional evaluator error code.")
@@ -214,6 +213,16 @@ class OfflineResultReadSerializer(serializers.Serializer):
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
     payload_expires_at = serializers.DateTimeField(
         allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+    )
+
+
+class OfflineResultReadSerializer(OfflineResultFieldsSerializer):
+    scorer = OfflineScorerVersionReadSerializer(help_text="Pinned scorer version.")
+
+
+class OfflineResultCellSerializer(OfflineResultFieldsSerializer):
+    scorer_version_id = serializers.UUIDField(
+        source="scorer.id", help_text="Exact scorer-version UUID in the item page's scorer_versions list."
     )
 
 
@@ -237,7 +246,7 @@ class OfflineItemReadSerializer(serializers.Serializer):
     payload_expires_at = serializers.DateTimeField(
         allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
     )
-    results = OfflineResultReadSerializer(
+    results = OfflineResultCellSerializer(
         many=True, help_text="Cells for explicitly selected scorer versions; empty when none selected."
     )
 
@@ -339,6 +348,9 @@ class OfflineExperimentPageSerializer(OfflinePageSerializer):
 
 class OfflineItemPageSerializer(OfflinePageSerializer):
     results = OfflineItemReadSerializer(many=True, help_text="Item page.")
+    scorer_versions = OfflineScorerVersionReadSerializer(
+        many=True, help_text="Selected scorer versions, each returned once, including versions with no results."
+    )
 
 
 class OfflineResultPageSerializer(OfflinePageSerializer):

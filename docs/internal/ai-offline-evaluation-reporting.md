@@ -164,8 +164,10 @@ Experiment lists include all lifecycle states by default; scorer history include
 Filters use retained identifiers and continue to work after linked resources are deleted.
 
 Item pages can include result cells for up to 20 comma-separated `scorer_version_ids`.
+The page's `scorer_versions` list contains each selected, accessible version's metadata and configuration once, including versions with no results on the page.
+Item result cells link to that list with `scorer_version_id`.
 Version selection preserves unscored items, which have missing cells.
-Use the paginated item results endpoint to inspect additional versions.
+Use the paginated item results endpoint to inspect additional versions; it includes full scorer metadata and configuration on each result.
 List and summary endpoints do not load input/output or reasoning payloads.
 
 ## Scorer versions and summaries

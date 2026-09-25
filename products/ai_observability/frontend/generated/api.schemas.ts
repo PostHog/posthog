@@ -604,6 +604,120 @@ export const PayloadStateEnumApi = {
 } as const
 
 /**
+ * * `ok` - OK
+ * * `error` - Error
+ * * `skipped` - Skipped
+ * * `not_applicable` - Not applicable
+ */
+export type OfflineEvaluationResultStatusEnumApi =
+    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
+
+export const OfflineEvaluationResultStatusEnumApi = {
+    Ok: 'ok',
+    Error: 'error',
+    Skipped: 'skipped',
+    NotApplicable: 'not_applicable',
+} as const
+
+export interface OfflineResultCellApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Exact scorer-version UUID in the item page's scorer_versions list. */
+    scorer_version_id: string
+}
+
+export interface OfflineItemReadApi {
+    /** Stable item UUID. */
+    id: string
+    /** Owning experiment UUID. */
+    experiment_id: string
+    /**
+     * Optional stable case identifier.
+     * @nullable
+     */
+    case_key: string | null
+    /**
+     * Optional trial identifier within a case.
+     * @nullable
+     */
+    trial: string | null
+    /**
+     * Durable dataset item identifier.
+     * @nullable
+     */
+    dataset_item_identifier: string | null
+    /**
+     * Durable dataset item-version identifier.
+     * @nullable
+     */
+    dataset_item_version_identifier: string | null
+    /**
+     * Optional hosted item-version navigation reference.
+     * @nullable
+     */
+    dataset_item_version_id: string | null
+    /**
+     * Optional application trace navigation reference.
+     * @nullable
+     */
+    application_trace_id: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Item payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Cells for explicitly selected scorer versions; empty when none selected. */
+    results: OfflineResultCellApi[]
+}
+
+/**
  * * `categorical` - categorical
  * * `numeric` - numeric
  * * `boolean` - boolean
@@ -715,120 +829,6 @@ export interface OfflineScorerVersionReadApi {
     config: ScoreDefinitionConfigApi
 }
 
-/**
- * * `ok` - OK
- * * `error` - Error
- * * `skipped` - Skipped
- * * `not_applicable` - Not applicable
- */
-export type OfflineEvaluationResultStatusEnumApi =
-    (typeof OfflineEvaluationResultStatusEnumApi)[keyof typeof OfflineEvaluationResultStatusEnumApi]
-
-export const OfflineEvaluationResultStatusEnumApi = {
-    Ok: 'ok',
-    Error: 'error',
-    Skipped: 'skipped',
-    NotApplicable: 'not_applicable',
-} as const
-
-export interface OfflineResultReadApi {
-    /** Stable result UUID. */
-    id: string
-    /** Item evaluated by this result. */
-    item_id: string
-    /** Pinned scorer version. */
-    scorer: OfflineScorerVersionReadApi
-    /** Evaluation outcome.
-     *
-     * * `ok` - OK
-     * * `error` - Error
-     * * `skipped` - Skipped
-     * * `not_applicable` - Not applicable */
-    status: OfflineEvaluationResultStatusEnumApi
-    /** Typed score for ok outcomes; null for other outcomes. */
-    value: number | boolean | string[] | null
-    /**
-     * Optional evaluator error code.
-     * @nullable
-     */
-    error_code: string | null
-    /**
-     * Optional evaluator trace navigation reference.
-     * @nullable
-     */
-    evaluator_trace_id: string | null
-    /**
-     * Caller-supplied evaluation time.
-     * @nullable
-     */
-    evaluated_at: string | null
-    /** Original server acceptance time. */
-    accepted_at: string
-    /** Result payload storage state.
-     *
-     * * `not_provided` - Not provided
-     * * `available` - Available
-     * * `expired` - Expired */
-    payload_state: PayloadStateEnumApi
-    /**
-     * Payload retention deadline; cleanup is not yet enabled.
-     * @nullable
-     */
-    payload_expires_at: string | null
-}
-
-export interface OfflineItemReadApi {
-    /** Stable item UUID. */
-    id: string
-    /** Owning experiment UUID. */
-    experiment_id: string
-    /**
-     * Optional stable case identifier.
-     * @nullable
-     */
-    case_key: string | null
-    /**
-     * Optional trial identifier within a case.
-     * @nullable
-     */
-    trial: string | null
-    /**
-     * Durable dataset item identifier.
-     * @nullable
-     */
-    dataset_item_identifier: string | null
-    /**
-     * Durable dataset item-version identifier.
-     * @nullable
-     */
-    dataset_item_version_identifier: string | null
-    /**
-     * Optional hosted item-version navigation reference.
-     * @nullable
-     */
-    dataset_item_version_id: string | null
-    /**
-     * Optional application trace navigation reference.
-     * @nullable
-     */
-    application_trace_id: string | null
-    /** Original server acceptance time. */
-    accepted_at: string
-    /** Item payload storage state.
-     *
-     * * `not_provided` - Not provided
-     * * `available` - Available
-     * * `expired` - Expired */
-    payload_state: PayloadStateEnumApi
-    /**
-     * Payload retention deadline; cleanup is not yet enabled.
-     * @nullable
-     */
-    payload_expires_at: string | null
-    /** Cells for explicitly selected scorer versions; empty when none selected. */
-    results: OfflineResultReadApi[]
-}
-
 export interface OfflineItemPageApi {
     /** Total authorized rows matching the filters, independent of this page. */
     count: number
@@ -839,6 +839,8 @@ export interface OfflineItemPageApi {
     next_cursor: string | null
     /** Item page. */
     results: OfflineItemReadApi[]
+    /** Selected scorer versions, each returned once, including versions with no results. */
+    scorer_versions: OfflineScorerVersionReadApi[]
 }
 
 export type OfflineExperimentItemPayloadInputApiInput =
@@ -896,6 +898,52 @@ export interface OfflineItemPayloadReadApi {
     available: boolean
     /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
     data: OfflineExperimentItemPayloadInputApi | null
+}
+
+export interface OfflineResultReadApi {
+    /** Stable result UUID. */
+    id: string
+    /** Item evaluated by this result. */
+    item_id: string
+    /** Evaluation outcome.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /** Typed score for ok outcomes; null for other outcomes. */
+    value: number | boolean | string[] | null
+    /**
+     * Optional evaluator error code.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * Optional evaluator trace navigation reference.
+     * @nullable
+     */
+    evaluator_trace_id: string | null
+    /**
+     * Caller-supplied evaluation time.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** Original server acceptance time. */
+    accepted_at: string
+    /** Result payload storage state.
+     *
+     * * `not_provided` - Not provided
+     * * `available` - Available
+     * * `expired` - Expired */
+    payload_state: PayloadStateEnumApi
+    /**
+     * Payload retention deadline; cleanup is not yet enabled.
+     * @nullable
+     */
+    payload_expires_at: string | null
+    /** Pinned scorer version. */
+    scorer: OfflineScorerVersionReadApi
 }
 
 export interface OfflineResultPageApi {

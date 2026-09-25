@@ -291,9 +291,21 @@ class TestOfflineEvaluationReads(TestCase):
         self._result(first, self.numeric, 1.0)
         self._result(first, self.numeric_v2, 2.0)
         self._result(first, self.boolean, False)
-        items = self.service.list_items(experiment.id, OfflineReadQuery(scorer_version_ids=(self.numeric.id,)))
+        query = OfflineReadQuery(scorer_version_ids=(self.categorical.id, self.numeric.id))
+        items = self.service.list_items(experiment.id, query)
         self.assertEqual(items.count, 2)
         self.assertEqual({item.id: len(item.results) for item in items.results}, {first.id: 1, missing.id: 0})
+        self.assertEqual([scorer.id for scorer in items.scorer_versions], sorted(query.scorer_version_ids))
+        versions = {scorer.id: scorer for scorer in items.scorer_versions}
+        self.assertEqual(versions[self.categorical.id].config, self.categorical.config)
+        result = next(item for item in items.results if item.id == first.id).results[0]
+        self.assertEqual((result.scorer.id, result.value), (self.numeric.id, 1.0))
+        empty = self.service.list_items(self._experiment().id, query)
+        self.assertEqual((empty.count, empty.results), (0, []))
+        self.assertEqual(empty.scorer_versions, items.scorer_versions)
+        unselected = self.service.list_items(experiment.id, OfflineReadQuery())
+        self.assertEqual(unselected.scorer_versions, [])
+        self.assertTrue(all(not item.results for item in unselected.results))
         self.assertEqual(self.service.get_item(experiment.id, first.id).results, [])
         first_page = self.service.list_item_results(experiment.id, first.id, OfflineReadQuery(limit=2))
         self.assertEqual((first_page.count, len(first_page.results)), (3, 2))
@@ -302,6 +314,10 @@ class TestOfflineEvaluationReads(TestCase):
         )
         self.assertEqual(len(second_page.results), 1)
         self.assertEqual(len({result.id for result in first_page.results + second_page.results}), 3)
+        self.assertEqual(
+            {result.scorer.id for result in first_page.results + second_page.results},
+            {self.numeric.id, self.numeric_v2.id, self.boolean.id},
+        )
 
     def test_payload_states_survive_independent_expiry_without_changing_summaries(self) -> None:
         experiment = self._experiment()

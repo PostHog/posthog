@@ -139,6 +139,11 @@ class OfflineItemRead:
 
 
 @frozen
+class OfflineItemPage(OfflinePage[OfflineItemRead]):
+    scorer_versions: list[OfflineScorerVersionRead]
+
+
+@frozen
 class OfflinePayloadRead:
     id: UUID
     payload_state: str

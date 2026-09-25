@@ -184,6 +184,9 @@ class TestOfflineExperimentReads(APIBaseTest):
         self.assertIsNone(experiment["visible_scorer_version_count"])
         self.assertFalse(experiment["result_counts_available"])
         self.assertEqual(experiment["result_count_scope"], "unavailable")
+        items = self.client.get(self._endpoint(f"{self.experiment.id}/items/")).data
+        self.assertEqual(items["scorer_versions"], [])
+        self.assertEqual(items["results"][0]["results"], [])
         payload = self.client.get(self._endpoint(f"{self.experiment.id}/items/{self.item.id}/payload/")).data
         self.assertTrue(payload["available"])
         self.assertEqual(payload["data"]["input"], "What is 2 + 2?")
@@ -196,6 +199,68 @@ class TestOfflineExperimentReads(APIBaseTest):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+
+    def test_item_page_returns_selected_scorer_configurations_once(self) -> None:
+        label = "A categorical column label that must not be repeated for each item in the experiment"
+        config = {
+            "selection_mode": "single",
+            "options": [
+                {"key": f"category-{index}", "label": label if index == 0 else f"Category {index}"}
+                for index in range(100)
+            ],
+        }
+        definition = ScoreDefinition.objects.create(team=self.team, name="Category", kind="categorical")
+        version = definition.create_new_version(config=config, created_by=self.user)
+        unused_version = definition.create_new_version(config=config, created_by=self.user)
+        items = [
+            self.item,
+            *OfflineExperimentItem.objects.for_team(self.team.id).bulk_create(
+                [
+                    OfflineExperimentItem(
+                        id=uuid4(), team=self.team, experiment=self.experiment, submission_fingerprint="e" * 64
+                    )
+                    for _ in range(2)
+                ]
+            ),
+        ]
+        OfflineEvaluationResult.objects.for_team(self.team.id).bulk_create(
+            [
+                OfflineEvaluationResult(
+                    team=self.team,
+                    item=item,
+                    scorer_definition=definition,
+                    scorer_version=version,
+                    status="ok",
+                    categorical_values=["category-0"],
+                    submission_fingerprint="f" * 64,
+                )
+                for item in items
+            ]
+        )
+
+        response = self.client.get(
+            self._endpoint(f"{self.experiment.id}/items/"),
+            {"scorer_version_ids": f"{unused_version.id},{version.id}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(
+            [scorer["id"] for scorer in response.data["scorer_versions"]],
+            sorted([str(version.id), str(unused_version.id)]),
+        )
+        self.assertEqual([scorer["config"] for scorer in response.data["scorer_versions"]], [config, config])
+        for item in response.data["results"]:
+            self.assertEqual(len(item["results"]), 1)
+            result = item["results"][0]
+            self.assertEqual(result["scorer_version_id"], str(version.id))
+            self.assertEqual(result["value"], ["category-0"])
+            self.assertNotIn("scorer", result)
+        self.assertEqual(response.content.count(label.encode()), 2)
+
+        results = self.client.get(self._endpoint(f"{self.experiment.id}/items/{items[1].id}/results/"))
+        self.assertEqual(results.status_code, status.HTTP_200_OK, results.data)
+        self.assertEqual(results.data["results"][0]["scorer"]["id"], str(version.id))
+        self.assertEqual(results.data["results"][0]["scorer"]["config"], config)
 
     @parameterized.expand([("session",), ("personal_key",)])
     def test_read_routes_require_the_rollout_flag(self, auth_kind: str) -> None:

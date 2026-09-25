@@ -62437,13 +62437,11 @@ export namespace Schemas {
       Expired: 'expired',
     } as const;
 
-    export interface OfflineResultRead {
+    export interface OfflineResultCell {
       /** Stable result UUID. */
       id: string;
       /** Item evaluated by this result. */
       item_id: string;
-      /** Pinned scorer version. */
-      scorer: OfflineScorerVersionRead;
       /** Evaluation outcome.
        *
        * * `ok` - OK
@@ -62481,6 +62479,8 @@ export namespace Schemas {
          * @nullable
          */
       payload_expires_at: string | null;
+      /** Exact scorer-version UUID in the item page's scorer_versions list. */
+      scorer_version_id: string;
     }
 
     export interface OfflineItemRead {
@@ -62532,7 +62532,7 @@ export namespace Schemas {
          */
       payload_expires_at: string | null;
       /** Cells for explicitly selected scorer versions; empty when none selected. */
-      results: OfflineResultRead[];
+      results: OfflineResultCell[];
     }
 
     export interface OfflineItemPage {
@@ -62545,6 +62545,8 @@ export namespace Schemas {
       next_cursor: string | null;
       /** Item page. */
       results: OfflineItemRead[];
+      /** Selected scorer versions, each returned once, including versions with no results. */
+      scorer_versions: OfflineScorerVersionRead[];
     }
 
     export interface OfflineItemPayloadRead {
@@ -62565,6 +62567,52 @@ export namespace Schemas {
       available: boolean;
       /** Stored item payload, preserving omitted properties and JSON null; null if unavailable. */
       data: OfflineExperimentItemPayloadInput | null;
+    }
+
+    export interface OfflineResultRead {
+      /** Stable result UUID. */
+      id: string;
+      /** Item evaluated by this result. */
+      item_id: string;
+      /** Evaluation outcome.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Typed score for ok outcomes; null for other outcomes. */
+      value: number | boolean | string[] | null;
+      /**
+         * Optional evaluator error code.
+         * @nullable
+         */
+      error_code: string | null;
+      /**
+         * Optional evaluator trace navigation reference.
+         * @nullable
+         */
+      evaluator_trace_id: string | null;
+      /**
+         * Caller-supplied evaluation time.
+         * @nullable
+         */
+      evaluated_at: string | null;
+      /** Original server acceptance time. */
+      accepted_at: string;
+      /** Result payload storage state.
+       *
+       * * `not_provided` - Not provided
+       * * `available` - Available
+       * * `expired` - Expired */
+      payload_state: PayloadStateEnum;
+      /**
+         * Payload retention deadline; cleanup is not yet enabled.
+         * @nullable
+         */
+      payload_expires_at: string | null;
+      /** Pinned scorer version. */
+      scorer: OfflineScorerVersionRead;
     }
 
     export interface OfflineResultPage {

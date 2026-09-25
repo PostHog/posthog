@@ -26,6 +26,7 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineCategorySummary,
     OfflineExperimentRead,
     OfflineHistoryPoint,
+    OfflineItemPage,
     OfflineItemRead,
     OfflinePage,
     OfflinePayloadRead,
@@ -342,7 +343,9 @@ class OfflineEvaluationReadService:
             config=cast(dict[str, JSONValue], version.config),
         )
 
-    def _result_read(self, result: OfflineEvaluationResult) -> OfflineResultRead:
+    def _result_read(
+        self, result: OfflineEvaluationResult, *, scorer: OfflineScorerVersionRead | None = None
+    ) -> OfflineResultRead:
         value: ResultValue | None = result.numeric_value
         if result.boolean_value is not None:
             value = result.boolean_value
@@ -351,7 +354,7 @@ class OfflineEvaluationReadService:
         return OfflineResultRead(
             id=result.id,
             item_id=result.item_id,
-            scorer=self._version_read(result.scorer_version),
+            scorer=scorer if scorer is not None else self._version_read(result.scorer_version),
             status=result.status,
             value=value,
             error_code=result.error_code,
@@ -380,7 +383,7 @@ class OfflineEvaluationReadService:
             results=results or [],
         )
 
-    def list_items(self, experiment_id: UUID, query: OfflineReadQuery) -> OfflinePage[OfflineItemRead]:
+    def list_items(self, experiment_id: UUID, query: OfflineReadQuery) -> OfflineItemPage:
         self._require_experiment(experiment_id)
         self._validate_scorer_selection(query)
         scope = f"items:{experiment_id}"
@@ -391,19 +394,30 @@ class OfflineEvaluationReadService:
             items = items.filter(id__gt=position)
         rows = list(items.order_by("id")[: query.limit + 1])
         page = rows[: query.limit]
+        scorers: dict[UUID, OfflineScorerVersionRead] = {}
+        if query.scorer_version_ids:
+            scorers = {
+                version.id: self._version_read(version)
+                for version in self._versions()
+                .filter(id__in=query.scorer_version_ids)
+                .select_related("definition")
+                .order_by("id")
+            }
         cells: dict[UUID, list[OfflineResultRead]] = defaultdict(list)
-        if query.scorer_version_ids and page:
+        if scorers and page:
             results = (
                 self._results(query)
-                .filter(item_id__in=[item.id for item in page])
-                .select_related("scorer_version__definition")
+                .filter(item_id__in=[item.id for item in page], scorer_version_id__in=scorers)
                 .order_by("scorer_version_id")
             )
             for result in results:
-                cells[result.item_id].append(self._result_read(result))
+                cells[result.item_id].append(self._result_read(result, scorer=scorers[result.scorer_version_id]))
         next_cursor = self._next_cursor(query, scope, [str(page[-1].id)]) if len(rows) > query.limit else None
-        return OfflinePage(
-            count=count, next_cursor=next_cursor, results=[self._item_read(item, cells[item.id]) for item in page]
+        return OfflineItemPage(
+            count=count,
+            next_cursor=next_cursor,
+            results=[self._item_read(item, cells[item.id]) for item in page],
+            scorer_versions=list(scorers.values()),
         )
 
     def get_item(self, experiment_id: UUID, item_id: UUID) -> OfflineItemRead:
