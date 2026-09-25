@@ -324,7 +324,7 @@ def _is_timeout_error(response: Response) -> bool:
     told us is too big.
     """
     error = _meta_error_body(response)
-    if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
+    if _meta_error_subcode(response) in META_TIMEOUT_ERROR_SUBCODES:
         return True
 
     # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
@@ -343,7 +343,7 @@ def _should_shrink_request(response: Response) -> bool:
     """
     if _is_timeout_error(response):
         return True
-    return _meta_error_body(response).get("error_subcode") in META_HEAVY_QUERY_ERROR_SUBCODES
+    return _meta_error_subcode(response) in META_HEAVY_QUERY_ERROR_SUBCODES
 
 
 # Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
@@ -506,6 +506,17 @@ def _meta_error_code(response: Response) -> int | None:
     """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
     code = _meta_error_body(response).get("code")
     return code if isinstance(code, int) else None
+
+
+def _meta_error_subcode(response: Response) -> int | None:
+    """The numeric ``error.error_subcode`` of a Meta error body, or None if it carries no parseable one.
+
+    Guards against a non-numeric value (Meta's error bodies are not contractually typed) before
+    the callers below test it for set membership, which raises ``TypeError`` on an unhashable
+    value like a list.
+    """
+    subcode = _meta_error_body(response).get("error_subcode")
+    return subcode if isinstance(subcode, int) else None
 
 
 def _is_permanent_auth_error(response: Response) -> bool:

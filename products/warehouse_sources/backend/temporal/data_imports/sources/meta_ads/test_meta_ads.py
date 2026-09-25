@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _fetch_integration_row,
     _is_invalid_cursor_error,
     _is_permanent_auth_error,
+    _is_timeout_error,
     _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
@@ -49,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _next_smaller_limit,
     _override_limit,
     _raise_meta_api_error,
+    _should_shrink_request,
     _strip_access_token,
     get_integration,
     get_schemas as get_meta_ads_schemas,
@@ -464,6 +466,18 @@ class TestIsTransientError:
             400, {"error": {"message": "Service temporarily unavailable", "code": 2, "is_transient": False}}
         )
         assert _is_transient_error(response) is True
+
+
+class TestNonIntErrorSubcode:
+    def test_list_valued_subcode_does_not_crash_timeout_check(self) -> None:
+        # error_subcode is not contractually typed; a list value would raise TypeError on
+        # set-membership (`in`) if tested unguarded, aborting classification entirely.
+        body = {"error": {"error_subcode": [1504018], "message": "timeout"}}
+        assert _is_timeout_error(_mock_response(500, body)) is False
+
+    def test_list_valued_subcode_does_not_crash_shrink_check(self) -> None:
+        body = {"error": {"error_subcode": [1504044], "code": 2}}
+        assert _should_shrink_request(_mock_response(400, body)) is False
 
 
 class TestTransientErrorRetry:
