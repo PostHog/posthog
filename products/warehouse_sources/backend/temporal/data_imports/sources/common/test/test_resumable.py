@@ -1,3 +1,5 @@
+import typing
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -5,10 +7,13 @@ import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
     resolve_resume_manager,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
@@ -157,3 +162,38 @@ class TestResumableSourceManager:
 
         redis.connection_pool.disconnect.assert_called_once()
         assert redis.delete.call_count == 2
+
+
+class TestResumeCoversRun:
+    @staticmethod
+    def _resume_state_of(source) -> type | None:
+        """The state class a source checkpoints, read off its `ResumableSource[...]` base."""
+        for base in getattr(type(source), "__orig_bases__", ()):
+            if typing.get_origin(base) is ResumableSource:
+                args = typing.get_args(base)
+                if len(args) > 1:
+                    return args[1]
+        return None
+
+    def test_a_keyset_source_never_claims_the_resumable_budget_for_an_incremental_run(self):
+        # Keyset seeking is a full-load path, so a keyset source's incremental runs resume from the
+        # watermark like any other source's do. Covering them here hands every one the resumable
+        # retry allowance — for the Postgres family that is most of the fleet, and the runs that
+        # cannot resume redo the whole read on each of those extra attempts. Derived from the state
+        # class so the next source to adopt `KeysetResumeState` is held to the same rule. Snowflake
+        # is deliberately not caught: it checkpoints on the incremental field, so its resume does
+        # cover incremental runs.
+        keyset_sources = [
+            source
+            for source in SourceRegistry.get_all_sources().values()
+            if isinstance(source, ResumableSource) and self._resume_state_of(source) is KeysetResumeState
+        ]
+        assert keyset_sources, "expected at least one source to checkpoint with KeysetResumeState"
+
+        assert [s.source_type for s in keyset_sources if s.resume_covers_run(incremental_or_append=True)] == []
+
+    def test_the_default_covers_every_run_of_any_other_resumable_source(self):
+        # A REST source paginates the same way whichever sync type it runs, and Snowflake checkpoints
+        # on its incremental field, so narrowing the default would cut their retry budgets.
+        for incremental in (True, False):
+            assert ResumableSource.resume_covers_run(MagicMock(), incremental_or_append=incremental) is True

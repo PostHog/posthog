@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
     FieldType,
+    ResumableSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
@@ -34,9 +35,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -358,10 +361,25 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
 
 
 @SourceRegistry.register
-class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(
+    SQLSource[PostgresSourceConfig],
+    ResumableSource[PostgresSourceConfig, KeysetResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     # xmin replication is Postgres-only; per-table availability is still decided by
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
+
+    def resume_covers_run(self, *, incremental_or_append: bool) -> bool:
+        # Nothing yet. The seek that carries the checkpoint is still the read-replica retry fallback,
+        # so almost no run reaches it, and handing the resumable retry allowance to every Postgres
+        # full load would let one that cannot seek redo a multi-hour read 20 times over rather than
+        # 3. Widen this to `not incremental_or_append` with the gate that makes seeking the default.
+        return False
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
+        return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
 
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
@@ -1840,6 +1858,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 items=lambda: iter(()),
                 primary_keys=schema.primary_key_columns,
                 cdc_write_mode=first_lane.write_mode,
+                # A change stream carries no seekable key, and `supports_resume` defaults to True.
+                supports_resume=False,
             )
 
         if job is None:
@@ -1866,9 +1886,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             primary_keys=schema.primary_key_columns,
             cdc_write_mode=lanes[0].cdc_write_mode,
             lanes=lanes,
+            # A change stream reads a buffer, not a keyed table, so there is no key to seek past.
+            supports_resume=False,
         )
 
-    def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: PostgresSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
             CDCHandledExternally,
@@ -1914,6 +1941,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         require_ssl = source_requires_ssl(schema.source, config)
         table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 
+        # A rebuild empties the Delta table, so a checkpoint left from the previous run would have the
+        # read resume mid-table and append into it — losing every row below the checkpoint silently.
+        # Wider than the reset alone: a delta revive wipes the table too, and the pipeline skips its
+        # own reset whenever it can resume.
+        if table_rebuild_pending:
+            resumable_source_manager.clear_state()
+
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
         # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
@@ -1949,6 +1983,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
+                resumable_source_manager=resumable_source_manager,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

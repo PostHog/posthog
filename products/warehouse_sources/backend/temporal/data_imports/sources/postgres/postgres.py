@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     open_ssh_tunnel,
     pinned_host_kwargs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -79,6 +80,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetResumeState,
+    checked_keyset_key,
+    is_orderable_keyset_type,
+    keyset_last_key,
+    keyset_state,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
@@ -2648,6 +2656,77 @@ def _has_duplicate_primary_keys(
 
 
 @frozen
+class PostgresKeyset:
+    """Whether this run can seek, and whether it can persist where it got to.
+
+    Two verdicts, because they are not the same question. `columns` says the read may page with a
+    row-value seek instead of one server cursor — Postgres has done that since the read-replica
+    recovery-conflict fallback, on any key type, because the key never leaves the process.
+    `checkpointable` says the key may also be written to Redis and read back on another pod, which
+    needs a type whose order cannot change underneath it and which the checkpoint can encode.
+
+    `reason` is a stable token, never free text, so the ineligible share is countable from logs. That
+    share is what decides whether widening the seek path past its current fallback is worth it.
+    """
+
+    columns: list[str] | None = None
+    checkpointable: bool = False
+    reason: str | None = None
+
+
+def resolve_postgres_keyset(
+    *,
+    primary_keys: list[str] | None,
+    arrow_schema: pa.Schema,
+    used_id_pk_fallback: bool,
+    has_duplicate_primary_keys: bool,
+    is_partitioned: bool,
+    should_use_incremental_field: bool,
+    is_xmin: bool,
+    is_duckdb: bool,
+    full_table: Table[PostgreSQLColumn],
+) -> PostgresKeyset:
+    """Decide how far this run can go: no seek, seek only, or seek plus a durable checkpoint."""
+    if should_use_incremental_field:
+        # Already resumable from its persisted watermark, and seeking would double the work.
+        return PostgresKeyset(reason="incremental_sync")
+    if is_xmin:
+        # An xmin read appends deltas, so restarting it from key 0 would duplicate what it wrote.
+        return PostgresKeyset(reason="xmin_sync")
+    if is_duckdb:
+        # Pages by LIMIT/OFFSET over an unordered query, so no page has an addressable position.
+        return PostgresKeyset(reason="duckdb")
+    if not primary_keys:
+        return PostgresKeyset(reason="no_primary_key")
+    if is_partitioned:
+        # A parent's key is unique only within each child, so a seek across children can skip rows.
+        return PostgresKeyset(reason="partitioned_parent")
+    if used_id_pk_fallback and not (
+        not has_duplicate_primary_keys and all(_column_is_not_null(full_table, key) for key in primary_keys)
+    ):
+        # An assumed `id` is neither unique nor NOT NULL until proven. A page boundary inside a run of
+        # equal keys drops the rest of that run, and `key > last` never matches a NULL.
+        return PostgresKeyset(reason="undeclared_key_not_seekable")
+
+    missing = [key for key in primary_keys if key not in arrow_schema.names]
+    if missing:
+        # `resolve_table_projection` always retains the primary key, so this should be unreachable.
+        # Were it reached, the SELECT would omit the key and the seek would fail looking it up in the
+        # cursor description, so fall back to the server cursor rather than crash the read.
+        return PostgresKeyset(reason=f"primary_key_not_projected:{missing[0]}")
+    unorderable = [key for key in primary_keys if not is_orderable_keyset_type(arrow_schema.field(key).type)]
+    if unorderable:
+        # Seeking in-process on this key stays fine: one connection, one collation, one process. What
+        # it cannot do is survive the trip through Redis, where the ordering assumption would have to
+        # hold across a deploy rather than across a few minutes.
+        return PostgresKeyset(
+            columns=primary_keys,
+            reason=f"non_orderable_type:{arrow_schema.field(unorderable[0]).type}",
+        )
+    return PostgresKeyset(columns=primary_keys, checkpointable=True)
+
+
+@frozen
 class _TableChunking:
     """How much of a table one read pulls at a time.
 
@@ -3373,6 +3452,7 @@ def postgres_source(
     xmin_num_wraparound: Optional[int] = None,
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
+    resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3741,6 +3821,44 @@ def postgres_source(
                 )
                 time.sleep(min(2 * setup_connection_dropped_errors, 30))
 
+    # Resolved here, in setup scope, so the read path and the `SourceResponse` below cannot disagree
+    # about whether this run seeks or checkpoints.
+    keyset = resolve_postgres_keyset(
+        primary_keys=primary_keys,
+        arrow_schema=setup_projection.table.to_arrow_schema(),
+        used_id_pk_fallback=used_id_pk_fallback,
+        has_duplicate_primary_keys=has_duplicate_primary_keys,
+        is_partitioned=is_partitioned,
+        should_use_incremental_field=should_use_incremental_field,
+        is_xmin=xmin_bounds is not None,
+        is_duckdb=is_duckdb,
+        full_table=full_table,
+    )
+    if keyset.reason is not None:
+        # Logged for every run that can't checkpoint so the ineligible share, and its breakdown, is
+        # measurable before the seek path is widened past its read-replica fallback.
+        logger.info(f"Postgres keyset resume unavailable: reason={keyset.reason}")
+
+    # A server cursor idles in an open transaction through every Delta merge, and a replica that
+    # cancels reads during that idle kills each attempt at the same place — the cursor's order is
+    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. The seek
+    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Only from the
+    # second attempt, so a replica that never cancels keeps its one consistent snapshot.
+    takes_keyset_path = keyset.columns is not None and activity_attempt > 1 and using_read_replica
+    can_checkpoint = resumable_source_manager is not None and keyset.checkpointable
+
+    def keyset_resume_key(key_length: int) -> tuple[Any, ...] | None:
+        if not can_checkpoint or resumable_source_manager is None or not resumable_source_manager.can_resume():
+            return None
+        resume_key = keyset_last_key(resumable_source_manager.load_state(), key_length=key_length)
+        if resume_key is not None:
+            logger.debug(f"Postgres keyset resume: {keyset.columns} > {resume_key}")
+        return resume_key
+
+    def keyset_checkpoint(last_key: tuple[Any, ...]) -> None:
+        if can_checkpoint and resumable_source_manager is not None:
+            resumable_source_manager.save_state(keyset_state(last_key))
+
     def get_rows(chunk_size: int) -> Iterator[Any]:
         binary_reporter = BinaryColumnReporter(logger)
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
@@ -3856,6 +3974,8 @@ def postgres_source(
                 *,
                 from_recovery_conflict: bool = False,
                 keyset_primary_keys: list[str] | None = None,
+                checkpoint: Callable[[tuple[Any, ...]], None] | None = None,
+                initial_last_key: tuple[Any, ...] | None = None,
             ):
                 # If the db is a read replica and we're running into `conflict with recovery errors,
                 # we create a new query for each chunk. This is due to how the primary replicates
@@ -3888,7 +4008,7 @@ def postgres_source(
                     offset_paging_keys=primary_keys,
                 )
 
-                last_key: tuple[Any, ...] | None = None
+                last_key: tuple[Any, ...] | None = initial_last_key
                 # An xmin read leads its seek with the cursor, which comes back under the projected
                 # alias rather than a column name, so the two lists differ for it.
                 keyset_result_columns: list[str] = []
@@ -3975,11 +4095,13 @@ def postgres_source(
                             if not rows or len(rows) == 0:
                                 break
 
+                            page_last_key = None
                             if keyset_primary_keys is not None:
                                 key_positions = [column_names.index(key) for key in keyset_result_columns]
-                                last_key = tuple(rows[-1][position] for position in key_positions)
-                            else:
-                                offset += len(rows)
+                                page_last_key = checked_keyset_key(
+                                    tuple(rows[-1][position] for position in key_positions),
+                                    keyset_result_columns,
+                                )
 
                             yield table_from_iterator(
                                 (dict(zip(column_names, row)) for row in rows),
@@ -3987,6 +4109,20 @@ def postgres_source(
                                 primary_keys=primary_keys,
                                 binary_reporter=binary_reporter,
                             )
+
+                            # Advance and checkpoint only once the consumer comes back for the next
+                            # page, never before the yield. An abandoned walk unwinds at the yield
+                            # above — `GeneratorExit` derives from `BaseException`, so none of the
+                            # handlers below catch it — which leaves the checkpoint on the last page
+                            # the consumer actually took. Publishing the key first would have a
+                            # drained worker commit a page it never read, skipping those rows for
+                            # good, because a resume appends rather than re-reading.
+                            if page_last_key is not None:
+                                last_key = page_last_key
+                                if checkpoint is not None:
+                                    checkpoint(page_last_key)
+                            else:
+                                offset += len(rows)
 
                             successive_errors = 0
                             successive_conn_errors = 0
@@ -4161,40 +4297,26 @@ def postgres_source(
                 )
                 return
 
-            # Seeking needs a key that is unique and never NULL. A page boundary inside a run of
-            # equal keys drops the rest of that run, and `key > last` never matches NULL, so a NULL
-            # row is dropped unless it lands on the first page. Postgres guarantees both for a
-            # declared primary key, so that needs no further check. The assumed `id` is neither
-            # until proven: its duplicate probe groups NULLs together, so one NULL row alone passes
-            # it, and the column has to be NOT NULL as well. A partitioned parent's key is unique
-            # only per child.
-            assumed_id_is_seekable = not has_duplicate_primary_keys and all(
-                _column_is_not_null(full_table, key) for key in primary_keys or []
-            )
-            keyset_primary_keys = (
-                primary_keys
-                if primary_keys and not is_partitioned and (not used_id_pk_fallback or assumed_id_is_seekable)
-                else None
-            )
+            keyset_primary_keys = keyset.columns
 
-            # A server cursor idles in an open transaction through every Delta merge, and a replica
-            # that cancels reads during that idle kills each attempt at the same place. The handler
-            # below cannot resume past the first row, because the cursor's order is arbitrary, so
-            # it re-raises for a restart, and a restart on another cursor repeats the failure. The
-            # seek pages in autocommit, so nothing idles and a conflict resumes at the last key.
-            # Only from the second attempt, so a replica that never cancels keeps one snapshot.
-            if (
-                activity_attempt > 1
-                and using_read_replica
-                and keyset_primary_keys is not None
-                and not should_use_incremental_field
-                and xmin_bounds is None
-            ):
+            # `takes_keyset_path` carries the reasoning, and the `SourceResponse` reads the same
+            # variable so the two cannot disagree about whether this run resumes.
+            if takes_keyset_path and keyset_primary_keys is not None:
                 logger.debug(
-                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking from the "
-                    f"start instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking "
+                    f"instead of reopening a server cursor. keys = {keyset_primary_keys}"
                 )
-                yield from offset_chunking(0, chunk_size, keyset_primary_keys=keyset_primary_keys)
+                yield from offset_chunking(
+                    0,
+                    chunk_size,
+                    keyset_primary_keys=keyset_primary_keys,
+                    checkpoint=keyset_checkpoint,
+                    initial_last_key=keyset_resume_key(len(keyset_primary_keys)),
+                )
+                # Reached only when the walk read the table to the end. An abandoned generator
+                # unwinds at its yield and leaves the checkpoint for the next pod to resume from.
+                if can_checkpoint and resumable_source_manager is not None:
+                    resumable_source_manager.clear_state()
                 return
 
             initial_read_drop_retries = 0
@@ -4375,6 +4497,10 @@ def postgres_source(
         xmin_ceiling_xid=xmin_bounds.upper if xmin_bounds is not None else None,
         xmin_ceiling_xid8=xmin_bounds.ceiling_xid8 if xmin_bounds is not None else None,
         xmin_num_wraparound=xmin_bounds.num_wraparound if xmin_bounds is not None else None,
+        # Both halves, because a run that seeks without a persistable key still cannot hand its
+        # position to another pod, and one that could checkpoint but reads through a server cursor
+        # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
+        supports_resume=can_checkpoint and takes_keyset_path,
     )
 
 
