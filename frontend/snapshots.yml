@@ -6420,6 +6420,10 @@ snapshots:
         hash: v1.k794b7964.1a4ce304197dd14d4151ca1083e7ae7039f9908200c34f7378465025b79d7e08.94Li-jYAcO0uRnZLtl2_PHZpM-CXBrx24-RLOofaY_E
     products-data-modeling-models-overview--partial-last-page--light:
         hash: v1.k794b7964.0a510efc77afae6a02c52831583c4c38870a6e9c1a1dcd78c2905ff05933c085.KSDQ61iPt91mJjAozciHJ7_p5ed-dd3IkN5KPYxR204
+    products-data-modeling-node-detail-scene--lineage--dark:
+        hash: v1.k794b7964.e959c8c93c0afe9ca37101e6c3b8a339ef96b5b9de70ea90fd3715c1f65fab80.56rkKwLOor5WD467nlxdrIFkOZonstaVpg2HecSmcZM
+    products-data-modeling-node-detail-scene--lineage--light:
+        hash: v1.k794b7964.b7e21b4de7b8263ddcdf1ea3208c2c822458080cf514262d1423805738c16d7d.2M_Tergrb_2AEmXf6wZZT8R6cS3OuVRAnRefTaWoUd8
     products-data-modeling-node-detail-scene--materialized-view--dark:
         hash: v1.k794b7964.9c8663e101f08c4bd2578b787402053a1bd7e930f06fad0ee6f5f1d728b0b14c.hV26Y05ssUiKJQPOBYVX6EXXkVSkd9rCOQvnA3PRPBY
     products-data-modeling-node-detail-scene--materialized-view--light:
