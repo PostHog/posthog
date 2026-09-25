@@ -8,7 +8,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SlackChannelType } from '~/types'
 
-import { integrationsUsersRetrieve } from 'products/integrations/frontend/generated/api'
+import { integrationsChannelsRetrieve, integrationsUsersRetrieve } from 'products/integrations/frontend/generated/api'
 import type { SlackUserApi, SlackUsersResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { PreflightStatus } from '../../types'
@@ -325,7 +325,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 loadSlackChannelById: async ({ channelId, forceRefresh }) => {
                     const generation = values.channelListGeneration
                     try {
-                        const res = await api.integrations.slackChannelsById(props.id, channelId, forceRefresh)
+                        const res = await integrationsChannelsRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.id,
+                            {
+                                channel_id: channelId,
+                                ...(forceRefresh ? { force_refresh: true } : {}),
+                            }
+                        )
                         if (values.channelListGeneration !== generation) {
                             // A forced refresh landed while this lookup was in flight. Its list is
                             // the newer answer, and a non-forced lookup can be served from the
