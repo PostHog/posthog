@@ -98,6 +98,7 @@ nodejs/node_modules
 # artifacts out of the plugin-server build context.
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/models
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/native
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/corpus
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/test-data
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/out

@@ -58,6 +58,7 @@ class Notifications(TypedDict, total=False):
     materialized_view_sync_failed_immediate: bool  # One email each time a view starts failing
     web_analytics_weekly_digest: bool
     web_analytics_weekly_digest_project_enabled: dict[str, bool]
+    data_catalog_weekly_digest: bool
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
@@ -84,6 +85,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "materialized_view_sync_failed_daily": True,  # Digest is the default delivery once failures are turned on
     "materialized_view_sync_failed_immediate": False,
     "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
+    "data_catalog_weekly_digest": True,  # Data catalog pending-review digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
     "realtime_notifications_disabled": {},  # No opt-outs by default
     "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures

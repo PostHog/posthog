@@ -9,7 +9,9 @@ import {
     HLSPlayerPlugin,
     noOpTelemetry,
     processAllSnapshots,
+    speedDependentStyleRules,
     createSegments,
+    getHrefFromSnapshot,
     mapSnapshotsToWindowId,
     mergeInactiveSegments,
     type ProcessingCache,
@@ -19,22 +21,49 @@ import {
 
 import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'
+import type { PlaybackWindow } from './playback-controller'
 import type { PlayerConfig, ViewportEvent } from './types'
 
-/** Extract the page URL from an rrweb Meta event, if present. */
-export function getMetaHref(event: eventWithTime): string | undefined {
-    if (event.type === EventType.Meta) {
-        return (event.data as { href?: string })?.href
+export interface ReplayerWindow extends PlaybackWindow {
+    /** The element the window's replayer renders into, shown only while the window is on screen. */
+    root: HTMLElement
+    /** The first page URL the window recorded, before any event has played. */
+    initialURL: string
+}
+
+/** Why no window could be replayed: nothing loaded yet, or snapshots that no window can be drawn from. */
+export type ReplayerSetupFailure = 'no_snapshots' | 'no_full_snapshot'
+
+/** Each window keeps its own iframe and DOM alive for the whole render, and window ids come from the recording. */
+const MAX_REPLAYED_WINDOWS = 20
+
+/** The windows with the most active time, which are the ones worth their memory when a session opened too many. */
+function busiestWindowIds(segments: RecordingSegment[], candidates: Set<number>, limit: number): Set<number> {
+    const activeMs = new Map<number, number>()
+    for (const seg of segments) {
+        if (seg.windowId != null && candidates.has(seg.windowId)) {
+            activeMs.set(seg.windowId, (activeMs.get(seg.windowId) ?? 0) + (seg.isActive ? seg.durationMs : 0))
+        }
     }
-    return undefined
+    const ranked = [...activeMs.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
+    return new Set(ranked.map(([windowId]) => windowId))
+}
+
+function firstHref(events: eventWithTime[]): string {
+    for (const event of events) {
+        const href = getHrefFromSnapshot(event)
+        if (href) {
+            return href
+        }
+    }
+    return ''
 }
 
 export interface ReplayerSetup {
-    replayer: Replayer
-    events: eventWithTime[]
+    /** Ordered by when each window first appears in the recording. */
+    windows: ReplayerWindow[]
     segments: RecordingSegment[]
     firstTimestamp: number
-    initialURL: string
 }
 
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
@@ -66,15 +95,15 @@ function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => Vi
 
 /**
  * Load recording data, process snapshots, build segments, and create
- * an rrweb Replayer — but don't start playback.
+ * one rrweb Replayer per recorded window — but don't start playback.
  *
- * Returns null if no snapshots are available after processing.
+ * Returns why not when there are no snapshots, or no window has a full snapshot to build a page from.
  */
-export async function createReplayer(
+export async function createReplayers(
     config: PlayerConfig,
     rootEl: HTMLElement,
     bridge: HostBridge
-): Promise<ReplayerSetup | null> {
+): Promise<ReplayerSetup | ReplayerSetupFailure> {
     const { sources, snapshotsBySource } = await loadAllSources(config, (loaded, total) =>
         bridge.reportLoadingProgress(loaded, total)
     )
@@ -92,7 +121,7 @@ export async function createReplayer(
     )
 
     if (!snapshots.length) {
-        return null
+        return 'no_snapshots'
     }
 
     const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
@@ -105,31 +134,52 @@ export async function createReplayer(
     )
     const segments = mergeInactiveSegments(rawSegments)
     const firstTimestamp = snapshots[0].timestamp
-    const events: eventWithTime[] = [...snapshots]
-
-    const replayer = new Replayer(events, {
-        root: rootEl,
-        ...COMMON_REPLAYER_CONFIG,
-        insertStyleRules: [
-            ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-            ...(config.playbackSpeed >= 2
-                ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
-                : []),
-        ],
-        mouseTail: config.mouseTail,
-        useVirtualDom: false,
-        plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
-        speed: config.playbackSpeed,
-    })
-
-    let initialURL = ''
-    for (const e of events) {
-        const href = getMetaHref(e)
-        if (href) {
-            initialURL = href
-            break
+    // rrweb cannot build a page without a full snapshot, and its Replayer throws on fewer than two events.
+    const replayableIds = new Set(
+        Object.entries(snapshotsByWindowId)
+            .filter(([, events]) => events.length >= 2 && events.some((event) => event.type === EventType.FullSnapshot))
+            .map(([windowId]) => Number(windowId))
+    )
+    const keptWindowIds =
+        replayableIds.size > MAX_REPLAYED_WINDOWS
+            ? busiestWindowIds(segments, replayableIds, MAX_REPLAYED_WINDOWS)
+            : replayableIds
+    const windows: ReplayerWindow[] = []
+    for (const [windowId, windowEvents] of Object.entries(snapshotsByWindowId)) {
+        if (!keptWindowIds.has(Number(windowId))) {
+            continue
         }
+        const root = document.createElement('div')
+        // Hidden but still laid out: a display:none iframe drops the scroll positions its fast-forward sets.
+        root.style.position = 'absolute'
+        root.style.inset = '0'
+        root.style.visibility = 'hidden'
+        rootEl.appendChild(root)
+        const replayer = new Replayer(windowEvents, {
+            root,
+            ...COMMON_REPLAYER_CONFIG,
+            insertStyleRules: [
+                ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                ...speedDependentStyleRules(config.playbackSpeed),
+            ],
+            mouseTail: config.mouseTail,
+            useVirtualDom: false,
+            plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(windowEvents)],
+            speed: config.playbackSpeed,
+        })
+        windows.push({
+            windowId: Number(windowId),
+            replayer,
+            root,
+            initialURL: firstHref(windowEvents),
+            firstTimestamp: windowEvents[0].timestamp,
+            lastTimestamp: windowEvents[windowEvents.length - 1].timestamp,
+        })
     }
+    if (!windows.length) {
+        return 'no_full_snapshot'
+    }
+    windows.sort((a, b) => a.firstTimestamp - b.firstTimestamp)
 
-    return { replayer, events, segments, firstTimestamp, initialURL }
+    return { windows, segments, firstTimestamp }
 }

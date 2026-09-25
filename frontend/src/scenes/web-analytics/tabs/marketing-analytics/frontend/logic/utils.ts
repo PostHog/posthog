@@ -32,6 +32,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+    OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
 
 /**
@@ -71,6 +72,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
     AppleSearchAds: 'Apple Ads',
+    OpenAIAds: 'OpenAI Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -321,6 +323,7 @@ interface SourceColumnMappings {
     currencyColumn?: string
     fallbackCurrency?: string
     currencyTimestampColumn?: string
+    missingCurrencyMessage?: string
 }
 
 interface ConversionExprResult extends Partial<DataWarehouseNode> {
@@ -381,6 +384,29 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 )
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
+    OpenAIAds: {
+        idField: 'campaign_id',
+        timestampField: 'start_time',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'start_time',
+            missingCurrencyMessage: 'OpenAI Ads currency is missing. Fully resync campaign_insights, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
                 return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
@@ -677,7 +703,10 @@ function wrapWithCurrencyConversion(
         const dateArgument = mappings.currencyTimestampColumn
             ? `, coalesce(toDate(${mappings.currencyTimestampColumn}), today())`
             : ''
-        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        const converted = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        return mappings.missingCurrencyMessage
+            ? `${converted} + throwIf(countIf(empty(coalesce(${currencyColumn}, ''))) > 0, '${mappings.missingCurrencyMessage}')`
+            : converted
     }
     if (fallbackCurrency) {
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
@@ -735,6 +764,15 @@ export function createMarketingTile(
     )
     if (!table) {
         return null
+    }
+
+    if (sourceType === 'OpenAIAds') {
+        if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
+            return null
+        }
+        if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost && !('currency_code' in table.fields)) {
+            return null
+        }
     }
 
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost

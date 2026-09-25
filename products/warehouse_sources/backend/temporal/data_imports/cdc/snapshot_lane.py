@@ -13,14 +13,18 @@ imports, so the schema API can call it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY
+from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
@@ -31,6 +35,9 @@ if TYPE_CHECKING:
 # older worker ignores the marker, so it would defer that table's changes or purge its buffer.
 BUFFERED_SNAPSHOT_FLAG = "dwh-cdc-buffered-snapshot"
 BUFFER_LANE = "buffer"
+# Marks a table whose reset waits for a sync that can still hand over. The slot or the request moves
+# on meanwhile, so this key is what makes a later capture run finish the reset.
+CDC_RESET_PENDING_KEY = "cdc_reset_pending"
 
 
 def team_flag_enabled(flag: str, team_id: int, logger: FilteringBoundLogger) -> bool:
@@ -93,8 +100,9 @@ def resnapshot_stays_in_buffer(schema: ExternalDataSchema, logger: FilteringBoun
 def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
     """Cancel the table's running scheduled sync, so a snapshot begun before a reset cannot hand over.
 
-    Returns the workflow id it cancelled. A workflow that already finished counts as cancelled. Any
-    other failure raises, so the caller stops before it changes the table.
+    Returns the id of the workflow it asked to stop. That workflow can still be finishing, and the
+    loader can still apply batches it queued. Returns None when no sync runs, or its workflow already
+    closed. Any other failure raises, so the caller stops before it changes the table.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import cancel_external_data_workflow  # noqa: PLC0415
@@ -115,4 +123,97 @@ def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
     except RPCError as e:
         if e.status != RPCStatusCode.NOT_FOUND:
             raise
+        return None
     return job.workflow_id
+
+
+def cancel_sync_that_could_hand_over(schema: ExternalDataSchema) -> bool:
+    """Cancel the table's running sync. Returns True while it could still hand over.
+
+    It can until its workflow has closed and none of its batches are left in the load queue.
+    """
+    # Deferred: source_manager pulls in the pipeline, which this module stays free of.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
+        has_queued_batches,
+    )
+
+    return cancel_running_sync(schema) is not None or has_queued_batches(schema)
+
+
+def hand_reset_to_capture_if_sync_running(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger, *, awaiting_slot: bool = False
+) -> bool:
+    """Leave a CDC table's reset to capture while a sync of it could still hand over. Returns whether it did.
+
+    When no sync can, returns False, and the caller resets the table now. Otherwise the schedule is
+    paused and the reset marked pending, and capture finishes it once the sync stops. A failed check
+    hands the reset over too, because capture retries it.
+
+    `awaiting_slot` holds the staged reset back until a capture run has read the slot. Repair CDC
+    hands its resets over before it recreates the slot, and a capture run that fires in between
+    would otherwise start the snapshot against the dead one.
+    """
+    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+        pause_external_data_schedule,
+        sync_cdc_extraction_schedule,
+        trigger_cdc_extraction_schedule,
+    )
+
+    try:
+        if not cancel_sync_that_could_hand_over(schema):
+            return False
+    except Exception:
+        logger.warning("cdc_reset_sync_check_failed", schema_id=str(schema.id), exc_info=True)
+    try:
+        pause_external_data_schedule(str(schema.id))
+    except Exception:
+        # Capture pauses the schedule again before it resets the table.
+        logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
+
+    persisted = update_sync_type_config_keys(
+        schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
+    )
+    # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
+    schema.sync_type_config = {
+        **(schema.sync_type_config or {}),
+        CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
+    }
+    # Capture finishes the reset, so start a run now instead of waiting for its schedule: the last
+    # run may have looked for resets just before this write, and the schedule may be gone. A halted
+    # source is left alone, because Repair CDC or a resumed capture restarts capture itself.
+    if not schema.cdc_halted:
+        try:
+            if not trigger_cdc_extraction_schedule(str(schema.source_id)):
+                # The schedule is gone, and creating it fires its first run.
+                sync_cdc_extraction_schedule(schema.source, create=True)
+        except Exception:
+            # The capture schedule's next tick still finishes the reset.
+            logger.warning("cdc_reset_capture_trigger_failed", schema_id=str(schema.id), exc_info=True)
+    logger.info("cdc_reset_handed_to_capture", schema_id=str(schema.id))
+    return True
+
+
+def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = False) -> None:
+    """Stage a request's reset for capture. Read under the row lock.
+
+    Merged, not replaced: a reset already waiting on a slot must keep waiting, or the snapshot this
+    hands over would start before capture has a point to resume from.
+    """
+    current = config.get(CDC_RESET_PENDING_KEY)
+    fields = dict(current) if isinstance(current, dict) else {}
+    fields["clear_deferred_runs"] = True
+    fields["trigger"] = True
+    if awaiting_slot:
+        fields["awaiting_slot"] = True
+    fields["generation"] = next_reset_generation(fields)
+    config[CDC_RESET_PENDING_KEY] = fields
+
+
+def next_reset_generation(fields: dict[str, Any]) -> int:
+    """The generation for a reset staged over `fields`.
+
+    Every write that stages a reset takes a new one, so capture drops only the reset it finished,
+    even when a request stages an identical reset while that one's snapshot starts.
+    """
+    return int(fields.get("generation") or 0) + 1
