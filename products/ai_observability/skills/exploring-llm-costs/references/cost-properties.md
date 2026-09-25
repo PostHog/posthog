@@ -42,8 +42,8 @@ Providers that report cache tokens exclusively of `$ai_input_tokens` (e.g.
 Anthropic) also surface cache-read/write spend outside `$ai_input_cost_usd`,
 so `$ai_input_cost_usd` understates the true input-side spend there;
 providers that report inclusively (e.g. OpenAI) bundle cache spend into
-`$ai_input_cost_usd`. This varies by SDK version as well — see
-[cache accounting](./cache-accounting.md) for the provider-aware formula.
+`$ai_input_cost_usd`. This varies by SDK version as well, so branch on the per-event
+`$ai_cache_reporting_exclusive` flag, never on provider name.
 `$ai_total_cost_usd` is always the authoritative total and already accounts
 for whichever style the event used.
 
