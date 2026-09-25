@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: '/FacetSearchBar/'
+      owners: team-workflows
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/MarkdownNotebook/'

@@ -18,8 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { WorkflowDispatch, WorkflowDispatchIcons } from './WorkflowDispatchIcons'
 import { workflowLogic } from './workflowLogic'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
@@ -29,13 +29,8 @@ import {
     WorkflowTypeFilter,
     workflowsLogic,
 } from './workflowsLogic'
+import { WorkflowStatusTag } from './WorkflowStatusTag'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
-
-const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default' | 'muted' }> = {
-    active: { label: 'Active', type: 'success' },
-    draft: { label: 'Draft', type: 'default' },
-    archived: { label: 'Archived', type: 'muted' },
-}
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const hasMessagingAction = useMemo(() => {
@@ -60,48 +55,26 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
 }
 
 function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Element {
-    const actionsByType = useMemo(() => {
-        return workflow.actions.reduce(
-            (acc, action) => {
-                const step = getHogFlowStep(action, {})
-                if (!step || !step.type.startsWith('function')) {
-                    return acc
-                }
-                const key = 'template_id' in action.config ? action.config.template_id : action.type
-                acc[key] = {
-                    count: (acc[key]?.count || 0) + 1,
-                    icon: step.icon,
-                    color: step.color,
-                }
-                return acc
-            },
-            {} as Record<
-                string,
-                {
-                    count: number
-                    icon: JSX.Element
-                    color: string
-                }
-            >
-        )
+    const dispatches = useMemo(() => {
+        const byTemplate = new Map<string, WorkflowDispatch>()
+        for (const action of workflow.actions) {
+            if (!action.type.startsWith('function')) {
+                continue
+            }
+            const templateId = 'template_id' in action.config ? action.config.template_id : action.type
+            const existing = byTemplate.get(templateId)
+            byTemplate.set(templateId, {
+                actionType: existing?.actionType ?? action.type,
+                templateId,
+                count: (existing?.count ?? 0) + 1,
+            })
+        }
+        return [...byTemplate.values()]
     }, [workflow.actions])
 
     return (
         <Link to={urls.workflow(workflow.id, 'workflow')}>
-            <div className="flex flex-row gap-2 items-center">
-                {Object.entries(actionsByType).map(([type, { count, icon, color }]) => (
-                    <div
-                        key={type}
-                        className="rounded px-1 flex items-center justify-center gap-1"
-                        style={{
-                            backgroundColor: `${color}20`,
-                            color,
-                        }}
-                    >
-                        {icon} {count}
-                    </div>
-                ))}
-            </div>
+            <WorkflowDispatchIcons dispatches={dispatches} />
         </Link>
     )
 }
@@ -276,10 +249,7 @@ export function WorkflowsTable(): JSX.Element {
         {
             title: 'Status',
             width: 0,
-            render: (_, item) => {
-                const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.draft
-                return <LemonTag type={config.type}>{config.label}</LemonTag>
-            },
+            render: (_, item) => <WorkflowStatusTag status={item.status} />,
         },
         {
             width: 0,

@@ -35,6 +35,7 @@ export interface LemonButtonPropsBase
         | 'aria-pressed'
         | 'aria-expanded'
         | 'aria-controls'
+        | 'aria-selected'
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
