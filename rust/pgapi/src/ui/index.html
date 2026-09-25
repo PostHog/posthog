@@ -9,7 +9,7 @@
 <style>
   :root {
     --bg: #14161a; --panel: #1c1f25; --panel2: #22262d; --border: #2c313a;
-    --text: #e6e8eb; --muted: #8b93a1; --accent: #7aa2f7; --ok: #6cc38b; --warn: #e0af68; --error: #f7768e;
+    --text: #e6e8eb; --muted: #8b93a1; --accent: #7aa2f7; --ok: #6cc38b; --warn: #e0af68; --error: #f7768e; --tag: #c3a6ff;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
@@ -59,7 +59,9 @@
   .marker i { position: absolute; top: -1px; left: -4px; width: 8px; height: 8px; background: var(--c); border-radius: 0 0 4px 4px; pointer-events: auto; cursor: help; }
   .kv td:first-child { color: var(--muted); width: 180px; }
   .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
-  .tag { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(122, 162, 247, .1); border: 1px solid rgba(122, 162, 247, .3); border-radius: 4px; padding: 0 5px; margin: 0 4px 2px 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+  .tags { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; font-family: var(--mono); font-size: 11px; }
+  .tags:first-child { margin-top: 0; }
+  .tag { display: inline-block; vertical-align: top; color: var(--tag); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag b { color: var(--muted); font-weight: 400; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--accent); border-radius: 6px; font-family: var(--mono); font-size: 11px; }
   .chip button { padding: 0 4px; border: 0; background: none; color: var(--muted); }
@@ -180,9 +182,9 @@
   // Tags label a query by the code that ran it (/* nodejs:PERSONS_WRITE<updatePersonsBatch> */, /* route='/api/x' */).
   const TAG_ORDER = ['service', 'db_use', 'operation', 'caller', 'route', 'controller', 'task', 'workflow', 'query_type', 'purpose', 'team_id'];
   const tagEntries = tags => tags ? Object.entries(tags).sort(([a], [b]) => (TAG_ORDER.indexOf(a) + 1 || 99) - (TAG_ORDER.indexOf(b) + 1 || 99)) : [];
-  const tagPills = (tags, max = 5) => { const e = tagEntries(tags); if (!e.length) return null; return el('span', {}, e.slice(0, max).map(([k, v]) => el('span', { class: 'tag', title: `${k}=${v}` }, el('b', {}, k + '='), v)), e.length > max ? el('span', { class: 'muted' }, `+${e.length - max}`) : null); };
-  // The row label: tags first, SQL underneath, so a list reads by code path rather than by statement text.
-  const queryLabel = r => el('span', {}, tagPills(r.tags), r.tags && Object.keys(r.tags).length ? el('br') : null, queryCell(r.query));
+  const tagPills = (tags, max = 5) => { const e = tagEntries(tags); if (!e.length) return null; return el('div', { class: 'tags' }, e.slice(0, max).map(([k, v]) => el('span', { class: 'tag', title: `${k}=${v}` }, el('b', {}, k + '='), v)), e.length > max ? el('span', { class: 'muted' }, `+${e.length - max}`) : null); };
+  // The row label: SQL first, the tags of the code that ran it on a quieter line underneath.
+  const queryLabel = r => el('span', {}, queryCell(r.query), tagPills(r.tags));
   const tagFilterChip = (tags, onClear) => tags ? el('span', { class: 'chip' }, tags, el('button', { title: 'clear tag filter', onclick: onClear }, '✕')) : null;
 
   // ---------- time series chart (uPlot) ----------
@@ -394,7 +396,7 @@
       : 'mean only: no sampled durations in this range (needs log_min_duration_sample and the logs collector)';
     return [
       el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
-      panel('Text', tagPills(t.tags, 12) ? el('div', { style: 'margin-bottom:8px' }, tagPills(t.tags, 12), el('span', { class: 'muted', style: 'font-size:11px' }, ' tags on the first call seen')) : null, el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
+      panel('Text', el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null, tagPills(t.tags, 12) ? el('div', { style: 'margin-top:8px' }, tagPills(t.tags, 12), el('div', { class: 'muted small' }, 'tags on the first call seen')) : null),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel(`Calls per ${per}`, chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
         panel(`Latency per ${per}`,
@@ -581,9 +583,9 @@
         panel('Errors grouped', table(d.summary, [{ key: 'class', label: 'class' }, { key: 'sqlstate', label: 'sqlstate', cls: 'mono' }, { key: 'message', label: 'message' }, { key: 'n', label: 'count', num: true, fmt: fmt.num }])),
       ),
       el('div', { style: 'margin-top:12px' }, panel('Recent errors', table(d.recent, [
-        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) },
+        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => el('span', {}, queryCell(r.statement), tagPills(r.tags, 3)) },
       ], { empty: 'no errors in range' }))),
-      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => el('span', {}, tagPills(r.tags, 3), queryCell(r.statement)) }], { empty: 'none (needs log_temp_files)' }))),
+      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => el('span', {}, queryCell(r.statement), tagPills(r.tags, 3)) }], { empty: 'none (needs log_temp_files)' }))),
     ];
   };
 
