@@ -34,7 +34,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
+from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
     PI_RUNTIME_ERROR_MESSAGE,
@@ -572,7 +572,7 @@ def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_
         return
 
     task_run.signal_agent_turn_completed(succeeded=succeeded)
-    dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
+    dispatch_turn_completed(task_run, turn_completed=turn_completed)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:

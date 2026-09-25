@@ -1,9 +1,0 @@
-.venv*/
-build/
-tests/
-bin/
-!bin/serve.sh
-__pycache__/
-*.egg-info/
-README.md
-uv.lock

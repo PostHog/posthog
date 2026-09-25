@@ -15,6 +15,9 @@ pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";
 pub const BOUNDARY_ESTABLISHED: &str = "seeder_boundary_established_total";
 pub const BOUNDARY_CAS_LOST: &str = "seeder_boundary_cas_lost_total";
 pub const RUNS_WAITING_BOUNDARY: &str = "seeder_runs_waiting_boundary";
+/// Runs terminally failed during pinned-payload validation, labelled by `reason` (counter). For
+/// `uncovered_participation` the run's `error` column names the cohorts, why each cannot be seeded,
+/// and their dropped hashes.
 pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total";
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
@@ -105,6 +108,7 @@ pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_second
 pub const SCAN_RECEIVED_BYTES: &str = "seeder_scan_received_bytes_total";
 /// Decompressed bytes a scan cursor produced, labelled by `kind` (counter).
 pub const SCAN_DECODED_BYTES: &str = "seeder_scan_decoded_bytes_total";
+pub const CLICKHOUSE_PASSWORD_FALLBACK: &str = "seeder_clickhouse_password_fallback_total";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";
 pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
@@ -121,7 +125,6 @@ pub const RUN_CHUNKS_REMAINING: &str = "seeder_run_chunks_remaining";
 pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
 pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
-pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
 /// Reconcile dispatch attempts, labelled by bounded `outcome` and the run's `kind` (counter).
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
 /// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).

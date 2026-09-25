@@ -18,8 +18,7 @@ Two properties keep the gate cheap and predictable:
   pipeline applies whether or not a team has steered. So writing a first rule filters what that rule
   describes, and nothing else.
 
-The gate fails open. A steering rule that never runs costs a team one noisy report; a gate that
-drops signals when the LLM is unreachable loses real ones.
+The gate fails open when its decision model is unavailable.
 """
 
 import asyncio

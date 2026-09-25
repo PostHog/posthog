@@ -44,6 +44,8 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
+    MAX_FULL_REFRESH_INTERVAL_DAYS,
+    SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
@@ -207,6 +209,16 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
 NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
+
+SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR = (
+    "Scheduled full refreshes are only available for incremental, append only, and xmin syncs. "
+    "Change the sync method first."
+)
+
+SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR = (
+    "A full refresh runs on a scheduled sync, so the interval must be at least {days} days. "
+    "Choose a longer interval, or sync more often."
 )
 
 
@@ -394,6 +406,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
+    full_refresh_interval_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=MAX_FULL_REFRESH_INTERVAL_DAYS,
+        help_text=(
+            "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the "
+            "table and re-imports every row, so rows deleted at the source are removed. It runs on the first "
+            "scheduled sync once the interval has passed, counted from when it was saved or from the last full "
+            "resync, and can start up to an hour early. Queries keep returning the current rows until a full "
+            "refresh finishes, and workflows and destinations that run on new rows of the table run again for "
+            "every row. Available "
+            "for incremental, append, and xmin syncs only, and never shorter than the sync frequency."
+        ),
+    )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -501,6 +528,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "incremental_field_lookback_seconds",
             "sync_frequency",
             "sync_time_of_day",
+            "full_refresh_interval_days",
+            "next_full_refresh_at",
             "description",
             "primary_key_columns",
             "cdc_table_mode",
@@ -524,6 +553,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "latest_error",
             "status",
             "incremental_sync_blocked",
+            "next_full_refresh_at",
             "description",
             "available_columns",
             "source_column_metadata_available",
@@ -1122,6 +1152,34 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
+
+        # The schedule settings resend the interval on every save, so only a changed value restarts the clock.
+        full_refresh_interval_days = validated_data.get(
+            "full_refresh_interval_days", instance.full_refresh_interval_days
+        )
+        if full_refresh_interval_days is not None and resulting_sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES:
+            requested_days = validated_data.get("full_refresh_interval_days")
+            if requested_days is not None and requested_days != instance.full_refresh_interval_days:
+                raise ValidationError({"full_refresh_interval_days": SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR})
+            full_refresh_interval_days = None
+        if (
+            full_refresh_interval_days is not None
+            and ("full_refresh_interval_days" in validated_data or was_sync_frequency_updated)
+            and instance.sync_frequency_interval is not None
+            and dt.timedelta(days=full_refresh_interval_days) < instance.sync_frequency_interval
+        ):
+            raise ValidationError(
+                {
+                    "full_refresh_interval_days": SCHEDULED_FULL_REFRESH_TOO_SHORT_ERROR.format(
+                        days=instance.sync_frequency_interval.days
+                    )
+                }
+            )
+        if full_refresh_interval_days != instance.full_refresh_interval_days:
+            instance.full_refresh_interval_days = full_refresh_interval_days
+            instance.restart_full_refresh_clock()
+            validated_data["full_refresh_interval_days"] = full_refresh_interval_days
+            validated_data["next_full_refresh_at"] = instance.next_full_refresh_at
 
         # A row can still carry a null interval from before that rejection. Turning the sync on, or
         # moving its time of day, rebuilds the schedule, which a null interval cannot do. Turning
@@ -2058,6 +2116,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
