@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils/datetime'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { clamp, percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
@@ -13,12 +14,14 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     FunnelExclusionSteps,
+    EventsNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
+import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -1017,8 +1020,20 @@ export function getStepBreakdownSeries(
     return single
 }
 
+export const MIN_FUNNEL_STEPS = 2
+
 export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
-    return (series?.length || 0) > 1
+    return (series?.length || 0) >= MIN_FUNNEL_STEPS
+}
+
+// The step every "add a step for me" path appends. Sharing one definition keeps a seeded step
+// recognizable, so the insight type switch can tell it apart from a step the user configured.
+export function getDefaultFunnelStep(): EventsNode {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.EventsNode,
+        event: getDefaultEventName(),
+        name: getDefaultEventLabel(),
+    })
 }
 
 export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {

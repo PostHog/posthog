@@ -55,9 +55,15 @@ function getCalendarHeatmapQueryDefault(): TrendsQuery {
 function getFunnelsQueryDefault(): FunnelsQuery {
     const defaultEvent = getDefaultEventName()
     const defaultLabel = getDefaultEventLabel()
+    // A funnel only calculates from two steps up, so one step would render no chart at all
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultLabel,
+                event: defaultEvent,
+            },
             {
                 kind: NodeKind.EventsNode,
                 name: defaultLabel,
