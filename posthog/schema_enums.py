@@ -2093,6 +2093,7 @@ class NativeMarketingSource(StrEnum):
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
     APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
 
 
 class NodeKind(StrEnum):
@@ -2212,6 +2213,12 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
+
+
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
 
 
 class PathType(StrEnum):

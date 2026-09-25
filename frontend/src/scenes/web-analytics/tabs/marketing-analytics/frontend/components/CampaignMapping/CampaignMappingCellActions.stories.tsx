@@ -29,6 +29,7 @@ const MARKETING_SOURCE_ICONS: Record<
         fields: [],
         caption: 'Apple Ads',
     },
+    OpenAIAds: { name: 'OpenAIAds', iconPath: '/static/services/openai_ads.svg', fields: [], caption: 'OpenAI Ads' },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',
@@ -86,7 +87,7 @@ const meta: Meta<LemonMenuOverlayProps> = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         docs: {
             description: {
                 component: `

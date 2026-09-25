@@ -36535,6 +36535,64 @@
                         "adsetStatsTableName"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "openai",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "chatgpt",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "openai_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "openai",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "OpenAIAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_insights",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38443,7 +38501,8 @@
                 "BingAds",
                 "SnapchatAds",
                 "PinterestAds",
-                "AppleSearchAds"
+                "AppleSearchAds",
+                "OpenAIAds"
             ],
             "type": "string"
         },
@@ -38722,6 +38781,10 @@
             },
             "required": ["type"],
             "type": "object"
+        },
+        "OpenAIAdsDefaultSources": {
+            "enum": ["openai", "chatgpt", "openai_ads"],
+            "type": "string"
         },
         "PCADetectorConfig": {
             "additionalProperties": false,

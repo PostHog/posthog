@@ -9,7 +9,6 @@ import {
     validateImageRefVersion,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
-import { fetchCandidateHistoryKey } from './collected-urls-record'
 import {
     FetchCandidate,
     MAX_HOPS,
@@ -151,15 +150,15 @@ export class UrlFetchConsumer {
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
-                    const existing = candidatesByRef.get(fetchCandidateHistoryKey(partitionCandidate))
+                    const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
                         candidatesByRef.set(
-                            fetchCandidateHistoryKey(partitionCandidate),
+                            partitionCandidate.originalRef,
                             mergeDuplicateFetchCandidates(existing, partitionCandidate)
                         )
                     } else {
-                        candidatesByRef.set(fetchCandidateHistoryKey(partitionCandidate), partitionCandidate)
+                        candidatesByRef.set(partitionCandidate.originalRef, partitionCandidate)
                     }
                 }
             }
@@ -202,7 +201,7 @@ export class UrlFetchConsumer {
             }
 
             const keys = [
-                ...candidates.map(fetchCandidateHistoryKey),
+                ...candidates.map((candidate) => candidate.originalRef),
                 ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
@@ -215,7 +214,7 @@ export class UrlFetchConsumer {
             const fetchable: FetchCandidate[] = []
             const notReady: FetchCandidate[] = []
             for (const candidate of candidates) {
-                const history = stored.get(fetchCandidateHistoryKey(candidate))
+                const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
                     ImageFetchConsumerMetrics.incDeduped('store', 1)
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
@@ -477,7 +476,7 @@ export class UrlFetchConsumer {
         const nextFetchAtMs = urlHistoryExpiresAtMs(candidate.originalRef, nowMs, this.options.seenTtlSeconds)
         return {
             kind: 'url',
-            key: fetchCandidateHistoryKey(candidate),
+            key: candidate.originalRef,
             nextFetchAtMs,
             storageExpiresAtMs: nextFetchAtMs,
             outcome,
