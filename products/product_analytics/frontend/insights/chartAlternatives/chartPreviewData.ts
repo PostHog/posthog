@@ -145,8 +145,8 @@ interface PreviewRecipe {
 
 const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
 const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
-const canSlope = (source: TrendsQuery): boolean =>
-    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && !hasBreakdown(source)
+const canSlope = (source: TrendsQuery, rows: PreviewRows): boolean =>
+    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && (!hasBreakdown(source) || isCompleteBreakdown(rows.response))
 const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
     hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
 

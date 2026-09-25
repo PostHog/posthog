@@ -61,6 +61,8 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
             showSeriesLabels: false,
             legend: { show: !!showLegend },
             hideXAxis: context?.hideAxes,
+            showStartLabels: !context?.hideAxes,
+            showEndLabels: !context?.hideAxes,
             xTickFormatter: createXAxisTickCallback({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
