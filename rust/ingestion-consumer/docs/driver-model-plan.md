@@ -390,6 +390,7 @@ Exit criterion after the targets: the request-size histograms center near T, and
 - Emit immediately when the ready work can fill the free stream slots with near-T requests. Otherwise arm the pack deadline. The governor (cycle 6) replaces the slots with permits.
 - When the deadline expires, emit partial requests. The deadline also bounds the wait when held groups keep polls open: packing adds latency, never a deadlock.
 - Router order inside a pass: fill open requests on healthy workers first, then pick a worker with P2C from the aperture slice. Partition affinity is a tie-breaker only.
+- As built: the packer holds no worker. It holds the messages of keys with nothing in flight, per key in arrival order, in one open batch; a key becomes outstanding only when its batch is released, and the scheduler places each released batch with the router as it leaves, against that moment's load. The fill-open-request-first rule is dropped: held messages sit on no worker, so a departed worker cannot strand them, and placement stays load-aware at the moment the batch goes out.
 
 **Interfaces:**
 

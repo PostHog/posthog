@@ -232,6 +232,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.routing_strategy,
         config.scheduler,
     );
+    dispatcher.set_pack_targets(config.pack_targets());
     if let Some(recorder) = &debug_recorder {
         dispatcher.set_debug_recorder(Arc::clone(recorder));
     }
