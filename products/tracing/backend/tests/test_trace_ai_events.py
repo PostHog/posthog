@@ -99,6 +99,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["is_error"] is False
         assert json.loads(response.content)["has_more"] is False
 
+    @patch("products.tracing.backend.presentation.views.MAX_AI_EVENTS_PER_TRACE", 1)
     @patch("products.tracing.backend.ai_events.MAX_AI_EVENTS_PER_TRACE", 1)
     def test_flags_a_trace_past_the_cap(self) -> None:
         first = self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:01Z")
@@ -109,6 +110,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
 
         assert [row["uuid"] for row in body["results"]] == [first]
         assert body["has_more"] is True
+        assert body["limit"] == 1
 
     @parameterized.expand(
         [

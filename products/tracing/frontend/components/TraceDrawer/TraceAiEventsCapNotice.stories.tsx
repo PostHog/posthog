@@ -7,6 +7,7 @@ const meta: Meta<typeof TraceAiEventsCapNotice> = {
     component: TraceAiEventsCapNotice,
     args: {
         hasMore: true,
+        limit: 500,
         aiEvents: [
             {
                 uuid: '0190a1b2-0000-7000-8000-000000000001',

@@ -36,7 +36,7 @@ describe('traceAiEventsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockAiEventsRetrieve.mockReset()
-        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false })
+        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false, limit: 500 })
     })
 
     afterEach(() => {
@@ -44,7 +44,7 @@ describe('traceAiEventsLogic', () => {
     })
 
     it('asks for the events of the trace by its lowercase id and keeps the cap marker', async () => {
-        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: true })
+        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: true, limit: 500 })
         await mount()
 
         expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(1)

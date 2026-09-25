@@ -52,6 +52,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_AI_EVENTS_PER_TRACE,
     MAX_IDS_PER_LOOKUP,
     annotate_self_time,
     count_session_exceptions,
@@ -860,8 +861,9 @@ class _TracingTraceAiEventSerializer(serializers.Serializer):
 
 class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
     results = _TracingTraceAiEventSerializer(
-        many=True, help_text="AI events in the trace, earliest start first, up to 500 of them."
+        many=True, help_text="AI events in the trace, earliest start first, up to `limit` of them."
     )
+    limit = serializers.IntegerField(help_text="The most AI events the lookup returns for one trace.")
     has_more = serializers.BooleanField(
         help_text="Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`."
     )
@@ -1947,7 +1949,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         response = _TracingTraceAiEventsResponseSerializer(
-            instance={"results": ai_events.events, "has_more": ai_events.has_more}
+            instance={"results": ai_events.events, "has_more": ai_events.has_more, "limit": MAX_AI_EVENTS_PER_TRACE}
         )
         return Response(response.data, status=status.HTTP_200_OK)
 

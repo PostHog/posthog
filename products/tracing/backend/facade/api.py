@@ -35,6 +35,7 @@ from posthog.schema import (
 )
 
 from products.tracing.backend.ai_events import (
+    MAX_AI_EVENTS_PER_TRACE as _MAX_AI_EVENTS_PER_TRACE,
     TraceAiEvents,
     fetch_trace_ai_events as _fetch_trace_ai_events,
 )
@@ -70,6 +71,9 @@ FACET_COLUMNS = _FACET_COLUMNS
 # Cap on the ids one error-count request may ask about, per id kind. Re-exported so the
 # presentation layer can bound its request serializer without reaching into the lookup module.
 MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
+
+# Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
+MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
 
 
 # --- Converters (model -> frozen dataclass) ---

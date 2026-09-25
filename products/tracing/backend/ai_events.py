@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 # A run rarely makes more than a few hundred model calls, and past this many rows the waterfall
 # stops being readable, so the lookup does not page. A trace past the cap reports `has_more`, and
-# the caller links to LLM analytics, which lists every event.
+# the caller links to AI observability, which lists every event.
 MAX_AI_EVENTS_PER_TRACE = 500
 
 # The LLM analytics event kinds that carry a latency, so each one can be placed on the timeline.

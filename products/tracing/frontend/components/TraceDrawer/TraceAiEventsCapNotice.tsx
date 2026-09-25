@@ -2,14 +2,15 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { MAX_AI_EVENTS_PER_TRACE, type TraceAiEvent } from '../../aiEventSpans'
+import type { TraceAiEvent } from '../../aiEventSpans'
 
 export interface TraceAiEventsCapNoticeProps {
     aiEvents: TraceAiEvent[]
     hasMore: boolean
+    limit: number
 }
 
-export function TraceAiEventsCapNotice({ aiEvents, hasMore }: TraceAiEventsCapNoticeProps): JSX.Element | null {
+export function TraceAiEventsCapNotice({ aiEvents, hasMore, limit }: TraceAiEventsCapNoticeProps): JSX.Element | null {
     if (!hasMore || aiEvents.length === 0) {
         return null
     }
@@ -24,8 +25,7 @@ export function TraceAiEventsCapNotice({ aiEvents, hasMore }: TraceAiEventsCapNo
                 'data-attr': 'tracing-ai-events-view-all',
             }}
         >
-            This trace has more than {MAX_AI_EVENTS_PER_TRACE} AI events. The waterfall shows the first{' '}
-            {MAX_AI_EVENTS_PER_TRACE}.
+            This trace has more than {limit} AI events. The waterfall shows the first {limit}.
         </LemonBanner>
     )
 }
