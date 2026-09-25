@@ -16,6 +16,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -58,6 +59,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
     'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
+    'addToPlaylist', // The replay collection popover toasts its own add failure
+    'removeFromPlaylist', // The replay collection popover toasts its own remove failure
+    'onPinnedChange', // The collection scene toasts its own pin/unpin failure
     'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
@@ -68,6 +72,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
+    'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
+    'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
 ]
 
 /*
@@ -85,6 +91,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 */
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+    'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
 ])
 
 /*
@@ -92,6 +99,8 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -138,7 +147,11 @@ export function initKea({
                 // Runs before kea-router's `decodeURI(pathname)` on every navigation (initial
                 // load, push/replace, popstate). Keep the path decodable so a malformed `%`
                 // routes to 404 instead of crashing the router.
-                return addProjectIdIfMissing(ensureRoutablePathname(path))
+                // Drop the trailing slash here too, so the router's location matches the path
+                // `pathFromWindowToRoutes` matches routes against. The address bar is then
+                // corrected by a silent `replaceState` on mount, rather than by a second
+                // navigation that runs every `urlToAction` of the scene again.
+                return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
             pathFromWindowToRoutes: (path) => {
                 return stripTrailingSlash(removeProjectIdIfPresent(path))
@@ -182,6 +195,8 @@ export function initKea({
                         error.code === 'unique' &&
                         error.attr === 'key' &&
                         DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
+                    const isHasDependentsError =
+                        error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -198,7 +213,8 @@ export function initKea({
                         isTwoFactorError ||
                         isSensitiveActionError ||
                         isVerifiedDomainError ||
-                        isFeatureFlagDuplicateKey
+                        isFeatureFlagDuplicateKey ||
+                        isHasDependentsError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null

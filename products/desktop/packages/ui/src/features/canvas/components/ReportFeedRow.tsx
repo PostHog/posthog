@@ -43,7 +43,7 @@ export function ReportFeedRow({
     <>
       <Card
         size="sm"
-        className="group/report mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl py-0 transition-colors hover:bg-(--gray-2)"
+        className="group/report my-1.5 w-full cursor-pointer rounded-xl py-0 transition-colors hover:bg-(--gray-2)"
         onClick={() => onOpenReport(report.id)}
       >
         <CardContent className="flex flex-col gap-1 px-4 pt-3 pb-2.5">

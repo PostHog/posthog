@@ -311,6 +311,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
             category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'BETA',
             aliases: ['visualization', 'widget', '3d'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),

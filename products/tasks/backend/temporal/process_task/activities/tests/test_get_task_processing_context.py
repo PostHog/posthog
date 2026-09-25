@@ -16,6 +16,7 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -36,6 +37,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     GetTaskProcessingContextInput,
     TaskProcessingContext,
     VmSandboxDecision,
+    _ensure_subscription_allowed,
     _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_benjamin_enabled,
@@ -46,13 +48,17 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
-    _resolve_claude_model_access,
+    _require_template_compatible_with_custom_image,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
+FEATURE_ENABLED_TARGET = (
+    "products.tasks.backend.temporal.process_task.activities."
+    "get_task_processing_context.posthoganalytics.feature_enabled"
+)
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 BENJAMIN_PAYLOAD_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
@@ -255,6 +261,36 @@ class TestGetTaskProcessingContextActivity:
         assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("integration_status", [None, "reauth_required", "connected"])
+    def test_codex_subscription_run_needs_a_connected_chatgpt_account(
+        self, activity_environment, test_task, integration_status
+    ):
+        owner = User.objects.create_user(
+            email="codex-owner@example.com", password=None, first_name="Owner", distinct_id="codex-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        if integration_status is not None:
+            UserIntegration.objects.create(
+                user=owner, kind="codex", integration_id="acct_1", config={"status": integration_status}
+            )
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={"codex_model_access": "own-subscription", "runtime_adapter": "codex"},
+        )
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            if integration_status == "connected":
+                result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+                assert result.codex_model_access == "own-subscription"
+            else:
+                with pytest.raises(ProcessTaskFatalError, match="ChatGPT account is not connected"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_previous_owner_run(self, activity_environment, test_task):
         task_run = test_task.create_run()
         test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
@@ -440,6 +476,44 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_codex_subscription_run_can_reach_chatgpt_on_a_restricted_network(self, activity_environment, test_task):
+        owner = User.objects.create_user(
+            email="codex-owner@example.com", password=None, first_name="Owner", distinct_id="codex-owner"
+        )
+        OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
+        UserIntegration.objects.create(
+            user=owner, kind="codex", integration_id="acct_1", config={"status": "connected"}
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Restricted env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=["example.com"],
+        )
+        task_run = test_task.create_run(
+            acting_user_id=owner.id,
+            extra_state={
+                "sandbox_environment_id": str(sandbox_environment.id),
+                "codex_model_access": "own-subscription",
+                "runtime_adapter": "codex",
+            },
+        )
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.codex_model_access == "own-subscription"
+        assert result.allowed_domains == ["example.com", "chatgpt.com"]
+        assert "chatgpt.com" in (result.agentsh_domain_allowlist or [])
+        assert "chatgpt.com" in (result.modal_domain_allowlist or [])
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_preserves_empty_restricted_domains(self, activity_environment, test_task):
@@ -926,69 +1000,61 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-    @pytest.mark.parametrize(
-        "flag_value, state, expected",
-        [
-            (True, {"claude_model_access": "own-subscription"}, "own-subscription"),
-            (True, {"claude_model_access": "posthog-gateway"}, "posthog-gateway"),
-            (True, {}, "posthog-gateway"),
-        ],
-    )
-    def test_claude_model_access_requires_state_ask_and_flag(self, flag_value, state, expected):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
-        ) as feature_enabled_mock:
-            assert (
-                _resolve_claude_model_access(
-                    task_runtime=Task.Runtime.ACP,
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                    state=state,
-                )
-                == expected
-            )
+    SUBSCRIPTION_CASES = [
+        ("claude", CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "Claude plan", "Claude"),
+        ("codex", CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "ChatGPT plan", "Codex"),
+    ]
 
-        if state.get("claude_model_access") == "own-subscription":
-            feature_enabled_mock.assert_called_once_with(
-                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-                distinct_id="distinct-id",
-                groups={"organization": "organization-id"},
-                group_properties={"organization": {"id": "organization-id"}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        else:
-            feature_enabled_mock.assert_not_called()
-
-    @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
-    def test_claude_model_access_never_changes_requested_billing(self, flag_value: object) -> None:
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                return_value=flag_value,
-                side_effect=flag_value if isinstance(flag_value, Exception) else None,
-            ),
-            pytest.raises(ProcessTaskFatalError, match="Using your Claude plan for cloud tasks is unavailable"),
-        ):
-            _resolve_claude_model_access(
+    @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
+    def test_subscription_asks_the_plan_owners_rollout_flag(self, adapter, flag_key, plan_name, runtime_name):
+        with patch(FEATURE_ENABLED_TARGET, return_value=True) as feature_enabled_mock:
+            _ensure_subscription_allowed(
+                adapter=adapter,
                 task_runtime=Task.Runtime.ACP,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
-                state={"claude_model_access": "own-subscription"},
             )
 
-    @pytest.mark.parametrize("task_runtime,adapter", [(Task.Runtime.ACP, "codex"), (Task.Runtime.PI, None)])
-    def test_claude_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:
-        with pytest.raises(ProcessTaskFatalError, match="requires the Claude runtime"):
-            _resolve_claude_model_access(
-                task_runtime=task_runtime,
+        feature_enabled_mock.assert_called_once_with(
+            flag_key,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
+    @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
+    def test_subscription_model_access_never_changes_requested_billing(
+        self, adapter: str, flag_key: str, plan_name: str, runtime_name: str, flag_value: object
+    ) -> None:
+        with (
+            patch(
+                FEATURE_ENABLED_TARGET,
+                return_value=flag_value,
+                side_effect=flag_value if isinstance(flag_value, Exception) else None,
+            ),
+            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable"),
+        ):
+            _ensure_subscription_allowed(
+                adapter=adapter,
+                task_runtime=Task.Runtime.ACP,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
-                state={"claude_model_access": "own-subscription", "runtime_adapter": adapter},
+            )
+
+    @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_name", SUBSCRIPTION_CASES)
+    def test_subscription_rejects_a_pi_task(self, adapter: str, flag_key: str, plan_name: str, runtime_name: str):
+        with pytest.raises(ProcessTaskFatalError, match=f"requires the {runtime_name} runtime"):
+            _ensure_subscription_allowed(
+                adapter=adapter,
+                task_runtime=Task.Runtime.PI,
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
             )
 
     @pytest.mark.parametrize("launched_value", [True, False])
@@ -1343,6 +1409,27 @@ class TestGetTaskProcessingContextActivity:
 
         assert decision.use_vm_sandbox is True
 
+    def test_modal_vm_sandbox_custom_template_forces_gvisor_over_default_base(self):
+        # A rollout that names the run's origin cannot move a custom-template run onto the VM
+        # image, which carries none of the template's tooling; the flag is not consulted.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["autoresearch"]}',
+        ) as payload_mock:
+            assert (
+                _resolve_modal_vm_sandbox(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product="autoresearch",
+                    allowed_domains=None,
+                    state={"sandbox_template": "autoresearch_base"},
+                ).use_vm_sandbox
+                is False
+            )
+
+        payload_mock.assert_not_called()
+
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
         # would place this origin on the VM base; the bool override also skips the flag fetch.
@@ -1663,6 +1750,24 @@ class TestGetTaskProcessingContextActivity:
         assert result.initial_permission_mode is None
 
 
+@pytest.mark.parametrize(
+    "state, custom_image_name, compatible",
+    [
+        ({"sandbox_template": "autoresearch_base"}, "org-image", False),
+        ({"sandbox_template": "autoresearch_base"}, None, True),
+        ({"sandbox_template": "default_base"}, "org-image", True),
+        ({}, "org-image", True),
+    ],
+    ids=["template_and_image", "template_only", "default_template_and_image", "image_only"],
+)
+def test_a_custom_template_cannot_compose_with_a_custom_image(state, custom_image_name, compatible):
+    if compatible:
+        _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
+    else:
+        with pytest.raises(TaskInvalidStateError):
+            _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
+
+
 _HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
 
 
@@ -1696,13 +1801,14 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
-        # A real user/environment custom image or the Pi runtime cannot run on hogland's
-        # golden, so they force Modal even with the flag on. The Modal VM-sandbox /
+        # A real user/environment custom image, the Pi runtime or a non-default sandbox template
+        # cannot run on hogland's golden, so they force Modal even with the flag on. The Modal VM-sandbox /
         # network-allowlist preferences and the org default image are deliberately not
         # gated here — a flagged run wins hogland over them (covered by the caller
         # force-off test).
@@ -1759,14 +1865,17 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
         # A stale or forged hogland override surviving a cloud resume must not route a
-        # user-custom-image or Pi run to hogland — the capability gates sit ahead of the override.
-        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
+        # user-custom-image, Pi or custom-template run to hogland — the capability gates sit
+        # ahead of the override.
+        state = {"sandbox_backend": "hogland", **overrides.pop("state", {})}
+        assert self._resolve_with_flag(True, state=state, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS)
     def test_modal_override_still_wins_even_when_hogland_is_available(self):

@@ -159,7 +159,7 @@ def _seed_distinct_id_into_fake(team_id: int, person_id: int, distinct_id: str, 
     if fake is None:
         return
 
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+    from personhog.types.v1 import person_pb2  # noqa: PLC0415
 
     person_proto = fake._persons_by_id.get((team_id, person_id))
     if person_proto is None:
@@ -414,7 +414,7 @@ def delete_person(person: Person) -> None:
     fake = _get_active_fake()
     if fake is None:
         return
-    from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2  # noqa: PLC0415
+    from personhog.types.v1 import person_pb2  # noqa: PLC0415
 
     dids_with_version = list(fake._distinct_ids.get((person.team_id, person.pk), []))
     _ch_create_person(

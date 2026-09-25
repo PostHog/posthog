@@ -1,5 +1,11 @@
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudGithubSetupDialog } from "./CloudGithubSetupDialog";
@@ -57,7 +63,7 @@ describe("CloudGithubSetupDialog", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "To run this task in the cloud, PostHog reads the GitHub repositories you authorize so agents can use their latest code. Code changes are sent in a pull request for your review.",
+        "Agents work from the latest code in the repos you authorize. Changes come back as pull requests for you to review.",
       ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect GitHub" }));
@@ -69,14 +75,45 @@ describe("CloudGithubSetupDialog", () => {
     const user = userEvent.setup();
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
+    expect(
+      screen.getByRole("button", { name: "Details" }).closest("p"),
+    ).toHaveTextContent(
+      "Read/write access to authorized repos, plus read access to email addresses and organization membership. PostHog can act as you on GitHub. Details",
+    );
     await user.click(
       screen.getByRole("button", {
-        name: "What permissions does this grant?",
+        name: "Details",
       }),
     );
 
     expect(openUrlInBrowser).toHaveBeenCalledExactlyOnceWith(
       "https://posthog.com/docs/libraries/github?tab=Desktop",
+    );
+  });
+
+  it("orders the actions as Connect GitHub, Not now, and Details", async () => {
+    const user = userEvent.setup();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Connect GitHub" }),
+      ).toHaveFocus(),
+    );
+    expect(
+      screen.getByRole("img", { name: "Connect PostHog to GitHub" }),
+    ).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Not now" })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute(
+      "data-attr",
+      "github-setup-not-now",
+    );
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Details" })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute(
+      "data-attr",
+      "github-permissions",
     );
   });
 

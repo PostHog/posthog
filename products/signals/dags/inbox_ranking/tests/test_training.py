@@ -14,9 +14,11 @@ import pyarrow as pa
 import xgboost as xgb
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
+from pydantic import ValidationError
 
 from posthog import settings
 
+from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.features import (
     BIRTH_GRAIN,
     EMBEDDING_COLUMN,
@@ -38,6 +40,17 @@ from products.signals.backend.ranking.features import (
     feature_set_by_name,
     feature_vector,
 )
+from products.signals.backend.ranking.serving_manifest import (
+    CROSS_FAMILY_ROLE,
+    DAILY_CANDIDATE_ROLE,
+    DEFAULT_MODEL_KIND,
+    SERVED_ROLE,
+    ServingManifest,
+    ServingManifestEntry,
+    model_key,
+    serving_manifest_key,
+    serving_model_prefix,
+)
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
@@ -54,6 +67,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _EXTRA_SNAPSHOT_TABLES,
     METADATA_FILE,
     _delete_other_objects,
+    _publish_manifest,
     _train_candidate,
     candidate_metadata,
     champion_object_key,
@@ -82,6 +96,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
+from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     DISTINCT_ID,
     LOCAL_DISTINCT_ID,
@@ -118,10 +133,12 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     head_grades,
     leaked_report_ids,
     model_mismatch,
+    readable_head_names,
     report_grade_rows,
     score_event_rows,
     score_pool,
     scored_pool,
+    trained_head_files,
     unseen_pool,
     with_model_names,
 )
@@ -359,6 +376,26 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, False],
         ),
+        # thumbs_up: cohort is opened reports, label is a positive rating.
+        (
+            "thumbs_up",
+            pd.DataFrame({"open_count": [1, 1, 0], "feedback_positive_count": [1, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # reviewer_fix: cohort is impressed reports, and an add or a remove is the same label.
+        (
+            "reviewer_fix",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [1, 1, 1, 0],
+                    "reviewer_add_count": [1, 0, 0, 0],
+                    "reviewer_remove_count": [0, 2, 0, 0],
+                }
+            ),
+            [True, True, True, False],
+            [True, True, False, False],
+        ),
     ],
 )
 def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
@@ -385,7 +422,7 @@ class _ParquetS3:
         return {"Body": io.BytesIO(self._objects[Key])}
 
 
-@pytest.mark.parametrize("head_name", ["pr_merged", "refund"])
+@pytest.mark.parametrize("head_name", ["pr_merged", "refund", "thumbs_up", "reviewer_fix"])
 def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
@@ -393,8 +430,26 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name)
     # Drive the real parquet -> projection -> build_examples path and assert a positive label survives.
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    labels_now = _labels(["a"], pr_created_count=[0], pr_merged_count=[0], refund_count=[0])
-    labels_later = _labels(["a"], pr_created_count=[1], pr_merged_count=[1], refund_count=[1])
+    labels_now = _labels(
+        ["a"],
+        open_count=[1],
+        pr_created_count=[0],
+        pr_merged_count=[0],
+        refund_count=[0],
+        feedback_positive_count=[0],
+        reviewer_add_count=[0],
+        reviewer_remove_count=[0],
+    )
+    labels_later = _labels(
+        ["a"],
+        open_count=[1],
+        pr_created_count=[1],
+        pr_merged_count=[1],
+        refund_count=[1],
+        feedback_positive_count=[1],
+        reviewer_add_count=[1],
+        reviewer_remove_count=[0],
+    )
     objects: dict[str, bytes] = {}
     for date, labels in ((D0, labels_now), (later, labels_later)):
         key = date.isoformat()
@@ -1229,6 +1284,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "rows": 1,
         "positives": 1,
         "birth_day_positives": 1,
+        "readable": True,
         "auc": None,
         "mean_score": 0.8,
     }.items() <= head_graded_props.items()
@@ -1248,6 +1304,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "horizon_days",
         "scoring_partition",
         "pool",
+        # The holdout side reports readability on its own per-head event, not on every bucket.
+        "readable",
     }
     assert by_event["inbox_ranking_holdout_calibration"][0]["properties"]["model_role"] == CANDIDATE_ROLE
     report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
@@ -1458,6 +1516,49 @@ def _unseen_model(model_name: str, feature_set: FeatureSet, role: str = CANDIDAT
         feature_set=feature_set,
         boosters={"open": _booster_ubj(tuple(feature_set.feature_names))},
     )
+
+
+def test_an_unreadable_trained_head_is_still_scored_and_graded():
+    # A rare head never clears min_holdout_positives on one day's holdout, so gating the scoring on
+    # readability means the pooled newborn grade, the only read that can ever give it a number,
+    # never starts. The grade carries the flag instead, so the two populations stay apart.
+    metadata = {
+        "heads": [
+            {"head": "open", "file": "open.ubj", "readable": True},
+            {"head": "thumbs_up", "file": "thumbs_up.ubj", "readable": False},
+        ]
+    }
+    assert trained_head_files(metadata) == {"open": "open.ubj", "thumbs_up": "thumbs_up.ubj"}
+    assert readable_head_names(metadata) == frozenset({"open"})
+
+    booster = _booster_ubj(tuple(TABULAR_FEATURE_SET.feature_names))
+    model = UnseenModel(
+        model_name=TABULAR_MODEL_NAME,
+        model_version="2026-08-10",
+        model_role=CANDIDATE_ROLE,
+        feature_set=TABULAR_FEATURE_SET,
+        boosters={"open": booster, "thumbs_up": booster},
+        readable_heads=readable_head_names(metadata),
+    )
+    scores = score_pool(_state(["a", "b"]), _labels(["a", "b"]), [model], snapshot_date=D0)
+    assert scores.groupby("head")["head_readable"].all().to_dict() == {"open": True, "thumbs_up": False}
+
+    head = HEADS_BY_NAME["thumbs_up"]
+    labels = _labels(["a", "b"], open_count=[1, 1], feedback_positive_count=[1, 0])
+    graded = graded_rows(scores[scores["head"] == head.name], labels, head, pool=POOL_NAME)
+    (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
+    assert (grade.rows, grade.positives, grade.readable) == (2, 1, False)
+
+
+def test_a_scores_object_written_before_the_readable_column_grades_as_readable():
+    # The grader reads objects up to 14 days old, and those runs scored a head only when it was
+    # readable, so a missing column must not turn a readable series unreadable overnight.
+    head = HEADS_BY_NAME["open"]
+    # _scores builds the pre-column row shape, so the frame reaching the grader carries no flag.
+    graded = graded_rows(_scores(["a", "b"]), _labels(["a", "b"], open_count=[1, 0]), head, pool=POOL_NAME)
+    assert graded["head_readable"].all()
+    (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
+    assert grade.readable
 
 
 def test_score_pool_builds_one_matrix_per_feature_set_and_shares_it():
@@ -1933,3 +2034,331 @@ def test_a_model_is_not_scored_without_the_side_input_its_set_reads():
     kept = models_with_extras(dagster.build_asset_context(), [tabular, embeddings], NO_EXTRAS)
 
     assert [model.model_name for model in kept] == [TABULAR_MODEL_NAME]
+
+
+def _serving_metadata(model_name: str, version: str, *, heads=("open", "action"), readable=True, **overrides):
+    return {
+        "model_name": model_name,
+        "model_version": version,
+        "heads": [{"head": head, "readable": readable, "file": f"{head}.ubj"} for head in heads],
+        **overrides,
+    }
+
+
+def _manifest_entry(model_name: str, version: str, *, roles, heads=("open",)):
+    key = model_key(model_name, version)
+    return ServingManifestEntry(
+        key=key,
+        model_name=model_name,
+        model_version=version,
+        model_kind=DEFAULT_MODEL_KIND,
+        roles=list(roles),
+        prefix=serving_model_prefix("inbox_ranking", key),
+        heads=list(heads),
+    )
+
+
+@pytest.mark.parametrize(
+    "models,message",
+    [
+        # The sweep reads the served score as `results[served_key]`, so each of these makes that
+        # expression ambiguous, empty or unresolvable at scoring time instead of at write time.
+        (
+            [
+                _manifest_entry(TABULAR_MODEL_NAME, "2026-08-19", roles=[SERVED_ROLE]),
+                _manifest_entry(EMBEDDINGS_MODEL_NAME, "2026-08-19", roles=[SERVED_ROLE]),
+            ],
+            "exactly one model",
+        ),
+        ([_manifest_entry(TABULAR_MODEL_NAME, "2026-08-19", roles=[CROSS_FAMILY_ROLE])], "exactly one model"),
+        (
+            [
+                _manifest_entry(TABULAR_MODEL_NAME, "2026-08-19", roles=[SERVED_ROLE]),
+                _manifest_entry(TABULAR_MODEL_NAME, "2026-08-19", roles=[CROSS_FAMILY_ROLE]),
+            ],
+            "must be unique",
+        ),
+        ([], "at least 1 item"),
+        (
+            [
+                _manifest_entry(TABULAR_MODEL_NAME, "2026-08-19", roles=[SERVED_ROLE]),
+                *(
+                    _manifest_entry(EMBEDDINGS_MODEL_NAME, f"2026-08-{day:02d}", roles=[CROSS_FAMILY_ROLE])
+                    for day in range(1, MAX_RANKING_MODEL_RESULTS + 1)
+                ),
+            ],
+            f"at most {MAX_RANKING_MODEL_RESULTS} items",
+        ),
+    ],
+)
+def test_a_manifest_the_sweep_could_not_act_on_is_refused(models, message):
+    with pytest.raises(ValidationError, match=message):
+        ServingManifest(manifest_version="2026-08-19T06:00:00+00:00", models=models)
+
+
+def test_a_manifest_entry_key_must_match_its_model():
+    # The key is the join between a manifest entry, a stored score and a model prefix. A key that
+    # names a different version sends the sweep to the wrong prefix and stores the wrong identity.
+    with pytest.raises(ValidationError, match="does not match its model"):
+        ServingManifestEntry(
+            key="tabular_xgb@2026-08-18",
+            model_name=TABULAR_MODEL_NAME,
+            model_version="2026-08-19",
+            model_kind=DEFAULT_MODEL_KIND,
+            roles=[SERVED_ROLE],
+            prefix="inbox_ranking/serving/models/tabular_xgb@2026-08-19",
+            heads=["open"],
+        )
+
+
+def _compose(families, served_family=EMBEDDINGS_MODEL_NAME):
+    return compose_manifest(
+        families,
+        served_family=served_family,
+        prefix="inbox_ranking",
+        now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+    )
+
+
+def test_no_champion_for_the_served_family_publishes_nothing():
+    # Until the first promotion no family has a champion. Composing a manifest off the day's
+    # candidate instead would move the served model every day without a promotion.
+    decision = _compose(
+        [
+            FamilyModels(
+                name=EMBEDDINGS_MODEL_NAME,
+                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
+                champion=None,
+            )
+        ]
+    )
+    assert decision.manifest is None
+    assert "no champion" in decision.reason
+
+
+def test_an_unregistered_served_family_publishes_nothing():
+    decision = _compose([], served_family="not_a_family")
+    assert decision.manifest is None
+    assert "not registered" in decision.reason
+
+
+@pytest.mark.parametrize(
+    "candidate_version,candidate_readable,expected_roles",
+    [
+        # A distinct, readable candidate is the paired read the sweep exists for.
+        ("2026-08-19", True, {SERVED_ROLE: "2026-08-15", DAILY_CANDIDATE_ROLE: "2026-08-19"}),
+        # The candidate at the champion's own version is the champion: a second entry for it would
+        # spend a result slot on a duplicate score.
+        ("2026-08-15", True, {SERVED_ROLE: "2026-08-15"}),
+        # An unreadable candidate has no holdout number to pair the champion against.
+        ("2026-08-19", False, {SERVED_ROLE: "2026-08-15"}),
+    ],
+)
+def test_the_served_family_candidate_is_paired_only_when_it_is_a_second_model(
+    candidate_version, candidate_readable, expected_roles
+):
+    decision = _compose(
+        [
+            FamilyModels(
+                name=EMBEDDINGS_MODEL_NAME,
+                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, candidate_version, readable=candidate_readable),
+                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+            )
+        ]
+    )
+    assert decision.manifest is not None
+    assert {entry.roles[0]: entry.model_version for entry in decision.manifest.models} == expected_roles
+
+
+def test_a_family_with_no_readable_head_is_left_out():
+    # The title family has no readable head today. A manifest lists only models a store can load
+    # and a reader can judge, so it must not gain an entry the sweep would score blind.
+    decision = _compose(
+        [
+            FamilyModels(
+                name=EMBEDDINGS_MODEL_NAME,
+                candidate=None,
+                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+            ),
+            FamilyModels(
+                name=TABULAR_MODEL_NAME, candidate=None, champion=_serving_metadata(TABULAR_MODEL_NAME, "2026-08-10")
+            ),
+            FamilyModels(
+                name=TITLE_EMBEDDINGS_MODEL_NAME,
+                candidate=None,
+                champion=_serving_metadata(TITLE_EMBEDDINGS_MODEL_NAME, "2026-08-12", readable=False),
+            ),
+        ]
+    )
+    assert decision.manifest is not None
+    assert [entry.model_name for entry in decision.manifest.models] == [EMBEDDINGS_MODEL_NAME, TABULAR_MODEL_NAME]
+
+
+def test_the_cap_drops_cross_family_entries_before_the_paired_read():
+    # `RankingScore` refuses a row over the cap, so the manifest is capped at the same number. The
+    # served entry and its paired candidate are the reads the sweep exists for.
+    families = [
+        FamilyModels(
+            name=EMBEDDINGS_MODEL_NAME,
+            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
+            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        ),
+        *(
+            FamilyModels(
+                name=f"family_{index}", candidate=None, champion=_serving_metadata(f"family_{index}", "2026-08-10")
+            )
+            for index in range(5)
+        ),
+    ]
+    decision = _compose(families)
+    assert decision.manifest is not None
+    assert [entry.roles[0] for entry in decision.manifest.models] == [
+        SERVED_ROLE,
+        DAILY_CANDIDATE_ROLE,
+        *[CROSS_FAMILY_ROLE] * (MAX_RANKING_MODEL_RESULTS - 2),
+    ]
+
+
+def test_a_model_published_before_model_kind_existed_reads_as_xgboost():
+    # Every champion promoted so far was written without the field; reading it as missing would
+    # leave the model store with nothing to dispatch on.
+    decision = _compose(
+        [
+            FamilyModels(
+                name=EMBEDDINGS_MODEL_NAME,
+                candidate=None,
+                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+            )
+        ]
+    )
+    assert decision.manifest is not None
+    assert decision.manifest.served.model_kind == DEFAULT_MODEL_KIND
+
+
+class _AppObjectStore:
+    """The deployment's object store, the one the Temporal workers can reach."""
+
+    def __init__(self, existing: dict[str, bytes] | None = None, fail_on: str | None = None):
+        self.objects = dict(existing or {})
+        self.fail_on = fail_on
+
+    def head_object(self, file_key: str, bucket: str | None = None):
+        return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
+
+    def write(self, file_name: str, content, extras: dict | None = None, bucket: str | None = None) -> None:
+        if self.fail_on is not None and self.fail_on in file_name:
+            raise RuntimeError("object store write failed")
+        self.objects[file_name] = content if isinstance(content, bytes) else content.encode()
+
+
+def _serving_dataset_s3(prefix: str, partition_key: str):
+    """The dataset bucket holding one champion and one candidate of the served family."""
+    objects: dict[str, bytes] = {}
+    for version, metadata in (
+        ("2026-08-15", _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))),
+        (partition_key, _serving_metadata(EMBEDDINGS_MODEL_NAME, partition_key, heads=("open",))),
+    ):
+        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
+        objects[folder + METADATA_FILE] = json.dumps(metadata).encode()
+        objects[folder + "open.ubj"] = f"booster-{version}".encode()
+    objects[champion_object_key(prefix, EMBEDDINGS_MODEL_NAME)] = json.dumps(
+        _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
+    ).encode()
+    return _ModelStoreS3(objects)
+
+
+def _run_serving_manifest(monkeypatch, store: _AppObjectStore, dataset_objects=None):
+    partition_key = "2026-08-19"
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    _patch_capture(monkeypatch, cloud=False, debug=False)
+    monkeypatch.setattr(settings, "INBOX_RANKING_SERVED_FAMILY", EMBEDDINGS_MODEL_NAME)
+    monkeypatch.setattr(
+        "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
+        (ModelFamily(name=EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),),
+    )
+    client = (
+        _ModelStoreS3(dataset_objects) if dataset_objects is not None else _serving_dataset_s3(prefix, partition_key)
+    )
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
+    monkeypatch.setattr("posthog.storage.object_storage.head_object", store.head_object)
+    monkeypatch.setattr("posthog.storage.object_storage.write", store.write)
+    _publish_manifest(dagster.build_asset_context(partition_key=partition_key), partition_key, "run-1")
+    return prefix
+
+
+def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifest_last(monkeypatch):
+    store = _AppObjectStore()
+    prefix = _run_serving_manifest(monkeypatch, store)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.served.key == model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
+    # Every entry the manifest names has its record and its booster in the store the sweep reads.
+    for entry in manifest.models:
+        assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
+        assert f"{entry.prefix}/open.ubj" in store.objects
+
+
+def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
+    # A model version is immutable, so re-copying it every day would move the boosters of every
+    # entry, one of which is 1536 columns wide, for no change.
+    champion_prefix = serving_model_prefix(
+        settings.INBOX_RANKING_DATASET_S3_PREFIX, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-15")
+    )
+    store = _AppObjectStore({f"{champion_prefix}/{METADATA_FILE}": b"already here"})
+    prefix = _run_serving_manifest(monkeypatch, store)
+
+    assert store.objects[f"{champion_prefix}/{METADATA_FILE}"] == b"already here"
+    assert f"{champion_prefix}/open.ubj" not in store.objects
+    # The day's candidate was not there, so it was copied and the manifest still names both.
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert len(manifest.models) == 2
+
+
+@pytest.mark.parametrize("fail_on,source_present", [("open.ubj", True), (None, False)])
+def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on, source_present):
+    # Writing the manifest before the copies finished would point the sweep at a model whose
+    # booster never arrived, which fails every report rather than leaving yesterday's order.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
+    store = _AppObjectStore({serving_manifest_key(prefix): previous}, fail_on=fail_on)
+    # Without the source objects the champion pointer still composes a manifest, and the copy then
+    # has nothing to read.
+    champion_only = {
+        champion_object_key(prefix, EMBEDDINGS_MODEL_NAME): json.dumps(
+            _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
+        ).encode()
+    }
+
+    with pytest.raises((dagster.Failure, RuntimeError)):
+        _run_serving_manifest(monkeypatch, store, dataset_objects=None if source_present else champion_only)
+
+    assert store.objects[serving_manifest_key(prefix)] == previous
+
+    store.fail_on = None
+    _run_serving_manifest(monkeypatch, store)
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    for entry in manifest.models:
+        assert store.objects[f"{entry.prefix}/open.ubj"] == f"booster-{entry.model_version}".encode()
+
+
+def test_no_manifest_is_written_when_the_served_family_has_no_champion(monkeypatch):
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-19", "")
+    store = _AppObjectStore()
+    _run_serving_manifest(
+        monkeypatch,
+        store,
+        dataset_objects={
+            folder + METADATA_FILE: json.dumps(_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19")).encode()
+        },
+    )
+    assert store.objects == {}
+
+
+def test_the_serving_prefix_layout_is_stable():
+    # The scoring sweep resolves these keys, so a change here is a change to the serving contract.
+    assert serving_manifest_key("inbox_ranking") == "inbox_ranking/serving/manifest.json"
+    assert (
+        serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
+        == "inbox_ranking/serving/models/report_embeddings@2026-08-19"
+    )

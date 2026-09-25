@@ -14,10 +14,10 @@ from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_err
 from ..utils import (
     COST_PER_UNIT,
     MAX_MEMORY,
-    HogVMException,
     HogVMMemoryExceededException,
     _compile_regex,
     _require_string,
+    _validate_regex_pattern,
     get_nested_value,
     like,
     regex_extract,
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
     minArgs: Optional[int] = None
@@ -51,6 +51,7 @@ class STLFunction:
     # Blocks the thread on time or I/O the VM's cooperative timeout can't interrupt, so callers
     # that run untrusted Hog on a request thread (e.g. HogQL placeholders) must refuse it.
     is_blocking: bool = False
+    memory_cost: Callable[[list[Any]], int] | None = None
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -124,7 +125,7 @@ def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
 
 def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
     if args[0] is None:
-        raise HogVMException("Can not call length on null")
+        return None
     return len(args[0])
 
 
@@ -300,7 +301,9 @@ def tryDecodeURLComponent(
         return None
 
 
-def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str | None:
+    if args[0] is None:
+        return None
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -310,7 +313,9 @@ def trim(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], t
     return args[0].strip(char)
 
 
-def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str | None:
+    if args[0] is None:
+        return None
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -320,7 +325,9 @@ def trimLeft(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
     return args[0].lstrip(char)
 
 
-def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
+def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str | None:
+    if args[0] is None:
+        return None
     char = str(args[1]) if len(args) > 1 and isinstance(args[1], str) else None
     if len(args) > 1:
         if char is None:
@@ -330,9 +337,11 @@ def trimRight(args: list[Any], team: Optional["Team"], stdout: Optional[list[str
     return args[0].rstrip(char)
 
 
-def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list:
+def splitByString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> list | None:
     separator = args[0]
     string = args[1]
+    if string is None:
+        return None
     if len(args) > 2 and args[2] is not None:
         parts = string.split(separator, args[2])
         if len(parts) > args[2]:
@@ -648,19 +657,19 @@ def equals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]],
 
 
 def greater(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] > args[1]
+    return args[0] is not None and args[1] is not None and args[0] > args[1]
 
 
 def greaterOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] >= args[1]
+    return args[0] is not None and args[1] is not None and args[0] >= args[1]
 
 
 def less(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] < args[1]
+    return args[0] is not None and args[1] is not None and args[0] < args[1]
 
 
 def lessOrEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    return args[0] <= args[1]
+    return args[0] is not None and args[1] is not None and args[0] <= args[1]
 
 
 def notEquals(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
@@ -877,6 +886,11 @@ def _guard_sequence_length(length: int) -> None:
         raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=(length + 1) * COST_PER_UNIT)
 
 
+def _range_memory_cost(args: list[Any]) -> int:
+    length = args[0] if len(args) == 1 else args[1] - args[0]
+    return (max(0, length) + 1) * COST_PER_UNIT
+
+
 def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # range(a,b) -> [a..b-1], range(x) -> [0..x-1]
     if len(args) == 1:
@@ -978,6 +992,7 @@ def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
         return False
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
+    _validate_regex_pattern(pattern)
     return _compile_regex(pattern).search(input_string) is not None
 
 
@@ -1013,8 +1028,12 @@ STL: dict[str, STLFunction] = {
     "lower": STLFunction(
         fn=lambda args, team, stdout, timeout: args[0].lower() if args[0] is not None else None, minArgs=1, maxArgs=1
     ),
-    "upper": STLFunction(fn=lambda args, team, stdout, timeout: args[0].upper(), minArgs=1, maxArgs=1),
-    "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
+    "upper": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0].upper() if args[0] is not None else None, minArgs=1, maxArgs=1
+    ),
+    "reverse": STLFunction(
+        fn=lambda args, team, stdout, timeout: args[0][::-1] if args[0] is not None else None, minArgs=1, maxArgs=1
+    ),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
     "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
     "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=2),
@@ -1028,10 +1047,14 @@ STL: dict[str, STLFunction] = {
     "decodeURLComponent": STLFunction(fn=decodeURLComponent, minArgs=1, maxArgs=1),
     "tryDecodeURLComponent": STLFunction(fn=tryDecodeURLComponent, minArgs=1, maxArgs=1),
     "replaceOne": STLFunction(
-        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1), minArgs=3, maxArgs=3
+        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2], 1) if args[0] is not None else None,
+        minArgs=3,
+        maxArgs=3,
     ),
     "replaceAll": STLFunction(
-        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]), minArgs=3, maxArgs=3
+        fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]) if args[0] is not None else None,
+        minArgs=3,
+        maxArgs=3,
     ),
     "position": STLFunction(
         fn=lambda args, team, stdout, timeout: (
@@ -1191,7 +1214,7 @@ STL: dict[str, STLFunction] = {
     "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
     "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
     "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
-    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
+    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2, memory_cost=_range_memory_cost),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=2),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
     "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),

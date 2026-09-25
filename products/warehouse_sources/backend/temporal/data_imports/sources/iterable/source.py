@@ -141,5 +141,5 @@ Make sure the data center below matches the one that issued your key (US or EU).
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

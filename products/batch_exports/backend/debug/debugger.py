@@ -16,6 +16,7 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
@@ -49,6 +50,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -100,6 +102,24 @@ class ColumnDebugStatistics:
 
 
 TableDebugStatistics = dict[str, ColumnDebugStatistics]
+
+
+def default_fields_for_destination(destination_type: str) -> list[BatchExportField]:
+    match destination_type:
+        case BatchExportDestination.Destination.AWS_S3 | BatchExportDestination.Destination.S3_COMPATIBLE:
+            return s3_default_fields()
+        case BatchExportDestination.Destination.SNOWFLAKE:
+            return snowflake_default_fields()
+        case BatchExportDestination.Destination.BIGQUERY:
+            return bigquery_default_fields()
+        case BatchExportDestination.Destination.POSTGRES:
+            return postgres_default_fields()
+        case BatchExportDestination.Destination.REDSHIFT:
+            return redshift_default_fields()
+        case BatchExportDestination.Destination.DATABRICKS:
+            return databricks_default_fields()
+        case t:
+            raise ValueError(f"Unsupported destination: {t}")
 
 
 class BatchExportsDebugger:
@@ -277,6 +297,7 @@ class BatchExportsDebugger:
                 name=self.batch_export.model or "events",
                 schema=self.batch_export.schema,
                 filters=self.batch_export.filters,
+                hogql_query=self.batch_export.hogql_query,
             ),
             integration_id=self.batch_export.destination.integration_id,
             **destination_config,
@@ -342,7 +363,13 @@ class BatchExportsDebugger:
         folder = get_base_s3_staging_folder(
             batch_export_run.parent.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
-            batch_export_run.data_interval_end.isoformat(),
+            batch_export_run.data_interval_end.isoformat() if batch_export_run.data_interval_end is not None else None,
+            run_id=(
+                str(batch_export_run.id)
+                if batch_export_run.batch_export_on_demand_id is not None
+                and (batch_export_run.data_interval_start is None or batch_export_run.data_interval_end is None)
+                else None
+            ),
         )
         file_selector = fs.FileSelector(
             base_dir=f"{settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET}/{folder}", recursive=True
@@ -387,21 +414,20 @@ class BatchExportsDebugger:
         self,
         batch_export_run: BatchExportRun,
     ) -> collections.abc.Generator[pa.RecordBatch]:
+        if batch_export_run.data_interval_end is None or (
+            batch_export_run.batch_export_on_demand_id is not None and batch_export_run.data_interval_start is None
+        ):
+            raise ValueError("Query debugging requires explicit interval bounds; inspect the run's S3 data instead")
         team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
-        parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}
-        if full_range[0]:
-            parameters["interval_start"] = full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f")
+        parameters: dict[str, typing.Any] = {
+            "team_id": team_id,
+            "interval_start": full_range[0].strftime("%Y-%m-%d %H:%M:%S.%f") if full_range[0] else None,
+            "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f"),
+        }
 
         extra_query_parameters: dict[str, str] = {}
         filters = batch_export_run.parent.filters
-
-        if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = compose_filters_clause(
-                filters, team_id=team_id, values=extra_query_parameters
-            )
-        else:
-            filters_str, extra_query_parameters = "", extra_query_parameters
 
         is_backfill = batch_export_run.backfill is not None
 
@@ -446,21 +472,7 @@ class BatchExportsDebugger:
                 )
                 parameters["lookback_days"] = lookback_days
 
-            match batch_export_run.parent.destination.type:
-                case BatchExportDestination.Destination.S3:
-                    fields = s3_default_fields()
-                case BatchExportDestination.Destination.SNOWFLAKE:
-                    fields = snowflake_default_fields()
-                case BatchExportDestination.Destination.BIGQUERY:
-                    fields = bigquery_default_fields()
-                case BatchExportDestination.Destination.POSTGRES:
-                    fields = postgres_default_fields()
-                case BatchExportDestination.Destination.REDSHIFT:
-                    fields = redshift_default_fields()
-                case BatchExportDestination.Destination.DATABRICKS:
-                    fields = databricks_default_fields()
-                case t:
-                    raise ValueError(f"Unsupported destination: {t}")
+            fields = default_fields_for_destination(batch_export_run.parent.destination.type)
 
             if "_inserted_at" not in [field["alias"] for field in fields]:
                 control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
@@ -469,10 +481,20 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if filters_str:
-                filters_str = f"AND {filters_str}"
+            native_source = query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id)
 
-            query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
+            filters_str = ""
+            if filters is not None and len(filters) > 0:
+                filters_str, extra_query_parameters = compose_filters_clause(
+                    filters, team_id=team_id, values=extra_query_parameters, native_events_source=native_source
+                )
+
+            if native_source:
+                query = native_events_export_query(query_fields, filters_str)
+            else:
+                if filters_str:
+                    filters_str = f"AND {filters_str}"
+                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
 
         parameters = {**parameters, **extra_query_parameters}
 

@@ -14,6 +14,8 @@ import type {
     AccessControlObjectRulesResponseApi,
     AccessControlPropertyRulesResponseApi,
     AccessControlRolesResponseApi,
+    MemberProjectAccessResponseApi,
+    MembersProjectAccessRetrieveParams,
     OrganizationsProjectsAccessControlMemberObjectsRetrieveParams,
     OrganizationsProjectsAccessControlMemberPropertiesRetrieveParams,
     OrganizationsProjectsAccessControlMembersRetrieveParams,
@@ -26,6 +28,39 @@ import type {
     PropertyAccessControlsDestroyParams,
     PropertyAccessControlsRetrieveParams,
 } from './api.schemas'
+
+export const getMembersProjectAccessRetrieveUrl = (
+    organizationId: string,
+    params?: MembersProjectAccessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/members/project_access/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/members/project_access/`
+}
+
+/**
+ * Every visible member's access to every project the caller can reach, with the rule behind it.
+ */
+export const membersProjectAccessRetrieve = async (
+    organizationId: string,
+    params?: MembersProjectAccessRetrieveParams,
+    options?: RequestInit
+): Promise<MemberProjectAccessResponseApi> => {
+    return apiMutator<MemberProjectAccessResponseApi>(getMembersProjectAccessRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getOrganizationsProjectsAccessControlDefaultObjectsRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/access_control_default_objects/`

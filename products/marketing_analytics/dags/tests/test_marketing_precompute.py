@@ -21,7 +21,6 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_conf
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 from products.marketing_analytics.dags.marketing_precompute import (
     COST_MATERIALIZATION_GRAINS,
-    DEFAULT_ROLLOUT_TEAM_IDS,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
@@ -30,8 +29,9 @@ from products.marketing_analytics.dags.marketing_precompute import (
     marketing_precompute_job,
 )
 
-_IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
+_ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_active_team_ids"
+_IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
@@ -122,19 +122,9 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == expected
 
     def test_env_set_empty_disables(self):
-        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
+        # The override wins even when empty — an explicit kill switch, regardless of configured teams.
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
-
-    @parameterized.expand(
-        [
-            ("cloud_uses_default_rollout", True, DEFAULT_ROLLOUT_TEAM_IDS),
-            ("off_cloud_is_empty", False, []),
-        ]
-    )
-    def test_unset_behavior_depends_on_cloud(self, _name, cloud, expected):
-        with patch(_IS_CLOUD, return_value=cloud), patch.dict(os.environ, {}, clear=False):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == expected
 
 
 class TestConversionWarming(APIBaseTest):
@@ -148,17 +138,79 @@ class TestConversionWarming(APIBaseTest):
             team.marketing_analytics_config.save()
         return team
 
+    @parameterized.expand([("cloud", True), ("self_hosted", False)])
+    def test_unset_audience_is_goal_teams_with_the_read_flag(self, _name, cloud):
+        # Reads are precompute-only for flagged teams, so the default audience must follow the flag.
+        flagged = self._make_team("flagged", goals=[_PRECOMPUTABLE_GOAL])
+        unflagged = self._make_team("unflagged", goals=[_PRECOMPUTABLE_GOAL])
+        flagged_no_goals = self._make_team("flagged_no_goals", goals=[])
+        flagged_uuids = {str(flagged.uuid), str(flagged_no_goals.uuid)}
+
+        def read_flag(flag, distinct_id, *args, **kwargs):
+            return flag == "marketing-analytics-precomputation" and distinct_id in flagged_uuids
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch(_IS_CLOUD, return_value=cloud),
+            patch(_FF, side_effect=read_flag) as feature_enabled,
+        ):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            selected = get_selected_team_ids()
+
+        assert selected == ([flagged.pk] if cloud else [])
+        assert unflagged.pk not in selected
+        # Picking an audience is not a read, so the scan evaluates the read flag alone and records no
+        # exposure. Otherwise every goal team looks exposed to three flags, every hour.
+        assert {call.args[0] for call in feature_enabled.call_args_list} <= {"marketing-analytics-precomputation"}
+        assert all(call.kwargs["send_feature_flag_events"] is False for call in feature_enabled.call_args_list)
+
+    def test_auto_audience_is_recently_active_teams_with_goals(self):
+        # The rolling warm set is bounded to the active population: a team must both have a conversion goal
+        # and have opened marketing analytics recently. A team with goals but no recent activity drops out
+        # (warmed on-demand on its next visit instead); a team with no goals is never in scope.
+        active = self._make_team("active", goals=[_PRECOMPUTABLE_GOAL])
+        inactive = self._make_team("inactive", goals=[_PRECOMPUTABLE_GOAL])
+        empty_goals = self._make_team("empty_goals", goals=[])
+
+        with (
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "auto"}),
+            patch(_ACTIVE, return_value={active.pk}),
+        ):
+            selected = get_selected_team_ids()
+
+        assert active.pk in selected
+        assert inactive.pk not in selected
+        assert empty_goals.pk not in selected
+
+    def test_auto_skips_the_run_when_activity_unknown(self):
+        # Warming every goal team on a query_log failure would be a fleet-wide backfill.
+        self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
+
+        with (
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "auto"}),
+            patch(_ACTIVE, return_value=None),
+        ):
+            selected = get_selected_team_ids()
+
+        assert selected == []
+
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_conversion_flag_off_skips_everything(self, ensure_mock):
+    def test_conversion_warming_is_decoupled_from_the_read_flag(self, ensure_mock):
+        # Warming is deliberately NOT gated on the read flag: we populate the precompute ahead of the flag
+        # so it can be validated, then flip reads. A team with a goal warms conversions even with the read
+        # flag off. Costs stay gated on their own flag (off here), so nothing costs-related warms.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         with (
             patch(_FF, _flag_fn(conversion=False, costs=False)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
-        ensure_mock.assert_not_called()
+        assert result["conversion_teams"] == 1
+        assert result["costs_teams"] == 0
+        tables = _tables(ensure_mock)
+        assert LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED in tables
+        assert LazyComputationTable.MARKETING_COSTS_PREAGGREGATED not in tables
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
@@ -237,6 +289,17 @@ class TestConversionWarming(APIBaseTest):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
         assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_pool_warms_every_team(self, ensure_mock):
+        # The parallel fan-out must process every team, not just the first — a pool that dropped teams
+        # would leave them cold. Three teams, each with a precomputable goal, must all warm.
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
+        ids = ",".join(str(team.pk) for team in teams)
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ids}):
+            result = ensure_marketing_precompute_op(dagster.build_op_context())
+        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)

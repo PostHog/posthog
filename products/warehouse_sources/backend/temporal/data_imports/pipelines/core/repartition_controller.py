@@ -72,6 +72,15 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # permanently-failing table doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Reasons `select_repartition_target` gives that describe the table instead of a defect: its data
+# carries no key to partition on, or its scheme is already as fine as that scheme goes. The
+# controller decided correctly in each case and nobody can act on the result, so these are counted
+# on DELTA_REPARTITION_SKIP_TOTAL and reported on `warehouse_repartition_skipped` but never sent to
+# error tracking. Every other reason means the schema row disagrees with itself (numerical mode with
+# no `partition_size`) or the selector saw a state the caller should have filtered out first
+# (`no_partitions`, `within_budget`), which is a bug in us, so it still alerts.
+EXPECTED_SKIP_REASONS = frozenset({"unpartitionable_no_keys", "datetime_at_finest_tier", "numerical_cannot_shrink"})
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
@@ -377,7 +386,7 @@ async def maybe_flag_for_repartition(
         # below). Refuse when that result would fall under the floor: partition size cannot be what is
         # killing a table whose partitions are already that small, and without this guard oom_history
         # drives the scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then
-        # emits a skipped event plus an exception on every cooldown expiry forever.
+        # re-measures and re-emits the skip on every cooldown expiry forever.
         split_budget = budget if over_budget else max(1, max_bytes // 2)
         floor = min_splittable_partition_bytes()
         if not over_budget and split_budget < floor:
@@ -492,10 +501,11 @@ async def maybe_flag_for_repartition(
                 partition_format=schema.partition_format,
                 partition_count=len(partition_bytes),
             )
-            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
+            if reason not in EXPECTED_SKIP_REASONS:
+                capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             # Engage the cooldown even though no rewrite happened: the trigger (over budget or repeated
             # OOMs) is still true next sync and the table's scheme can't go finer, so without this we
-            # re-measure, re-emit the skip event, and re-alert on every 5-minute sync forever. The
+            # re-measure and re-emit the skip event on every 5-minute sync forever. The
             # cooldown re-evaluates at most daily; a real change to the table clears it via a later
             # successful repartition.
             await asyncio.to_thread(schema.stamp_last_repartition_at)

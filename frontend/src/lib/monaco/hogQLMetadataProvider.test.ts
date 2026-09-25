@@ -15,6 +15,8 @@ describe('hogQLMetadataProvider', () => {
         return starts
     }
 
+    const MODEL_VERSION = 7
+
     const codeActionsAt = (
         markers: ModelMarker[],
         activeMarker: ModelMarker,
@@ -27,10 +29,10 @@ describe('hogQLMetadataProvider', () => {
                 isMounted: () => true,
                 values: { modelMarkers: markers, metadataLoading, markersAreStale },
             },
-            getVersionId: () => 7,
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 starts[lineNumber - 1] + column - 1,
             getValue: () => SCRIPT,
+            getVersionId: () => MODEL_VERSION,
         }
         const result = hogQLMetadataProvider().provideCodeActions?.(
             model as any,
@@ -43,6 +45,7 @@ describe('hogQLMetadataProvider', () => {
 
     interface languagesCodeAction {
         title: string
+        edit?: { edits: { versionId?: number }[] }
     }
 
     // `event = 'pageview'` sits in the second statement, so its line and column point past the first.
@@ -63,6 +66,7 @@ describe('hogQLMetadataProvider', () => {
         const actions = codeActionsAt([marker], marker)
 
         expect(actions.map((action) => action.title)).toEqual(["Replace with: '$pageview'"])
+        expect(actions[0].edit?.edits[0].versionId).toEqual(MODEL_VERSION)
     })
 
     it('offers nothing while the metadata reload is in flight', () => {

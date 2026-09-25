@@ -30,8 +30,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research': ['UserInterviews', 'userInterviews'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research/:id': ['UserInterview', 'userInterview'],
     },
     redirects: {

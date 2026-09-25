@@ -8,7 +8,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Literal
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 
 from posthog.models.comment import Comment
@@ -16,6 +16,12 @@ from posthog.models.comment import Comment
 from products.conversations.backend.models import Ticket
 
 HumanOutcome = Literal["used", "edited", "ignored"]
+
+
+class AiDraftHumanOutcome(models.TextChoices):
+    USED = "used", "used"
+    EDITED = "edited", "edited"
+
 
 # Near-copy of the draft counts as used; some overlap as edited; the rest as ignored.
 USED_RATIO = 0.85
@@ -29,6 +35,16 @@ def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
     if ratio >= EDITED_RATIO:
         return "edited"
     return "ignored"
+
+
+def _inserted_draft_text(ai_note: Comment) -> str:
+    context = ai_note.item_context or {}
+    if context.get("persist_as") not in {"clarification", "findings"}:
+        return ai_note.content or ""
+    questions = context.get("clarifying_questions")
+    if not isinstance(questions, list):
+        return ai_note.content or ""
+    return next((question.strip() for question in questions if isinstance(question, str) and question.strip()), "")
 
 
 def _ticket_comments(*, team_id: int, ticket_id: str) -> QuerySet[Comment]:
@@ -47,6 +63,33 @@ def _public_human_comments(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
+def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str, outcome: HumanOutcome) -> bool:
+    """Write `human_outcome` if unset, or upgrade `used` to `edited` after a composer edit."""
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
+        if ticket is None:
+            return False
+        latest_ai_draft_id = (
+            _ticket_comments(team_id=team_id, ticket_id=ticket_id)
+            .filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
+            .order_by("-created_at", "-id")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if latest_ai_draft_id is None or str(latest_ai_draft_id) != draft_message_id:
+            return False
+        triage = dict(ticket.ai_triage or {})
+        current = triage.get("human_outcome")
+        if current == outcome:
+            return True
+        if current and not (current == "used" and outcome == "edited"):
+            return False
+        triage["human_outcome"] = outcome
+        ticket.ai_triage = triage
+        ticket.save(update_fields=["ai_triage", "updated_at"])
+        return True
+
+
 def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str, human_content: str) -> None:
     """Set `ai_triage.human_outcome` on the first public human reply after the latest AI note."""
     if not human_content.strip():
@@ -57,8 +100,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if ticket is None:
             return
         triage = dict(ticket.ai_triage or {})
-        if triage.get("human_outcome"):
-            return
+        current = triage.get("human_outcome")
 
         comments = _ticket_comments(team_id=team_id, ticket_id=ticket_id)
         this_comment = comments.filter(id=comment_id).first()
@@ -71,7 +113,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         # Only private AI notes are drafts a human can adopt. A public AI reply was auto-sent
         # to the customer, so a later human reply is a follow-up, not adoption of a draft.
         ai_note = (
-            comments.filter(item_context__author_type="AI", item_context__is_private=True)
+            comments.filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
             .filter(before_this)
             .order_by("-created_at", "-id")
             .first()
@@ -84,6 +126,12 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if first_after is None or str(first_after.id) != str(comment_id):
             return
 
-        triage["human_outcome"] = classify_human_outcome(ai_note.content or "", human_content)
+        classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
+        if current == classified:
+            return
+        if current and current != "used":
+            return
+
+        triage["human_outcome"] = classified
         ticket.ai_triage = triage
         ticket.save(update_fields=["ai_triage", "updated_at"])

@@ -1,6 +1,7 @@
+import * as errorPng from '@posthog/brand/hoggies/png/error'
 import { IconWarning } from '@posthog/icons'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +12,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ErrorTrackingPreview } from './ErrorTrackingPreview'
 import { errorTrackingSetupLogic } from './errorTrackingSetupLogic'
 
+const HedgehogError = pngHoggie(errorPng)
+
 export const errorTrackingEmptyState: SceneProductEmptyState = {
     statusLogic: errorTrackingSetupLogic,
     config: {
@@ -19,7 +22,7 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
         icon: <IconWarning />,
         accentColor: 'var(--color-product-error-tracking-light)',
         accentColorDark: 'var(--color-product-error-tracking-dark)',
-        hedgehog: WarningHog,
+        hedgehog: HedgehogError,
         text: {
             'needs-setup': {
                 headline: 'Catch the errors your users actually hit',

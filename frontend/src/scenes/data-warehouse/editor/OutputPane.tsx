@@ -95,6 +95,7 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -631,9 +632,10 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         isEmbeddedMode,
         metadata,
         metadataLoading,
-        metadataIsStale,
+        indexReportStale,
     } = useValues(sqlEditorLogic)
-    const { setSourceQuery, applyQueryFix } = useActions(sqlEditorLogic)
+    const { setSourceQuery, applyQueryFix, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
+    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -957,8 +959,12 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 scans={metadata?.unpruned_scans ?? []}
-                refreshing={metadataLoading || metadataIsStale}
+                refreshing={metadataLoading}
+                stale={indexReportStale}
                 onApplyFix={applyQueryFix}
+                onApplyQuickfix={applyIndexQuickfix}
+                onFixWithAI={fixIndexUsageWithAI}
+                fixWithAILoading={fixWithAILoading}
             />
             {outputContent}
             <div className="flex justify-between px-2 border-t">

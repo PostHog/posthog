@@ -1104,25 +1104,19 @@ class TestProductYamlOwnersCheck:
 
     def test_invalid_slug_reported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-nonexistent\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert any("team-nonexistent" in i for i in result.issues)
 
     def test_valid_slug_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-real\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", {"team-real"})
-        monkeypatch.setattr(gh_module, "_fetch_err", "")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: ({"team-real"}, ""))
         result = owners_check.run(ctx)
         assert not result.issues
 
     def test_gh_unavailable_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = _make_yaml_ctx(tmp_path, "name: My product\nowners:\n  - team-foo\n")
-        monkeypatch.setattr(gh_module, "_fetch_attempted", True)
-        monkeypatch.setattr(gh_module, "_team_slugs", None)
-        monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
+        monkeypatch.setattr(gh_module, "get_team_slugs", lambda: (None, "gh CLI not found"))
         result = owners_check.run(ctx)
         assert result.issues
         assert any("gh CLI" in i for i in result.issues)
@@ -1175,9 +1169,15 @@ class TestImportSurfaceCheck:
     view there passes the contract vacuously. None of the fixtures below carry a marker."""
 
     def _ctx(
-        self, tmp_path: Path, files: dict[str, str], monkeypatch: pytest.MonkeyPatch, ignored=None
+        self,
+        tmp_path: Path,
+        files: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        ignored=None,
+        is_isolated: bool = True,
     ) -> CheckContext:
         ctx = _make_backend(tmp_path, list(files))
+        ctx.is_isolated = is_isolated
         for path, content in files.items():
             (ctx.backend_dir / path).write_text(content)
         monkeypatch.setattr(checks_module, "ignored_import_edges", lambda: set(ignored or ()))
@@ -1242,6 +1242,48 @@ class TestImportSurfaceCheck:
                 1,
                 id="webhook_consumers_from_facade_lookalike",
             ),
+            # A relative import names the same module as the absolute one, so every surface
+            # has to read both shapes alike.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_internals_relatively",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from . import services\n", "services/__init__.py": ""},
+                1,
+                id="webhook_consumers_from_internals_bare_relative",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from .facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="webhook_consumers_from_facade_relatively",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from ..services import thing\n", "services/thing.py": ""},
+                1,
+                id="presentation_from_internals_relatively",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from ..facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="presentation_from_facade_relatively",
+            ),
+            pytest.param(
+                {"routes.py": "from .presentation.views import V\n", "presentation/views.py": ""},
+                0,
+                id="routes_from_presentation_relatively",
+            ),
+            # Climbing out of backend/ leaves this check's tree, so the resolver must not
+            # report a module built from the leftover parts.
+            pytest.param(
+                {"presentation/views.py": "from ....other.backend.models import M\n"},
+                0,
+                id="relative_import_above_the_product",
+            ),
         ],
     )
     def test_surface(
@@ -1255,6 +1297,60 @@ class TestImportSurfaceCheck:
         edge = "products.p.backend.routes -> products.p.backend.api"
         ctx = self._ctx(tmp_path, files, monkeypatch, ignored={edge})
         assert ImportSurfaceCheck().run(ctx).issues == []
+
+    @pytest.mark.parametrize(
+        "files, should_run, expected",
+        [
+            # The ingress contract holds for any product that registers a consumer, sealed
+            # or not.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                True,
+                1,
+                id="unsealed_consumer_reaching_internals",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from .facade.api import f\n", "facade/api.py": ""},
+                True,
+                0,
+                id="unsealed_consumer_reaching_facade",
+            ),
+            # An unsealed product has no routes/presentation contract, so that layout stays
+            # its own business.
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from .facade.api import f\n",
+                    "facade/api.py": "",
+                    "routes.py": "from .api.views import V\n",
+                    "api/views.py": "",
+                },
+                True,
+                0,
+                id="unsealed_routes_stay_unchecked",
+            ),
+            pytest.param(
+                {"routes.py": "from .api.views import V\n", "api/views.py": ""},
+                False,
+                0,
+                id="unsealed_without_consumer_does_not_run",
+            ),
+        ],
+    )
+    def test_unsealed_product(
+        self,
+        tmp_path: Path,
+        files: dict[str, str],
+        should_run: bool,
+        expected: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = self._ctx(tmp_path, files, monkeypatch, is_isolated=False)
+        check = ImportSurfaceCheck()
+        assert check.should_run(ctx) is should_run
+        assert len(check.run(ctx).issues) == expected
 
 
 class TestFileFolderConflictsCheck:

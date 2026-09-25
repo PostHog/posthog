@@ -536,3 +536,14 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
         },
     },
 }
+
+// The subset that `renderColumn` applies to every DataTable in the app. A key here wins over the
+// core renderer for that column name everywhere, so only namespaced keys belong: a `$ai_` property,
+// or a name carrying the `__llm_` prefix. A plain name such as `person` would take the column over
+// in the events table and the persons list too. Scenes opt into the rest through their own
+// QueryContext, the way AIObservabilityTracesScene does.
+export const aiObservabilityGlobalColumnRenderers: Record<string, QueryContextColumn> = Object.fromEntries(
+    Object.entries(aiObservabilityColumnRenderers).filter(
+        ([key]) => key.startsWith('properties.$ai_') || key.startsWith('__llm_')
+    )
+)

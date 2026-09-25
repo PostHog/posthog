@@ -10,6 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     PAGE_SIZE,
+    TokenCheck,
     _redact_access_app,
     _redact_custom_hostname,
     _redact_healthcheck,
@@ -90,11 +91,22 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
+def _rejected_response(status_code: int, message: str | None = None, code: int = 1000) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+    error: dict[str, Any] = {"code": code}
+    if message is not None:
+        error["message"] = message
+    resp._content = json.dumps({"success": False, "errors": [error]}).encode()
+    return resp
+
+
 class TestValidateCredentials:
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_valid_on_verify_success(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response([], total_pages=1)
-        assert validate_credentials("token") == (True, 200)
+        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
 
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_invalid_when_success_false(self, mock_session) -> None:
@@ -102,19 +114,99 @@ class TestValidateCredentials:
         resp.status_code = 200
         resp._content = json.dumps({"success": False, "result": None}).encode()
         mock_session.return_value.get.return_value = resp
-        assert validate_credentials("token") == (False, 200)
+        assert validate_credentials("token") == TokenCheck(is_valid=False, status=200)
 
-    @pytest.mark.parametrize("status_code", [401, 403, 500])
+    @pytest.mark.parametrize("status_code", [401, 403])
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_invalid_on_error_status(self, mock_session, status_code) -> None:
         mock_session.return_value.get.return_value = _error_response(status_code)
         # The status flows back so the caller can tell a rejected token from a 5xx/unreachable one.
-        assert validate_credentials("token") == (False, status_code)
+        assert validate_credentials("token") == TokenCheck(is_valid=False, status=status_code)
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_transient_status_skips_the_fallback_probe(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _error_response(500)
+        assert validate_credentials("token") == TokenCheck(is_valid=False, status=500)
+        # A 5xx says nothing about the token, so probing twice more only delays the retry advice.
+        assert mock_session.return_value.get.call_count == 1
 
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_unreachable_on_exception(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") == (False, None)
+        assert validate_credentials("token") == TokenCheck(is_valid=False, status=None)
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_valid_when_verify_refuses_but_a_parent_list_reads(self, mock_session) -> None:
+        # An account-owned token can't be verified at /user/tokens/verify but can still sync.
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token"),
+            _response([{"id": "z1"}], total_pages=1),
+        ]
+        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_falls_through_to_the_second_parent_list(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token"),
+            _error_response(403),
+            _response([{"id": "a1"}], total_pages=1),
+        ]
+        assert validate_credentials("token") == TokenCheck(is_valid=True, status=200)
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_surfaces_cloudflare_reason_when_every_probe_fails(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token", code=1000),
+            _error_response(403),
+            _error_response(403),
+        ]
+        assert validate_credentials("token") == TokenCheck(
+            is_valid=False, status=400, reason="Invalid API Token (code 1000)"
+        )
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_reason_is_none_when_cloudflare_names_no_message(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, None),
+            _error_response(403),
+            _error_response(403),
+        ]
+        assert validate_credentials("token") == TokenCheck(is_valid=False, status=400)
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_probe_exception_leaves_the_question_open(self, mock_session) -> None:
+        # Verify's refusal decides nothing on its own, so two probes that never got an answer
+        # leave the token unjudged. Reporting it rejected would send someone off to rebuild a
+        # token that was fine.
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token"),
+            Exception("boom"),
+            Exception("boom"),
+        ]
+        check = validate_credentials("token")
+        assert check == TokenCheck(is_valid=False, status=None)
+        assert check.is_transient
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_rate_limited_probe_leaves_the_question_open(self, mock_session) -> None:
+        # A 429 on one parent says nothing about whether the other would have read.
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token"),
+            _error_response(429),
+            _error_response(403),
+        ]
+        check = validate_credentials("token")
+        assert check == TokenCheck(is_valid=False, status=429)
+        assert check.is_transient
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_definitive_probe_failures_are_not_transient(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = [
+            _rejected_response(400, "Invalid API Token"),
+            _error_response(403),
+            _error_response(403),
+        ]
+        assert validate_credentials("token").is_transient is False
 
 
 class TestPagination:

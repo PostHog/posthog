@@ -6,8 +6,8 @@ import math
 import time
 import threading
 import collections
-from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager
+from collections.abc import Callable, Generator, Iterator, Sequence
+from contextlib import _GeneratorContextManager, closing
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
@@ -144,7 +144,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
     # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
-    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # request with HTTP 429 ("HTTP driver received HTTP status 429 (for url <url>)").
     # A 429 is a transient "back off and retry" signal, not a config error.
     # clickhouse-connect already retries 429 for queries (query_retries), but
     # the probe it runs while constructing the client passes retries=0, so a
@@ -152,7 +152,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # retry here recovers the common transient burst. We match only 429; other
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
-    "returned response code 429",
+    "received HTTP status 429",
     # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
     # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
     # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
@@ -169,14 +169,14 @@ def _is_transient_connect_drop(error_message: str) -> bool:
 
 
 # clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
-# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# ("HTTP driver received HTTP status 429 (for url <url>)"), not a dropped connection:
 # the request reached the server (or a proxy in front of it) and it told us to
 # slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
 # often clears a short rate-limit burst; if it doesn't, the failing Temporal
 # activity stays retryable and recovers later. We match only 429 — other 4xx
 # response codes are deterministic (e.g. 404 stays non-retryable). Matching the
 # stable status phrase keeps the volatile per-request URL out of the comparison.
-_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "received HTTP status 429"
 
 # Backoff base between connect retries after a 429. Longer than the connect-drop
 # retry (which just re-dials) to give the rate limit room to clear.
@@ -1169,16 +1169,16 @@ def _get_incremental_row_count(
 
 
 # clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
-# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# proxy/LB in front of it) as `HTTP driver received HTTP status <N>`.
 # 429 (rate limited) and the transient gateway codes mean the endpoint can't
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
-    "returned response code 429",
-    "returned response code 502",
-    "returned response code 503",
-    "returned response code 504",
+    "received HTTP status 429",
+    "received HTTP status 502",
+    "received HTTP status 503",
+    "received HTTP status 504",
 )
 
 
@@ -1265,6 +1265,8 @@ _ARROW_UNSUPPORTED_PREFIXES: tuple[str, ...] = (
     "Nested(",
     "Variant(",
     "Object(",
+    "JSON(",
+    "Dynamic(",
 )
 
 
@@ -1393,6 +1395,97 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
         # memory, slow path degrades gracefully.
         "max_bytes_before_external_sort": 500 * 1024 * 1024,
     }
+
+
+# Some hosts serve the ClickHouse HTTP interface but not the ArrowStream output format, and the
+# rejection names the format: Tinybird answers with a 403 "invalid format ArrowStream", and a
+# ClickHouse build without Arrow support raises "Unknown format ArrowStream" (UNKNOWN_FORMAT).
+_ARROW_FORMAT_REJECTED_SUBSTRING = "format ArrowStream"
+
+
+def _is_arrow_format_rejected(message: str) -> bool:
+    return _ARROW_FORMAT_REJECTED_SUBSTRING in message
+
+
+_TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
+
+
+def _datetime64_precision(column: ClickHouseColumn) -> int | None:
+    inner, _ = _strip_type_modifiers(column.data_type)
+    match = _DATETIME64_RE.match(inner)
+    return int(match.group(1)) if match is not None else None
+
+
+def _ticks_to_timestamp(ticks: Sequence[Any], precision: int, timestamp_type: pa.TimestampType) -> pa.Array[Any]:
+    scale = 10 ** (_TIMESTAMP_UNIT_DIGITS[timestamp_type.unit] - precision)
+    if scale != 1:
+        ticks = [None if tick is None else tick * scale for tick in ticks]
+    return pa.array(ticks, type=pa.int64()).cast(timestamp_type)
+
+
+def _native_column_to_arrow(
+    values: Sequence[Any], field: pa.Field[pa.DataType], datetime64_precision: int | None
+) -> pa.Array[Any]:
+    if datetime64_precision is not None and isinstance(field.type, pa.TimestampType):
+        return _ticks_to_timestamp(values, datetime64_precision, field.type)
+    try:
+        return pa.array(values, type=field.type)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        # Types that `_build_select_list` does not cast with toString() but `to_arrow_field` maps to
+        # string (geo types, AggregateFunction states, ...) decode to Python tuples, lists or numbers.
+        if not pa.types.is_string(field.type):
+            raise
+        return pa.array([None if value is None else str(value) for value in values], type=pa.string())
+
+
+def _native_block_to_record_batch(
+    block: Sequence[Sequence[Any]], schema: pa.Schema, datetime64_precisions: list[int | None]
+) -> pa.RecordBatch:
+    return pa.RecordBatch.from_arrays(
+        [
+            _native_column_to_arrow(column, field, precision)
+            for column, field, precision in zip(block, schema, datetime64_precisions)
+        ],
+        schema=schema,
+    )
+
+
+def _stream_record_batches(
+    client: ClickHouseClient,
+    query: str,
+    parameters: dict[str, Any],
+    columns: list[ClickHouseColumn],
+    logger: FilteringBoundLogger,
+) -> Generator[pa.RecordBatch]:
+    """Stream the extraction query as one Arrow record batch per ClickHouse block.
+
+    ArrowStream is the fast path because the server builds the batches. When the host rejects that
+    format, we read the same query in the Native format, which every host that passed discovery
+    accepts because clickhouse-connect uses it for the metadata queries. Each Native block is
+    converted against the discovered schema. The host rejects the format before it sends any rows,
+    so the retry cannot duplicate data. Both paths hold one block (`max_block_size` rows) at a
+    time, plus the bounded HTTP read buffer of clickhouse-connect.
+    """
+    try:
+        arrow_stream = client.query_arrow_stream(query, parameters=parameters)
+    except ClickHouseError as e:
+        if not _is_arrow_format_rejected(str(e)):
+            raise
+        logger.warning("ClickHouse host rejected the ArrowStream format, reading in the Native format instead")
+        schema = pa.schema([column.to_arrow_field() for column in columns])
+        datetime64_precisions = [_datetime64_precision(column) for column in columns]
+        # Python datetimes stop at microseconds, so DateTime64 columns come back as integer ticks
+        # to keep the sub-microsecond digits of DateTime64(7..9).
+        column_formats: dict[str, str | dict[str, str]] = {
+            column.name: "int" for column, precision in zip(columns, datetime64_precisions) if precision is not None
+        }
+        with client.query_column_block_stream(query, parameters=parameters, column_formats=column_formats) as blocks:
+            for block in blocks:
+                yield _native_block_to_record_batch(block, schema, datetime64_precisions)
+        return
+
+    with arrow_stream as batches:
+        yield from batches
 
 
 def clickhouse_source(
@@ -1547,7 +1640,7 @@ def clickhouse_source(
 
                 logger.info(f"ClickHouse query: {query}")
 
-                # query_arrow_stream yields pa.RecordBatch chunks — one per
+                # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
                 # these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS pa.Tables
                 # before yielding, so the pipeline's Delta writer sees fewer,
@@ -1555,7 +1648,9 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
+                with closing(
+                    _stream_record_batches(stream_client, query, parameters, projected_columns, logger)
+                ) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue

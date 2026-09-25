@@ -661,15 +661,13 @@ export function createPiConversationTranslator(
     }
 
     if (event.type === "compaction_end") {
-      if (event.aborted || event.errorMessage) {
+      if (event.errorMessage && !event.aborted) {
         return [
           {
             type: "runtime_status",
             timestamp: latestConversationTimestamp,
             status: "compacting_failed",
-            error:
-              event.errorMessage ??
-              (event.aborted ? "Compaction cancelled" : undefined),
+            error: event.errorMessage,
           },
         ];
       }

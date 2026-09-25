@@ -37,9 +37,10 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
+
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 
 logger = structlog.get_logger(__name__)
 

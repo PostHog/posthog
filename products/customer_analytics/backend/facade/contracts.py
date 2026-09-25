@@ -59,9 +59,25 @@ class PinnedAccountProperty:
     id: UUID
 
 
+TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
+
+
+@dataclass(frozen=True)
+class TaskDigestPreferences:
+    """One user's task digest email preferences for one project.
+
+    ``send_time`` is HH:MM in the project timezone.
+    """
+
+    enabled: bool = False
+    send_time: str = "09:00"
+    cadence: Literal["weekdays", "every_day"] = "weekdays"
+
+
 @dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+    task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
 
 
 RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]

@@ -8,6 +8,7 @@ import {
     HogQLFixEdit,
     PredicateIndexUsage,
     PredicateIndexVerdict,
+    PredicateQuickfix,
     UnprunedTableScan,
 } from '~/queries/schema/schema-general'
 
@@ -50,14 +51,23 @@ interface QueryIndexUsageBarProps {
     scans: UnprunedTableScan[]
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
+    /** The report does not describe the text the editor holds, so its offsets would land elsewhere. */
+    stale?: boolean
     onApplyFix?: (edits: HogQLFixEdit[]) => void
+    onApplyQuickfix?: (quickfix: PredicateQuickfix) => void
+    onFixWithAI?: (prompt: string) => void
+    fixWithAILoading?: boolean
 }
 
 export function QueryIndexUsageBar({
     predicates,
     scans,
     refreshing,
+    stale,
     onApplyFix,
+    onApplyQuickfix,
+    onFixWithAI,
+    fixWithAILoading,
 }: QueryIndexUsageBarProps): JSX.Element | null {
     if (predicates.length === 0 && scans.length === 0) {
         return null
@@ -87,8 +97,17 @@ export function QueryIndexUsageBar({
                     content: (
                         <>
                             {/* A stale report carries offsets into text the editor no longer holds, so the fix waits for the refresh. */}
-                            <UnprunedScanNotice scans={scans} onApplyFix={refreshing ? undefined : onApplyFix} />
-                            <QueryIndexUsageTable predicates={predicates} />
+                            <UnprunedScanNotice
+                                scans={scans}
+                                onApplyFix={refreshing || stale ? undefined : onApplyFix}
+                            />
+                            <QueryIndexUsageTable
+                                predicates={predicates}
+                                stale={stale}
+                                onApplyQuickfix={onApplyQuickfix}
+                                onFixWithAI={onFixWithAI}
+                                fixWithAILoading={fixWithAILoading}
+                            />
                         </>
                     ),
                 },

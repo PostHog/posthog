@@ -41,9 +41,9 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
-import { codePointOffsetToUtf16 } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
+import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -75,6 +75,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    PredicateQuickfix,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -86,7 +87,7 @@ import {
     DataWarehouseSavedQueryIncremental,
     DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -281,7 +282,7 @@ export interface QueryTab {
     name: string
     description?: string
     sourceQuery?: DataVisualizationNode
-    insight?: QueryBasedInsightModel
+    insight?: InsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
     metricName?: string
@@ -386,7 +387,7 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
 }
 
 export function toDataVisualizationNode(
-    query: QueryBasedInsightModel['query'] | null | undefined
+    query: InsightModel['query'] | null | undefined
 ): DataVisualizationNode | undefined {
     if (!query) {
         return undefined
@@ -548,8 +549,8 @@ function applyUndoableRangedEdits(
         [],
         edits.map((edit) => {
             // Offsets index the metadata query, which is one statement of a multi-statement script.
-            const start = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.start) + offset)
-            const end = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.end) + offset)
+            const start = model.getPositionAt(characterOffsetToUtf16(queryText, edit.start) + offset)
+            const end = model.getPositionAt(characterOffsetToUtf16(queryText, edit.end) + offset)
             return {
                 range: {
                     startLineNumber: start.lineNumber,
@@ -606,7 +607,7 @@ export interface sqlEditorLogicValues {
     dataLogicKey: string
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
-    editingInsight: QueryBasedInsightModel | null
+    editingInsight: InsightModel | null
     editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
@@ -621,6 +622,7 @@ export interface sqlEditorLogicValues {
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
+    indexReportStale: boolean
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
@@ -631,8 +633,6 @@ export interface sqlEditorLogicValues {
     materializationModalOpen: boolean
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
-    metadataAnalyzedQuery: string | null
-    metadataIsStale: boolean
     metadataLoading: boolean
     metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
@@ -823,6 +823,9 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
+    applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
+        quickfix: PredicateQuickfix
+    }
     applyQueryFix: (edits: HogQLFixEdit[]) => {
         edits: HogQLFixEdit[]
     }
@@ -838,14 +841,14 @@ export interface sqlEditorLogicActions {
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
-        insight?: QueryBasedInsightModel,
+        insight?: InsightModel,
         draft?: DataWarehouseSavedQueryDraft,
         metricName?: string,
         biEditorState?: BIEditorState
     ) => {
         biEditorState: BIEditorState | undefined
         draft: DataWarehouseSavedQueryDraft | undefined
-        insight: QueryBasedInsightModel<Node<Record<string, any>>> | undefined
+        insight: InsightModel<Node<Record<string, any>>> | undefined
         metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
@@ -858,11 +861,11 @@ export interface sqlEditorLogicActions {
     }
     editInsight: (
         query: string,
-        insight: QueryBasedInsightModel,
+        insight: InsightModel,
         biEditorState?: BIEditorState
     ) => {
         biEditorState: BIEditorState | undefined
-        insight: QueryBasedInsightModel<Node<Record<string, any>>>
+        insight: InsightModel<Node<Record<string, any>>>
         query: string
     }
     editView: (
@@ -876,6 +879,9 @@ export interface sqlEditorLogicActions {
     }
     enforceConnectionRawQueryMode: () => {
         value: true
+    }
+    fixIndexUsageWithAI: (prompt: string) => {
+        prompt: string
     }
     initialize: () => {
         value: true
@@ -1084,11 +1090,7 @@ export interface sqlEditorLogicActions {
     setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => {
         view: DataWarehouseSavedQuery | null
     }
-    setMetadata: (
-        metadata: HogQLMetadataResponse | null,
-        analyzedQuery: string | null
-    ) => {
-        analyzedQuery: string | null
+    setMetadata: (metadata: HogQLMetadataResponse | null) => {
         metadata: HogQLMetadataResponse | null
     }
     setMetadataLoading: (loading: boolean) => {
@@ -1162,11 +1164,6 @@ export interface sqlEditorLogicActions {
 export interface sqlEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        metadataIsStale: (
-            metadataAnalyzedQuery: string | null,
-            activeQueryText: string | null,
-            queryInput: string | null
-        ) => boolean
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
         ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
@@ -1204,6 +1201,13 @@ export interface sqlEditorLogicMeta {
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
+        indexReportStale: (
+            metadata: HogQLMetadataResponse | null,
+            activeQueryText: string | null,
+            queryInput: string | null,
+            suggestedQueryInput: string,
+            metadataLoading: boolean
+        ) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -1310,7 +1314,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
-            insight?: QueryBasedInsightModel,
+            insight?: InsightModel,
             draft?: DataWarehouseSavedQueryDraft,
             metricName?: string,
             biEditorState?: BIEditorState
@@ -1380,10 +1384,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
-        setMetadata: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => ({
-            metadata,
-            analyzedQuery,
-        }),
+        setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
@@ -1395,7 +1396,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
             biEditorState,
         }),
-        editInsight: (query: string, insight: QueryBasedInsightModel, biEditorState?: BIEditorState) => ({
+        editInsight: (query: string, insight: InsightModel, biEditorState?: BIEditorState) => ({
             query,
             insight,
             biEditorState,
@@ -1456,6 +1457,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
+        fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         applyQueryFix: (edits: HogQLFixEdit[]) => ({ edits }),
         runSubquery: true,
@@ -1666,7 +1669,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         editingInsight: [
-            null as QueryBasedInsightModel | null,
+            null as InsightModel | null,
             {
                 updateTab: (_, { tab }) => tab.insight ?? null,
             },
@@ -1719,12 +1722,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as HogQLMetadataResponse | null,
             {
                 setMetadata: (_, { metadata }) => metadata,
-            },
-        ],
-        metadataAnalyzedQuery: [
-            null as string | null,
-            {
-                setMetadata: (_, { analyzedQuery }) => analyzedQuery,
             },
         ],
         editorKey: [`hogql-editor-${props.tabId}`, {}],
@@ -1833,6 +1830,66 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
             },
+            applyIndexQuickfix: ({ quickfix }) => {
+                const editor = props.editor
+                const model = editor?.getModel()
+                if (!editor || !model) {
+                    return
+                }
+                // The offsets describe the SQL the server analyzed. Once the text has moved on they
+                // would land the edit somewhere else, so wait for the next report instead of guessing.
+                if (values.indexReportStale) {
+                    return
+                }
+                // The offsets count characters; Monaco counts UTF-16 units. Convert against the
+                // analyzed statement before adding its offset, which the editor already measures
+                // in Monaco's units.
+                const analyzed = values.activeQueryText ?? (values.suggestedQueryInput || values.queryInput) ?? ''
+                // The model is the authority on what is being edited, and it is not always the text
+                // the report describes: with a suggestion open, `props.editor` is the diff's modified
+                // editor holding the suggested query while the offsets index the text behind it.
+                // Splicing there would corrupt the suggestion, so confirm the analyzed text is still
+                // sitting where the offsets say before writing anything.
+                if (
+                    model.getValue().slice(values.activeQueryOffset, values.activeQueryOffset + analyzed.length) !==
+                    analyzed
+                ) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
+                const start = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.start) + values.activeQueryOffset
+                )
+                const end = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.end) + values.activeQueryOffset
+                )
+                editor.executeEdits('index-quickfix', [
+                    {
+                        range: {
+                            startLineNumber: start.lineNumber,
+                            startColumn: start.column,
+                            endLineNumber: end.lineNumber,
+                            endColumn: end.column,
+                        },
+                        text: quickfix.text,
+                    },
+                ])
+                posthog.capture('sql-editor-index-quickfix-applied')
+            },
+            fixIndexUsageWithAI: ({ prompt }) => {
+                // The prompt names a filter the server found in the text it analyzed. Sending it with
+                // newer text asks for a rewrite of a filter that may no longer be there. The editor
+                // lightbulb can still offer the action in that window, so the guard lives here rather
+                // than only on the table button, and it says why instead of doing nothing.
+                if (values.indexReportStale) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
+                // The error fixer takes free text as its "error", so an index instruction rides the
+                // same suggestion flow and lands as a reviewable diff rather than a silent rewrite.
+                actions.fixErrors(values.queryInput ?? '', prompt, values.selectedConnectionId)
+                posthog.capture('sql-editor-index-fix-with-ai')
+            },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor
                 if (!editor) {
@@ -1911,7 +1968,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload(null)
             },
             applyQueryFix: ({ edits }) => {
-                if (values.metadataIsStale) {
+                // The edits carry offsets into the SQL the server analyzed, so they only land on the
+                // right span while the editor still holds that text.
+                if (values.indexReportStale) {
                     return
                 }
                 // Embedded mode has no tabs, so the model is reached by the path QueryWindow binds
@@ -2840,7 +2899,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const insightDescription = values.activeTab?.description
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
-                const insightRequest: Partial<QueryBasedInsightModel> = {
+                const insightRequest: Partial<InsightModel> = {
                     name: insightName ?? values.editingInsight.name,
                     description: insightDescription ?? values.editingInsight.description ?? '',
                     query: currentVisualizationQuery,
@@ -2857,7 +2916,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
                 }
 
-                let savedInsight: QueryBasedInsightModel
+                let savedInsight: InsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
                 } catch (e) {
@@ -3205,14 +3264,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
     })),
     selectors({
-        // A fix carries offsets into the statement the metadata described. A failed reload leaves the
-        // previous response in place while metadataLoading returns to false, so the text can move on
-        // without the response following it. Applying those offsets to changed text edits the wrong span.
-        metadataIsStale: [
-            (s) => [s.metadataAnalyzedQuery, s.activeQueryText, s.queryInput],
-            (metadataAnalyzedQuery: string | null, activeQueryText: string | null, queryInput: string | null) =>
-                metadataAnalyzedQuery === null || metadataAnalyzedQuery !== (activeQueryText ?? queryInput ?? ''),
-        ],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload: SuggestionPayload | null) => {
@@ -3366,6 +3417,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
+        // A quickfix carries character offsets into the SQL the server analyzed, so it can only be
+        // applied while the editor still holds that exact text. The comparison mirrors the fallback
+        // in `codeEditorLogic`, which analyzes the whole editor text whenever there is no active
+        // statement; comparing against the active statement alone reads as stale forever there.
+        indexReportStale: [
+            (s) => [s.metadata, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
+            (
+                metadata: HogQLMetadataResponse | null,
+                activeQueryText: string | null,
+                queryInput: string | null,
+                suggestedQueryInput: string,
+                metadataLoading: boolean
+            ) => metadataLoading || metadata?.query !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
+        ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
@@ -3643,7 +3708,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     // Open Insight
                     actions.setInsightLoading(true)
-                    let insight: QueryBasedInsightModel | null
+                    let insight: InsightModel | null
                     try {
                         insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     } catch {

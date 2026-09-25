@@ -15,6 +15,7 @@ Marking a draft ready does not approve or merge it. Existing merge checks still 
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
+The suggested reviewer views show each reviewer source and reason. Reviewers with the same reason appear in one compact group.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.
@@ -35,12 +36,26 @@ Older servers that omit either field use cached task details instead. The cache 
 The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
 A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
+Select Self-driving in the navigation rail during triage to return to the report list and open its sidebar.
+From an open report, the same control opens the sidebar and focuses its search without closing the report.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then hover over Scope.
 Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
+
+## Mobile report tasks
+
+Discuss starts a discussion task and forwards the question to the report's scout.
+Create PR starts an implementation task. Both actions use the report's repository and team GitHub integration, resolved by the server.
+The mobile report composer does not require a personal GitHub connection or offer a repository picker.
+If cloud startup fails after task creation, retrying in the same composer or triage view starts the existing task instead of creating another task.
+Triage resets the swiped card if configuration is not ready or task startup fails.
+An ordinary new task still requires a repository from the user's GitHub integration.
+
+The report detail and triage views use the same implementation prompt. The agent fetches the report and checks for an existing PR before starting new work.
+Triage advances only after the cloud run starts. A failed submission keeps the report available and shows the error.
 
 ## Storybook previews
 

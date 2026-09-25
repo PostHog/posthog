@@ -19,8 +19,6 @@ from products.ai_training.backend.models import AITrainingDeletionRequest
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
-# Readers may use a key for this long after they read it, so deletion completes only after the lease has run out.
-KEY_READ_LEASE_SECONDS = 300
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
@@ -83,11 +81,6 @@ class AITrainingPrivacyStore:
         )
         return cls(cast(PrivacyDynamoClient, client), key_table_name())
 
-    def block(self, team_id: int) -> None:
-        self.client.put_item(
-            TableName=self.table_name, Item={**item_key(f"team:{team_id}", "deleted"), "deleted": {"BOOL": True}}
-        )
-
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
@@ -143,12 +136,20 @@ class AITrainingPrivacyStore:
                 ]
             )
 
+    # A sweep reaches only an image key that already exists, so a team that keeps sending would open a month the sweep never saw. Ingestion admits a session up to ML_SESSION_MAX_AGE_DAYS old, which is inside one month, so these three are every month a later session can still open. An update creates the row, so each one closes whether or not it holds a key.
+    def shred_reachable_months(self, team_id: int) -> None:
+        now = timezone.now()
+        current = f"{now:%Y-%m}"
+        previous = f"{datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1):%Y-%m}"
+        months = (previous, current, f"{month_end(current):%Y-%m}")
+        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in months])
+
     def initialize(self, request: AITrainingDeletionRequest) -> list[DeletionWork]:
         if request.team_id is None:
             raise ValueError("AI training deletion request has no team")
         team_id = request.team_id
         if request.kind == "team":
-            self.block(team_id)
+            self.shred_reachable_months(team_id)
             return [{"op": "team", "team_id": team_id, "shard": -1}]
         if request.kind == "session":
             self.shred([session_key(team_id, value) for value in request.identifiers])
@@ -182,18 +183,8 @@ class AITrainingPrivacyStore:
                 return False
             work = self.advance(work[0]) + work[1:]
             self.save_cursor(request, work=work)
-        now = timezone.now()
-        complete_after = request.cursor.get("complete_after")
-        if complete_after is None:
-            self.save_cursor(request, work=[], complete_after=now.timestamp() + KEY_READ_LEASE_SECONDS)
-            return False
-        if now.timestamp() < complete_after:
-            return False
-        # Key creation checks the team block only when it reads the batch, so a batch that read before the block can still store a key within its commit budget; the lease outlasts that budget, so one more sweep after it catches every straggler.
-        if request.kind == "team" and not request.cursor.get("reswept"):
-            self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
-            return self.apply(request, deadline)
-        request.completed_at = now
+        # A key that a batch stores after the sweep passes its shard is sealed under a month key this deletion already tombstoned, so a second sweep finds nothing that is readable. The sweep removes rows to save cost. See products/ai_training/docs/replay-data.md.
+        request.completed_at = timezone.now()
         request.identifiers = []
         request.save(update_fields=["completed_at", "identifiers"])
         return True
@@ -226,9 +217,6 @@ class AITrainingPrivacyStore:
                 logger.exception("ai_training_deletion_request_failed", request_id=str(request.pk), kind=request.kind)
                 request.leased_until = timezone.now() + timedelta(minutes=5)
             else:
-                request.leased_until = max(
-                    timezone.now(),
-                    datetime.fromtimestamp(request.cursor.get("complete_after", 0), tz=timezone.get_current_timezone()),
-                )
+                request.leased_until = timezone.now()
             request.save(update_fields=["leased_until"])
         return completed

@@ -26,26 +26,11 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../logic/featureFlagLogic'
+import { characterOffsetToUtf16 } from './offsets'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
-
-/**
- * Translate a backend offset into a Monaco offset.
- *
- * Parser offsets count Unicode code points; Monaco counts UTF-16 code units. Any character outside the
- * BMP, such as an emoji in a string literal, makes the two diverge and lands an edit mid-token.
- */
-export function codePointOffsetToUtf16(text: string, codePointOffset: number): number {
-    let utf16 = 0
-    let codePoints = 0
-    while (codePoints < codePointOffset && utf16 < text.length) {
-        utf16 += (text.codePointAt(utf16) ?? 0) > 0xffff ? 2 : 1
-        codePoints += 1
-    }
-    return utf16
-}
 
 export interface ModelMarkerFixAction {
     title: string
@@ -77,7 +62,7 @@ export function noticeToMarker(notice: HogQLNotice, severity: MarkerSeverity, pl
     // The backend counts code points and Monaco counts UTF-16 units, so convert before adding the
     // statement offset, which Monaco already counts in UTF-16.
     const documentPositionAt = (codePointOffset: number): IPosition =>
-        positionAt(codePointOffsetToUtf16(query, codePointOffset) + markerOffset)
+        positionAt(characterOffsetToUtf16(query, codePointOffset) + markerOffset)
     const start = documentPositionAt(notice.start ?? 0)
     const end = documentPositionAt(notice.end ?? query.length)
     return {
@@ -149,8 +134,7 @@ export interface CodeEditorLogicProps {
     onError?: (error: string | null) => void
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
-    /** `analyzedQuery` is the exact text the response describes, so a caller can detect a stale response. */
-    onMetadata?: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => void
+    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
 }
@@ -261,13 +245,13 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 reloadMetadata: async (_, breakpoint) => {
                     const model = props.editor?.getModel()
                     if (!model || !props.monaco || !METADATA_LANGUAGES.includes(props.language as HogLanguage)) {
-                        props.onMetadata?.(null, null)
+                        props.onMetadata?.(null)
                         return null
                     }
                     await breakpoint(300)
                     const query = analyzedQueryFor(props)
                     if (query === '') {
-                        props.onMetadata?.(null, null)
+                        props.onMetadata?.(null)
                         return null
                     }
 
@@ -298,7 +282,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         )
                     )
                     breakpoint()
-                    props.onMetadata?.(response, query)
+                    props.onMetadata?.(response)
                     return [query, response]
                 },
             },

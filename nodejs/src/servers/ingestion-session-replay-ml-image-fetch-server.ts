@@ -167,6 +167,13 @@ export function buildImageFetchConsumerConfigs(
     }))
 }
 
+export function imageFetchBatchesPerPass(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    consumerCount: number
+): number {
+    return config.SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES ? consumerCount : 1
+}
+
 export function buildImageFetchConsumerOverrides(
     config: IngestionSessionReplayMlMirrorServerConfig,
     consumerCount: number
@@ -292,8 +299,9 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
-        const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
-            fetchConsumer.handleBatch(messages, Date.now())
+        const batchJoiner = new ImageFetchBatchJoiner(
+            imageFetchBatchesPerPass(this.config, consumerConfigs.length),
+            (messages) => fetchConsumer.handleBatch(messages, Date.now())
         )
         const consumerOverrides = buildImageFetchConsumerOverrides(this.config, consumerConfigs.length)
         const consumers = consumerConfigs.map(

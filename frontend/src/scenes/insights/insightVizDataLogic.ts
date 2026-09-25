@@ -20,9 +20,11 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -106,6 +108,7 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -332,6 +335,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -363,6 +367,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // insightDataLogic
@@ -2246,7 +2251,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     (formula && !formulas) ||
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
-                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
+                return (
+                    !hasBreakdownFilter(breakdownFilter) &&
+                    ((isTrends && hasSingleFormula) || (series || []).length <= 1)
+                )
             },
         ],
         isBreakdownSeries: [
@@ -2646,6 +2654,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (isInsightVizNode(query)) {
                 if (props.setQuery) {
                     props.setQuery(query)
+                }
+            }
+            // While a PostHog AI suggestion is under review the query is either the suggestion
+            // itself or, after a reject, the query from before it. Any other query means the
+            // reader edited the suggestion by hand, and a reject from then on would revert
+            // their edit together with the suggestion.
+            const mountedInsightLogic = insightLogic.findMounted(props)
+            if (mountedInsightLogic) {
+                const { previousQuery, suggestedQuery } = mountedInsightLogic.values
+                if (previousQuery && !objectsEqual(query, suggestedQuery) && !objectsEqual(query, previousQuery)) {
+                    mountedInsightLogic.actions.onKeepSuggestedInsight()
                 }
             }
         },

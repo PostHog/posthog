@@ -26,7 +26,7 @@ describe("isPostHogExecTool", () => {
 describe("getPostHogExecDisplay", () => {
   it("collapses `call <tool>` to the bare sub-tool label", () => {
     expect(getPostHogExecDisplay({ command: "call experiment-list" })).toEqual({
-      label: "experiment-list",
+      label: "List experiment",
       input: undefined,
     });
   });
@@ -37,7 +37,7 @@ describe("getPostHogExecDisplay", () => {
         command: 'call execute-sql {"query":"SELECT 1"}',
       }),
     ).toEqual({
-      label: "execute-sql",
+      label: "Execute sql",
       input: '{"query":"SELECT 1"}',
     });
   });
@@ -45,6 +45,13 @@ describe("getPostHogExecDisplay", () => {
   it("formats `info <tool>` with no args", () => {
     expect(getPostHogExecDisplay({ command: "info execute-sql" })).toEqual({
       label: "Read execute-sql",
+      input: undefined,
+    });
+  });
+
+  it("does not infer an action from an unknown `all` suffix", () => {
+    expect(getPostHogExecDisplay({ command: "call foo-bar-all" })).toEqual({
+      label: "Foo bar all",
       input: undefined,
     });
   });
@@ -81,7 +88,7 @@ describe("getPostHogExecDisplay", () => {
         input: { query: "SELECT 1" },
       }),
     ).toEqual({
-      label: "execute-sql",
+      label: "Execute sql",
       input: '{"query":"SELECT 1"}',
     });
   });

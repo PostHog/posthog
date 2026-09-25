@@ -118,11 +118,10 @@ export function QueryWindow({
         setSendRawQuery,
         openMaterializationModal,
         setSourceQuery,
-        fixErrors,
     } = useActions(logic)
     const { setEditorView } = useActions(biLogic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
@@ -380,8 +379,7 @@ export function QueryWindow({
                         indexUsage: true,
                         // Markers carry an `ai_prompt:` fix, which Monaco turns into a "Fix with AI"
                         // action. Without this the action renders and does nothing.
-                        onFixWithAI: (prompt: string) =>
-                            fixErrors(queryInput ?? '', prompt, selectedConnectionId ?? undefined),
+                        onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -411,8 +409,8 @@ export function QueryWindow({
                         onError: (error) => {
                             setError(error)
                         },
-                        onMetadata: (metadata, analyzedQuery) => {
-                            setMetadata(metadata, analyzedQuery)
+                        onMetadata: (metadata) => {
+                            setMetadata(metadata)
                         },
                         onMetadataLoading: (loading) => {
                             setMetadataLoading(loading)

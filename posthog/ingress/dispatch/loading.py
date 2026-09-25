@@ -5,6 +5,7 @@ path, which `posthog/test/repo_invariants/test_startup_import_budget.py` exists 
 clear -- a shell, a migrate and every Celery worker would pay for it.
 """
 
+import importlib
 from collections.abc import Sequence
 from functools import lru_cache
 
@@ -16,6 +17,27 @@ from posthog.products import load_product_modules
 
 PRODUCT_CONSUMER_MODULE = "webhook_consumers"
 PRODUCT_CONSUMER_ATTRIBUTE = "WEBHOOK_CONSUMERS"
+
+# `ee/` is not a product, so `load_product_modules` never finds it. The modules it declares
+# consumers in are named here instead, and a build without `ee/` simply has none of them.
+NON_PRODUCT_CONSUMER_MODULES = ("ee.api.vercel.webhook_consumers",)
+
+
+def non_product_consumers() -> list[WebhookConsumer]:
+    """Consumers declared outside `products/`, by a tree core knows by name."""
+    consumers: list[WebhookConsumer] = []
+    for module_name in NON_PRODUCT_CONSUMER_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as error:
+            # Only the tree being absent is a reason to skip. A broken import inside the module
+            # raises the same class, and swallowing it would deregister the consumer in silence.
+            if error.name is not None and (module_name == error.name or module_name.startswith(f"{error.name}.")):
+                continue
+            raise
+        declared: Sequence[WebhookConsumer] = getattr(module, PRODUCT_CONSUMER_ATTRIBUTE, ())
+        consumers.extend(declared)
+    return consumers
 
 
 def product_consumers() -> list[WebhookConsumer]:
@@ -31,7 +53,7 @@ def product_consumers() -> list[WebhookConsumer]:
 def get_consumer_registry() -> ConsumerRegistry:
     return ConsumerRegistry(
         providers=provider_specs(),
-        consumers=[*core_consumers(), *product_consumers()],
+        consumers=[*core_consumers(), *non_product_consumers(), *product_consumers()],
     )
 
 

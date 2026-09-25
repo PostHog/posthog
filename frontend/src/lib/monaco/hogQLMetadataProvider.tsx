@@ -53,6 +53,8 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                                             range: rawMarker,
                                             text: rawMarker.hogQLFix,
                                         },
+                                        // Monaco refuses the edit if the model changed after the
+                                        // action was offered, which the checks above cannot cover.
                                         versionId: model.getVersionId(),
                                     },
                                 ],

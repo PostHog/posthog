@@ -1,31 +1,36 @@
 import re
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
-from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    load_run_footer,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
     project_web_url,
     reply_footer_block,
+    run_context_block,
     slack_message_exists,
     turn_feedback_block,
     viewer_has_code_access,
 )
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
 
@@ -39,11 +44,6 @@ DEFAULT_FAILURE_RECOVERY_HINT = (
     "Reply in this thread with `retry` to try again from the latest checkpoint, "
     "or add the missing details and I'll re-plan before continuing."
 )
-DEFAULT_CANCELLED_RECOVERY_HINT = (
-    "Reply in this thread when you want to resume, and include any new direction I should follow."
-)
-
-
 _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
@@ -117,7 +117,7 @@ def _format_task_error(error: str) -> str:
     return error
 
 
-@dataclass
+@dataclass(frozen=False)
 class SlackThreadContext:
     """Context for posting messages to a Slack thread."""
 
@@ -149,6 +149,37 @@ class SlackThreadContext:
             mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
         )
 
+    @classmethod
+    def from_mapping(
+        cls, mapping: "SlackThreadTaskMapping", user_message_ts: str | None = None
+    ) -> "SlackThreadContext":
+        return cls(
+            integration_id=mapping.integration_id,
+            channel=mapping.channel,
+            thread_ts=mapping.thread_ts,
+            user_message_ts=user_message_ts,
+            mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+        )
+
+
+def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
+    buttons: list[dict[str, Any]] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+            "url": pr_url,
+        },
+    ]
+    if task_url:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                "url": task_url,
+            }
+        )
+    return buttons
+
 
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
@@ -173,6 +204,27 @@ class SlackThreadHandler:
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
         self._code_access: bool | None = None
+
+    @classmethod
+    def for_run(
+        cls,
+        context: SlackThreadContext,
+        run_id: str | UUID | None,
+        *,
+        actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
+    ) -> "SlackThreadHandler":
+        """A handler whose footer describes ``run_id``.
+
+        The footer's project segment is judged against the install this context posts through,
+        so the footer always loads with ``context.integration_id``.
+        """
+        return cls(
+            context,
+            load_run_footer(run_id, integration_id=context.integration_id),
+            actor_slack_user_id=actor_slack_user_id,
+            turn_trace_id=turn_trace_id,
+        )
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
@@ -467,18 +519,20 @@ class SlackThreadHandler:
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.
 
-        The model rides along as a context line rather than its own message: which
-        model is running is a property of the task, and the thread already has one
-        place that describes the task while it works. Unlike the reply footer this
-        is not gated — a running task says what it is running on either way.
+        The project and model ride along as a context line rather than their own
+        message: what a task is running on and against is a property of the task, and
+        the thread already has one place that describes it while it works. Unlike the
+        reply footer's links this is not gated on the reader — a running task says what
+        it is running on either way.
         """
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
 
-        if self.run_footer.model:
-            blocks.append(context_block(describe_run_model(self.run_footer.model, self.run_footer.reasoning_effort)))
+        run_context = run_context_block(self.run_footer)
+        if run_context:
+            blocks.append(run_context)
 
         if task_url:
             blocks.append(
@@ -541,38 +595,42 @@ class SlackThreadHandler:
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
 
-        buttons: list[dict[str, Any]] = [
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "View PR",
-                    "emoji": True,
-                },
-                "url": pr_url,
-            },
-        ]
-        if task_url:
-            buttons.append(
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Open in PostHog",
-                        "emoji": True,
-                    },
-                    "url": task_url,
-                }
-            )
-
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": buttons},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
         ]
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def post_pr_closed(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = None,
+        merged: bool = False,
+    ) -> bool:
+        """Post that the pull request ``post_pr_opened`` announced was merged or closed.
+
+        Without this card the thread keeps reading as if the work still waits for review.
+        It leaves any progress message alone, because the run can still be working.
+        Returns whether the card went out. A Slack failure is logged, never raised.
+        """
+        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
+        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        header = f"{mention_prefix}{outcome}"
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
+        ]
+        if not merged:
+            blocks.append(context_block("Reply in this thread to try a different approach."))
+        try:
+            return self._post_in_thread(text=header, blocks=blocks) is not None
+        except Exception as e:
+            logger.exception("slack_pr_closed_post_failed", error=str(e))
+            return False
 
     def _personal_github_hint(self) -> str:
         """One muted line telling the reader why the pull request isn't theirs.
@@ -753,35 +811,6 @@ class SlackThreadHandler:
             )
 
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
-
-    def post_cancelled(self, task_url: str | None, recovery_hint: str | None = DEFAULT_CANCELLED_RECOVERY_HINT) -> None:
-        """Post cancelled message with link to PostHog for details."""
-        header = "*Sandbox stopped* :hedgehog:"
-
-        blocks: list[dict[str, Any]] = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-        ]
-        if recovery_hint:
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": recovery_hint}})
-        if task_url:
-            blocks.append(
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Open in PostHog",
-                                "emoji": True,
-                            },
-                            "url": task_url,
-                        },
-                    ],
-                }
-            )
-
-        self._delete_progress_and_post(header, blocks)
 
     def post_note(self, text: str) -> None:
         """Post a plain one-line note to the thread, replacing any progress message."""

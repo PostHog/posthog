@@ -8,8 +8,10 @@ import { PullRequestCountsCard } from '../components/PullRequestCountsCard'
 import { ReadyToMergeCard } from '../components/ReadyToMergeCard'
 import { ScopeComparisonCard } from '../components/ScopeComparisonCard'
 import { Section } from '../components/Section'
+import type { DeliveryComparisonApi } from '../generated/api.schemas'
 import { DeliveryScope } from '../lib/deliveryScope'
 import { compactMinutes, compactUsd, percent } from '../lib/format'
+import { missingTeamText, summaryRows, teamRows } from '../lib/readyToMergeRows'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 
 const formatRatio = (value: number): string => value.toFixed(1)
@@ -18,12 +20,16 @@ export function DeliverySections({
     scope,
     scopeLabel,
     sourceId,
+    comparison = null,
+    comparisonFailed = false,
 }: {
     /** An author or a GitHub team; the summary endpoint rejects a single pull request. */
     scope: DeliveryScope
-    /** The row label for the scope's bars, e.g. "This author" or "This team". */
     scopeLabel: string
     sourceId: string | null
+    /** An author's comparison with their own team, which adds the team's row to the ready-to-merge card. */
+    comparison?: DeliveryComparisonApi | null
+    comparisonFailed?: boolean
 }): JSX.Element {
     const summaryLogic = deliverySummaryLogic({ scope, sourceId })
     const { summary, summaryLoading, summaryFailed } = useValues(summaryLogic)
@@ -33,7 +39,6 @@ export function DeliverySections({
         return <CIAnalyticsLoadError onRetry={loadSummary} />
     }
 
-    const summaryPending = summaryLoading && !summary
     const costEmpty =
         summary && !summary.jobs_available
             ? 'Cost appears once the workflow jobs table on this GitHub source is synced.'
@@ -48,7 +53,7 @@ export function DeliverySections({
             <Section id="delivery-spend" title="CI spend">
                 <div className="@container">
                     <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2 @min-[64rem]:grid-cols-4">
-                        <PullRequestCountsCard summary={summary} loading={summaryPending} />
+                        <PullRequestCountsCard summary={summary} loading={summaryLoading} />
                         <ScopeComparisonCard
                             title="CI cost per merged PR"
                             tooltip="Median estimated CI cost of a merged pull request: every run linked to it, merge queue runs included, from up to 30 days before the window. Repo: the same median over every pull request merged in the repository, bots excluded."
@@ -60,7 +65,7 @@ export function DeliverySections({
                                     ? `${compactUsd(summary.total_cost_usd)} in total`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                         <ScopeComparisonCard
@@ -74,17 +79,17 @@ export function DeliverySections({
                                     ? `${compactMinutes(summary.total_billable_minutes)} billable in total`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                         <ScopeComparisonCard
                             title="Cost per push"
-                            tooltip="CI cost divided by pushes. A push is a new commit and the CI it started: the price of one iteration, so a high figure points at heavy workflows rather than many pushes."
+                            tooltip="CI cost of merged pull requests, merge queue runs included, divided by their pushes. A push is a new head commit and the CI it started. A high figure points at heavy workflows rather than many pushes."
                             scopeLabel={scopeLabel}
                             figure={summary?.cost_per_push_usd}
                             formatValue={compactUsd}
                             caption={summary ? pluralize(summary.push_count, 'push', 'pushes') : undefined}
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                     </div>
@@ -95,15 +100,33 @@ export function DeliverySections({
                 <div className="@container">
                     <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2 @min-[64rem]:grid-cols-4">
                         <div className="@min-[36rem]:col-span-2">
-                            <ReadyToMergeCard summary={summary} scopeLabel={scopeLabel} loading={summaryPending} />
+                            <ReadyToMergeCard
+                                rows={
+                                    summary
+                                        ? summaryRows(
+                                              summary,
+                                              scopeLabel,
+                                              teamRows(comparisonFailed ? null : comparison)
+                                          )
+                                        : []
+                                }
+                                reviewsSynced={!!summary?.review_data_available}
+                                loading={summaryLoading}
+                                emptyText={
+                                    summary && !summary.ready_data_available
+                                        ? 'Ready time appears once the issue events table on this GitHub source is synced.'
+                                        : 'No merged pull requests with a known ready time in the window.'
+                                }
+                                footnote={missingTeamText(comparison, comparisonFailed)}
+                            />
                         </div>
                         <ScopeComparisonCard
                             title="Pushes after approval"
-                            tooltip="Average new commits pushed after the first approval, per merged pull request that had an approval."
+                            tooltip="Average pushes after the first approval, per merged pull request that had an approval. A push is a new head commit that started CI."
                             scopeLabel={scopeLabel}
                             figure={summary?.pushes_after_approval_per_merged_pr}
                             formatValue={formatRatio}
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={reviewsEmpty}
                         />
                         <ScopeComparisonCard
@@ -117,7 +140,7 @@ export function DeliverySections({
                                     ? `${percent(summary.failed_merge_queue_share.scope)} had a failed attempt · repo ${percent(summary.failed_merge_queue_share.repo)}`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText="No merged pull requests went through the merge queue in the window."
                         />
                     </div>
@@ -128,7 +151,7 @@ export function DeliverySections({
                 <LeadTimeComparisonCard
                     leadTime={summary?.lead_time}
                     scopeLabel={scopeLabel}
-                    loading={summaryPending}
+                    loading={summaryLoading}
                 />
             </Section>
         </>

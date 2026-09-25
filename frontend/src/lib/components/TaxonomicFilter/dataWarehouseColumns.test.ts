@@ -85,4 +85,34 @@ describe('dataWarehouseColumnsWithJoins', () => {
             ).map((column) => column.name)
         ).toEqual(['total'])
     })
+
+    it.each([
+        [false, ['id', 'country']],
+        [true, ['id', 'country', 'campaign.name']],
+    ])(
+        'offers only the columns every table shares when an insight spans several (includeJoinedColumns=%s)',
+        (includeJoinedColumns, expected) => {
+            const columns = dataWarehouseColumnsWithJoins(
+                ['orders', 'refunds'],
+                {
+                    orders: table('orders', [
+                        field('id', 'string'),
+                        field('country', 'string'),
+                        field('amount', 'integer'),
+                        field('campaign', 'lazy_table', 'campaigns'),
+                    ]),
+                    refunds: table('refunds', [
+                        field('id', 'string'),
+                        field('country', 'string'),
+                        field('reason', 'string'),
+                        field('campaign', 'lazy_table', 'campaigns'),
+                    ]),
+                    campaigns: table('campaigns', [field('name', 'string')]),
+                },
+                { includeJoinedColumns }
+            )
+
+            expect(columns.map((column) => column.name)).toEqual(expected)
+        }
+    )
 })
