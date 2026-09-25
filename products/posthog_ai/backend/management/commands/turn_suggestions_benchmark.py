@@ -28,10 +28,12 @@ from products.posthog_ai.backend.turn_suggestions.benchmark import (
     closest_to_offer_rate,
     disagreements,
     load_cases,
+    on_shared_cases,
     parse_endpoints,
     run_cases,
     score,
     sweep,
+    sweep_thresholds,
 )
 from products.posthog_ai.backend.turn_suggestions.classifier import SHOW_THRESHOLD, build_draft, card_copy
 from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODELS, build_judge_state
@@ -190,7 +192,7 @@ class Command(BaseCommand):
 
         results = run_cases(cases, workers=options["workers"], on_result=on_result, endpoint=endpoint)
         self._print_distribution(results)
-        self._print_sweep(sweep(results), threshold)
+        self._print_sweep(sweep(results, sweep_thresholds(threshold)), threshold)
         target: float = options["target_offer_rate"]
         closest = closest_to_offer_rate(results, target)
         if closest is not None:
@@ -227,39 +229,55 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"\n{run.label} answered no case, so the tables leave it out."))
         if not answered:
             return
-        self._print_summary(answered, threshold, width)
+        scored = on_shared_cases(answered)
+        shared = len(scored[0].results)
+        if shared < len(cases):
+            self.stdout.write(
+                self.style.WARNING(f"\nThe scores cover the {shared} of {len(cases)} cases every judge answered.")
+            )
+        if not shared:
+            return
+        self._print_summary(answered, scored, threshold, width)
         target: float = options["target_offer_rate"]
-        matched = self._print_target(answered, target, width)
-        if len(answered) > 1:
+        matched = self._print_target(scored, target, width)
+        if len(scored) > 1:
             self._print_disagreements(
-                answered, matched, f"each at its threshold for a {_percent(target).strip()} offer rate"
+                scored, matched, f"each at its threshold for a {_percent(target).strip()} offer rate"
             )
         if options["sweep"]:
-            for run in answered:
+            for run in scored:
                 self.stdout.write(self.style.MIGRATE_HEADING(f"\n{run.label}"))
-                self._print_sweep(sweep(run.results), threshold)
+                self._print_sweep(sweep(run.results, sweep_thresholds(threshold)), threshold)
 
-    def _print_summary(self, runs: Sequence[JudgeRun], threshold: float, width: int) -> None:
-        reference = runs[0]
+    def _print_summary(
+        self, runs: Sequence[JudgeRun], scored: Sequence[JudgeRun], threshold: float, width: int
+    ) -> None:
+        reference = scored[0]
         self.stdout.write(self.style.MIGRATE_HEADING(f"\nScores at show threshold {threshold}"))
         self.stdout.write(
             f"  {'judge':{width}}  failed  offer rate  precision  recall    F1   best F1       agrees   median"
         )
-        for run in runs:
-            current = score(run.results, threshold)
-            best = best_threshold(sweep(run.results))
+        for run, scored_run in zip(runs, scored):
+            current = score(scored_run.results, threshold)
+            best = best_threshold(sweep(scored_run.results, sweep_thresholds(threshold)))
             failed = sum(1 for result in run.results if result.judgment is None)
             f1 = _f1(current.f1)
             best_f1 = f"{best.f1:.2f} at {best.threshold:.2f}" if best is not None and best.f1 is not None else "-"
-            agrees = "    -" if run is reference else f"{_percent(agreement(run, threshold, reference, threshold))} "
-            median = statistics.median(result.seconds for result in run.results)
+            agrees = (
+                "    -"
+                if scored_run is reference
+                else f"{_percent(agreement(scored_run, threshold, reference, threshold))} "
+            )
+            # A failed request often waits out the timeout, which says nothing about how fast the judge answers.
+            median = statistics.median(result.seconds for result in scored_run.results)
             self.stdout.write(
                 f"  {run.label:{width}}  {failed:6}     {_percent(current.offer_rate)}       {_percent(current.precision)}"
                 f"     {_percent(current.recall)}   {f1}   {best_f1:12}  {agrees}   {median:5.1f}s"
             )
         self.stdout.write(
             f"\n  agrees: the share of cases where the judge picks the same offer as {reference.label}. "
-            "best F1: the judge's best score across thresholds, with the threshold that gets it."
+            "best F1: the judge's best score across thresholds, with the threshold that gets it. "
+            "median: the latency of answered requests."
         )
 
     def _print_target(self, runs: Sequence[JudgeRun], target: float, width: int) -> list[float]:
