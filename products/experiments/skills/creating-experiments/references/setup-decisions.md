@@ -25,20 +25,34 @@ Report the mix and leave the choice to the user. Tier: **not decided**.
 These facts give the identity mix on the surface, not whether the same individuals cross identification on it, so they cannot decide bucketing.
 A surface with an even mix may be two separate populations that never cross, and a surface that is almost all identified may still route every one of those people through an anonymous first pageview.
 Say what the mix is, name the options the surface can support, and say what each one would need.
+Ask before you call `experiment-create`. Device-id bucketing needs the flag to exist first, so the choice cannot wait until the draft is made.
 
-Say it plainly when the project has used neither persistence nor device-id bucketing (`previous_experiments.summary.using_persistence` and `using_device_id_bucketing` both 0), because that is the case where the user has no in-house precedent to reason from. Report it as context, not as a fault.
+Say it plainly when the project has used neither persistence nor device-id bucketing (`previous_experiments.summary.using_persistence` and `previous_experiments.summary.using_device_id_bucketing` both 0), because that is the case where the user has no in-house precedent to reason from. Report it as context, not as a fault.
 
 ### What each option needs
 
 - **User-id bucketing** is the default. A person's variant follows their distinct ID, so it can change when they are identified.
-- **Device-id bucketing** needs a device ID on every flag call: a call without one gets no variant. A server SDK must forward the browser's device ID, and local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; an older version puts one on events and still gets no variant, so name the version as something to check. It is a web option: a mobile SDK puts no `$device_id` on its events, flag calls included. `experiment-create` cannot set it, so use the device-id recipe in `configuring-experiment-rollout`.
+- **Device-id bucketing** needs a device ID on every flag call: a call without one gets no variant. Read `target_surface.device_id_share`, and `sdk_profile.libs[].device_id_share` on the rows whose `lib` appears in `target_surface.libs`. Both near 1 is the signal that the surface can carry it. A server SDK must forward the browser's device ID, and local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; an older version puts one on events and still gets no variant, so name the version as something to check. `experiment-create` cannot set it, so use the device-id recipe in `configuring-experiment-rollout`.
 - **Persistence** (`ensure_experience_continuity: true`) cannot work where an SDK evaluates the flag locally, because a local evaluation never consults the override store. Read `sdk_profile.libs[].locally_evaluated_share` on the rows whose `lib` appears in `target_surface.libs`. It also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. The tool cannot see those three, so list them for the user to check.
+
+Both of those reads match `sdk_profile.libs` rows to `target_surface.libs`, so an SDK the match misses is unchecked rather than safe.
+A `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` is unchecked, and so is every row when `sdk_profile.libs` is empty, which is what an empty profile means: the project sent no multivariate flag call in the last 7 days, the normal state before its first experiment.
+`target_surface.libs` holds at most 5 SDKs and reports the cap in `target_surface.libs_truncated`, so an unseen SDK can reach the surface when that flag is true.
+In each of those cases say the option is unchecked, and name the SDK or the cap you could not read.
+An unread server SDK is the one that breaks both options, because it may send flag calls without a device ID and may evaluate them locally.
+
+A mobile SDK puts no `$device_id` on its events, flag calls included, so a `target_surface.libs[]` row with `category: "mobile"` reads near 0 on `device_id_share`.
+When every row on the surface reads that way and `target_surface.libs_truncated` is false, say device-id bucketing is unavailable rather than offering it.
+When `sdk_profile.libs` is empty, `sdk_profile.libs_on_any_event[]` names the platforms the project sends from at all, which settles the same question for a project that sends only from mobile SDKs.
+Trust that read only when `sdk_profile.libs_on_any_event_truncated` is false, because the cap drops the SDKs that sent the fewest events.
 
 `target_surface.device_id_share` and a `sdk_profile.libs` row's `device_id_share` are read from target events and flag-call events, never from the flag requests themselves, so neither proves that a request carried a device ID.
 
-Device-id bucketing and persistence cannot be combined.
+Device-id bucketing and persistence cannot be combined, and the API rejects the pair.
 When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's default (`team_defaults.flags_persistence_default`).
 `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists.
+So pass `ensure_experience_continuity: false` in the call that sets device-id bucketing on a flag `experiment-create` already made, because that flag carries the team default and the pair is refused.
+When `team_defaults.flags_persistence_default` is true and a matching `sdk_profile.libs` row evaluates the flag locally, say so: leaving the field out gives the flag a persistence setting that cannot work there. Set it to `false` only if the user asks, because the team chose that default.
 
 Never change bucketing or persistence on a flag that is already live.
 
@@ -129,8 +143,9 @@ Tier: confident on the arithmetic, best guess on the inputs (the baseline is an 
 Read `previous_experiments.summary`. Its `using_*` counts cover every listed experiment, drafts included, so read them as what the project sets up, not what it launches.
 When `previous_experiments.experiments` is empty, the project is creating its first experiment. There is no precedent, and nothing in this section applies. Say that rather than reporting an absent precedent as agreement.
 
-If most listed experiments use one setting, follow it unless the facts above contradict it, and say you followed precedent. Tier: best guess. Two limits:
+If most listed experiments use one setting, follow it unless the facts above contradict it, and say you followed precedent. Tier: best guess. Three limits:
 
+- Bucketing and persistence sit outside this rule. "Bucketing and persistence" leaves both to the user, so a count of earlier experiments does not settle them either. Report the precedent as context and still ask.
 - Do not add configuration the project has never used, unless a fact above calls for it. A custom exposure and an activation event each narrow what counts as an exposure, and a project whose `previous_experiments.summary.using_custom_exposure` and `using_activation` are 0 has given you no reason to narrow it.
 - One fact above overrides a count of 0, and only this one: a flag evaluated more widely than the surface under test, for a custom exposure. That is the case "Feasibility and running time" describes, and it is the right first use of a custom exposure in a project that has never had one.
 

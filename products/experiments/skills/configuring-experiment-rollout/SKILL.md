@@ -166,16 +166,21 @@ under default handling without an explicit, informed decision.
 ## Bucketing and persistence across login
 
 By default a person's variant follows their distinct ID. When the same person sees the flag before and after they are identified (usually at login), their distinct ID changes, and so can their variant.
-Choose at creation; never change bucketing or persistence on a live flag.
+Choose before you create the flag or the experiment; never change bucketing or persistence on a live flag.
 
 The share of anonymous visitors on a page does not settle this. It gives the mix on the page, not whether the same individuals cross identification there, and those are different questions: an even mix can be two populations that never meet, and an almost fully identified page can still route every one of those people through an anonymous first pageview.
 So present the three options with what each one needs, and let the user choose:
 
 - **User-id bucketing** (the default): leave `ensure_experience_continuity` out, so the team's persistence default applies.
-- **Device-id bucketing** (recipe below): needs a device ID on every flag call, because a call without one gets no variant. A server SDK must forward the browser's device ID, and local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; check the version, because an older one puts a device ID on events but not on flag requests. A mobile SDK sends no device ID at all, so this is a web option.
+- **Device-id bucketing** (recipe below): needs a device ID on every flag call, because a call without one gets no variant. A server SDK must forward the browser's device ID, and local evaluation works when it does. The web SDK sends the device ID on flag requests from posthog-js 1.307.1; check the version, because an older one puts a device ID on events but not on flag requests. A mobile SDK puts no `$device_id` on its events, flag calls included, so a mobile SDK reads near 0 on the device-ID shares and cannot carry this option.
 - **Persistence** (`ensure_experience_continuity: true`): cannot work where an SDK evaluates the flag locally, because a local evaluation never consults the override store. It also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. Learn more: https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps
 
-When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's persistence default. The device-id recipe needs no such step: `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists. Device-id bucketing and persistence can't be combined.
+When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's persistence default. The device-id recipe needs no such step: `create-feature-flag` leaves persistence off unless you set it, and `experiment-create` rejects a `feature_flag` object for a flag that already exists. Device-id bucketing and persistence can't be combined, and the API refuses the pair.
+
+Two cases need the field set rather than omitted:
+
+- Moving a flag `experiment-create` already made onto device-id bucketing. That flag carries the team's persistence default, so pass `ensure_experience_continuity: false` in the same call, or the refusal above blocks the change.
+- The team's persistence default is on and an SDK evaluates the flag locally. The flag then inherits a persistence setting that cannot work there. Tell the user, and set the field to `false` only if they ask, because the team chose that default.
 
 ### Device-id bucketing recipe
 

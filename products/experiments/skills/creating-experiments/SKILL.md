@@ -133,7 +133,7 @@ Key details:
 
 - Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
 - `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
-- Bucketing and `ensure_experience_continuity`: default to user-id bucketing and leave `ensure_experience_continuity` out, so the team's persistence default applies. Report the surface's identity mix from step 0 and what device-id bucketing or persistence would each need, then let the user choose. The identity mix does not decide it: see "Bucketing and persistence" in `configuring-experiment-rollout`.
+- Bucketing and `ensure_experience_continuity`: default to user-id bucketing and leave `ensure_experience_continuity` out, so the team's persistence default applies. Report the surface's identity mix from step 0 and what device-id bucketing or persistence would each need, then let the user choose before this call. Device-id bucketing needs the flag created first, so the choice cannot wait until the draft exists. The identity mix does not decide it: see "Bucketing and persistence across login" in `configuring-experiment-rollout`.
 - Stats follow the team's defaults (method, confidence level). Only set `stats_config` if the user asks for a different method.
 
 ## After creation
