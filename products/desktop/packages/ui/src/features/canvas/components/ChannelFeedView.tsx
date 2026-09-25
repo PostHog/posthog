@@ -1263,7 +1263,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
               <span className="flex size-3.5 shrink-0 translate-y-0.5 items-center justify-center">
                 {iconForTemplate(canvas.templateId, {
                   size: 14,
-                  className: "text-violet-9",
+                  className: "text-violet-11",
                 })}
               </span>
               <span className="min-w-0 truncate font-semibold text-sm">
@@ -1297,7 +1297,7 @@ const CanvasFeedRow = memo(function CanvasFeedRow({
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {iconForTemplate(canvas.templateId, {
           size: 13,
-          className: "text-violet-9",
+          className: "text-violet-11",
         })}
       </span>
       <span className="min-w-0 flex-1 truncate font-medium">{canvas.name}</span>

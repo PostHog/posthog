@@ -155,7 +155,7 @@ function CanvasBadgeStack({
             "canvas" the same way they do. */}
         {iconForTemplate(item.templateId ?? "freeform", {
           size: 9,
-          className: "text-violet-9",
+          className: "text-violet-11",
         })}
       </RowBadge>
     </AvatarGroup>
