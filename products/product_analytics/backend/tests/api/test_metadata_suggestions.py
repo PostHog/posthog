@@ -4,12 +4,13 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Tag, TaggedItem
+from posthog.models import Organization, Tag, TaggedItem, Team
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionAnswer,
     DecisionGatewayError,
+    DecisionRequest,
     DecisionResult,
     NoulAnswer,
 )
@@ -75,14 +76,25 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         growth = Tag.objects.create(name="growth", team=self.team)
         insight = Insight.objects.create(team=self.team)
         TaggedItem.objects.create(tag=growth, insight=insight)
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        other_tag = Tag.objects.create(name="other-team-secret", team=other_team)
+        for _ in range(3):
+            TaggedItem.objects.create(tag=other_tag, insight=Insight.objects.create(team=other_team))
 
-        with patch(
-            DECIDE, return_value=_result({"t0": NoulAnswer(probability=0.95), "t1": NoulAnswer(probability=0.2)})
-        ):
+        def decide(request: DecisionRequest) -> DecisionResult:
+            return _result({key: NoulAnswer(probability=0.95) for key in request.questions})
+
+        with patch(DECIDE, side_effect=decide) as decide_mock:
             response = self.client.post(f"{self.base_url}/tags/", {"query": _TRENDS}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"tags": ["growth"], "scores": {"growth": 0.95, "billing": 0.2}}
+        body = response.json()
+        assert body == {"tags": ["growth", "billing"], "scores": {"growth": 0.95, "billing": 0.95}}
+        assert "other-team-secret" not in body["tags"]
+        assert "other-team-secret" not in body["scores"]
+        assert decide_mock.call_args_list
+        assert all("other-team-secret" not in call.args[0].state for call in decide_mock.call_args_list)
 
     @parameterized.expand([("invalid", {"kind": "Nope"}), ("missing", None)])
     @patch(ENROLLED, return_value=True)

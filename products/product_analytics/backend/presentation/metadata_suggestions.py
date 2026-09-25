@@ -489,16 +489,8 @@ def _viz_title_candidates(query: InsightVizNode, group_names: GroupNames) -> lis
             f"User lifecycle: {joined}",
         ]
     if kind == "PathsQuery":
-        paths_filter = getattr(source, "pathsFilter", None)
-        start = getattr(paths_filter, "startPoint", None)
-        end = getattr(paths_filter, "endPoint", None)
-        return [
-            "User paths",
-            f"Paths from {start}" if start else None,
-            f"Paths to {end}" if end else None,
-            f"Paths from {start} to {end}" if start and end else None,
-            "Where users go next",
-        ]
+        # Start and end points can hold URLs or IDs, so they stay out of anything sent to the model.
+        return ["User paths", "Where users go next"]
     if series:
         formula_titles = [
             title
@@ -585,7 +577,8 @@ _OPERATOR_WORDS: dict[str, str] = {
 
 # Filter values on these keys identify a person, so they are named but never quoted.
 _PERSONAL_KEYS = re.compile(
-    r"(email|e-mail|name|first_name|last_name|phone|distinct_id|user_id|ip|address|ssn|dob)$", re.IGNORECASE
+    r"(^|[_$])(email|e-mail|emailaddress|name|username|surname|nickname|first_name|last_name|phone|distinct_id|user_id|ip|ipaddress|address|ssn|dob)$",
+    re.IGNORECASE,
 )
 _LOOKS_PERSONAL = re.compile(r"@|^[A-Za-z0-9+/=_-]{24,}$|^\+?\d[\d\s().-]{7,}$")
 _MAX_FILTER_VALUE_CHARS = 60

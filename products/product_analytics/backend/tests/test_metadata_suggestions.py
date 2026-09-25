@@ -186,6 +186,23 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         assert "query" not in state["subject"]
         assert "Pageviews" not in sent.questions["title"].instructions
 
+    def test_paths_start_and_end_points_never_reach_the_model(self) -> None:
+        context = InsightContext(
+            query=_viz(
+                {
+                    "kind": "PathsQuery",
+                    "pathsFilter": {"startPoint": "/users/start-secret", "endPoint": "/users/end-secret"},
+                }
+            )
+        )
+        with patch(DECIDE) as decide:
+            decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
+            suggest_title(1, context)
+
+        sent = repr(_sent(decide))
+        assert "start-secret" not in sent
+        assert "end-secret" not in sent
+
     def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
         context = InsightContext(
             query=_trends(
@@ -213,6 +230,8 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         [
             ("plain_value", "$current_url", "icontains", "tomato", "current URL contains tomato"),
             ("email_key", "email", "exact", "someone@example.com", "email is a specific value"),
+            ("username_key", "username", "exact", "jdoe123", "username is a specific value"),
+            ("hostname_is_not_personal", "hostname", "exact", "shop", "hostname is shop"),
             ("email_value", "note", "exact", "someone@example.com", "note is a specific value"),
             ("long_token", "token", "exact", "a" * 61, "token is a specific value"),
             ("is_set", "$browser", "is_set", None, "browser is set"),
@@ -235,10 +254,8 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         )
         titles = title_candidates(context)
         assert titles[0] == f"Unique users with autocaptured interactions where {expected}"
-        if value and "example.com" not in str(value) and len(str(value)) < 61:
-            assert any(str(value) in title for title in titles)
-        else:
-            assert not any(str(value) in title for title in titles if value)
+        if value is not None:
+            assert any(str(value) in title for title in titles) == ("a specific value" not in expected)
 
     def test_runner_up_is_the_second_most_likely_candidate(self) -> None:
         context = InsightContext(query=_trends())
