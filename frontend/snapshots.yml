@@ -11088,6 +11088,14 @@ snapshots:
         hash: v1.k794b7964.d3c3aea7db95e55f3a3c6bd3266ed6a6c8a6b7d0c9639197be8499d52a311583.vcVaKjae7hHygKO4H_NDzkoa62WYvDIZvSa-Y-3DEr0
     scenes-app-replay-vision-observationthumbnail--no-frame-yet--light:
         hash: v1.k794b7964.7ea8bf86c6c2c46e8e19a7f65aeff30e4be8ea79e8159dc0ea9bc10baa4cd2c5.xt9_PBGwUPblnhPAtL-bcbSs_gQzXDfxAVB4vz8c63s
+    scenes-app-replay-vision-recordingexpiredtag--compact--dark:
+        hash: v1.k794b7964.97fde7ed79ff2f6a8df63aab3054a8951c1f8b8997390e8e3836c994d6071495.IFZQRiZ5TfL8tD2BARNFh8Lo54gl2xaQpQprxpxKRoQ
+    scenes-app-replay-vision-recordingexpiredtag--compact--light:
+        hash: v1.k794b7964.8f198d60b8e8f26d814173141288cfa6430d2c179c18467b7170f0346f4fd12d.gcwYBu6v34dOIbX-7bx8GMmUPn1DnIAcAgByvcMWDkg
+    scenes-app-replay-vision-recordingexpiredtag--default--dark:
+        hash: v1.k794b7964.27a90f028f594c371370fdc56b6ba14a427b34c27292e63f3c0a94e939e6a941.051i8LHCU3DaiN6kC_4gXIOwokLOxcjBVJ9zjcH-0HA
+    scenes-app-replay-vision-recordingexpiredtag--default--light:
+        hash: v1.k794b7964.dd4a7fd2ad97f5474ad762293c6fe59be57e93be64067e04a655e9443b8670d2.yotBh0ZOpK-CikDFoXSsLVMJdKw1WZJPq_2H6nO5hfg
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--dark:
         hash: v1.k794b7964.cf96414912c6d8f0d73808db3f1d833c661d12b3b0449cdd49b95d4dc8059e80.3sA2mn18MksUWQQ4mq6wEPbkJhGP3O258Y6Q2fTWhgM
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--light:
