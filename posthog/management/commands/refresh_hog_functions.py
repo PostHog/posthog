@@ -247,7 +247,7 @@ class Command(BaseCommand):
                         self.stdout.write(
                             self.style.WARNING(
                                 f"Filters do not compile: team {hog_function.team_id}, "
-                                f"function {hog_function.id} ({hog_function.name}): {error}"
+                                f"function {hog_function.id} ({hog_function.name!r}): {error!r}"
                             )
                         )
                         logger.warning(
