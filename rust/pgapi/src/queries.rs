@@ -73,9 +73,12 @@ pub async fn overview(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> 
         },
     )
     .await?;
-    let vac = opt(db, "SELECT datname, relname, round(vacuum_ratio::numeric, 2)::float8 AS vacuum_ratio, round(freeze_ratio::numeric, 3)::float8 AS freeze_ratio, autovacuum_enabled
-         FROM ts_vacuum_needed WHERE server_id = $1 AND collected_at = (SELECT max(collected_at) FROM ts_vacuum_needed WHERE server_id = $1 AND collected_at >= $2)
-         AND (vacuum_ratio >= 1 OR freeze_ratio >= 0.5) ORDER BY greatest(vacuum_ratio, freeze_ratio * 2) DESC LIMIT 10", &[&server, &from]).await?;
+    let ratio = |r: &Value, k: &str| r[k].as_f64().unwrap_or(0.0);
+    let mut vac = vacuum_attention(db, server, None, from).await?;
+    vac.retain(|r| ratio(r, "vacuum_ratio") >= 1.0 || ratio(r, "freeze_ratio") >= 0.5);
+    let pressure = |r: &Value| ratio(r, "vacuum_ratio").max(ratio(r, "freeze_ratio") * 2.0);
+    vac.sort_by(|a, b| pressure(b).total_cmp(&pressure(a)));
+    vac.truncate(10);
     Ok(
         json!({ "server_id": server, "from": from, "to": to, "databases": dbs, "connections": conns, "top_wait_events": waits, "events": events, "top_queries": top, "vacuum_attention": vac }),
     )
@@ -745,6 +748,84 @@ pub async fn indexes(db: &Db, server: &str, datname: &str, from: Ts, to: Ts) -> 
     Ok(json!(rows))
 }
 
+/// Tables at or past half of an effective autovacuum threshold, worst pressure first.
+///
+/// The counters come from the `table_stats` rows and the effective thresholds from the
+/// hourly snapshots — GUCs in `cur_settings`, per-table overrides in
+/// `cur_schema_relations.reloptions` — so no collector has to rescan
+/// `pg_stat_user_tables` on the target a second time to answer this.
+async fn vacuum_attention(
+    db: &Db,
+    server: &str,
+    datname: Option<&str>,
+    since: Ts,
+) -> Result<Vec<Value>> {
+    opt(db, "WITH gucs AS (
+           SELECT (max(val) FILTER (WHERE name = 'autovacuum_vacuum_threshold'))::bigint           AS vac_thr,
+                  (max(val) FILTER (WHERE name = 'autovacuum_vacuum_scale_factor'))::float8        AS vac_sf,
+                  (max(val) FILTER (WHERE name = 'autovacuum_analyze_threshold'))::bigint          AS ana_thr,
+                  (max(val) FILTER (WHERE name = 'autovacuum_analyze_scale_factor'))::float8       AS ana_sf,
+                  (max(val) FILTER (WHERE name = 'autovacuum_vacuum_insert_threshold'))::bigint    AS ins_thr,
+                  (max(val) FILTER (WHERE name = 'autovacuum_vacuum_insert_scale_factor'))::float8 AS ins_sf,
+                  (max(val) FILTER (WHERE name = 'autovacuum_freeze_max_age'))::bigint             AS freeze_max,
+                  (max(val) FILTER (WHERE name = 'autovacuum_multixact_freeze_max_age'))::bigint   AS mx_freeze_max
+           FROM (SELECT name, CASE WHEN source = 'session' THEN reset_val ELSE setting END AS val
+                 FROM cur_settings WHERE server_id = $1 AND instance = 'writer') s),
+         relopts AS (
+           SELECT r.datname, r.schemaname, r.relname, r.relkind,
+                  jsonb_object_agg(split_part(o, '=', 1), split_part(o, '=', 2)) FILTER (WHERE o <> '') AS opt
+           FROM cur_schema_relations r
+           LEFT JOIN LATERAL unnest(string_to_array(coalesce(r.reloptions, ''), ',')) AS o ON true
+           WHERE r.server_id = $1 AND ($2::text IS NULL OR r.datname = $2) AND r.last_seen > now() - interval '3 hours'
+           GROUP BY 1, 2, 3, 4),
+         latest AS (
+           SELECT t.datname, t.schemaname, t.relname, t.reltuples,
+                  t.n_live_tup, t.n_dead_tup, t.n_mod_since_analyze,
+                  -- Read through to_jsonb: the column only exists once a collector new
+                  -- enough to select it has written a row.
+                  (to_jsonb(t) ->> 'n_ins_since_vacuum')::bigint AS n_ins_since_vacuum,
+                  t.xid_age, t.mxid_age, t.last_vacuum, t.last_autovacuum, t.last_analyze, t.last_autoanalyze
+           FROM ts_table_stats t
+           JOIN (SELECT datname, max(collected_at) AS collected_at FROM ts_table_stats
+                 WHERE server_id = $1 AND ($2::text IS NULL OR datname = $2) AND collected_at >= $3
+                 GROUP BY 1) m ON m.datname = t.datname AND m.collected_at = t.collected_at
+           WHERE t.server_id = $1 AND ($2::text IS NULL OR t.datname = $2) AND t.collected_at >= $3),
+         scored AS (
+           SELECT l.datname, l.schemaname, l.relname,
+                  coalesce((ro.opt ->> 'autovacuum_enabled')::bool, true) AS autovacuum_enabled,
+                  l.n_live_tup, l.n_dead_tup, l.n_mod_since_analyze, l.n_ins_since_vacuum,
+                  l.xid_age, l.mxid_age, l.last_vacuum, l.last_autovacuum, l.last_analyze, l.last_autoanalyze,
+                  greatest(coalesce((ro.opt ->> 'autovacuum_vacuum_threshold')::bigint, g.vac_thr)
+                           + coalesce((ro.opt ->> 'autovacuum_vacuum_scale_factor')::float8, g.vac_sf) * greatest(l.reltuples, 0), 1)::float8 AS vacuum_threshold,
+                  greatest(coalesce((ro.opt ->> 'autovacuum_analyze_threshold')::bigint, g.ana_thr)
+                           + coalesce((ro.opt ->> 'autovacuum_analyze_scale_factor')::float8, g.ana_sf) * greatest(l.reltuples, 0), 1)::float8 AS analyze_threshold,
+                  greatest(coalesce((ro.opt ->> 'autovacuum_vacuum_insert_threshold')::bigint, g.ins_thr)
+                           + coalesce((ro.opt ->> 'autovacuum_vacuum_insert_scale_factor')::float8, g.ins_sf) * greatest(l.reltuples, 0), 1)::float8 AS insert_threshold,
+                  coalesce((ro.opt ->> 'autovacuum_freeze_max_age')::bigint, g.freeze_max)             AS freeze_max,
+                  coalesce((ro.opt ->> 'autovacuum_multixact_freeze_max_age')::bigint, g.mx_freeze_max) AS mx_freeze_max
+           FROM latest l
+           CROSS JOIN gucs g
+           LEFT JOIN relopts ro ON ro.datname = l.datname AND ro.schemaname = l.schemaname AND ro.relname = l.relname
+           WHERE coalesce(ro.relkind, 'r') IN ('r', 'm'))
+         SELECT datname, schemaname, relname, autovacuum_enabled,
+                n_live_tup, n_dead_tup, n_mod_since_analyze, n_ins_since_vacuum,
+                vacuum_threshold, analyze_threshold, insert_threshold,
+                (n_dead_tup / vacuum_threshold)::float8           AS vacuum_ratio,
+                (n_mod_since_analyze / analyze_threshold)::float8 AS analyze_ratio,
+                (n_ins_since_vacuum / insert_threshold)::float8   AS insert_ratio,
+                xid_age, freeze_max, (xid_age::float8 / nullif(freeze_max, 0))::float8 AS freeze_ratio,
+                mxid_age, mx_freeze_max, (mxid_age::float8 / nullif(mx_freeze_max, 0))::float8 AS mx_freeze_ratio,
+                last_autovacuum, last_vacuum, last_autoanalyze, last_analyze
+         FROM scored
+         WHERE n_dead_tup / vacuum_threshold >= 0.5
+            OR n_mod_since_analyze / analyze_threshold >= 0.5
+            OR n_ins_since_vacuum / insert_threshold >= 0.5
+            OR xid_age::float8 / nullif(freeze_max, 0) >= 0.5
+            OR mxid_age::float8 / nullif(mx_freeze_max, 0) >= 0.5
+         ORDER BY greatest(n_dead_tup / vacuum_threshold, n_mod_since_analyze / analyze_threshold,
+                           xid_age::float8 / nullif(freeze_max, 0) * 2) DESC", &[&server, &datname, &since]).await
+}
+
 pub async fn vacuum(
     db: &Db,
     server: &str,
@@ -752,9 +833,7 @@ pub async fn vacuum(
     from: Ts,
     to: Ts,
 ) -> Result<Value> {
-    let needed = opt(db, "SELECT * FROM ts_vacuum_needed WHERE server_id = $1 AND ($2::text IS NULL OR datname = $2)
-         AND collected_at = (SELECT max(collected_at) FROM ts_vacuum_needed WHERE server_id = $1 AND collected_at >= $3)
-         ORDER BY greatest(vacuum_ratio, analyze_ratio, freeze_ratio * 2) DESC", &[&server, &datname, &from]).await?;
+    let needed = vacuum_attention(db, server, datname, from).await?;
     let runs = opt(db, "SELECT log_time, log_stream, kind, relation, aggressive, index_scans, pages_removed, pages_remain, tuples_removed, tuples_remain, tuples_dead_not_removable,
                 buffer_hits, buffer_misses, wal_bytes, read_mb_s, write_mb_s, elapsed_s
          FROM ts_autovacuum_runs WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4 AND ($2::text IS NULL OR relation LIKE $2 || '.%')

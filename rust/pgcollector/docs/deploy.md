@@ -65,7 +65,7 @@ misbehaving collector is cut off, not merely slow. Per tick:
 | `query_stats` | 60s | `pg_stat_statements(false)` (no text); text for ≤500 new ids per tick | no query text on the hot path |
 | `database_stats`, `bgwriter`, `wal`, `replication*`, `vacuum_progress`, `aurora_system_waits`, `aurora_db_latency`, `aurora_replica_status` | 60s | shared-memory counter reads | negligible |
 | `aurora_plans` | 5m | `aurora_stat_plans(false)`; plan text for new plan ids | ≤ `pg_stat_statements.max` rows |
-| `table_stats`, `index_stats`, `vacuum_needed` | 10m | one catalog/stats scan per database | linear in relations; on the writer |
+| `table_stats`, `index_stats` | 10m | one catalog/stats scan per database | linear in relations; on the writer |
 | `sizes` | 1h | four size functions per relation | reader endpoint when configured |
 | `schema_*`, `settings`, `extensions` | 1h | catalog reads | reader for schema |
 | `system_*`, `backend_cpu` | 60s | `/proc` reads via `pg_proctab` | only if the extension exists |
