@@ -95,4 +95,4 @@ class DecisionResult:
     model: str
     answers: dict[str, DecisionAnswer]
     input_tokens: int
-    latency_ms: int | None = None
+    latency_ms: float | None = None

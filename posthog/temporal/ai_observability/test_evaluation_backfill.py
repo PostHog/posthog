@@ -30,6 +30,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     child_workflow_name_and_id,
     fail_evaluation_backfill_activity,
     find_evaluation_backfill_candidates_activity,
+    measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
@@ -221,6 +222,15 @@ class TestEvaluationBackfillWorkflow:
         continue_as_new = await _run(mocks)
 
         assert _advance_input(mocks).exhausted
+        called = _called(mocks)
+        assert called.index(measure_evaluation_backfill_remainder_activity) > called.index(
+            advance_evaluation_backfill_cursor_activity
+        )
+        measure = next(
+            call for fn, call in mocks.activity_calls if fn is measure_evaluation_backfill_remainder_activity
+        )
+        # The children this tick started have not produced verdicts yet, so the count discounts them.
+        assert measure.in_flight == 1
         continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
