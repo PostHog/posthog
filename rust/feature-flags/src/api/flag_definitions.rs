@@ -42,6 +42,8 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 /// `REBUILD_REQUESTS_ZSET` in `products/feature_flags/backend/rebuild_queue.py` (pinned by
 /// the Python test `test_request_zset_key_matches_rust_contract`).
 pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+pub(crate) const FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET: &str =
+    "flag_definitions:rebuild_s3_requests";
 
 /// `trigger` label values for `FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER`. The two triggers
 /// ramp independently, so the dashboard has to separate them.
@@ -533,7 +535,12 @@ async fn write_rebuild_request(
     // lowest scores first.
     let result = redis
         .zadd_nx(
-            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
+            if trigger == REBUILD_TRIGGER_S3_HIT {
+                FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET
+            } else {
+                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET
+            }
+            .to_string(),
             team_id.to_string(),
             score,
         )
@@ -656,20 +663,23 @@ mod tests {
         let mock = common_redis::MockRedisClient::new();
         let redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock.clone());
 
+        write_rebuild_request(redis.clone(), 42, REBUILD_TRIGGER_S3_HIT).await;
         write_rebuild_request(redis, 42, REBUILD_TRIGGER_S3_HIT).await;
 
         let calls = mock.get_calls();
-        assert_eq!(calls.len(), 1, "one queue write per request");
-        assert_eq!(
-            calls[0].op, "zadd_nx",
-            "the queue write must keep the score of an earlier request"
-        );
-        assert_eq!(calls[0].key, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET);
-        assert!(
-            matches!(&calls[0].value, common_redis::MockRedisValue::MemberScore(member, _) if member == "42"),
-            "the member is the team id the drain parses, got {:?}",
-            calls[0].value
-        );
+        assert_eq!(calls.len(), 2, "one queue write per request");
+        for call in calls {
+            assert_eq!(
+                call.op, "zadd_nx",
+                "repeated requests must keep the first score"
+            );
+            assert_eq!(call.key, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET);
+            assert!(
+                matches!(&call.value, common_redis::MockRedisValue::MemberScore(member, _) if member == "42"),
+                "the member is the team id the drain parses, got {:?}",
+                call.value
+            );
+        }
     }
 
     #[test]

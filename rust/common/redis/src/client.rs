@@ -392,11 +392,7 @@ impl Client for RedisClient {
 
     async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
-        redis::cmd("ZADD")
-            .arg(&k)
-            .arg("NX")
-            .arg(score)
-            .arg(&member)
+        zadd_nx_command(&k, &member, score)
             .query_async::<()>(&mut conn)
             .await?;
         Ok(())
@@ -868,9 +864,24 @@ impl RedisClient {
     }
 }
 
+fn zadd_nx_command(key: &str, member: &str, score: i64) -> redis::Cmd {
+    let mut command = redis::cmd("ZADD");
+    command.arg(key).arg("NX").arg(score).arg(member);
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_zadd_nx_command_encodes_score_before_member() {
+        let command = zadd_nx_command("rebuilds", "team-1", 100);
+        assert_eq!(
+            command.get_packed_command(),
+            b"*5\r\n$4\r\nZADD\r\n$8\r\nrebuilds\r\n$2\r\nNX\r\n$3\r\n100\r\n$6\r\nteam-1\r\n"
+        );
+    }
 
     // Test helper functions to reduce duplication
     mod helpers {

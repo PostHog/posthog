@@ -1,5 +1,7 @@
 use crate::{
-    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
+    api::flag_definitions::{
+        FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    },
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -221,24 +223,38 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
 /// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
 /// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
 pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await
+}
+
+pub async fn read_s3_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET).await
+}
+
+async fn read_rebuild_requests(redis_url: &str, queue: &str) -> Vec<String> {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .zrangebyscore(
-            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
-            "-inf".to_string(),
-            "+inf".to_string(),
-        )
+        .zrangebyscore(queue.to_string(), "-inf".to_string(), "+inf".to_string())
         .await
         .unwrap_or_default()
 }
 
 pub async fn remove_flag_definitions_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(redis_url, team_id, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await;
+}
+
+pub async fn remove_s3_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(
+        redis_url,
+        team_id,
+        FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    )
+    .await;
+}
+
+async fn remove_rebuild_request(redis_url: &str, team_id: i32, queue: &str) {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .zrem(
-            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
-            team_id.to_string(),
-        )
+        .zrem(queue.to_string(), team_id.to_string())
         .await
         .unwrap();
 }

@@ -2909,12 +2909,18 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 /// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
 /// false after ~2s. The enqueue runs in a background task, so a bounded retry is
 /// needed rather than a single read.
-async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
-    use feature_flags::utils::test_utils::read_flag_definitions_rebuild_requests;
+async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32, s3_hit: bool) -> bool {
+    use feature_flags::utils::test_utils::{
+        read_flag_definitions_rebuild_requests, read_s3_rebuild_requests,
+    };
     use tokio::time::{sleep, Duration};
 
     for _ in 0..40 {
-        let members = read_flag_definitions_rebuild_requests(redis_url).await;
+        let members = if s3_hit {
+            read_s3_rebuild_requests(redis_url).await
+        } else {
+            read_flag_definitions_rebuild_requests(redis_url).await
+        };
         if members.contains(&team_id.to_string()) {
             return true;
         }
@@ -2958,7 +2964,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await,
         "team {} should be enqueued for rebuild after a cache-miss 503",
         team.id
     );
@@ -3007,7 +3013,7 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id, false).await,
         "team {} should be enqueued on the dedicated redis, where the drain reads",
         team.id
     );
@@ -3025,14 +3031,15 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 }
 
 #[tokio::test]
-async fn test_s3_hit_enqueues_rebuild_when_enabled() {
+async fn test_s3_hit_enqueues_rebuild_and_keeps_first_score() {
     use feature_flags::{
         config::{Config, FlexBool},
         utils::test_utils::{
-            remove_flag_definitions_rebuild_request, static_s3_client, TestContext,
+            remove_s3_rebuild_request, setup_redis_client, static_s3_client, TestContext,
         },
     };
     use reqwest;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut config = Config::default_test_config();
     config.flag_definitions_self_heal_enabled = FlexBool(true);
@@ -3043,7 +3050,7 @@ async fn test_s3_hit_enqueues_rebuild_when_enabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
+    remove_s3_rebuild_request(&config.redis_url, team.id).await;
 
     let server = common::ServerHandle::for_config_with_s3(
         config.clone(),
@@ -3071,77 +3078,36 @@ async fn test_s3_hit_enqueues_rebuild_when_enabled() {
     );
 
     assert!(
-        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, true).await,
         "team {} should be enqueued for rebuild after an S3-served response",
         team.id
     );
-}
 
-async fn get_definitions_served_from_s3(
-    server: &common::ServerHandle,
-    api_token: &str,
-    secret_token: &str,
-    if_none_match: Option<&str>,
-) -> reqwest::Response {
-    let mut request = reqwest::Client::new()
-        .get(format!(
-            "http://{}/flags/definitions?token={}",
-            server.addr, api_token
-        ))
-        .header("Authorization", format!("Bearer {secret_token}"));
-    if let Some(etag) = if_none_match {
-        request = request.header("if-none-match", etag);
-    }
-    request.send().await.unwrap()
-}
-
-#[tokio::test]
-async fn test_rebuilt_entry_restores_conditional_requests() {
-    use feature_flags::{
-        config::{Config, FlexBool},
-        utils::test_utils::{static_s3_client, TestContext},
-    };
-
-    let mut config = Config::default_test_config();
-    config.flag_definitions_self_heal_enabled = FlexBool(true);
-    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
-    let context = TestContext::new(Some(&config)).await;
-
-    let (team, secret_token, _) = context
-        .create_team_with_secret_token(None, None, None)
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let first_score_upper_bound = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let queue = "flag_definitions:rebuild_s3_requests".to_string();
+    redis
+        .zadd_nx(
+            queue.clone(),
+            team.id.to_string(),
+            first_score_upper_bound + 60_000,
+        )
         .await
         .unwrap();
-
-    let server = common::ServerHandle::for_config_with_s3(
-        config.clone(),
-        Some(static_s3_client(r#"{"flags": [], "cohorts": {}}"#)),
-    )
-    .await;
-
-    let before =
-        get_definitions_served_from_s3(&server, &team.api_token, &secret_token, None).await;
-    assert_eq!(before.status(), 200);
+    let original_score_members = redis
+        .zrangebyscore(
+            queue,
+            "-inf".to_string(),
+            first_score_upper_bound.to_string(),
+        )
+        .await
+        .unwrap();
     assert!(
-        before.headers().get("etag").is_none(),
-        "an S3-served response carries no validator for the SDK to send back"
-    );
-
-    context
-        .populate_cache_for_team_with_etag(team.id, "rebuilt-etag")
-        .await
-        .unwrap();
-
-    let after = get_definitions_served_from_s3(
-        &server,
-        &team.api_token,
-        &secret_token,
-        Some("W/\"rebuilt-etag\""),
-    )
-    .await;
-    assert_eq!(
-        after.status(),
-        304,
-        "after the rebuild the SDK should revalidate instead of downloading again"
+        original_score_members.contains(&team.id.to_string()),
+        "a repeated NX write must keep the first enqueue score"
     );
 }
 

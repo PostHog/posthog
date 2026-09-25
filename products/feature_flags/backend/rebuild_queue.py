@@ -23,6 +23,7 @@ The drain exists for the mass-eviction backlog, so it loads the whole batch in o
 DB round (like the verifier) rather than per team.
 """
 
+import json
 import time
 from typing import cast
 
@@ -49,6 +50,7 @@ logger = structlog.get_logger(__name__)
 # request and repeated polls cannot reorder the queue or reset the age gauge. MUST match
 # FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the Rust service.
 REBUILD_REQUESTS_ZSET = "flag_definitions:rebuild_requests"
+S3_REBUILD_REQUESTS_ZSET = "flag_definitions:rebuild_s3_requests"
 
 # Sorted set of teams with an open circuit (member = team_id, score = expiry epoch
 # seconds). Doubles as the dead-letter gauge source via ZCARD after pruning.
@@ -116,7 +118,7 @@ def _redis() -> redis_lib.Redis:
     return get_client(flag_definitions_hypercache.redis_url)
 
 
-def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member: bytes | str) -> bool:
+def _discard_unless_rebuilding(redis: redis_lib.Redis, queue: str, cooldown_key: str, member: bytes | str) -> bool:
     """Return True when the member is no longer queued."""
     # The cooldown can change while another drain finishes, so check and remove atomically.
     try:
@@ -125,12 +127,39 @@ def _discard_unless_rebuilding(redis: redis_lib.Redis, cooldown_key: str, member
             if cast(bytes | None, pipe.get(cooldown_key)) == b"inflight":
                 return False
             pipe.multi()
-            pipe.zrem(REBUILD_REQUESTS_ZSET, member)
+            pipe.zrem(queue, member)
             pipe.execute()
             return True
     except WatchError:
         # Leave the member for the owner or the next drain after a concurrent change.
         return False
+
+
+def _restored_team_ids(team_ids: list[int]) -> set[int]:
+    if not team_ids:
+        return set()
+
+    cache = flag_definitions_hypercache
+    keys = [cache.get_cache_key(team_id) for team_id in team_ids]
+    etag_keys = [cache.get_etag_key(team_id) for team_id in team_ids]
+    try:
+        values = cache.cache_client.get_many(keys + etag_keys)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception:
+        logger.exception("flag definitions self-heal cache presence check failed")
+        return set()
+
+    restored = set()
+    for team_id, key, etag_key in zip(team_ids, keys, etag_keys):
+        if values.get(etag_key) is None:
+            continue
+        try:
+            if isinstance(json.loads(values[key]), dict):
+                restored.add(team_id)
+        except (KeyError, TypeError, ValueError):
+            continue
+    return restored
 
 
 def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]:
@@ -146,67 +175,71 @@ def drain_rebuild_requests(batch_size: int = DRAIN_BATCH_SIZE) -> dict[str, int]
     REBUILD_DEAD_LETTER.set(redis.zcard(CIRCUIT_ZSET))
     _emit_queue_gauges(redis, now)
 
-    stats = {"success": 0, "failure": 0, "skipped_cooldown": 0, "circuit_open": 0}
+    stats = {"success": 0, "failure": 0, "restored": 0, "skipped_cooldown": 0, "circuit_open": 0}
 
-    eligible: list[int] = []
+    eligible: list[tuple[int, str]] = []
     # A claimed member stays queued until its rebuild ends. A drain that dies keeps its
     # claims at the head of the queue for COOLDOWN_SECONDS, so the scan pages past every
     # member that stays queued. `offset` counts those members. The score bound excludes
     # requests queued after this drain started, so the scan cannot follow teams that SDK
     # polls enqueue again behind it.
-    offset = 0
     max_score = now * 1000
-    while len(eligible) < batch_size:
-        page = redis.zrangebyscore(
-            REBUILD_REQUESTS_ZSET, "-inf", max_score, start=offset, num=batch_size - len(eligible)
-        )
-        if not page:
-            break
-        for raw in page:
-            team_id = _parse_team_id(raw)
-            if team_id is None:
-                redis.zrem(REBUILD_REQUESTS_ZSET, raw)
-                continue
+    for queue in (REBUILD_REQUESTS_ZSET, S3_REBUILD_REQUESTS_ZSET):
+        offset = 0
+        while len(eligible) < batch_size:
+            page = redis.zrangebyscore(queue, "-inf", max_score, start=offset, num=batch_size - len(eligible))
+            if not page:
+                break
+            restored = _restored_team_ids([team_id for raw in page if (team_id := _parse_team_id(raw)) is not None])
+            for raw in page:
+                team_id = _parse_team_id(raw)
+                if team_id is None:
+                    redis.zrem(queue, raw)
+                    continue
+                if team_id in restored:
+                    redis.zrem(queue, raw)
+                    stats["restored"] += 1
+                    REBUILD_PROCESSED.labels(result="restored").inc()
+                    continue
 
-            cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
-            if redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None:
-                if not _discard_unless_rebuilding(redis, cooldown_key, raw):
-                    offset += 1
-                stats["circuit_open"] += 1
-                REBUILD_PROCESSED.labels(result="circuit_open").inc()
-                continue
+                cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
+                if redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None:
+                    if not _discard_unless_rebuilding(redis, queue, cooldown_key, raw):
+                        offset += 1
+                    stats["circuit_open"] += 1
+                    REBUILD_PROCESSED.labels(result="circuit_open").inc()
+                    continue
 
-            # Keep the member while rebuilding so SDK polls cannot enqueue it again.
-            if not redis.set(cooldown_key, "inflight", nx=True, ex=COOLDOWN_SECONDS):
-                if not _discard_unless_rebuilding(redis, cooldown_key, raw):
-                    offset += 1
-                stats["skipped_cooldown"] += 1
-                REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
-                continue
+                # Keep the member while rebuilding so SDK polls cannot enqueue it again.
+                if not redis.set(cooldown_key, "inflight", nx=True, ex=COOLDOWN_SECONDS):
+                    if not _discard_unless_rebuilding(redis, queue, cooldown_key, raw):
+                        offset += 1
+                    stats["skipped_cooldown"] += 1
+                    REBUILD_PROCESSED.labels(result="skipped_cooldown").inc()
+                    continue
 
-            offset += 1
-            eligible.append(team_id)
+                offset += 1
+                eligible.append((team_id, queue))
 
-    results: dict[int, bool] = {}
+    results: dict[int, str] = {}
     timed_out = False
     try:
-        results = _rebuild_batch(redis, eligible)
+        results = _rebuild_batch(redis, [team_id for team_id, _ in eligible])
     except SoftTimeLimitExceeded:
         timed_out = True
         raise
     finally:
-        for team_id in eligible:
+        for team_id, queue in eligible:
             cooldown_key = COOLDOWN_KEY.format(team_id=team_id)
             with redis.pipeline() as pipe:
-                pipe.zrem(REBUILD_REQUESTS_ZSET, str(team_id))
+                pipe.zrem(queue, str(team_id))
                 if timed_out or team_id not in results:
                     pipe.delete(cooldown_key)
                 else:
                     pipe.set(cooldown_key, "cooldown", xx=True, keepttl=True)
                 pipe.execute()
 
-    for ok in results.values():
-        result = "success" if ok else "failure"
+    for result in results.values():
         stats[result] += 1
         REBUILD_PROCESSED.labels(result=result).inc()
 
@@ -221,7 +254,8 @@ def _emit_unread_cluster_gauge() -> None:
         REBUILD_UNREAD_CLUSTER_DEPTH.set(0)
         return
     try:
-        depth = get_client(settings.REDIS_URL).zcard(REBUILD_REQUESTS_ZSET)
+        other = get_client(settings.REDIS_URL)
+        depth = other.zcard(REBUILD_REQUESTS_ZSET) + other.zcard(S3_REBUILD_REQUESTS_ZSET)
     except Exception:
         logger.exception("flag definitions self-heal unread cluster gauge failed")
         return
@@ -229,17 +263,19 @@ def _emit_unread_cluster_gauge() -> None:
 
 
 def _emit_queue_gauges(redis: redis_lib.Redis, now: float) -> None:
-    REBUILD_QUEUE_DEPTH.set(redis.zcard(REBUILD_REQUESTS_ZSET))
+    REBUILD_QUEUE_DEPTH.set(redis.zcard(REBUILD_REQUESTS_ZSET) + redis.zcard(S3_REBUILD_REQUESTS_ZSET))
     _emit_unread_cluster_gauge()
-    oldest = redis.zrange(REBUILD_REQUESTS_ZSET, 0, 0, withscores=True)
+    oldest = redis.zrange(REBUILD_REQUESTS_ZSET, 0, 0, withscores=True) + redis.zrange(
+        S3_REBUILD_REQUESTS_ZSET, 0, 0, withscores=True
+    )
     if oldest:
-        _, score_ms = oldest[0]
+        _, score_ms = min(oldest, key=lambda item: item[1])
         REBUILD_OLDEST_AGE.set(max(0.0, now - float(score_ms) / 1000.0))
     else:
         REBUILD_OLDEST_AGE.set(0)
 
 
-def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, bool]:
+def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, str]:
     """Rebuild every eligible team from a single batched DB load, then record each
     outcome. Mirrors the verifier: one batch_load_fn, then set_cache_value per team
     (no per-team load_fn), which is the point of draining in one pass.
@@ -261,19 +297,24 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
     try:
         teams = list(Team.objects.filter(id__in=team_ids))
         teams_by_id = {team.id: team for team in teams}
-        payloads = batch_load(teams)
+        restored_ids = _restored_team_ids([team.id for team in teams])
+        pending_teams = [team for team in teams if team.id not in restored_ids]
+        payloads = batch_load(pending_teams) if pending_teams else {}
     except SoftTimeLimitExceeded:
         raise
     except Exception:
         logger.exception("flag definitions self-heal batch load failed", team_count=len(team_ids))
-        return {team_id: _record_result(redis, team_id, ok=False) for team_id in team_ids}
+        return {team_id: "success" if _record_result(redis, team_id, ok=False) else "failure" for team_id in team_ids}
 
-    results: dict[int, bool] = {}
+    results: dict[int, str] = {}
     for team_id in team_ids:
         team = teams_by_id.get(team_id)
+        if team is not None and team_id in restored_ids:
+            results[team_id] = "restored"
+            continue
         # batch_load leaves out a team whose own build failed.
         if team is None or team_id not in payloads:
-            results[team_id] = _record_result(redis, team_id, ok=False)
+            results[team_id] = "success" if _record_result(redis, team_id, ok=False) else "failure"
             continue
         payload = payloads[team_id]
         if _skip_write_if_group_mapping_emptied(team, payload):
@@ -289,7 +330,7 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
         except Exception:
             logger.exception("flag definitions self-heal rebuild failed", team_id=team_id)
             ok = False
-        results[team_id] = _record_result(redis, team_id, ok=ok)
+        results[team_id] = "success" if _record_result(redis, team_id, ok=ok) else "failure"
     return results
 
 
