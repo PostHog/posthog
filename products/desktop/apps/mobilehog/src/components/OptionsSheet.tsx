@@ -1,4 +1,11 @@
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, fonts } from "@/lib/theme";
 
@@ -32,35 +39,39 @@ export function OptionsSheet({
           accessibilityViewIsModal
           style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}
         >
-          <Text style={styles.title}>{title}</Text>
-          {options.map((option) => (
+          <ScrollView bounces={false}>
+            <Text style={styles.title}>{title}</Text>
+            {options.map((option) => (
+              <Pressable
+                key={option.label}
+                accessibilityRole="button"
+                accessibilityState={{
+                  selected: option.selected,
+                  disabled: option.disabled,
+                }}
+                disabled={option.disabled}
+                style={styles.option}
+                onPress={() => {
+                  onClose();
+                  option.onPress();
+                }}
+              >
+                <Text
+                  style={[styles.label, option.disabled && styles.disabled]}
+                >
+                  {option.label}
+                </Text>
+                {option.selected ? <Text style={styles.check}>✓</Text> : null}
+              </Pressable>
+            ))}
             <Pressable
-              key={option.label}
               accessibilityRole="button"
-              accessibilityState={{
-                selected: option.selected,
-                disabled: option.disabled,
-              }}
-              disabled={option.disabled}
+              onPress={onClose}
               style={styles.option}
-              onPress={() => {
-                onClose();
-                option.onPress();
-              }}
             >
-              <Text style={[styles.label, option.disabled && styles.disabled]}>
-                {option.label}
-              </Text>
-              {option.selected ? <Text style={styles.check}>✓</Text> : null}
+              <Text style={styles.check}>Cancel</Text>
             </Pressable>
-          ))}
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            style={styles.option}
-          >
-            <Text style={styles.check}>Cancel</Text>
-          </Pressable>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -74,6 +85,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
   },
   sheet: {
+    maxHeight: "85%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     backgroundColor: colors.surface,

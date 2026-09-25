@@ -1,5 +1,7 @@
 import { getImageMimeType, serializeCloudPrompt } from "@posthog/shared";
+import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
+import { accountStorageKey, sessionIdentity } from "@/lib/auth";
 
 export const MAX_PHOTOS = 3;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -19,6 +21,8 @@ export interface PendingPhoto {
 }
 
 export async function pickPhoto(): Promise<PendingPhoto | null> {
+  const identity = sessionIdentity();
+  const scope = accountStorageKey("mobilehog_workspace");
   let ImagePicker: typeof import("expo-image-picker");
   try {
     ImagePicker = await import("expo-image-picker");
@@ -32,6 +36,8 @@ export async function pickPhoto(): Promise<PendingPhoto | null> {
     exif: false,
     base64: Platform.OS === "ios",
   });
+  if (identity !== sessionIdentity())
+    throw new Error("Account changed. Select the photo again.");
   if (result.canceled || !result.assets.length) return null;
   const asset = result.assets[0];
   const name = asset.fileName ?? "image.jpg";
@@ -49,12 +55,29 @@ export async function pickPhoto(): Promise<PendingPhoto | null> {
   ) {
     throw new Error("Choose an image smaller than 5 MB.");
   }
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let uri = asset.uri;
+  if (Platform.OS !== "web") {
+    const directory = `${FileSystem.documentDirectory}${scope}/photos/`;
+    await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+    uri = `${directory}${id}`;
+    if (jpegBase64)
+      await FileSystem.writeAsStringAsync(uri, jpegBase64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    else await FileSystem.copyAsync({ from: asset.uri, to: uri });
+  }
+  if (identity !== sessionIdentity()) {
+    if (Platform.OS !== "web")
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    throw new Error("Account changed. Select the photo again.");
+  }
   return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    uri: asset.uri,
+    id,
+    uri,
     name: jpegBase64 ? `${name.replace(/\.[^.]+$/, "")}.jpg` : name,
     mimeType: jpegBase64 ? "image/jpeg" : mimeType,
-    jpegBase64,
+    jpegBase64: Platform.OS === "web" ? jpegBase64 : undefined,
   };
 }
 
@@ -91,4 +114,19 @@ export async function buildPhotoPrompt(
     blocks.push({ type: "image", data, mimeType: photo.mimeType });
   }
   return serializeCloudPrompt(blocks);
+}
+
+export async function deletePhotos(photos: PendingPhoto[]): Promise<void> {
+  if (Platform.OS === "web") return;
+  await Promise.all(
+    photos.map((photo) =>
+      photo.uri.startsWith(
+        `${FileSystem.documentDirectory}mobilehog_workspace_`,
+      )
+        ? FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch(
+            () => {},
+          )
+        : Promise.resolve(),
+    ),
+  );
 }

@@ -6,6 +6,7 @@ import {
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
 import type { CloudTaskUpdatePayload } from "@posthog/shared";
 import { fetch } from "expo/fetch";
+import { engineAnalytics } from "@/lib/analytics";
 import {
   authedFetch,
   type FetchInit,
@@ -14,19 +15,6 @@ import {
 } from "@/lib/api";
 import { sessionIdentity } from "@/lib/auth";
 import { logger } from "@/lib/logger";
-
-const noopAnalytics = {
-  initialize: () => {},
-  track: () => {},
-  identify: () => {},
-  setCurrentUserId: () => {},
-  getCurrentUserId: () => null,
-  getOrCreateSessionId: () => "mobilehog",
-  resetUser: () => {},
-  captureException: () => {},
-  flush: async () => {},
-  shutdown: async () => {},
-};
 
 let engine: CloudTaskEngine | null = null;
 
@@ -48,7 +36,7 @@ function getEngine(): CloudTaskEngine {
         return { apiHost: getBaseUrl(), teamId: getProjectId() };
       },
     },
-    analytics: noopAnalytics,
+    analytics: engineAnalytics,
     logger,
     // React Native's global fetch cannot stream a body; expo/fetch can.
     streamFetch: ((url, init) =>

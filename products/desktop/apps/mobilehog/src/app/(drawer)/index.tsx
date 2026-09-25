@@ -9,6 +9,7 @@ import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
 import { sessionIdentity, useAuth } from "@/lib/auth";
@@ -18,7 +19,6 @@ import {
   useDefaultRepository,
   useInvalidateTasks,
 } from "@/lib/queries";
-import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
 export default function NewChatScreen() {
@@ -41,54 +41,33 @@ export default function NewChatScreen() {
     ],
   }));
 
-  // Open the chat immediately with the message in it; the task and its run
-  // are created behind that screen, then the chat is re-keyed to the real id.
-  const send = async (text: string, photos: PendingPhoto[]): Promise<void> => {
+  const send = async (
+    text: string,
+    photos: PendingPhoto[],
+    draft: { taskId?: string; saveTaskId: (id: string) => Promise<void> },
+  ): Promise<void> => {
     if (submitting.current) return;
     submitting.current = true;
     setSending(true);
     const identity = sessionIdentity();
-    if (photos.length > 0) {
-      try {
-        const wirePrompt = await buildPhotoPrompt(text, photos);
-        if (sessionIdentity() !== identity)
-          throw new Error("Session changed. Sign in again.");
-        const task = await createAndRunTask({
-          prompt: text || "Please look at the attached image.",
-          wirePrompt,
-          repository: repository.data ?? null,
-        });
-        if (sessionIdentity() !== identity) return;
-        invalidateTasks();
-        router.replace({
-          pathname: "/(drawer)/task/[id]",
-          params: { id: task.id },
-        });
-      } finally {
-        submitting.current = false;
-        setSending(false);
-      }
-      return;
-    }
-    const tempId = `new-${Date.now()}`;
-    const { startPending, adopt, failPending } = useSessions.getState();
-    startPending(tempId, text, `local-${Date.now()}`);
-    router.replace({ pathname: "/(drawer)/task/[id]", params: { id: tempId } });
     try {
+      const wirePrompt = await buildPhotoPrompt(text, photos);
+      if (sessionIdentity() !== identity)
+        throw new Error("Session changed. Sign in again.");
       const task = await createAndRunTask({
-        prompt: text,
+        prompt: text || "Please look at the attached image.",
+        wirePrompt,
         repository: repository.data ?? null,
+        taskId: draft.taskId,
+        onCreated: draft.saveTaskId,
       });
-      if (sessionIdentity() !== identity) return;
-      adopt(tempId, task);
+      if (sessionIdentity() !== identity)
+        throw new Error("Session changed. Sign in again.");
       invalidateTasks();
       router.replace({
         pathname: "/(drawer)/task/[id]",
         params: { id: task.id },
       });
-    } catch (err) {
-      if (sessionIdentity() !== identity) return;
-      failPending(tempId, err instanceof Error ? err.message : String(err));
     } finally {
       submitting.current = false;
       setSending(false);
@@ -97,7 +76,8 @@ export default function NewChatScreen() {
 
   return (
     <DrawerScene>
-      <ChatHeader />
+      <ChatHeader inline />
+      <ConnectionBanner />
       <Animated.View style={[styles.center, hero]}>
         <Logomark />
         <Text style={styles.greeting}>
@@ -107,6 +87,7 @@ export default function NewChatScreen() {
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
           <Composer
+            draftId="new"
             placeholder="Chat with PostHog"
             repository={repository.data ?? null}
             sending={sending}

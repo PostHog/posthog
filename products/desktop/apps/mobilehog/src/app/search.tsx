@@ -1,3 +1,4 @@
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
@@ -17,7 +18,9 @@ import { SearchIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { TaskListRow } from "@/components/TaskListRow";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
+import { getClient } from "@/lib/client";
 import { useTasks } from "@/lib/queries";
+import { useSessions } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
 
 const RECENT_SEARCHES_KEY = "mobilehog_recent_searches";
@@ -65,9 +68,52 @@ export default function SearchScreen() {
     const timeout = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(timeout);
   }, [query]);
-  const tasks = useTasks(search, !!search);
+  const [scope, setScope] = useState<"tasks" | "messages" | "reports">("tasks");
+  const tasks = useTasks(search, !!search && scope === "tasks");
+  const sessions = useSessions((state) => state.sessions);
+  const reports = useInfiniteQuery({
+    queryKey: ["reports", "search", search],
+    initialPageParam: 0,
+    enabled: !!search && scope === "reports",
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      const user = await client.getCurrentUser();
+      if (!user.uuid) throw new Error("Could not identify your account.");
+      return client.getSignalReports({
+        search,
+        suggested_reviewers: user.uuid,
+        status: "ready,pending_input,in_progress,suppressed,resolved,failed",
+        limit: 50,
+        offset: pageParam,
+        ordering: "-updated_at,-id",
+      });
+    },
+    getNextPageParam: (page, pages) => {
+      const loaded = pages.reduce((sum, item) => sum + item.results.length, 0);
+      return loaded < page.count && page.results.length ? loaded : undefined;
+    },
+  });
+  const messages = search
+    ? Object.values(sessions).flatMap((session) =>
+        session.blocks.flatMap((block) =>
+          (block.kind === "user" || block.kind === "agent") &&
+          block.text.toLowerCase().includes(search.toLowerCase())
+            ? [
+                {
+                  id: `${session.taskId}:${block.id}`,
+                  taskId: session.taskId,
+                  text: block.text,
+                },
+              ]
+            : [],
+        ),
+      )
+    : [];
+  const activeQuery = scope === "reports" ? reports : tasks;
   const waiting = query.trim() !== search;
-  const loading = !!query.trim() && (waiting || tasks.isLoading);
+  const loading =
+    !!query.trim() &&
+    (waiting || (scope !== "messages" && activeQuery.isLoading));
 
   const close = (): void => {
     Keyboard.dismiss();
@@ -84,10 +130,36 @@ export default function SearchScreen() {
         <Text style={styles.heading}>
           {query.trim() ? "Search results" : "Recent searches"}
         </Text>
-        <Text style={styles.caption}>Search your tasks</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
+          {(["tasks", "messages", "reports"] as const).map((value) => (
+            <Pressable
+              key={value}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: scope === value }}
+              style={styles.action}
+              onPress={() => setScope(value)}
+            >
+              <Text
+                style={[
+                  styles.caption,
+                  scope === value && { color: colors.accent },
+                ]}
+              >
+                {value === "reports"
+                  ? "Self-driving"
+                  : value === "messages"
+                    ? "Messages"
+                    : "Tasks"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {scope === "messages" ? (
+          <Text style={styles.caption}>Messages saved on this phone</Text>
+        ) : null}
       </View>
       <FlatList
-        data={waiting || !query.trim() ? [] : tasks.data}
+        data={waiting || !query.trim() || scope !== "tasks" ? [] : tasks.data}
         keyExtractor={(task) => task.id}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -107,10 +179,64 @@ export default function SearchScreen() {
           />
         )}
         ListHeaderComponent={
-          !!query.trim() &&
-          tasks.isError &&
-          tasks.data.length > 0 &&
-          !waiting ? (
+          scope !== "tasks" && !!query.trim() && !waiting ? (
+            <View>
+              {(scope === "reports"
+                ? (reports.data?.pages.flatMap((page) => page.results) ?? [])
+                : []
+              ).map((report) => (
+                <Pressable
+                  key={report.id}
+                  accessibilityRole="button"
+                  style={styles.recentRow}
+                  onPress={() => {
+                    saveSearch(query);
+                    router.dismissTo({
+                      pathname: "/(drawer)/self-driving",
+                      params: { reportId: report.id },
+                    });
+                  }}
+                >
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Text style={styles.recentText}>
+                      {report.title || "Untitled report"}
+                    </Text>
+                    <Text style={styles.caption} numberOfLines={2}>
+                      {report.summary}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))}
+              {(scope === "messages" ? messages : []).map((message) => (
+                <Pressable
+                  key={message.id}
+                  accessibilityRole="button"
+                  style={styles.recentRow}
+                  onPress={() => {
+                    saveSearch(query);
+                    router.dismissTo({
+                      pathname: "/(drawer)/task/[id]",
+                      params: { id: message.taskId, search },
+                    });
+                  }}
+                >
+                  <Text style={styles.caption} numberOfLines={4}>
+                    {message.text.slice(
+                      Math.max(
+                        0,
+                        message.text
+                          .toLowerCase()
+                          .indexOf(search.toLowerCase()) - 60,
+                      ),
+                    )}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : !!query.trim() &&
+            tasks.isError &&
+            tasks.data.length > 0 &&
+            !waiting ? (
             <Pressable
               accessibilityRole="button"
               disabled={tasks.isFetching}
@@ -152,19 +278,23 @@ export default function SearchScreen() {
                 icon={<SearchIcon />}
               />
             )
-          ) : loading ? (
+          ) : (scope === "messages" && messages.length > 0) ||
+            (scope === "reports" &&
+              reports.data?.pages.some(
+                (page) => page.results.length,
+              )) ? null : loading ? (
             <ListState title="Searching" loading />
-          ) : tasks.isError ? (
+          ) : scope !== "messages" && activeQuery.isError ? (
             <ListState
-              title="Could not load tasks"
+              title="Could not load results"
               description="Check your connection and try again."
               action={{
                 label: "Retry",
-                onPress: () => void tasks.refetch(),
-                disabled: tasks.isFetching,
+                onPress: () => void activeQuery.refetch(),
+                disabled: activeQuery.isFetching,
               }}
             />
-          ) : tasks.hasNextPage ? (
+          ) : scope !== "messages" && activeQuery.hasNextPage ? (
             <ListState
               title="No cloud tasks in this page"
               description="Load more tasks to continue."
@@ -172,22 +302,29 @@ export default function SearchScreen() {
             />
           ) : (
             <ListState
-              title="No matching tasks"
-              description="Try another title, description, or task number."
+              title="No matches"
+              description={
+                scope === "messages"
+                  ? "Open a conversation to save its messages, or try another search."
+                  : "Try another search."
+              }
               icon={<SearchIcon />}
             />
           )
         }
         ListFooterComponent={
-          !!query.trim() && tasks.hasNextPage && !waiting ? (
+          !!query.trim() &&
+          scope !== "messages" &&
+          activeQuery.hasNextPage &&
+          !waiting ? (
             <Pressable
               accessibilityRole="button"
               disabled={tasks.isFetching}
-              onPress={() => void tasks.fetchNextPage()}
+              onPress={() => void activeQuery.fetchNextPage()}
               style={styles.action}
             >
               <Text style={styles.actionText}>
-                {tasks.isFetchingNextPage ? "Loading" : "Load more tasks"}
+                {activeQuery.isFetchingNextPage ? "Loading" : "Load more"}
               </Text>
             </Pressable>
           ) : null
@@ -197,7 +334,7 @@ export default function SearchScreen() {
         <Glass style={styles.inputShell}>
           <SearchIcon color={colors.inkSoft} />
           <TextInput
-            accessibilityLabel="Search your tasks"
+            accessibilityLabel="Search"
             value={query}
             onChangeText={setQuery}
             placeholder="Search"

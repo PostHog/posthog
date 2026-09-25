@@ -1,4 +1,6 @@
-const { getDefaultConfig } = require("expo/metro-config");
+const {
+  getPostHogExpoConfig: getDefaultConfig,
+} = require("posthog-react-native/metro");
 const path = require("node:path");
 
 const projectRoot = __dirname;

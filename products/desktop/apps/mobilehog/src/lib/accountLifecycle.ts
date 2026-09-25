@@ -7,6 +7,7 @@ import { resetMcpClient } from "@/lib/mcp/client";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
+import { clearAccountStorage } from "@/lib/storage";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -18,6 +19,14 @@ let queryClient = createQueryClient();
 
 useAuth.subscribe((state, previous) => {
   if (sessionIdentity(state) === sessionIdentity(previous)) return;
+  if (
+    previous.session &&
+    (!state.session ||
+      previous.session.userId !== state.session.userId ||
+      previous.session.host !== state.session.host)
+  ) {
+    void clearAccountStorage(previous.session).catch(() => {});
+  }
   queryClient.clear();
   queryClient = createQueryClient();
   useSessions.getState().reset();
@@ -26,7 +35,11 @@ useAuth.subscribe((state, previous) => {
   resetMcpClient();
   useComposer.getState().reset();
   useRepo.setState({ repository: undefined });
-  useSeenReports.setState({ seen: new Set(), hydrated: false });
+  useSeenReports.setState({
+    seen: new Set(),
+    hydrated: false,
+    syncError: false,
+  });
 });
 
 export function getAccountQueryClient(): QueryClient {

@@ -9,10 +9,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
 import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
 import { BellIcon, SearchIcon, SteeringIcon } from "@/components/Icons";
+import { OptionsSheet } from "@/components/OptionsSheet";
 import { TaskListRow } from "@/components/TaskListRow";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
@@ -23,7 +25,9 @@ import { colors, fonts, radius } from "@/lib/theme";
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const tasks = useTasks();
+  const [filter, setFilter] = useState("recent");
+  const [showFilters, setShowFilters] = useState(false);
+  const tasks = useTasks("", true, filter);
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
   const reports = useReports().data ?? [];
@@ -45,6 +49,17 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + 18 }]}>
+      {showFilters ? (
+        <OptionsSheet
+          title="Filter tasks"
+          onClose={() => setShowFilters(false)}
+          options={Object.entries(TASK_FILTERS).map(([value, label]) => ({
+            label,
+            selected: filter === value,
+            onPress: () => setFilter(value),
+          }))}
+        />
+      ) : null}
       <DrawerEdgeShadow />
       <View style={styles.header}>
         <Text style={styles.wordmark}>PostHog</Text>
@@ -113,7 +128,18 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             ) : null}
           </Pressable>
         </View>
-        <Text style={styles.sectionTitle}>Recent Tasks</Text>
+        <View style={styles.header}>
+          <Text style={styles.sectionTitle}>Recent Tasks</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Filter tasks"
+            style={styles.action}
+            onPress={() => setShowFilters(true)}
+          >
+            <Text style={styles.actionText}>{TASK_FILTERS[filter]} ⌄</Text>
+          </Pressable>
+        </View>
+        <ConnectionBanner />
         {tasks.isLoading ? (
           <Text style={styles.hint}>Loading tasks</Text>
         ) : null}
@@ -140,7 +166,10 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
               closeDrawer();
               router.push({
                 pathname: "/(drawer)/task/[id]",
-                params: { id: task.id },
+                params: {
+                  id: task.id,
+                  archived: String(filter === "archived"),
+                },
               });
             }}
           />
@@ -196,6 +225,15 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     </View>
   );
 }
+
+const TASK_FILTERS: Record<string, string> = {
+  recent: "Recent",
+  in_progress: "Working",
+  queued: "Queued",
+  failed: "Failed",
+  completed: "Completed",
+  archived: "Archived",
+};
 
 const FOOTER_HEIGHT = 52;
 const styles = StyleSheet.create({

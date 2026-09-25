@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { AppUpdates } from "@/components/AppUpdates";
 import { GlassCircleButton } from "@/components/Glass";
 import { useAuth } from "@/lib/auth";
 import { unregisterPushToken } from "@/lib/notifications";
@@ -54,7 +55,11 @@ export default function SettingsSheet() {
       keyboardDismissMode="on-drag"
     >
       <View style={styles.header}>
-        <GlassCircleButton size={44} onPress={() => router.back()}>
+        <GlassCircleButton
+          accessibilityLabel="Close settings"
+          size={44}
+          onPress={() => router.back()}
+        >
           <Text style={styles.close}>×</Text>
         </GlassCircleButton>
         <Text style={styles.title}>Settings</Text>
@@ -192,6 +197,7 @@ export default function SettingsSheet() {
         <View style={[styles.row, styles.rowDivided]}>
           <Text style={styles.rowLabel}>Hedgehog mode</Text>
           <Switch
+            accessibilityLabel="Hedgehog mode"
             value={hedgehogMode}
             onValueChange={(value) => setPrefs({ hedgehogMode: value })}
             trackColor={{ true: colors.accent }}
@@ -199,7 +205,10 @@ export default function SettingsSheet() {
         </View>
       </View>
 
+      <Text style={styles.section}>App</Text>
+      <AppUpdates />
       <Pressable
+        accessibilityRole="button"
         onPress={async () => {
           router.back();
           await unregisterPushToken();

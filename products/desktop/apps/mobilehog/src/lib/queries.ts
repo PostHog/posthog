@@ -25,14 +25,20 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks(search = "", enabled = true) {
+export function useTasks(search = "", enabled = true, filter = "recent") {
   const session = useAuth((s) => s.session);
   const query = useInfiniteQuery({
-    queryKey: [...keys.tasks, "list", session?.userId, search],
+    queryKey: [...keys.tasks, "list", session?.userId, search, filter],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       getClient().getTasksPage({
         basic: true,
+        archived: filter === "archived" ? true : undefined,
+        status: ["in_progress", "failed", "completed", "queued"].includes(
+          filter,
+        )
+          ? filter
+          : undefined,
         createdBy: session?.userId,
         search: search.trim() || undefined,
         ordering: "-last_activity_at",
@@ -150,13 +156,19 @@ export async function createAndRunTask(input: {
   prompt: string;
   wirePrompt?: string;
   repository: string | null;
+  taskId?: string;
+  onCreated?: (id: string) => Promise<void>;
 }): Promise<Task> {
   const client = getClient();
-  const task = await client.createTask({
-    description: input.prompt,
-    title: input.prompt.slice(0, 100),
-    repository: input.repository ?? undefined,
-  });
+  const task = input.taskId
+    ? await client.getTask(input.taskId)
+    : await client.createTask({
+        description: input.prompt,
+        title: input.prompt.slice(0, 100),
+        repository: input.repository ?? undefined,
+      });
+  await input.onCreated?.(task.id);
+  if (task.latest_run) return task;
   return client.runTaskInCloud(task.id, undefined, {
     pendingUserMessage: input.wirePrompt ?? input.prompt,
     ...currentRunConfig(),

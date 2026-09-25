@@ -153,6 +153,11 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_read_state import (
+    ReportReadStateRequestSerializer,
+    ReportReadStateResponseSerializer,
+    report_read_states,
+)
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
@@ -1087,12 +1092,28 @@ class SignalReportViewSet(
         "id": "id",
     }
 
+    @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
+    @action(detail=False, methods=["post"], required_scopes=["task:read"])
+    def read_state(self, request, **kwargs):
+        serializer = ReportReadStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested = serializer.validated_data["report_ids"]
+        ids = list(self.get_queryset().filter(id__in=requested).values_list("id", flat=True))
+        if len(set(requested)) != len(ids):
+            raise NotFound("One or more reports are unavailable.")
+        states = report_read_states(
+            self.team_id, request.user.id, [str(id) for id in ids], serializer.validated_data.get("read")
+        )
+        return Response(ReportReadStateResponseSerializer({"states": states}).data)
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
             return SignalReportListSerializer
         return SignalReportSerializer
 
     def safely_get_queryset(self, queryset):
+        if self.action == "read_state":
+            return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
         if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
@@ -1121,6 +1142,16 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
+        unread = self.request.query_params.get("unread")
+        if unread is not None:
+            if unread not in {"true", "false"}:
+                raise serializers.ValidationError({"unread": "Use true or false."})
+            read_ids = (
+                SignalReportAction.objects.for_team(self.team_id)
+                .filter(user_id=self.request.user.id, type=SignalReportAction.ActionType.READ, metadata__read=True)
+                .values("report_id")
+            )
+            qs = qs.exclude(id__in=read_ids) if unread == "true" else qs.filter(id__in=read_ids)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
@@ -1968,6 +1999,13 @@ class SignalReportViewSet(
                     "default exclusions. Ignored when an explicit 'status' filter is set — that filter alone "
                     "decides which statuses are returned."
                 ),
+            ),
+            OpenApiParameter(
+                name="unread",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the current user's report read state.",
             ),
             OpenApiParameter(
                 name="search",

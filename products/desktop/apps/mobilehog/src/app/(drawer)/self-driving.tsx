@@ -1,8 +1,9 @@
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useNavigation, useRouter } from "expo-router";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -30,10 +31,13 @@ import {
   ReportDetail,
 } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
+import { getClient } from "@/lib/client";
 import { type ReportSort, usePrefs } from "@/lib/prefs";
 import {
   REPORT_SORTS,
+  type ReportView,
   useDismissReport,
+  useReportDetail,
   useReports,
   useSeenReports,
   useStartReport,
@@ -45,10 +49,27 @@ export default function SelfDrivingScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reports = useReports();
+  const [view, setView] = useState<ReportView>("active");
+  const reports = useReports(view);
+  const { reportId } = useLocalSearchParams<{ reportId?: string }>();
+  const queryClient = useQueryClient();
+  const [undoReport, setUndoReport] = useState<SignalReport | null>(null);
+  const reopen = useMutation({
+    mutationFn: (id: string) =>
+      getClient().updateSignalReportState(id, { state: "potential" }),
+    onSuccess: () => {
+      setUndoReport(null);
+      setSelectedReportId(null);
+      setHandled(new Set());
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
+      setNotice("Report restored.");
+    },
+    onError: () => setNotice("Could not restore report. Try again."),
+  });
   const sort = usePrefs((s) => s.reportSort);
   const savePrefs = usePrefs((s) => s.set);
   const [menu, setMenu] = useState<"sort" | "actions" | null>(null);
+  const syncError = useSeenReports((s) => s.syncError);
   const seen = useSeenReports((s) => s.seen);
   const markSeen = useSeenReports((s) => s.markSeen);
   const dismiss = useDismissReport();
@@ -56,7 +77,13 @@ export default function SelfDrivingScreen() {
   // Locally swiped ids, so a card leaves the deck before the server catches up.
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(
+    reportId ?? null,
+  );
+  const selectedDetail = useReportDetail(selectedReportId ?? "");
+  useEffect(() => {
+    if (reportId) setSelectedReportId(reportId);
+  }, [reportId]);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
@@ -82,7 +109,10 @@ export default function SelfDrivingScreen() {
         .filter((report): report is SignalReport => !!report),
     [deck, all],
   );
-  const selectedReport = all.find((report) => report.id === selectedReportId);
+  const selectedReport = selectedReportId
+    ? (all.find((report) => report.id === selectedReportId) ??
+      selectedDetail.data)
+    : undefined;
 
   // Whatever surfaces at the top of the deck counts as seen.
   const topId = deckReports[0]?.id;
@@ -110,16 +140,38 @@ export default function SelfDrivingScreen() {
     });
   };
 
-  const onDismiss = (report: SignalReport): void => {
+  const dismissNow = (report: SignalReport): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
     finish(report);
     setSelectedReportId(null);
     dismiss.mutate(report.id, {
+      onSuccess: () => {
+        setUndoReport(report);
+        setNotice("Report dismissed for this project.");
+      },
       onError: (error) => {
         restore(report);
         setNotice(error.message);
       },
     });
+  };
+
+  const onDismiss = (report: SignalReport): void => {
+    if (dismiss.isPending) return;
+    Alert.alert(
+      "Dismiss report?",
+      report.implementation_pr_url
+        ? "This dismisses the report for the project and closes its open pull request. Restoring the report will not reopen the pull request."
+        : "This dismisses the report for everyone in this project. You can restore it from History.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Dismiss",
+          style: "destructive",
+          onPress: () => dismissNow(report),
+        },
+      ],
+    );
   };
 
   // Open the chat immediately with the report prompt in it (the same pending
@@ -166,6 +218,7 @@ export default function SelfDrivingScreen() {
     try {
       const ids = unseen.map((report) => report.id);
       await markSeen(ids);
+      if (view === "unread") void reports.refetch();
       setNotice(
         `${ids.length} report${ids.length === 1 ? "" : "s"} marked as read.`,
       );
@@ -183,22 +236,37 @@ export default function SelfDrivingScreen() {
     <DrawerScene>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         {selectedReport ? (
-          <GlassCircleButton onPress={() => setSelectedReportId(null)}>
+          <GlassCircleButton
+            accessibilityLabel="Back to Self-driving"
+            onPress={() => {
+              setSelectedReportId(null);
+              if (view === "unread") void reports.refetch();
+            }}
+          >
             <Text style={styles.headerGlyph}>‹</Text>
           </GlassCircleButton>
         ) : showDeck ? (
-          <GlassCircleButton onPress={() => setDeck([])}>
+          <GlassCircleButton
+            accessibilityLabel="Close triage"
+            onPress={() => {
+              setDeck([]);
+              if (view === "unread") void reports.refetch();
+            }}
+          >
             <Text style={styles.headerGlyph}>×</Text>
           </GlassCircleButton>
         ) : (
-          <GlassCircleButton onPress={() => navigation.openDrawer()}>
+          <GlassCircleButton
+            accessibilityLabel="Open menu"
+            onPress={() => navigation.openDrawer()}
+          >
             <MenuIcon />
           </GlassCircleButton>
         )}
         <Text style={styles.title}>
           {selectedReport ? "Report" : showDeck ? "Triage" : "Self-driving"}
         </Text>
-        {!selectedReport && !showDeck && all.length > 0 ? (
+        {!selectedReport && !showDeck ? (
           <GlassCircleButton
             accessibilityLabel="Report options"
             onPress={() => setMenu("actions")}
@@ -213,6 +281,20 @@ export default function SelfDrivingScreen() {
       {selectedReport ? (
         <View style={styles.reportPage}>
           <ReportDetail report={selectedReport} />
+          <Pressable
+            accessibilityRole="button"
+            style={styles.sortButton}
+            onPress={() => {
+              void markSeen([selectedReport.id], false)
+                .then(() => {
+                  setSelectedReportId(null);
+                  setNotice("Report marked unread.");
+                })
+                .catch(() => setNotice("Could not sync read state."));
+            }}
+          >
+            <Text style={styles.actionText}>Mark unread</Text>
+          </Pressable>
           <View
             style={[
               styles.reportActions,
@@ -220,13 +302,24 @@ export default function SelfDrivingScreen() {
             ]}
           >
             <CardButton
-              label="Dismiss"
-              onPress={() => onDismiss(selectedReport)}
+              label={
+                selectedReport.status === "suppressed" ? "Restore" : "Dismiss"
+              }
+              disabled={
+                dismiss.isPending ||
+                reopen.isPending ||
+                selectedReport.status === "resolved"
+              }
+              onPress={() =>
+                selectedReport.status === "suppressed"
+                  ? reopen.mutate(selectedReport.id)
+                  : onDismiss(selectedReport)
+              }
             />
             <CardButton
               label="Start task"
               primary
-              disabled={start.isPending}
+              disabled={start.isPending || view === "history"}
               onPress={() => onStart(selectedReport)}
             />
           </View>
@@ -262,6 +355,13 @@ export default function SelfDrivingScreen() {
             { paddingBottom: insets.bottom + 24 },
           ]}
         >
+          <Text style={styles.rowMeta}>
+            {view === "history"
+              ? "History"
+              : view === "unread"
+                ? "Unread reports"
+                : "Reports for you"}
+          </Text>
           {all.length > 0 ? (
             <View style={styles.toolbar}>
               <Text style={styles.rowMeta}>
@@ -363,15 +463,34 @@ export default function SelfDrivingScreen() {
           ) : null}
         </Animated.ScrollView>
       )}
+      {syncError ? (
+        <Text style={{ color: colors.inkSoft, padding: 16 }}>
+          Read state could not sync. Pull to refresh and try again.
+        </Text>
+      ) : null}
       {notice ? (
         <Animated.View
           key={notice}
           entering={FadeInDown.duration(220)}
           exiting={FadeOutDown.duration(180)}
           style={[styles.toast, { bottom: insets.bottom + 20 }]}
-          pointerEvents="none"
+          pointerEvents="auto"
         >
-          <Text style={styles.notice}>{notice}</Text>
+          <Text accessibilityRole="alert" style={styles.notice}>
+            {notice}
+          </Text>
+          {undoReport ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={reopen.isPending}
+              onPress={() => reopen.mutate(undoReport.id)}
+              style={styles.sortButton}
+            >
+              <Text style={styles.actionText}>
+                {reopen.isPending ? "Restoring" : "Undo dismissal"}
+              </Text>
+            </Pressable>
+          ) : null}
         </Animated.View>
       ) : null}
       {menu ? (
@@ -390,8 +509,21 @@ export default function SelfDrivingScreen() {
                   },
                 }))
               : [
+                  ...Object.entries({
+                    active: "Reports for you",
+                    unread: "Unread",
+                    history: "History",
+                  }).map(([value, label]) => ({
+                    label,
+                    selected: view === value,
+                    onPress: () => {
+                      setView(value as ReportView);
+                      setHandled(new Set());
+                    },
+                  })),
                   {
                     label: "Triage reports",
+                    disabled: view === "history" || all.length === 0,
                     onPress: () =>
                       setDeck(
                         (unseen.length > 0 ? unseen : all).map(
@@ -409,7 +541,7 @@ export default function SelfDrivingScreen() {
                           onPress: () =>
                             Alert.alert(
                               "Mark reports as read?",
-                              `This marks ${unseen.length} loaded report${unseen.length === 1 ? "" : "s"} as read on this device. Reports stay in the list.`,
+                              `This marks ${unseen.length} loaded report${unseen.length === 1 ? "" : "s"} as read on your devices. Reports stay in the list.`,
                               [
                                 { text: "Cancel", style: "cancel" },
                                 {

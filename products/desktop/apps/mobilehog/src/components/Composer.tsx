@@ -14,7 +14,10 @@ import {
   View,
 } from "react-native";
 import { ArrowUpIcon, MicrophoneIcon, StopIcon } from "@/components/Icons";
+import { captureFailure, captureOutcome } from "@/lib/analytics";
 import { useComposer } from "@/lib/composer";
+import { useDraft } from "@/lib/drafts";
+import { useConnectivity } from "@/lib/offline";
 import { MAX_PHOTOS, type PendingPhoto, pickPhoto } from "@/lib/photos";
 import { useModels } from "@/lib/queries";
 import { colors, fonts } from "@/lib/theme";
@@ -22,10 +25,15 @@ import { useDictation } from "@/lib/useDictation";
 
 interface ComposerProps {
   placeholder: string;
+  draftId: string;
   // Shown as a second pill when provided (null = no repository chosen).
   repository?: string | null;
   disabled?: boolean;
-  onSend: (text: string, photos: PendingPhoto[]) => void | Promise<void>;
+  onSend: (
+    text: string,
+    photos: PendingPhoto[],
+    draft: { taskId?: string; saveTaskId: (id: string) => Promise<void> },
+  ) => void | Promise<void>;
   onStop?: () => void;
   busy?: boolean;
   sending?: boolean;
@@ -34,6 +42,7 @@ interface ComposerProps {
 
 export function Composer({
   placeholder,
+  draftId,
   repository,
   disabled,
   onSend,
@@ -43,16 +52,21 @@ export function Composer({
   autoFocus,
 }: ComposerProps) {
   const router = useRouter();
-  const [text, setText] = useState("");
+  const online = useConnectivity((state) => state.online);
+  const draft = useDraft(draftId);
+  const { text, photos } = draft;
+  const setText = (value: string): void => draft.update({ text: value });
+  const setPhotos = (
+    change: (current: PendingPhoto[]) => PendingPhoto[],
+  ): void => draft.update((current) => ({ photos: change(current.photos) }));
   const inputRef = useRef<TextInput>(null);
   const [focused, setFocused] = useState(false);
   const voice = useDictation((value) => {
-    setText(
-      (current) => `${current.trimEnd()}${current.trim() ? " " : ""}${value}`,
-    );
+    draft.update((current) => ({
+      text: `${current.text.trimEnd()}${current.text.trim() ? " " : ""}${value}`,
+    }));
   });
   const dictating = voice.status !== "idle";
-  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +83,9 @@ export function Composer({
     !submitting &&
     !picking &&
     !disabled &&
-    !dictating;
+    !dictating &&
+    draft.ready &&
+    online;
 
   const addPhoto = async (): Promise<void> => {
     if (picking || photos.length >= MAX_PHOTOS) return;
@@ -88,6 +104,8 @@ export function Composer({
   const submit = async (): Promise<void> => {
     const value = text.trim();
     if (
+      !online ||
+      !draft.ready ||
       (!value && !photos.length) ||
       picking ||
       dictating ||
@@ -100,10 +118,21 @@ export function Composer({
     setSubmitting(true);
     setError(null);
     try {
-      await onSend(value, photos);
-      setText("");
-      setPhotos([]);
+      await onSend(value, photos, {
+        taskId: draft.taskId,
+        saveTaskId: (taskId) => draft.save({ taskId }),
+      });
+      captureOutcome("send_message", true, { has_images: photos.length > 0 });
+      try {
+        await draft.clear();
+      } catch {
+        setError(
+          "Message sent, but the saved draft could not be cleared. Check the conversation before sending it again.",
+        );
+      }
     } catch (cause) {
+      captureOutcome("send_message", false, { has_images: photos.length > 0 });
+      captureFailure("send_message", cause);
       setError(
         cause instanceof Error ? cause.message : "Could not send message.",
       );
@@ -125,6 +154,7 @@ export function Composer({
         sending ||
         disabled ||
         dictating ||
+        !draft.ready ||
         photos.length >= MAX_PHOTOS
       }
       style={styles.iconButton}
@@ -142,6 +172,7 @@ export function Composer({
       accessibilityLabel={dictating ? "Stop dictation" : "Dictate message"}
       disabled={
         disabled ||
+        !draft.ready ||
         submitting ||
         sending ||
         picking ||
@@ -190,6 +221,11 @@ export function Composer({
 
   return (
     <View style={styles.shell}>
+      {draft.error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {draft.error}
+        </Text>
+      ) : null}
       {photos.length > 0 ? (
         <View style={styles.photos}>
           {photos.map((photo) => (
@@ -224,7 +260,9 @@ export function Composer({
           accessibilityLabel={placeholder}
           placeholderTextColor={colors.inkMute}
           style={styles.input}
-          editable={!submitting && !sending && !disabled && !dictating}
+          editable={
+            draft.ready && !submitting && !sending && !disabled && !dictating
+          }
           multiline
           autoFocus={autoFocus}
         />

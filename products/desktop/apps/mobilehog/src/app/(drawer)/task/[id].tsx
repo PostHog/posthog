@@ -6,8 +6,10 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Hedgehog } from "@/components/Hedgehog";
+import { TaskActions } from "@/components/TaskActions";
 import {
   buildTranscriptRows,
   StatusLine,
@@ -22,7 +24,11 @@ import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
 export default function TaskScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, archived, search } = useLocalSearchParams<{
+    id: string;
+    archived?: string;
+    search?: string;
+  }>();
   const insets = useSafeAreaInsets();
   // Placeholder chats have no task yet; the store holds their session.
   const isPending = id.startsWith("new-");
@@ -70,6 +76,31 @@ export default function TaskScreen() {
     [session, workingLabel],
   );
 
+  const matches = useMemo(
+    () =>
+      search
+        ? rows.flatMap((row, index) =>
+            row.kind === "block" &&
+            "text" in row.block &&
+            row.block.text.toLowerCase().includes(search.toLowerCase())
+              ? [index]
+              : [],
+          )
+        : [],
+    [rows, search],
+  );
+  const [match, setMatch] = useState(0);
+  const lastSearch = useRef("");
+  useEffect(() => {
+    if (search && matches.length && lastSearch.current !== `${id}:${search}`) {
+      lastSearch.current = `${id}:${search}`;
+      setMatch(0);
+      requestAnimationFrame(() =>
+        listRef.current?.scrollToIndex({ index: matches[0], animated: false }),
+      );
+    }
+  }, [id, search, matches]);
+
   const send = async (text: string, photos: PendingPhoto[]): Promise<void> => {
     followNextMessage.current = true;
     await sendPrompt(id, text, `local-${Date.now()}`, photos);
@@ -82,7 +113,39 @@ export default function TaskScreen() {
 
   return (
     <DrawerScene>
-      <ChatHeader inline />
+      <ChatHeader
+        inline
+        actions={
+          task.data ? (
+            <TaskActions task={task.data} archived={archived === "true"} />
+          ) : undefined
+        }
+      />
+      <ConnectionBanner />
+      {search ? (
+        <View style={{ padding: 12, flexDirection: "row", gap: 12 }}>
+          <Text style={{ color: colors.ink, flex: 1 }}>
+            {matches.length
+              ? `${match + 1} of ${matches.length} matches`
+              : "No saved matches"}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={!matches.length}
+            style={{ minHeight: 44 }}
+            onPress={() => {
+              const next = (match + 1) % matches.length;
+              setMatch(next);
+              listRef.current?.scrollToIndex({
+                index: matches[next],
+                animated: true,
+              });
+            }}
+          >
+            <Text style={{ color: colors.accent }}>Next match</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <View style={{ flex: 1 }}>
           <FlashList
@@ -91,12 +154,27 @@ export default function TaskScreen() {
             keyExtractor={(row) => row.id}
             getItemType={(row) => row.kind}
             renderItem={({ item }) => (
-              <TranscriptRowView
-                row={item}
-                onPermission={(toolCallId, optionId) =>
-                  respondToPermission(id, toolCallId, optionId)
+              <View
+                style={
+                  search &&
+                  item.kind === "block" &&
+                  "text" in item.block &&
+                  item.block.text.toLowerCase().includes(search.toLowerCase())
+                    ? {
+                        borderLeftWidth: 3,
+                        borderLeftColor: colors.accent,
+                        paddingLeft: 8,
+                      }
+                    : undefined
                 }
-              />
+              >
+                <TranscriptRowView
+                  row={item}
+                  onPermission={(toolCallId, optionId) =>
+                    respondToPermission(id, toolCallId, optionId)
+                  }
+                />
+              </View>
             )}
             ItemSeparatorComponent={Gap}
             onScroll={({ nativeEvent }) => {
@@ -119,7 +197,7 @@ export default function TaskScreen() {
               paddingBottom: 16,
             }}
             maintainVisibleContentPosition={{
-              startRenderingFromBottom: true,
+              startRenderingFromBottom: !search,
               autoscrollToBottomThreshold: 0.2,
               animateAutoScrollToBottom: false,
             }}
@@ -157,6 +235,8 @@ export default function TaskScreen() {
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
           <View>
             <Composer
+              key={id}
+              draftId={id}
               placeholder="Reply"
               onSend={send}
               onStop={isPending ? undefined : () => cancelTurn(id)}

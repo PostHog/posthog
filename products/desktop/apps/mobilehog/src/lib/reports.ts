@@ -42,25 +42,40 @@ export const reportKeys = {
 };
 
 // Inbox and its badge use the same reviewer filter.
-export function useReports() {
+export type ReportView = "active" | "unread" | "history";
+
+export function useReports(view: ReportView = "active", search = "") {
   const session = useAuth((s) => s.session);
   const sort = usePrefs((s) => s.reportSort);
   return useInfiniteQuery({
-    queryKey: [...reportKeys.list, sort],
+    queryKey: [...reportKeys.list, sort, view, search],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const client = getClient();
       const user = await client.getCurrentUser();
       if (!user.uuid)
         throw new Error("Could not identify your account. Try again.");
-      return client.getSignalReports({
-        status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-        actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+      const page = await client.getSignalReports({
+        status:
+          view === "history"
+            ? "suppressed,resolved"
+            : INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+        actionability:
+          view === "history"
+            ? undefined
+            : INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+        search: search || undefined,
+        unread: view === "unread" ? true : undefined,
         suggested_reviewers: user.uuid,
         ordering: (REPORT_SORTS[sort] ?? REPORT_SORTS.newest).ordering,
         limit: 50,
         offset: pageParam,
       });
+      await useSeenReports
+        .getState()
+        .sync(page.results.map((report) => report.id))
+        .catch(() => {});
+      return page;
     },
     getNextPageParam: (lastPage, pages) => {
       const loaded = pages.reduce(
@@ -76,7 +91,9 @@ export function useReports() {
     select: (data) =>
       data.pages
         .flatMap((page) => page.results)
-        .filter((report) => canCreateImplementationPr(report)),
+        .filter(
+          (report) => view === "history" || canCreateImplementationPr(report),
+        ),
   });
 }
 
@@ -89,6 +106,7 @@ export function useReportDetail(id: string) {
       return report;
     },
     staleTime: 60_000,
+    enabled: !!id,
   });
 }
 
@@ -149,27 +167,31 @@ export function useStartReport() {
   });
 }
 
-// Read state is local to this account and project on this device.
+// The local copy keeps indicators available while the device is offline.
 const SEEN_KEY = "mobilehog_seen_reports";
 const SEEN_CAP = 500;
 let seenWrite = Promise.resolve();
+let seenVersion = 0;
 
 interface SeenState {
   seen: Set<string>;
   hydrated: boolean;
+  syncError: boolean;
   hydrate: () => Promise<void>;
-  markSeen: (ids: string[]) => Promise<void>;
+  markSeen: (ids: string[], read?: boolean) => Promise<void>;
+  sync: (ids: string[]) => Promise<void>;
 }
 
 export const useSeenReports = create<SeenState>((set, get) => ({
   seen: new Set(),
   hydrated: false,
+  syncError: false,
   hydrate: async () => {
     if (!useAuth.getState().session) return;
     const identity = sessionIdentity();
     try {
       const raw = await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
-      if (sessionIdentity() !== identity) return;
+      if (sessionIdentity() !== identity || get().hydrated) return;
       set({
         seen: new Set(raw ? (JSON.parse(raw) as string[]) : []),
         hydrated: true,
@@ -178,21 +200,54 @@ export const useSeenReports = create<SeenState>((set, get) => ({
       if (sessionIdentity() === identity) set({ hydrated: true });
     }
   },
-  markSeen: async (ids) => {
+  sync: async (ids) => {
+    if (!ids.length) return;
+    const identity = sessionIdentity();
+    const version = seenVersion;
+    let states: Record<string, boolean>;
+    try {
+      states = await getClient().getReportReadStates(ids);
+    } catch (error) {
+      if (sessionIdentity() === identity) set({ syncError: true });
+      throw error;
+    }
+    if (sessionIdentity() !== identity || version !== seenVersion) return;
+    const next = new Set(get().seen);
+    for (const [id, read] of Object.entries(states)) {
+      if (read) next.add(id);
+      else next.delete(id);
+    }
+    set({
+      seen: new Set([...next].slice(-SEEN_CAP)),
+      hydrated: true,
+      syncError: false,
+    });
+  },
+  markSeen: async (ids, read = true) => {
+    seenVersion += 1;
     const identity = sessionIdentity();
     const key = accountStorageKey(SEEN_KEY);
     const write = seenWrite
       .catch(() => {})
       .then(async () => {
         if (sessionIdentity() !== identity) return;
+        for (let offset = 0; offset < ids.length; offset += 100)
+          await getClient().getReportReadStates(
+            ids.slice(offset, offset + 100),
+            read,
+          );
+        if (sessionIdentity() !== identity) return;
         const next = new Set(get().seen);
         for (const id of ids) {
           next.delete(id);
-          next.add(id);
+          if (read) next.add(id);
         }
         const list = [...next].slice(-SEEN_CAP);
-        await SecureStore.setItemAsync(key, JSON.stringify(list));
-        if (sessionIdentity() === identity) set({ seen: new Set(list) });
+        await SecureStore.setItemAsync(key, JSON.stringify(list)).catch(
+          () => {},
+        );
+        if (sessionIdentity() === identity)
+          set({ seen: new Set(list), syncError: false });
       });
     seenWrite = write;
     await write;

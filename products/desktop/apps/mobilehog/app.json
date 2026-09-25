@@ -73,7 +73,8 @@
       ],
       "expo-status-bar",
       "expo-web-browser",
-      "expo-updates"
+      "expo-updates",
+      "./plugins/withPostHogSourceMaps"
     ],
     "extra": {
       "router": {},
@@ -82,10 +83,10 @@
       }
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "updates": {
-      "enabled": false,
+      "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/d8e0731d-1107-4421-aa33-abf130eca27f"
