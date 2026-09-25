@@ -25,6 +25,7 @@ from posthog.egress.github.transport import (
     raise_if_github_rate_limited,
 )
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
@@ -122,6 +123,72 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         response.json.return_value = body
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
             assert github.has_pull_request_comment("example/repo", 1, "<!-- replacement -->") is expected
+
+    @parameterized.expand(
+        [
+            ("incomplete", 200, [], False),
+            ("error_status", 502, {"message": "Bad gateway"}, True),
+            ("malformed", 200, {"error": "unavailable"}, True),
+        ]
+    )
+    def test_merge_queue_state_refuses_a_partial_read(self, _name, status_code, body, complete) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = body
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            with pytest.raises(GitHubIntegrationError):
+                github.get_pull_request_merge_queue_state("example/repo", 1)
+
+    @parameterized.expand(
+        [
+            ("stacked", 200, [{"head": {"repo": {"full_name": "Example/Repo"}}}], True),
+            ("not_stacked", 200, [], False),
+            ("fork_only", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], False),
+            ("fork_only_page_then_incomplete", 200, [{"head": {"repo": {"full_name": "someone/repo"}}}], "partial"),
+            ("error_status", 502, {"message": "Bad gateway"}, None),
+        ]
+    )
+    def test_stacked_pull_request_read_never_guesses(self, _name, status_code, body, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = body
+        complete = expected != "partial"
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], complete)):
+            if expected in (None, "partial"):
+                with pytest.raises(GitHubIntegrationError):
+                    github.has_open_pull_request_with_base("example/repo", "feature")
+            else:
+                assert github.has_open_pull_request_with_base("example/repo", "feature") is expected
+
+    @parameterized.expand(
+        [
+            ("merge_queue_state", lambda github: github.get_pull_request_merge_queue_state("../victim/repo", 1)),
+            ("stacked_read", lambda github: github.has_open_pull_request_with_base("..%2Fvictim/repo", "feature")),
+        ]
+    )
+    def test_unsafe_repository_never_reaches_github(self, _name, read) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        with (
+            patch.object(github, "_installation_authenticated_get") as single,
+            patch.object(github, "_installation_authenticated_get_pages") as pages,
+        ):
+            with pytest.raises(GitHubIntegrationError):
+                read(github)
+        single.assert_not_called()
+        pages.assert_not_called()
+
+    def test_merge_queue_state_reads_the_trunk_comment(self) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=200)
+        response.json.return_value = [
+            {"user": {"login": "someone"}, "body": "LGTM"},
+            {
+                "user": {"login": "trunk-io[bot]", "type": "Bot"},
+                "body": "🧪 Running tests on this pull request. https://app.trunk.io/example-org/merge-queue/x/1",
+            },
+        ]
+        with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], True)):
+            assert github.get_pull_request_merge_queue_state("example/repo", 1) == MergeQueueState.TESTING
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -804,6 +871,39 @@ class TestGitHubIntegrationModel(BaseTest):
             result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
         assert result is not None
         mock_access.assert_called_once_with("PostHog/posthog")
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
+        # The search is ordered by id, so an exhausted first installation would otherwise hide a
+        # healthy later one that covers the repository.
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        covering = self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, True]):
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        assert result.integration.id == covering.id
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
+        self, _name, error
+    ):
+        # No other installation answered, so the caller has to hear why rather than read it as
+        # "this team has no integration for the repository".
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
+            with pytest.raises(type(error)):
+                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
 
     @parameterized.expand(
         [

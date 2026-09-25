@@ -10,12 +10,15 @@ from products.batch_exports.backend.hogql_source import (
     validate_hogql_query_for_batch_export,
 )
 
+if typing.TYPE_CHECKING:
+    from posthog.models import Team, User
+
 pytestmark = pytest.mark.django_db
 
 
-async def _validate(hogql_query: str, team) -> None:
+async def _validate(hogql_query: str, team: "Team", user: "User") -> None:
     # Resolving the query reads from Postgres to build the team database, so run it off the event loop.
-    await database_sync_to_async(validate_hogql_query_for_batch_export)(hogql_query, team)
+    await database_sync_to_async(validate_hogql_query_for_batch_export)(hogql_query, team, user=user)
 
 
 @pytest.mark.parametrize(
@@ -84,8 +87,8 @@ async def _validate(hogql_query: str, team) -> None:
         "cte-with-placeholders",
     ],
 )
-async def test_accepts_valid_queries(ateam, hogql_query):
-    await _validate(hogql_query, ateam)
+async def test_accepts_valid_queries(ateam, auser, hogql_query):
+    await _validate(hogql_query, ateam, auser)
 
 
 @pytest.mark.parametrize(
@@ -111,9 +114,9 @@ async def test_accepts_valid_queries(ateam, hogql_query):
         "unknown-field-in-placeholder-comparison",
     ],
 )
-async def test_rejects_unsupported_queries(ateam, hogql_query, expected_message):
+async def test_rejects_unsupported_queries(ateam, auser, hogql_query, expected_message):
     with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
-        await _validate(hogql_query, ateam)
+        await _validate(hogql_query, ateam, auser)
 
 
 @pytest.mark.parametrize("team_modifiers", [None, {"convertToProjectTimezone": False}])

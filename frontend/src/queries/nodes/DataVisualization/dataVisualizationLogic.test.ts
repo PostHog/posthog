@@ -5,7 +5,12 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import {
+    AxisSeriesSettings,
+    DataVisualizationLogicProps,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from './dataVisualizationLogic'
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -713,5 +718,67 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+
+    it('keeps y-axis values unrounded at zero decimal places and plots missing values as zero', async () => {
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                chartSettings: {
+                    showNullsAsZero: true,
+                    yAxis: [{ column: 'value', settings: { formatting: { decimalPlaces: 0 } } }],
+                },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Nullable(Float64)']],
+            results: [[42.195], [null], ['NaN']],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            yData: [expect.objectContaining({ data: [42.195, 0, 0] })],
+        })
+    })
+
+    it('ignores retained decimal places under the short style for table values', async () => {
+        const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                tableSettings: { columns: [{ column: 'value', settings }] },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Float64']],
+            results: [[12.345]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
+        })
+    })
+
+    it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'formats zero decimal places under the none style',
+            42.195,
+            { formatting: { style: 'none', decimalPlaces: 0 } },
+            '42',
+        ],
+        ['keeps full precision when decimal places are unset', 42.5, undefined, '42.5'],
+    ])('%s', (_name, value, settings, expected) => {
+        expect(formatDataWithSettings(value, settings)).toBe(expected)
     })
 })

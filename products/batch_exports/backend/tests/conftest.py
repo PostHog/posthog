@@ -1,9 +1,10 @@
 import random
+from collections.abc import AsyncIterator
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 
 @pytest_asyncio.fixture
@@ -28,3 +29,14 @@ async def ateam(aorganization):
     # Calling delete_batch_exports() here can hang indefinitely because
     # sync_to_async threads blocked on gRPC cannot be cancelled by asyncio.
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def auser(aorganization: Organization, ateam: Team) -> AsyncIterator[User]:
+    user = await sync_to_async(User.objects.create_and_join)(
+        organization=aorganization, email="exporter@example.com", password=None
+    )
+
+    yield user
+
+    await sync_to_async(user.delete)()

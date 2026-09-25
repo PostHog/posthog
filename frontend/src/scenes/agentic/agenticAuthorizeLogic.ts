@@ -257,6 +257,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             null as TeamBasicType[] | null,
             {
                 loadAllTeams: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.loadPaginatedResults('api/projects')
                 },
             },
@@ -265,6 +266,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             null as { partner_name: string; scopes: string[] } | null,
             {
                 loadPendingAuth: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/agentic/authorize/pending/?state=${encodeURIComponent(values.state)}`)
                 },
             },
@@ -295,6 +297,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
 
                 let response
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     response = await api.create(
                         'api/agentic/authorize/confirm/',
                         { state: values.state, team_id: formValues.scoped_teams[0] },
@@ -391,7 +394,6 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
 
         return {
             '/agentic/authorize': handleAuthorize,
-            '/agentic/authorize/': handleAuthorize,
         }
     }),
 ])

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.placeholders import replace_placeholders
+
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
     AI_OBSERVABILITY_EVALUATION_RENDERING,
@@ -227,3 +229,5 @@ class TestSampleAndEmbedForJobActivity:
             # filter_expr is a real HogQL expr (not the pass-through True literal) when filters are provided
             filter_expr = placeholders["filter_expr"]
             assert filter_expr.__class__.__name__ != "Constant"
+            query = replace_placeholders(mock_execute.call_args.kwargs["query"], placeholders).to_hogql()
+            assert "notEquals(properties.$ai_evaluation_result_type, 'numeric')" in query

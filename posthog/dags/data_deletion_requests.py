@@ -1542,8 +1542,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete: when it fails, every tombstoned person is
-    still in Postgres, so the op raises and the request finalizes as FAILED for a retry.
+    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
+    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
+    failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
+    deleted and the weekly deletion sweep republishes it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1564,12 +1566,13 @@ def delete_person_profiles_op(
         "errors": dagster.MetadataValue.int(len(result.errors)),
     }
     if result.errors:
-        context.log.warning(
-            f"Person profile deletion had {len(result.errors)} per-person failures; "
-            f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
-        )
+        context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
+    postgres_failures = [
+        f
+        for f in result.failures
+        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
+    ]
     if postgres_failures:
         raise dagster.Failure(
             description=(

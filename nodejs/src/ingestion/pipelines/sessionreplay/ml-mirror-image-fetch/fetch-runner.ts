@@ -203,30 +203,50 @@ export class FetchRunner implements FetchPass {
         republishBatch: RepublishBatch,
         passState: FetchPassState
     ): Promise<void> {
+        const leaseWork: Promise<void>[] = []
         for (;;) {
             const lease = queue.take()
             if (!lease) {
-                return
+                break
             }
-            try {
-                attempts.push(
-                    await this.processLease(
-                        lease,
-                        stored,
-                        configurationItems,
-                        configurationPolicy,
-                        deadlineMs,
-                        republishBatch,
-                        passState
-                    )
-                )
-            } catch (error) {
-                passState.failure ??= { error }
-                queue.abort()
-                throw error
-            } finally {
+            let signalSlotReleased: () => void = () => undefined
+            const slotReleased = new Promise<void>((resolve) => {
+                signalSlotReleased = resolve
+            })
+            const releaseRegistrableDomainSlot = (): void => {
                 lease.release()
+                signalSlotReleased()
             }
+            const work = (async (): Promise<void> => {
+                try {
+                    attempts.push(
+                        await this.processLease(
+                            lease,
+                            stored,
+                            configurationItems,
+                            configurationPolicy,
+                            deadlineMs,
+                            republishBatch,
+                            passState,
+                            releaseRegistrableDomainSlot
+                        )
+                    )
+                } catch (error) {
+                    passState.failure ??= { error }
+                    queue.abort()
+                    throw error
+                } finally {
+                    releaseRegistrableDomainSlot()
+                }
+            })()
+            leaseWork.push(work)
+            await Promise.race([slotReleased, work.catch(() => undefined)])
+        }
+        const failedLease = (await Promise.allSettled(leaseWork)).find(
+            (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
+        )
+        if (failedLease) {
+            throw failedLease.reason
         }
     }
 
@@ -237,7 +257,8 @@ export class FetchRunner implements FetchPass {
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
         republishBatch: RepublishBatch,
-        passState: FetchPassState
+        passState: FetchPassState,
+        releaseRegistrableDomainSlot: () => void
     ): Promise<FetchAttempt> {
         const candidate = lease.candidate
         if (candidate.remainingHops === 0) {
@@ -274,7 +295,8 @@ export class FetchRunner implements FetchPass {
                             configurationItems,
                             configurationPolicy,
                             deadlineMs,
-                            republishBatch
+                            republishBatch,
+                            releaseRegistrableDomainSlot
                         )
                     } catch (error) {
                         passState.failure ??= { error }
@@ -291,7 +313,8 @@ export class FetchRunner implements FetchPass {
         configurationItems: Map<string, ConfigurationCacheItem>,
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
-        republishBatch: RepublishBatch
+        republishBatch: RepublishBatch,
+        releaseRegistrableDomainSlot: () => void
     ): Promise<FetchAttempt> {
         if (candidate.remainingHops === 0) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
@@ -518,6 +541,7 @@ export class FetchRunner implements FetchPass {
             )
         }
         if (result.outcome === 'ok') {
+            releaseRegistrableDomainSlot()
             try {
                 await this.publisher.publishImage(attemptedCandidate, result)
             } catch {

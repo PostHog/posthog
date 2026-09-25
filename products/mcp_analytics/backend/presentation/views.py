@@ -82,12 +82,8 @@ class MCPSessionPagination(LimitOffsetPagination):
 
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
-    # Alpha product: gated behind the mcp-analytics feature flag at the API layer (matching
-    # the UI flag) rather than hidden behind a staff-only lock. create -> write, list -> read
-    # map to the default scope actions.
+    # create -> write, list -> read map to the default scope actions.
     scope_object = "mcp_analytics"
-    posthog_feature_flag = "mcp-analytics"
-    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 
@@ -170,8 +166,6 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # APIScopePermission/AccessControlPermission would otherwise reject viewer-level access.
     scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview", "intent_digest"]
     scope_object_write_actions = ["generate_intent"]
-    posthog_feature_flag = "mcp-analytics"
-    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
 
     def dangerously_get_queryset(self) -> QuerySet:
