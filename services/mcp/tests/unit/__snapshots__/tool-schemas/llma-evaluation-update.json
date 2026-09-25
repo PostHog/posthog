@@ -115,7 +115,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `typesafe` - TypeSafe",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `typesafe` - System One (Jev)",
                             "enum": [
                                 "openai",
                                 "anthropic",
