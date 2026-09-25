@@ -1633,18 +1633,28 @@ class TestIncrementalResumeAgainstServer:
         admin.close()
 
     @pytest.mark.parametrize(
-        "ts_type, last_value",
+        "ts_type, last_value, expected_ids",
         [
-            pytest.param("DateTime64(9, 'UTC')", datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC), id="sub_second"),
+            pytest.param(
+                "DateTime64(9, 'UTC')", datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC), [27, 28, 29], id="sub_second"
+            ),
             pytest.param(
                 "DateTime64(9, 'America/New_York')",
                 datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC),
+                [27, 28, 29],
                 id="column_timezone",
             ),
-            pytest.param("DateTime64(9)", datetime(2026, 1, 1, 0, 0, 0, 4), id="naive_cursor"),
+            pytest.param("DateTime64(9)", datetime(2026, 1, 1, 0, 0, 0, 4), [27, 28, 29], id="naive_cursor"),
+            pytest.param(
+                "DateTime('America/New_York')",
+                datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+                list(range(30)),
+                id="datetime_column_timezone",
+            ),
+            pytest.param("DateTime64(9, 'UTC')", 1767225600, list(range(3, 30)), id="epoch_seconds_cursor"),
         ],
     )
-    def test_incremental_resume_reads_only_rows_after_the_cursor(self, make_table, ts_type, last_value):
+    def test_incremental_resume_reads_only_rows_after_the_cursor(self, make_table, ts_type, last_value, expected_ids):
         @contextmanager
         def tunnel():
             yield (settings.CLICKHOUSE_HOST, 8123)
@@ -1667,8 +1677,8 @@ class TestIncrementalResumeAgainstServer:
         assert not isinstance(items, AsyncIterable)
         rows = pa.concat_tables(list(items))
 
-        assert rows.sort_by("id").column("id").to_pylist() == [27, 28, 29]
-        assert response.rows_to_sync == 3
+        assert rows.sort_by("id").column("id").to_pylist() == expected_ids
+        assert response.rows_to_sync == len(expected_ids)
 
 
 class TestClickHouseReconcileSchemaMetadata(BaseTest):
