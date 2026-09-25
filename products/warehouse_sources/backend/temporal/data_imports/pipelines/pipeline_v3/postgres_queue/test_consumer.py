@@ -20,12 +20,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     batch_consumer as batch_consumer_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    QUEUE_RETRY_MAX_ATTEMPTS,
     OwnershipLostError,
     _is_admin_shutdown_error,
     _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
+    _is_retryable_queue_db_error,
     _is_schema_lag_error,
     _is_server_not_ready_error,
+    _is_transient_queue_db_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
@@ -666,6 +669,9 @@ class TestDnsResolutionTransientErrorClassification:
                 side_effect=raise_dns_error,
             ),
             patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            # The bounded retry redials before its last attempt; without this the fake
+            # database_url would be dialled for real.
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
             patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
         ):
             loop_task = asyncio.create_task(consumer._recovery_loop())
@@ -823,6 +829,9 @@ class TestConnectTimeoutErrorClassification:
                 side_effect=raise_connect_timeout,
             ),
             patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            # The bounded retry redials before its last attempt; without this the fake
+            # database_url would be dialled for real.
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
             patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
         ):
             loop_task = asyncio.create_task(consumer._recovery_loop())
@@ -952,6 +961,9 @@ class TestAdminShutdownErrorClassification:
                 side_effect=raise_admin_shutdown,
             ),
             patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            # The bounded retry redials before its last attempt; without this the fake
+            # database_url would be dialled for real.
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
             patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
         ):
             loop_task = asyncio.create_task(consumer._recovery_loop())
@@ -2427,15 +2439,30 @@ class TestReconcileFailedRuns:
         mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
-        "conn_closed,expect_capture",
-        [(True, False), (False, True)],
-        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+        "error,conn_closed,expect_capture",
+        [
+            (psycopg.OperationalError("the connection is closed"), True, False),
+            (
+                psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
+                False,
+                False,
+            ),
+            (psycopg.errors.ProtocolViolation("query_wait_timeout"), False, False),
+            (psycopg.OperationalError("relation permission denied"), False, True),
+        ],
+        ids=[
+            "closed_conn_suppresses_capture",
+            "dropped_conn_suppresses_capture",
+            "pooler_wait_timeout_suppresses_capture",
+            "real_failure_still_captured",
+        ],
     )
     @pytest.mark.asyncio
-    async def test_stranded_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
-        # A psycopg.OperationalError from a closed connection is a transient network
-        # drop — the engine reconnects on the next cycle. Only a real unexpected error
-        # (conn still open) should reach error tracking.
+    async def test_stranded_sweep_connection_drop_not_captured(self, error, conn_closed, expect_capture):
+        # A queue-db connection dying under the sweep is a transient drop, because the
+        # engine reconnects on the next cycle. The drop is recognized from the error itself, so a
+        # pooler that cut the query loose without closing our connection counts too. Only a
+        # real unexpected error should reach error tracking.
         consumer = _make_consumer()
         # consumer._recovery_conn starts healthy so _ensure_recovery_conn returns it
         # without reconnecting. The side-effect below simulates the connection closing
@@ -2444,7 +2471,7 @@ class TestReconcileFailedRuns:
         async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
             if conn_closed:
                 cast(Any, consumer._recovery_conn).closed = True
-            raise psycopg.OperationalError("the connection is closed")
+            raise error
 
         with (
             patch(
@@ -2479,16 +2506,29 @@ class TestReconcileFailedRuns:
         assert mock_capture.called is expect_capture
 
     @pytest.mark.parametrize(
-        "conn_closed,expect_capture",
-        [(True, False), (False, True)],
-        ids=["closed_conn_suppresses_capture", "open_conn_still_captured"],
+        "error,conn_closed,expect_capture",
+        [
+            (psycopg.OperationalError("the connection is closed"), True, False),
+            (
+                psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
+                False,
+                False,
+            ),
+            (psycopg.errors.ProtocolViolation("query_wait_timeout"), False, False),
+            (psycopg.OperationalError("relation permission denied"), False, True),
+        ],
+        ids=[
+            "closed_conn_suppresses_capture",
+            "dropped_conn_suppresses_capture",
+            "pooler_wait_timeout_suppresses_capture",
+            "real_failure_still_captured",
+        ],
     )
     @pytest.mark.asyncio
-    async def test_straggler_sweep_closed_connection_not_captured(self, conn_closed, expect_capture):
+    async def test_straggler_sweep_connection_drop_not_captured(self, error, conn_closed, expect_capture):
         # Reproduces the reported issue: BatchQueue.fail_run for a straggler batch raised
-        # psycopg.OperationalError("consuming input failed: server closed the connection
-        # unexpectedly") because the queue-db connection died mid-query. That's the same
-        # transient network drop already handled for the stranded-run sweep above; the
+        # an OperationalError because the queue-db connection died mid-query. That's the
+        # same transient drop already handled for the stranded-run sweep above; the
         # straggler sweep must treat it the same way instead of always capturing it.
         consumer = _make_consumer()
         ref = _make_failed_run_ref()
@@ -2496,7 +2536,7 @@ class TestReconcileFailedRuns:
         async def raise_with_maybe_closed_conn(*args: object, **kwargs: object) -> None:
             if conn_closed:
                 cast(Any, consumer._recovery_conn).closed = True
-            raise psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly")
+            raise error
 
         with (
             patch(
@@ -2662,6 +2702,204 @@ class TestConnectionRecovery:
 
         mock_get_stale.assert_awaited_once()
         assert mock_get_stale.call_args[0][0] is fresh
+
+
+class TestQueueDbRetry:
+    @pytest.mark.parametrize(
+        "error,transient,retryable",
+        [
+            (psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"), True, True),
+            (psycopg.OperationalError("the connection is closed"), True, True),
+            (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
+            (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
+            (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
+            (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
+            (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
+            (psycopg.OperationalError("relation permission denied"), False, False),
+            (psycopg.errors.UndefinedColumn("column does not exist"), False, False),
+        ],
+    )
+    def test_classifies_queue_db_errors(self, error, transient, retryable) -> None:
+        assert _is_transient_queue_db_error(error) is transient
+        assert _is_retryable_queue_db_error(error) is retryable
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            psycopg.errors.ProtocolViolation("query_wait_timeout"),
+        ],
+        ids=["dropped_connection", "connect_timeout", "pooler_wait_timeout"],
+    )
+    @pytest.mark.asyncio
+    async def test_transient_failure_redials_and_succeeds(self, error) -> None:
+        consumer = _make_consumer()
+        dead = consumer._recovery_conn
+        fresh = _make_healthy_conn()
+        seen: list[Any] = []
+
+        async def fail_once(conn: Any) -> str:
+            seen.append(conn)
+            if len(seen) == 1:
+                raise error
+            return "swept"
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            assert await consumer._with_queue_conn("_recovery_conn", "sweep", fail_once) == "swept"
+
+        assert seen == [dead, fresh]
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deadlock_retries_on_the_same_connection(self) -> None:
+        # Postgres rolled the statement back but left the session usable, so redialing
+        # would throw away a healthy connection for nothing.
+        consumer = _make_consumer()
+        original = consumer._poll_conn
+        seen: list[Any] = []
+
+        async def fail_once(conn: Any) -> str:
+            seen.append(conn)
+            if len(seen) == 1:
+                raise psycopg.errors.DeadlockDetected("deadlock detected")
+            return "claimed"
+
+        with patch.object(consumer, "_connect", new_callable=AsyncMock) as mock_connect:
+            assert await consumer._with_queue_conn("_poll_conn", "fetch_and_lock", fail_once) == "claimed"
+
+        assert seen == [original, original]
+        mock_connect.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_deadlock_outliving_the_budget_still_raises(self) -> None:
+        # The budget must not hide a lock-ordering bug: a deadlock on every attempt has to
+        # escape so the caller reports it.
+        consumer = _make_consumer()
+        attempts = 0
+
+        async def always_deadlock(conn: Any) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise psycopg.errors.DeadlockDetected("deadlock detected")
+
+        with (
+            patch(f"{batch_consumer_module.__name__}._queue_retry_delay", return_value=0),
+            pytest.raises(psycopg.errors.DeadlockDetected),
+        ):
+            await consumer._with_queue_conn("_poll_conn", "fetch_and_lock", always_deadlock)
+
+        assert attempts == QUEUE_RETRY_MAX_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_non_retryable_error_is_not_retried(self) -> None:
+        consumer = _make_consumer()
+        attempts = 0
+
+        async def always_fail(conn: Any) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise psycopg.errors.UndefinedColumn("column b.destination_ids does not exist")
+
+        with pytest.raises(psycopg.errors.UndefinedColumn):
+            await consumer._with_queue_conn("_recovery_conn", "sweep", always_fail)
+
+        assert attempts == 1
+
+    @pytest.mark.asyncio
+    async def test_connect_retries_a_transient_refusal(self) -> None:
+        consumer = _make_consumer()
+        fresh = _make_healthy_conn()
+        attempts = 0
+
+        async def flaky_dial(**kwargs: Any) -> Any:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+            return fresh
+
+        with patch.object(consumer, "_connect_once", side_effect=flaky_dial):
+            assert await consumer._connect() is fresh
+
+        assert attempts == 2
+
+    @pytest.mark.asyncio
+    async def test_connect_does_not_retry_a_real_failure(self) -> None:
+        consumer = _make_consumer()
+        attempts = 0
+
+        async def always_fail(**kwargs: Any) -> Any:
+            nonlocal attempts
+            attempts += 1
+            raise psycopg.OperationalError("password authentication failed")
+
+        with patch.object(consumer, "_connect_once", side_effect=always_fail), pytest.raises(psycopg.OperationalError):
+            await consumer._connect()
+
+        assert attempts == 1
+
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_survives_a_dropped_connection(self) -> None:
+        # Reproduces the reported issue end to end: get_stale_executing lost its connection
+        # mid-query. Before the retry the whole sweep was skipped and the drop was reported;
+        # now the sweep redials and completes.
+        consumer = _make_consumer()
+        calls = 0
+
+        async def fail_once(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly")
+            return []
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_stale_executing",
+                side_effect=fail_once,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._recovery_sweep()
+
+        assert calls == 2
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_poll_retries_a_claim_deadlock(self) -> None:
+        # The claim upsert is the deadlock-prone statement; one rollback must not cost the
+        # pod a whole poll cycle.
+        consumer = _make_consumer()
+        calls = 0
+
+        async def fail_once(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise psycopg.errors.DeadlockDetected("deadlock detected")
+            return []
+
+        with (
+            patch(
+                f"{consumer_module.__name__}.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fail_once,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            batches = await consumer._with_queue_conn(
+                "_poll_conn",
+                "fetch_and_lock",
+                lambda conn: consumer._fetch_batches(conn, available=1),
+            )
+
+        assert batches == []
+        assert calls == 2
+        mock_capture.assert_not_called()
 
 
 class TestPerGroupConnectionIsolation:
