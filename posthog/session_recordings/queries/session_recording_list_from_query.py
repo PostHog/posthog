@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 import structlog
+import posthoganalytics
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 from rest_framework.exceptions import PermissionDenied
@@ -38,6 +39,7 @@ from posthog.session_recordings.queries.utils import (
     expand_test_account_filters,
     is_session_property,
     test_account_scoped_query,
+    unexpected_properties,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -607,7 +609,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            capture_exception(UnexpectedQueryProperties(remaining_properties))
+            unexpected = unexpected_properties(remaining_properties)
+            if unexpected:
+                # Code-variable capture is on globally, so it would attach this frame's locals --
+                # the raw filters, including any hogql expression -- whatever the exception itself
+                # carries. Must be disabled for this call, or the summary below achieves nothing.
+                with posthoganalytics.new_context():
+                    posthoganalytics.set_capture_exception_code_variables_context(False)
+                    capture_exception(UnexpectedQueryProperties(unexpected))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
