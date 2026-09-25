@@ -35,6 +35,13 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 - **Not open** (already merged/closed) → report and stop.
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
+- **Cancelled runs on the head** → they block too, even when another run of the same workflow on the same head passed. A push can start two runs of a workflow for one head, and the concurrency group cancels one. GitHub keeps both runs' checks: the merge box counts the cancelled ones, `statusCheckRollup` reads `FAILURE`, and Trunk holds the PR at "Not ready". A newer green check with the same name does not clear them. List the head's runs and rerun each cancelled one with `gh run rerun <run-id>`, and each cancelled Depot run with `depot ci rerun <run-id>`. Reruns need the developer's permission.
+
+  ```bash
+  gh api "repos/$REPO/actions/runs?head_sha=<head-sha>&per_page=100" --paginate \
+      --jq '.workflow_runs[] | select(.conclusion == "cancelled") | "\(.id)\t\(.name)"'
+  ```
+
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
 - **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
 - **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → ask stamphog for a review. Stamphog is the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)): on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Use the MCP route first, and the label only when MCP is not available.
