@@ -5,12 +5,11 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from django.conf import settings as django_settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 import dagster
 import pydantic
 from clickhouse_driver import Client
-
-from posthog.schema import HogQLVariable
 
 # Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
 # predicate (process_property_removal_shard → compile_hogql_predicate) builds the HogQL
@@ -23,8 +22,6 @@ from posthog.schema import HogQLVariable
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
-from posthog.hogql import ast
-from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -34,6 +31,7 @@ from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
+from posthog.data_deletion import compile_event_uuid_query
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
@@ -72,8 +70,6 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
@@ -525,26 +521,15 @@ class HogQLEventDeletionExecutor:
             raise dagster.Failure("The request team or creator no longer exists.") from error
 
         try:
-            variables = {key: HogQLVariable.model_validate(value) for key, value in request.variables.items()}
-        except pydantic.ValidationError as error:
-            raise dagster.Failure("The request contains invalid HogQL variables.") from error
-
-        compiler = HogQLQueryExecutor(
-            query=request.query,
-            team=team,
-            user=user,
-            user_access_control=UserAccessControl(user=user, team=team),
-            variables=variables,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.DELETION_EXECUTOR,
-            pretty=False,
-        )
-        selected = compiler.generate_clickhouse_subquery_sql()
-        prepared_ast = compiler.clickhouse_prepared_ast
-        if not isinstance(prepared_ast, (ast.SelectQuery, ast.SelectSetQuery)):
-            raise dagster.Failure("The HogQL query must produce a result set.")
-        if prepared_ast.type is None or len(prepared_ast.type.columns) != 1:
-            raise dagster.Failure("The HogQL query must select exactly one event UUID column.")
+            selected = compile_event_uuid_query(
+                query=request.query,
+                variables=request.variables,
+                team=team,
+                user=user,
+                ch_user=ClickHouseUser.DELETION_EXECUTOR,
+            )
+        except DjangoValidationError as error:
+            raise dagster.Failure(str(error)) from error
 
         database = django_settings.CLICKHOUSE_DATABASE
         insert_sql = (  # nosemgrep: clickhouse-injection-taint

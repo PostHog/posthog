@@ -228,6 +228,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
                     cache.lastUnauthorizedCheck = Date.now()
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
                             userLogic.findMounted()?.actions.logout(true)

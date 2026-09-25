@@ -1,9 +1,16 @@
 import json
+import time
 import asyncio
 import hashlib
+import threading
 import traceback
+import contextlib
+import contextvars
+from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from functools import partial
+from typing import ParamSpec, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
@@ -12,16 +19,18 @@ from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
 import temporalio.activity
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
 from posthog.hogql.errors import TableAccessDeniedError
 
+from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -40,9 +49,21 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
     skip_because_of_weekend,
 )
+from posthog.temporal.alerts.admission import (
+    admit_evaluation_slots,
+    hold_evaluation_slot,
+    inflight_alert_ids,
+    max_inflight_evaluations,
+    refresh_evaluation_slot,
+    release_evaluation_slot,
+    release_evaluation_slots,
+)
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
+from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
+    AdmitEvaluationsInputs,
+    AdmittedEvaluations,
     AlertInfo,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
@@ -52,6 +73,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     RecordFailedEvaluationActivityInputs,
     RecordFailedEvaluationResult,
+    ReleaseEvaluationSlotsInputs,
     ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
@@ -84,6 +106,21 @@ from products.product_analytics.backend.facade.api import lock_insight_for_evalu
 
 logger = structlog.get_logger(__name__)
 
+_T = TypeVar("_T")
+_P = ParamSpec("_P")
+
+# Slow evaluations must not occupy the threads that renew their leases or cancel their queries.
+_ADMISSION_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="insight-alert-admission")
+_CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-cancel")
+
+
+async def _run_control(
+    executor: ThreadPoolExecutor, function: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+) -> _T:
+    context = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(executor, partial(context.run, function, *args, **kwargs))
+
+
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 # AI-detector checks hold a thread for the model call, up to a minute each. On the shared
@@ -101,6 +138,7 @@ class _RetrievedAlerts:
     due_count: int
     oldest_due_at: datetime | None
     polled_at: datetime
+    in_flight_count: int
 
 
 @temporalio.activity.defn
@@ -128,8 +166,11 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
         )
+        # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
+        in_flight = inflight_alert_ids()
+        selectable_query = due_alerts_query.exclude(id__in=in_flight) if in_flight else due_alerts_query
         alerts_query = (
-            due_alerts_query.annotate(_interval_order=calculation_interval_order)
+            selectable_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
@@ -170,6 +211,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             due_count=due_alert_metrics["due_count"],
             oldest_due_at=due_alert_metrics["oldest_due_at"],
             polled_at=polled_at,
+            in_flight_count=len(in_flight),
         )
 
     retrieved = await get_alerts()
@@ -193,9 +235,35 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             "insight_alert_scheduler_alerts_selected",
             "Due alerts selected across successful alert scheduler retrieval runs",
         ).add(len(retrieved.alerts))
+        meter.create_gauge("insight_alert_evaluations_inflight", "Alert checks holding an evaluation slot").set(
+            retrieved.in_flight_count
+        )
     except Exception:
         logger.exception("Failed to record alert scheduler capacity metrics")
     return retrieved.alerts
+
+
+@temporalio.activity.defn
+async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
+    admitted = await _run_control(
+        _ADMISSION_EXECUTOR,
+        admit_evaluation_slots,
+        inputs.alert_ids,
+        limit=max_inflight_evaluations(),
+        expires_at=inputs.expires_at,
+    )
+    try:
+        get_metric_meter().create_counter(
+            "insight_alert_evaluations_admitted", "Alert checks admitted to an evaluation slot"
+        ).add(len(admitted))
+    except Exception:
+        logger.exception("Failed to record alert admission metrics")
+    return AdmittedEvaluations(alert_ids=admitted)
+
+
+@temporalio.activity.defn
+async def release_alert_evaluation_slots(inputs: ReleaseEvaluationSlotsInputs) -> None:
+    await _run_control(_ADMISSION_EXECUTOR, release_evaluation_slots, inputs.alert_ids, held_until=inputs.held_until)
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -207,6 +275,204 @@ def _has_active_destinations(alert: AlertConfiguration) -> bool:
         )
         > 0
     )
+
+
+# How often a waiting attempt looks again: for a free slot before it runs its query, or for its
+# thread to exit after the query was killed.
+_SLOT_POLL_SECONDS = 5.0
+
+_SLOT_LOST_ERROR_TYPE = "EvaluationSlotLost"
+
+
+class _EvaluationStopped(Exception):
+    """Raised in the evaluation thread once its attempt's cancellation began, so it records nothing."""
+
+
+async def _hold_evaluation_slot_before_running(alert_id: str, *, lease_seconds: float) -> float:
+    """Hold the slot for evaluate_alert, waiting while there is no room or Redis is unreachable.
+
+    An id that lapsed from the set is no longer admitted, and running its query anyway would put it
+    over the limit, so it waits for room until its budget cancels it. Redis being unreachable waits
+    too instead of failing the check, because an outage shorter than the budget then costs nothing.
+    """
+    waited_since: float | None = None
+    while True:
+        try:
+            held_until = await _run_control(
+                _ADMISSION_EXECUTOR,
+                hold_evaluation_slot,
+                alert_id,
+                limit=max_inflight_evaluations(),
+                lease_seconds=lease_seconds,
+            )
+        except Exception:
+            if waited_since is None:
+                logger.exception("alerts.admission.hold_failed", alert_id=alert_id)
+            held_until = None
+        if held_until is not None:
+            if waited_since is not None:
+                logger.info("alerts.admission.slot_waited", alert_id=alert_id, seconds=time.time() - waited_since)
+            return held_until
+        if waited_since is None:
+            waited_since = time.time()
+        await asyncio.sleep(_SLOT_POLL_SECONDS)
+
+
+def _attempt_will_retry(error: Exception, retry_policy: RetryPolicy) -> bool:
+    if isinstance(error, ApplicationError):
+        if error.non_retryable:
+            return False
+        error_type = error.type
+    else:
+        error_type = type(error).__name__
+    if error_type in (retry_policy.non_retryable_error_types or ()):
+        return False
+    return not retry_policy.maximum_attempts or temporalio.activity.info().attempt < retry_policy.maximum_attempts
+
+
+class _SlotHolder:
+    """The evaluation slot one attempt holds, identified by the expiry it last wrote."""
+
+    def __init__(self, alert_id: str, held_until: float | None) -> None:
+        self.alert_id = alert_id
+        self.held_until = held_until
+        self.lost = False
+        self._stop = asyncio.Event()
+        self._refresher: asyncio.Task[None] | None = None
+
+    @contextlib.asynccontextmanager
+    async def refreshing(self, lease: SlotLease | None, *, on_lost: Callable[[], object]) -> AsyncIterator[None]:
+        """Re-hold the slot under the lease while the body runs, and call on_lost once it cannot be kept.
+
+        The lease makes a slot lapse soon after its worker dies. The same lapse would let the
+        scheduler reuse the slot of a live attempt that cannot reach Redis, so that attempt is
+        stopped first, while it is still counted.
+        """
+        if lease is None or self.held_until is None:
+            yield
+            return
+        self._refresher = asyncio.create_task(self._refresh_until(lease, on_lost))
+        try:
+            yield
+        finally:
+            await self._stop_refreshing()
+
+    async def _stop_refreshing(self) -> None:
+        # Wait for the refresher rather than cancel it, so a refresh in flight cannot write a new
+        # expiry after a release has checked the old one.
+        if self._refresher is None:
+            return
+        self._stop.set()
+        await self._refresher
+        self._refresher = None
+
+    async def _refresh_until(self, lease: SlotLease, on_lost: Callable[[], object]) -> None:
+        refresh_seconds = lease.refresh.total_seconds()
+        while (held_until := self.held_until) is not None:
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=refresh_seconds)
+                return
+            except TimeoutError:
+                pass
+            expires_at = time.time() + lease.lease.total_seconds()
+            try:
+                owned = await _run_control(
+                    _ADMISSION_EXECUTOR,
+                    refresh_evaluation_slot,
+                    self.alert_id,
+                    held_until=held_until,
+                    expires_at=expires_at,
+                )
+            except Exception:
+                logger.exception("alerts.admission.refresh_failed", alert_id=self.alert_id)
+                # Stop with a refresh interval to spare, so the query is dead before the slot lapses
+                # and the kill that stops it has time to land.
+                if time.time() + refresh_seconds < held_until - refresh_seconds:
+                    continue
+                self.lost = True
+                on_lost()
+                return
+            if not owned:
+                # Another attempt took the slot over, or it lapsed while Redis was unreachable.
+                # Either way this attempt is no longer admitted and has nothing left to release.
+                self.held_until = None
+                self.lost = True
+                on_lost()
+                return
+            self.held_until = expires_at
+
+    async def release(self) -> None:
+        await self._stop_refreshing()
+        if self.held_until is not None:
+            await _run_control(_ADMISSION_EXECUTOR, release_evaluation_slot, self.alert_id, held_until=self.held_until)
+
+
+async def _finish(cleanup: Awaitable[_T]) -> _T:
+    """Await cleanup even if this task is cancelled again while it runs.
+
+    Once the server has timed an attempt out it may cancel the task once more for each heartbeat it
+    no longer recognises, and a cleanup cut short would leave a running query nobody stops.
+    """
+    task = asyncio.ensure_future(cleanup)
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            pass
+    return task.result()
+
+
+async def _run_holding_slot(
+    alert_id: str,
+    held_until: float | None,
+    run: Callable[[], Awaitable[_T]],
+    *,
+    retry_policy: RetryPolicy,
+    keeps_slot: Callable[[_T], bool],
+    lease: SlotLease | None = None,
+    stop_work: Callable[[], Awaitable[bool]] | None = None,
+) -> _T:
+    """Run one attempt of a check while it holds its evaluation slot.
+
+    With a lease the slot is re-held for as long as the attempt runs, so a worker that dies frees it
+    soon after. Without one it stays until the scheduler's expiry, which suits prepare_alert: its
+    attempts run without a heartbeat timeout, so a slow one cannot be presumed dead.
+
+    The slot is released when the attempt finishes for good: a result keeps_slot rejects, a failure
+    Temporal will not retry, or a cancellation. A retryable failure keeps it, because releasing
+    during the backoff lets the scheduler admit past the limit under the very overload that causes
+    the retries; the next attempt's hold takes the slot over.
+
+    An attempt stops early when Temporal cancels it or when the slot can no longer be held, and
+    runs stop_work to completion before it gives the slot back. When Redis is unreachable it stops
+    a refresh interval before the slot lapses, so its work ends while it is still counted. When a
+    retried attempt takes the slot over, the old attempt learns it only on its next refresh, so the
+    two overlap under one slot for up to one refresh interval. Work that stop_work could not stop
+    keeps the slot, which lapses on its own once nothing refreshes it. A lost slot fails the
+    attempt with a retryable error, and a retry waits for a slot of its own.
+    """
+    holder = _SlotHolder(alert_id, held_until)
+    body = asyncio.ensure_future(run())
+    async with holder.refreshing(lease, on_lost=body.cancel), Heartbeater():
+        try:
+            result = await body
+        except asyncio.CancelledError:
+            body.cancel()
+            stopped = True
+            if stop_work is not None:
+                stopped = await _finish(stop_work())
+            if stopped:
+                await _finish(holder.release())
+            if holder.lost and not temporalio.activity.is_cancelled():
+                raise ApplicationError("The evaluation lost its admission slot", type=_SLOT_LOST_ERROR_TYPE)
+            raise
+        except Exception as error:
+            if not _attempt_will_retry(error, retry_policy):
+                await holder.release()
+            raise
+    if not keeps_slot(result):
+        await holder.release()
+    return result
 
 
 @temporalio.activity.defn
@@ -313,8 +579,24 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             evaluation_fingerprint=evaluation_fingerprint,
         )
 
-    async with Heartbeater():
-        return await _prepare()
+    # The scheduler's reservation names no owner, and prepare_alert runs without a heartbeat timeout,
+    # so a timed-out attempt that finishes late would otherwise remove the lease a retried attempt holds.
+    # No room means the reservation lapsed and the set filled up; prepare runs no query, so it goes
+    # on without a slot and evaluate_alert waits for one.
+    try:
+        held_until = await _run_control(
+            _ADMISSION_EXECUTOR, hold_evaluation_slot, inputs.alert_id, limit=max_inflight_evaluations()
+        )
+    except Exception:
+        logger.exception("alerts.admission.hold_failed", alert_id=inputs.alert_id)
+        held_until = None
+    return await _run_holding_slot(
+        inputs.alert_id,
+        held_until,
+        _prepare,
+        retry_policy=ALERT_PREPARE_RETRY_POLICY,
+        keeps_slot=lambda result: result.action == PrepareAction.EVALUATE,
+    )
 
 
 def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
@@ -342,14 +624,30 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
     info = temporalio.activity.info()
     evaluation_id = f"{info.workflow_run_id}:{info.activity_id}"
+    # Keep detector idempotency stable, but prevent cleanup from cancelling a replacement attempt.
+    query_id = f"{evaluation_id}:{info.attempt}:"
+    # Set once cancellation begins. A kill misses a query that has not started or that finishes
+    # between two kills, and a thread abandoned after the kill budget can wake up later, so the
+    # thread itself checks this before it queries and before it records. An attempt that a retry
+    # replaced learns it only on its next slot refresh, so a query that finishes before then still
+    # records.
+    stopping = threading.Event()
+
+    def _stop_if_cancelled() -> None:
+        if stopping.is_set():
+            raise _EvaluationStopped()
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        _stop_if_cancelled()
         evaluated_alert = alert
         evaluated_fingerprint = _evaluation_fingerprint(alert)
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        # client_query_id names every query of this attempt, so a cancelled attempt can kill them.
         tag_queries(
+            team_id=alert.team_id,
+            client_query_id=query_id,
             alert_config_id=str(alert.id),
             product=Product.PRODUCT_ANALYTICS,
             feature=Feature.ALERTING,
@@ -368,6 +666,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             if is_llm_detector_config(alert.detector_config):
                 record_ai_detector_check_outcome("evaluated")
         except CH_TRANSIENT_ERRORS:
+            raise
+        except CHQueryErrorQueryWasCancelled:
+            # A cancelled attempt kills its query and decides what to record; the thread it left
+            # behind must not write a check of its own.
             raise
         except AlertDataUnavailableError as err:
             error = {"message": str(err)}
@@ -426,10 +728,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         should_start_investigation = False
         should_gate_notification = False
         should_run_metrics_investigation = False
+        _stop_if_cancelled()
         with transaction.atomic():
             current_alert = _lock_evaluation_alert(
                 alert_id=inputs.alert_id, team_id=evaluated_alert.team_id, insight_id=evaluated_alert.insight_id
             )
+            _stop_if_cancelled()
             if current_alert is None or not _evaluation_inputs_match(evaluated_fingerprint, current_alert):
                 # Leave the current state and due time intact. The next scheduler tick can
                 # evaluate the edited alert; a disabled or deleted alert needs no further work.
@@ -484,10 +788,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
-    async with Heartbeater():
+    team_id = inputs.team_id
+    thread: asyncio.Future[EvaluateAlertResult] | None = None
+
+    async def _load_and_evaluate() -> EvaluateAlertResult:
+        nonlocal team_id, thread
         # Route and evaluate the same snapshot. A second read after choosing the executor
         # could pick up an AI detector and run its model call on the shared pool.
         alert = await _load_alert_for_evaluation(inputs)
+        team_id = alert.team_id
         uses_llm_detector = is_llm_detector_config(alert.detector_config)
         if uses_llm_detector != inputs.uses_llm_detector:
             # The prepare phase picked the task queue from the detector type it read, and only
@@ -497,7 +806,56 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
             return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
         executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
-        return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
+        # Shielded, so cancelling the attempt leaves this future to complete when the thread exits,
+        # which is what _stop_work waits for.
+        thread = asyncio.ensure_future(
+            database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
+        )
+        return await asyncio.shield(thread)
+
+    timeouts = alert_timeouts(inputs.calculation_interval)
+
+    def _log_thread_outcome(finished: asyncio.Future[EvaluateAlertResult]) -> None:
+        # Retrieve the error the thread ended on, so asyncio does not log it as never retrieved.
+        error = None if finished.cancelled() else finished.exception()
+        if error is not None and not isinstance(error, (CHQueryErrorQueryWasCancelled, _EvaluationStopped)):
+            logger.warning("alerts.evaluate.stopped_thread_failed", alert_id=inputs.alert_id, exc_info=error)
+
+    async def _stop_work() -> bool:
+        # Cancellation cannot reach the thread the query runs in, so the query is killed in
+        # ClickHouse by the id it was tagged with. A kill only finds a query that is running at that
+        # moment, and the thread may still be waiting for a connection or be between two queries, so
+        # it is repeated until the thread has exited on the killed query's error. A thread that
+        # outlives a whole evaluation budget after that is stuck on something no kill reaches, such
+        # as a node that stopped answering, and is abandoned so the slot it kept lapses instead.
+        stopping.set()
+        if thread is None or team_id is None:
+            return True
+        thread.add_done_callback(_log_thread_outcome)
+        give_up_at = time.monotonic() + timeouts.activity_schedule_to_close.total_seconds()
+        while not thread.done() and time.monotonic() < give_up_at:
+            try:
+                await _run_control(_CANCELLATION_EXECUTOR, cancel_query_on_cluster, team_id, query_id)
+            except Exception:
+                logger.exception("alerts.evaluate.cancel_query_failed", alert_id=inputs.alert_id)
+            await asyncio.wait({thread}, timeout=_SLOT_POLL_SECONDS)
+        if not thread.done():
+            logger.error("alerts.evaluate.thread_abandoned", alert_id=inputs.alert_id, evaluation_id=evaluation_id)
+        return thread.done()
+
+    async with Heartbeater():
+        held_until = await _hold_evaluation_slot_before_running(
+            inputs.alert_id, lease_seconds=timeouts.evaluation_slot_lease.lease.total_seconds()
+        )
+    return await _run_holding_slot(
+        inputs.alert_id,
+        held_until,
+        _load_and_evaluate,
+        retry_policy=timeouts.evaluate_retry_policy,
+        keeps_slot=lambda _result: False,
+        lease=timeouts.evaluation_slot_lease,
+        stop_work=_stop_work,
+    )
 
 
 def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:

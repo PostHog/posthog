@@ -20,6 +20,7 @@ import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistr
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
+import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
@@ -1264,6 +1265,261 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
                 expect.objectContaining({ text: visible.text }),
             ])
+        })
+
+        describe('attachments the send carried', () => {
+            const SANDBOX_URI = 'file:///tmp/workspace/.posthog/attachments/run-7/art-9/report.csv'
+
+            const foldReplay = (frames: StoredLogEntry[]): ThreadItem[] =>
+                foldLogToThread(
+                    frames.map((entry) => ({ source: 'replay' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+            it('names a resource link on the message it arrived with', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/x/report.csv', name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items.filter((item) => item.type === 'human_message')).toEqual([
+                    expect.objectContaining({
+                        text: 'Look here',
+                        attachments: [{ name: 'report.csv' }],
+                    }),
+                ])
+            })
+
+            it('falls back to the file name in the uri when the block is unnamed', () => {
+                const items = foldReplay([
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Look' } }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'image', uri: 'file:///tmp/x/.posthog/attachments/run/art/my%20shot.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'my shot.png', taskId: 'task-3', runId: 'run', artifactId: 'art' },
+                ])
+            })
+
+            it('keeps two files on one message and does not repeat a name', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Compare these' },
+                            { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                            { type: 'resource_link', uri: 'file:///b.csv', name: 'b.csv' },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'a.csv' }, { name: 'b.csv' }])
+            })
+
+            // The echo carrying the names is the one the text dedupe drops, so the names must survive it.
+            it('lands on a message the optimistic send already rendered', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', { content: 'Look here' }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///a.csv', name: 'a.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+                const humanMessages = items.filter((item) => item.type === 'human_message')
+                expect(humanMessages).toHaveLength(1)
+                expect(humanMessages[0].attachments).toEqual([{ name: 'a.csv' }])
+            })
+
+            it('leaves a message with no files without an attachments field', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Just text' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('recovers the run and artifact from the sandbox attachment path', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                ])
+            })
+
+            it('leaves a path outside the attachments layout without ids', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/elsewhere/report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv' }])
+            })
+
+            it('shows the names an optimistic send staged, before any artifact exists', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv', previewId: 'preview-1' }])
+            })
+
+            it('keeps a name with a broken percent escape instead of aborting the thread', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/bad%ZZ.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'bad%ZZ.png' }])
+            })
+
+            it('leaves a hidden block out, the same as it is left out of the text', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Look here' },
+                            {
+                                type: 'resource_link',
+                                uri: 'file:///internal.md',
+                                name: 'internal.md',
+                                _meta: { ui: { hidden: true } },
+                            },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('keeps two files that share a name apart, giving each its own artifact', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Compare these',
+                        attachments: [
+                            { name: 'image.png', previewId: 'preview-1' },
+                            { name: 'image.png', previewId: 'preview-2' },
+                        ],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-A/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-B/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-A',
+                    },
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-2',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-B',
+                    },
+                ])
+            })
+
+            it('lands a file echoed in both wire forms once', () => {
+                const link = {
+                    type: 'resource_link',
+                    uri: 'file:///w/.posthog/attachments/run-7/art-A/report.csv',
+                    name: 'report.csv',
+                }
+                const items = foldReplay([
+                    notification('_posthog/user_message', { content: [{ type: 'text', text: 'Look' }, link] }),
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: link }),
+                ])
+
+                expect(items[0].attachments).toHaveLength(1)
+            })
+
+            it('fills the ids onto that optimistic name rather than adding a second chip', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+                expect(items[0].attachments).toEqual([
+                    {
+                        name: 'report.csv',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-9',
+                    },
+                ])
+            })
         })
 
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
