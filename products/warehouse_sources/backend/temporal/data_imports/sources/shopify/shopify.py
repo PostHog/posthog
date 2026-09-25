@@ -11,6 +11,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -162,6 +163,20 @@ SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
     "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
     "longer valid, likely because the app was uninstalled or access was revoked. Please "
     "reconnect your Shopify integration."
+)
+
+# The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API
+# access token skips the token endpoint, so this check is the first place a bad token or store id
+# surfaces, and the raw `requests` error names the store URL and the HTTP status.
+SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR = (
+    "Shopify rejected your access token for this store. Copy the Admin API access token again "
+    "from the app installed on your store, then reconnect."
+)
+SHOPIFY_STORE_FROZEN_ERROR = (
+    "Your Shopify store is frozen because of an unpaid bill. Settle your balance in Shopify, then reconnect."
+)
+SHOPIFY_CREDENTIALS_CHECK_ERROR = (
+    "PostHog couldn't verify your Shopify credentials. Check your store id and credentials, then try again."
 )
 
 
@@ -738,12 +753,23 @@ def validate_credentials(
     # A valid token can always read the shop resource.
     try:
         res = sess.post(api_url, json={"query": SHOPIFY_ACCESS_TOKEN_CHECK})
+    except requests.RequestException as e:
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
+    if res.status_code == 401:
+        raise Exception(SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR)
+    if res.status_code == 402:
+        raise Exception(SHOPIFY_STORE_FROZEN_ERROR)
+    if res.status_code == 404:
+        raise Exception(SHOPIFY_STORE_NOT_FOUND_ERROR)
+    try:
         res.raise_for_status()
         data = res.json()
         if "errors" in data:
-            raise Exception(f"Failed to verify your Shopify credentials: {data['errors']}")
+            raise Exception(f"Shopify credential check returned errors: {_format_graphql_errors(data['errors'])}")
     except Exception as e:
-        raise Exception(f"Failed to verify your Shopify credentials: {e}")
+        capture_exception(e)
+        raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
 
     if resources is None:
         return True
