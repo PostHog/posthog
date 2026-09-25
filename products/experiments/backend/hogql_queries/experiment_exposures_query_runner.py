@@ -130,9 +130,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        exposure_params = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        )
+        exposure_params = get_exposure_config_params_for_builder(self.exposure_criteria, self.experiment.start_date)
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -274,9 +272,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return None
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         flag_variants = multivariate_data.get("variants", [])
-        exposure_params = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        )
+        exposure_params = get_exposure_config_params_for_builder(self.exposure_criteria, self.experiment.start_date)
         return evaluate_bias_risk(
             flag_variants=flag_variants,
             multiple_variant_handling=exposure_params.multiple_variant_handling,

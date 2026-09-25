@@ -246,11 +246,9 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationOption = activationEventEnabled || isActivation
-    const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
-    const defaultExposureEvent = resolvedExposureEvent(
-        experiment,
-        experimentExposureEventEnabled ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
-    )
+    // A draft built in this form has no server-resolved event yet and would start after the
+    // cutoff, so it names what the backend would resolve rather than the legacy fallback.
+    const defaultExposureEvent = resolvedExposureEvent(experiment, EXPERIMENT_EXPOSURE_EVENT)
     const defaultExposureLabel = exposureEventLabel(defaultExposureEvent)
 
     const { currentTeam } = useValues(teamLogic)

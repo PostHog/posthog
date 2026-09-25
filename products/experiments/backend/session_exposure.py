@@ -67,9 +67,8 @@ class SessionExposure:
     # resolving conditions on that renamed key would match no session. Carried so `condition` and
     # the stamped fallback agree with the population query, which strips it the same way.
     flag_key: str
-    # What this experiment's default exposure resolves to under the $experiment_exposure rollout.
-    # Carried rather than re-resolved so every clause in one response agrees on the event, even if
-    # the flag flips mid-request.
+    # What this experiment's default exposure resolves to. Carried rather than re-resolved so
+    # every clause in one response agrees on the event.
     default_exposure_event: str
     # None when the criteria name an action: an action can match several events, so there is no
     # single name to look up or to prune a query on.
@@ -138,7 +137,7 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
     # `<key>:deleted:<id>`, but historical events still carry the original key, so conditions and the
     # stamped fallback must resolve against it, the same key the population query uses.
     flag_key = experiment.feature_flag.key_without_tombstone()
-    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
+    default_exposure_event = resolve_default_exposure_event(experiment.start_date)
     exposure_event, variant_property = get_exposure_event_and_property(
         flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
     )

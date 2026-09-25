@@ -585,9 +585,9 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     # join again.
     metrics = resolve_metric_events(experiment)
     metric_event_names = _metric_event_names(metrics)
-    # The same rollout resolution the analysis applies, resolved here for the cache key and the
+    # The same exposure-event resolution the analysis applies, resolved here for the cache key and the
     # exposure event's name; the population read inside the linkage resolves it again itself.
-    default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
+    default_exposure_event = resolve_default_exposure_event(experiment.start_date)
     multiple_variant_handling = get_multiple_variant_handling_from_experiment(experiment.exposure_criteria)
 
     cache_key = _cache_key(team, user, experiment, window_end, default_exposure_event)
@@ -927,8 +927,8 @@ def _cache_key(
     # new fields.
     spec = json.dumps(
         [
-            # Which event the default exposure resolved to. The $experiment_exposure rollout can
-            # flip under a team, and cards computed on the other event are a different population.
+            # Which event the default exposure resolved to. Derived from start_date, but kept in
+            # the key so a change to the cutoff cannot serve cards for the other population.
             default_exposure_event,
             # The window end moves with wall-clock time on a running experiment, so it is quantized
             # to the cache's own TTL rather than to the minute: at minute resolution the key changes

@@ -54,11 +54,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 
 def resolve_exposure_config_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode,
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExperimentEventExposureConfig | ActionsNode:
     if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
-        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(start_date)})
     return exposure_config
 
 
@@ -74,24 +73,20 @@ class ExposureQueryParams:
 
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExposureQueryParams:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    default_config = ExperimentEventExposureConfig(event=resolve_default_exposure_event(start_date), properties=[])
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(
-            event=resolve_default_exposure_event(team, start_date), properties=[]
-        )
+        exposure_config = default_config
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(
-                event=resolve_default_exposure_event(team, start_date), properties=[]
-            )
+            exposure_config = default_config
         elif (
             isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
             and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
@@ -99,7 +94,7 @@ def get_exposure_config_params_for_builder(
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
+            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, start_date)
         else:
             exposure_config = criteria.exposure_config
         # Activation only composes with the default exposure; a custom exposure_config

@@ -22,7 +22,7 @@ browsing. The playlist ANDs the returned ids with its person-scoped filter, so a
 whose person the analysis excludes (multiple variants, for example) drops out there rather than
 widening the shown set; ids spent on such sessions are wasted slots out of the cap, which is
 the price of staying session-scoped. The default exposure event goes through the same
-`resolve_default_exposure_event` rollout resolution the analysis queries apply, so an
+`resolve_default_exposure_event` resolution the analysis queries apply, so an
 experiment whose results count `$experiment_exposure` is bucketed on it too.
 
 Whether an event can match sessions at all is decided here, from the same `EventProperty` fact
@@ -273,7 +273,7 @@ def get_experiment_session_bucket(
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
-    # The same rollout resolution the analysis queries apply, so the bucket population is counted
+    # The same exposure-event resolution the analysis queries apply, so the bucket population is counted
     # on the event the experiment's results actually read. The linkability verdict must be the
     # endpoint's own: callers other than the tab (the API, MCP tools) have no reason to know the
     # lookup exists, and an empty bucket that's really an unlinkable event would read as "no
@@ -416,8 +416,8 @@ def _cache_key(
             # Part of the key even though the cut happens on read: the scan over-fetches a
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
-            # The rollout flag can flip which event the default exposure reads mid-window, and a
-            # scan computed on the other event must not be served after the flip.
+            # Derived from start_date, but kept in the key so a change to the cutoff cannot
+            # serve a scan computed on the other event.
             default_exposure_event,
             _restriction_signature(team, user),
         ]

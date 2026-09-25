@@ -2547,10 +2547,10 @@ class ExperimentService:
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
+        # The same exposure-event resolution the analysis queries apply: a post-cutoff experiment frozen
         # off $feature_flag_called would snapshot nobody once the two events stop being emitted
         # together, and an empty snapshot un-enrolls everyone.
-        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        default_exposure_event = resolve_default_exposure_event(start_date)
         _, variant_property = get_exposure_event_and_property(
             flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
         )

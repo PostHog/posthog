@@ -510,7 +510,7 @@ def get_team_defaults(team: Team) -> TeamDefaults:
         flags_persistence_default=bool(team.flags_persistence_default),
         test_account_filter_count=len(test_account_filters),
         new_experiments_filter_test_accounts=bool(apply_exposure_criteria_defaults(None)["filterTestAccounts"]),
-        default_exposure_event=resolve_default_exposure_event(team, timezone.now()),
+        default_exposure_event=resolve_default_exposure_event(timezone.now()),
     )
 
 
