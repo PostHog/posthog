@@ -175,9 +175,14 @@ def merge_issues(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
     ids = [x for x in source_ids if x != str(issue.id)]
-    outcome = issue.merge(issue_ids=ids)
+    # One transaction around the merge and everything it reports: the activity entries and the
+    # lifecycle events must be registered in the same commit that moves the fingerprints, since
+    # a retry finds the sources gone, sees no transition and emits nothing.
+    with transaction.atomic():
+        outcome = issue.merge(issue_ids=ids)
+        if outcome.result != ErrorTrackingIssueMergeResult.MERGED:
+            return outcome.result
 
-    if outcome.result == ErrorTrackingIssueMergeResult.MERGED:
         merged_id_strings = [str(merged_issue_id) for merged_issue_id in outcome.merged_issue_ids]
         log_activity(
             organization_id=issue.team.organization_id,
@@ -202,6 +207,7 @@ def merge_issues(
             user=user,
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
+
         if outcome.reopened and outcome.previous_status is not None:
             log_activity(
                 organization_id=issue.team.organization_id,

@@ -372,14 +372,38 @@ def _lock_expected_fingerprint_issue_ids(*, team_id: int, expected_fingerprint_i
 def _sync_error_tracking_issue_changes_on_commit(
     *, team_id: int, issue_ids: list[UUID], overrides: list[ErrorTrackingIssueFingerprintV2]
 ) -> None:
+    """Queue the ClickHouse writes that mirror a committed merge or split.
+
+    Both hooks are robust and swallow their own failure. The Postgres write has already
+    committed when they run, and no caller can repair the sync by retrying: a second merge
+    finds the sources gone and a second split finds the fingerprints moved. So a Kafka
+    outage here must not raise. If it did, it would stop the hooks queued after it, which
+    carry the merge activity entry and the reopened alert, and would turn a merge that did
+    happen into an error for the caller.
+    """
+
     def sync_fingerprint_overrides() -> None:
-        update_error_tracking_issue_fingerprint_overrides(team_id=team_id, overrides=overrides)
+        try:
+            update_error_tracking_issue_fingerprint_overrides(team_id=team_id, overrides=overrides)
+        except Exception:
+            logger.exception(
+                "error_tracking_fingerprint_override_sync_failed",
+                team_id=team_id,
+                issue_ids=[str(issue_id) for issue_id in issue_ids],
+            )
 
     def sync_issues() -> None:
-        sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
+        try:
+            sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
+        except Exception:
+            logger.exception(
+                "error_tracking_issue_sync_failed",
+                team_id=team_id,
+                issue_ids=[str(issue_id) for issue_id in issue_ids],
+            )
 
-    transaction.on_commit(sync_fingerprint_overrides)
-    transaction.on_commit(sync_issues)
+    transaction.on_commit(sync_fingerprint_overrides, robust=True)
+    transaction.on_commit(sync_issues, robust=True)
 
 
 class ErrorTrackingRelease(UUIDTModel):
