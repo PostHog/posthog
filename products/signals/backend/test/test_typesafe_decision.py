@@ -233,6 +233,43 @@ async def test_traditional_shadow_returns_without_waiting_for_traditional() -> N
 
 
 @pytest.mark.asyncio
+async def test_traditional_shadow_cancels_traditional_when_the_caller_is_cancelled() -> None:
+    traditional_started = asyncio.Event()
+    traditional_cancelled = asyncio.Event()
+
+    async def slow_traditional() -> bool:
+        traditional_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            traditional_cancelled.set()
+            raise
+        return False
+
+    async def pending_typesafe(*_args: object) -> SignalsDecision:
+        await asyncio.Event().wait()
+        raise AssertionError("TypeSafe call must stay pending")
+
+    with (
+        patch(
+            "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+            return_value="traditional-shadow",
+        ),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
+        patch(
+            "products.signals.backend.typesafe_decision._query", new_callable=AsyncMock, side_effect=pending_typesafe
+        ),
+    ):
+        decision = asyncio.create_task(_run_actionability(traditional=slow_traditional))
+        await traditional_started.wait()
+        decision.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await decision
+
+    assert traditional_cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_traditional_shadow_falls_back_when_typesafe_fails() -> None:
     with (
         patch(

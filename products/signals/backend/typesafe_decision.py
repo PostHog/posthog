@@ -214,7 +214,15 @@ async def run_model_decision(
         assert traditional_task is not None
         traditional_call, typesafe_call = await asyncio.gather(traditional_task, typesafe_task)
     else:
-        typesafe_call = await typesafe_task
+        try:
+            typesafe_call = await typesafe_task
+        except asyncio.CancelledError:
+            # Awaiting typesafe_task cancels only that task, so the traditional call would outlive its caller.
+            if traditional_task is not None:
+                traditional_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await traditional_task
+            raise
 
     typesafe = typesafe_call.value
     typesafe_verdict = (
