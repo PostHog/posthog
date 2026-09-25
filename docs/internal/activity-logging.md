@@ -202,8 +202,9 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
-Scouts should discover the reader once per run and bound reads by date, scope, item, page size, and selected response fields.
-If the tool is absent but schema discovery exposes `system.activity_logs`, `execute-sql` supports the same investigation with `created_at` bounds and a small `LIMIT`.
+MCP supplies bounded reader instructions only when its filtered catalog advertises `advanced-activity-logs-list`, and adds SQL instructions only when `execute-sql` is also advertised.
+Tools-mode clients receive these instructions inline. Exec clients receive them in the command reference; Claude web/desktop loads them from the analytics guide, with an inline fallback when guide loading is disabled.
+The universal scout skills carry only availability and stop guidance, so they do not send clients searching for readers they cannot access.
 The SQL table enforces the same entitlement, retention, and access controls; it is not a bypass.
 When history is unavailable, skip that check for the rest of the run, record the limitation, and continue checks that do not depend on it.
 Do not infer that no configuration change occurred from missing access.
