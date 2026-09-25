@@ -99,13 +99,9 @@ class SkillFileActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_create_file")
     @monitor(feature=None, endpoint="llma_skills_create_file", method="POST")
     def create_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         payload = LLMSkillFileCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -161,13 +157,9 @@ class SkillFileActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_delete_file")
     @monitor(feature=None, endpoint="llma_skills_delete_file", method="DELETE")
     def delete_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         safe_path = _safe_file_path(file_path)
         if safe_path is None:
@@ -226,13 +218,9 @@ class SkillFileActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_rename_file")
     @monitor(feature=None, endpoint="llma_skills_rename_file", method="POST")
     def rename_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         payload = LLMSkillFileRenameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)

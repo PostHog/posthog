@@ -38,13 +38,9 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_archive")
     @monitor(feature=None, endpoint="llma_skills_archive", method="POST")
     def archive(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         try:
             skill_versions = archive_skill(self.team, skill_name)
@@ -77,13 +73,9 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_duplicate")
     @monitor(feature=None, endpoint="llma_skills_duplicate", method="POST")
     def duplicate(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         payload = LLMSkillDuplicateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -138,13 +130,9 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_rename")
     @monitor(feature=None, endpoint="llma_skills_rename", method="POST")
     def rename(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         payload = LLMSkillRenameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)

@@ -89,6 +89,17 @@ class SkillAccessMixin(_SkillViewBase):
             return self._skill_not_found_response(skill_name)
         return None
 
+    def _guard_write(self, request: Request, skill_name: str) -> Response | None:
+        """The gate every by-name write passes, or None when the caller may proceed.
+
+        Web auth is checked before the skill is looked up, so a caller who may not reach this
+        endpoint at all cannot use the 403/404 split to learn which skill names exist.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+        return self._guard_object_access(request, skill_name)
+
     def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
         """Every active skill row this caller may read. `list` and every by-name read share it, so
         a name the list returned can never be denied by a read as if it did not exist."""
