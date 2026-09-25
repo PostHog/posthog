@@ -8,6 +8,8 @@ from posthog.models.team.extensions import register_team_extension_signal
 logger = logging.getLogger(__name__)
 
 DEFAULT_STALE_EVENT_DAYS = 30
+MIN_STALE_EVENT_DAYS = 1
+MAX_STALE_EVENT_DAYS = 365
 
 
 class TeamDataManagementConfig(models.Model):
@@ -23,8 +25,18 @@ class TeamDataManagementConfig(models.Model):
     stale_event_days = models.PositiveSmallIntegerField(
         default=DEFAULT_STALE_EVENT_DAYS,
         db_default=DEFAULT_STALE_EVENT_DAYS,
-        validators=[MinValueValidator(1), MaxValueValidator(365)],
+        validators=[MinValueValidator(MIN_STALE_EVENT_DAYS), MaxValueValidator(MAX_STALE_EVENT_DAYS)],
     )
+
+    class Meta:
+        constraints = [
+            # The validators only run through a serializer or full_clean(), so a direct ORM write
+            # could otherwise store a threshold the UI and the API both refuse.
+            models.CheckConstraint(
+                condition=models.Q(stale_event_days__range=(MIN_STALE_EVENT_DAYS, MAX_STALE_EVENT_DAYS)),
+                name="team_data_management_stale_event_days_in_range",
+            )
+        ]
 
 
 register_team_extension_signal(TeamDataManagementConfig, logger=logger)
