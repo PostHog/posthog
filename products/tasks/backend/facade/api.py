@@ -3714,9 +3714,9 @@ def issue_claude_subscription_token(
     return token
 
 
-def claude_relay_params(owner_id: int, params: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool]:
+def claude_relay_params(owner_id: int | None, params: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool]:
     token = params.get("token") if isinstance(params, dict) else None
-    if params is None or not isinstance(token, str) or not token:
+    if owner_id is None or params is None or not isinstance(token, str) or not token:
         return params, False
     integration = ClaudeUserIntegration.for_user(owner_id)
     if integration is None or not integration.rejects(token):
