@@ -21,9 +21,11 @@ FLAG = f"{MODULE}.posthoganalytics.feature_enabled"
 ENROLLED = f"{MODULE}.ml_inference.decisions_enabled"
 DECIDE = f"{MODULE}.ml_inference.decide"
 
-_TRENDS = {
+# A kind whose runner lives in this product. These endpoints never run the query, but the crossing
+# ratchet treats a posted TrendsQuery as a test that drives web_analytics code.
+_QUERY = {
     "kind": "InsightVizNode",
-    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    "source": {"kind": "LifecycleQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
 }
 
 
@@ -50,7 +52,7 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         self.organization.save()
 
         with patch(FLAG, return_value=flag), patch(ENROLLED, return_value=enrolled), patch(DECIDE) as decide:
-            response = self.client.post(f"{self.base_url}/title/", {"query": _TRENDS}, format="json")
+            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         decide.assert_not_called()
@@ -61,7 +63,7 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         with patch(
             DECIDE, return_value=_result({"title": ChoiceAnswer(choice="c0", confidence=0.9, probabilities={})})
         ):
-            response = self.client.post(f"{self.base_url}/title/", {"query": _TRENDS, "name": "Current"}, format="json")
+            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY, "name": "Current"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -75,18 +77,18 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         Tag.objects.create(name="billing", team=self.team)
         growth = Tag.objects.create(name="growth", team=self.team)
         insight = Insight.objects.create(team=self.team)
-        TaggedItem.objects.create(tag=growth, insight=insight)
+        TaggedItem.objects.create(tag=growth, insight_id=insight.id)
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
         other_tag = Tag.objects.create(name="other-team-secret", team=other_team)
         for _ in range(3):
-            TaggedItem.objects.create(tag=other_tag, insight=Insight.objects.create(team=other_team))
+            TaggedItem.objects.create(tag=other_tag, insight_id=Insight.objects.create(team=other_team).id)
 
         def decide(request: DecisionRequest) -> DecisionResult:
             return _result({key: NoulAnswer(probability=0.95) for key in request.questions})
 
         with patch(DECIDE, side_effect=decide) as decide_mock:
-            response = self.client.post(f"{self.base_url}/tags/", {"query": _TRENDS}, format="json")
+            response = self.client.post(f"{self.base_url}/tags/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -113,6 +115,6 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         self, _name: str, gateway_status: int, expected: int, _flag: MagicMock, _enrolled: MagicMock
     ) -> None:
         with patch(DECIDE, side_effect=DecisionGatewayError(gateway_status, "no")):
-            response = self.client.post(f"{self.base_url}/title/", {"query": _TRENDS}, format="json")
+            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
 
         assert response.status_code == expected

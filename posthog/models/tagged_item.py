@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
@@ -19,9 +19,6 @@ from posthog.models.tagged_item_registry import (
     taggable_for_legacy_field,
 )
 from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
-
-if TYPE_CHECKING:
-    from products.product_analytics.backend.models.insight import Insight
 
 GENERIC_POINTER_FIELDS = ("content_type", "object_id", "object_uuid", "team")
 
@@ -101,7 +98,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         blank=True,
         related_name="+",
     )
-    insight: models.ForeignKey["Insight"] = models.ForeignKey(
+    insight = models.ForeignKey(
         "product_analytics.Insight",
         on_delete=models.CASCADE,
         null=True,
