@@ -6,13 +6,7 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
-## Adding a new source
-
-Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
-
-> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
-
-### Apple Ads in Marketing analytics
+## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
 Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
@@ -26,6 +20,12 @@ Taps appear as clicks, and installs appear as reported conversions.
 The adapter accepts both Campaign Management API 5 `installs` and Ads Platform API `totalInstalls`, including tables that contain rows from both versions.
 Spend uses the currency in Apple's `localSpend` object and the reporting date to convert into the project's currency.
 Apple does not report conversion revenue through these reports, so reported conversion value is zero.
+
+## Adding a new source
+
+Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
+
+> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
 ## Importing your local Postgres instance
 
