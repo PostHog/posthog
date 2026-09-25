@@ -1,5 +1,11 @@
 import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
-import { getImageMimeType, isAllowedImageMimeType } from "@posthog/shared";
+import {
+  getImageMimeType,
+  getVideoMimeType,
+  isAllowedImageMimeType,
+  isAllowedVideoMimeType,
+  isPlayableVideoFile,
+} from "@posthog/shared";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 import type { CommentSurfaceTheme } from "./selectionCommentAction";
 
@@ -71,6 +77,9 @@ export async function artifactPreviewBlob(
   // it up instead of the browser offering a download.
   if (filenameMimeType === "image/svg+xml") {
     return new Blob([blob], { type: "image/svg+xml" });
+  }
+  if (!isAllowedVideoMimeType(blob.type) && isPlayableVideoFile(filename)) {
+    return new Blob([blob], { type: getVideoMimeType(filename) });
   }
   return blob;
 }
