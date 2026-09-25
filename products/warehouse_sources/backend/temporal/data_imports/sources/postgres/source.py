@@ -1,4 +1,5 @@
 import logging
+import datetime as dt
 from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
@@ -1762,9 +1763,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from asgiref.sync import async_to_sync
 
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import BUFFER_FILE_RETENTION
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
             build_output_lanes,
@@ -1828,6 +1831,29 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
+        proof_time = async_to_sync(completed_listing_proof)(schema)
+        # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
+        # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
+        # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
+        # has finished, as it does for any reset a sync could interfere with.
+        consumed_through = proof_time or schema.last_synced_at
+        if consumed_through is not None and consumed_through < dt.datetime.now(tz=dt.UTC) - BUFFER_FILE_RETENTION:
+            inputs.logger.warning(
+                "cdc_buffer_expired_before_consumption", schema_name=schema.name, consumed_through=consumed_through
+            )
+            # The workflow completes the job on this empty response, so an earlier attempt's stamp
+            # has to come off it first, as it does on the in-flight stand-down above: a Completed
+            # job still carrying one would prove a listing that nothing drained.
+            clear_listing(inputs.job_id, inputs.team_id)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            first_lane = served_lanes(schema)[0]
+            return SourceResponse(
+                name=first_lane.resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=first_lane.write_mode,
+            )
+
         # Nothing of any earlier run is executing now, so a companion still Running belongs to a
         # run that died without its `finally` and nothing else will ever close it.
         retired = retire_orphaned_companions(schema)
@@ -1841,7 +1867,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=async_to_sync(completed_listing_proof)(schema),
+            proof_time=proof_time,
         )
         return SourceResponse(
             name=lanes[0].name,
