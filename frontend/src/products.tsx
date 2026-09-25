@@ -218,7 +218,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
-    '/ml-inference/decisions': ['DecisionPlayground', 'decisionPlayground'],
+    '/ml-inference/playground': ['DecisionPlayground', 'decisionPlayground'],
     '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/person/*': ['Person', 'personByDistinctId'],
     '/persons/*': ['Person', 'personByUUID'],
@@ -462,6 +462,8 @@ export const productRedirects: Record<
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
+    '/ml-inference/decisions': (_params, searchParams, hashParams) =>
+        combineUrl(urls.decisionPlayground(), searchParams, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1495,7 +1497,7 @@ export const productUrls = {
     mcpGatewayAgent: (id: string): string => `/mcp-servers/agent/${id}`,
     mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
     metrics: (): string => '/metrics',
-    decisionPlayground: (): string => '/ml-inference/decisions',
+    decisionPlayground: (): string => '/ml-inference/playground',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
