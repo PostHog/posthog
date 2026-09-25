@@ -113,36 +113,38 @@ impl Destination {
     }
 }
 
+/// `R` is how the target names its producer: a [`ProducerName`] in config,
+/// the producer handle once a sink is built.
 #[derive(Clone, Debug)]
-pub struct OutputTarget {
+pub struct OutputTarget<R = ProducerName> {
     // `Arc<str>` so the per-record metric label and lookup never allocate.
     pub(crate) topic: Arc<str>,
-    pub(crate) producer: ProducerName,
+    pub(crate) producer: R,
 }
 
 /// The one place output wiring lives. Holds the configured target for every
 /// fixed [`Destination`] variant. Cheap to clone; the sink holds it behind an `Arc`.
 #[derive(Clone, Debug)]
-pub struct OutputTable {
-    pub(crate) analytics_main: OutputTarget,
-    pub(crate) analytics_overflow: OutputTarget,
-    pub(crate) analytics_historical: OutputTarget,
-    pub(crate) session_replay_main: OutputTarget,
-    pub(crate) session_replay_overflow: OutputTarget,
-    pub(crate) client_warnings: OutputTarget,
-    pub(crate) heatmaps: OutputTarget,
-    pub(crate) dlq: OutputTarget,
-    pub(crate) error_tracking: OutputTarget,
-    pub(crate) ai_main: OutputTarget,
+pub struct OutputTable<R = ProducerName> {
+    pub(crate) analytics_main: OutputTarget<R>,
+    pub(crate) analytics_overflow: OutputTarget<R>,
+    pub(crate) analytics_historical: OutputTarget<R>,
+    pub(crate) session_replay_main: OutputTarget<R>,
+    pub(crate) session_replay_overflow: OutputTarget<R>,
+    pub(crate) client_warnings: OutputTarget<R>,
+    pub(crate) heatmaps: OutputTarget<R>,
+    pub(crate) dlq: OutputTarget<R>,
+    pub(crate) error_tracking: OutputTarget<R>,
+    pub(crate) ai_main: OutputTarget<R>,
     /// Unset means the AI overflow valve is unarmed and routing never
     /// selects `Destination::AiOverflow`.
-    pub(crate) ai_overflow: Option<OutputTarget>,
-    pub(crate) custom_producer: ProducerName,
+    pub(crate) ai_overflow: Option<OutputTarget<R>>,
+    pub(crate) custom_producer: R,
 }
 
-impl OutputTable {
+impl<R> OutputTable<R> {
     /// `Custom` has no target: it carries its own topic.
-    fn target_for(&self, output: &Destination) -> Option<&OutputTarget> {
+    fn target_for(&self, output: &Destination) -> Option<&OutputTarget<R>> {
         match output {
             Destination::AnalyticsMain => Some(&self.analytics_main),
             Destination::AnalyticsOverflow => Some(&self.analytics_overflow),
@@ -175,11 +177,35 @@ impl OutputTable {
     }
 
     /// Only a `Custom` topic allocates.
-    pub(crate) fn resolve(&self, output: &Destination) -> (Arc<str>, ProducerName) {
+    pub(crate) fn resolve(&self, output: &Destination) -> (Arc<str>, &R) {
         match (output, self.target_for(output)) {
-            (_, Some(target)) => (Arc::clone(&target.topic), target.producer),
-            (Destination::Custom(topic), None) => (Arc::from(topic.as_str()), self.custom_producer),
+            (_, Some(target)) => (Arc::clone(&target.topic), &target.producer),
+            (Destination::Custom(topic), None) => {
+                (Arc::from(topic.as_str()), &self.custom_producer)
+            }
             (_, None) => unreachable!("every fixed output has a target"),
+        }
+    }
+
+    pub(crate) fn map_producers<T>(&self, mut f: impl FnMut(&R) -> T) -> OutputTable<T> {
+        let custom_producer = f(&self.custom_producer);
+        let mut target = |t: &OutputTarget<R>| OutputTarget {
+            topic: Arc::clone(&t.topic),
+            producer: f(&t.producer),
+        };
+        OutputTable {
+            analytics_main: target(&self.analytics_main),
+            analytics_overflow: target(&self.analytics_overflow),
+            analytics_historical: target(&self.analytics_historical),
+            session_replay_main: target(&self.session_replay_main),
+            session_replay_overflow: target(&self.session_replay_overflow),
+            client_warnings: target(&self.client_warnings),
+            heatmaps: target(&self.heatmaps),
+            dlq: target(&self.dlq),
+            error_tracking: target(&self.error_tracking),
+            ai_main: target(&self.ai_main),
+            ai_overflow: self.ai_overflow.as_ref().map(&mut target),
+            custom_producer,
         }
     }
 
@@ -331,11 +357,22 @@ mod tests {
     }
 
     #[test]
-    fn custom_topics_publish_through_the_custom_producer() {
-        let registry = test_outputs();
-        let (topic, producer) = registry.resolve(&Destination::Custom("admin_topic".to_string()));
+    fn each_output_resolves_to_its_own_producer() {
+        let mut next = 0;
+        let table = test_outputs().map_producers(|_| {
+            next += 1;
+            next
+        });
+        let custom = Destination::Custom("admin_topic".to_string());
+        let (topic, _) = table.resolve(&custom);
         assert_eq!(&*topic, "admin_topic");
-        assert_eq!(producer, registry.custom_producer);
+
+        let producers: std::collections::HashSet<i32> = Destination::REGISTERED
+            .iter()
+            .chain([&custom])
+            .map(|output| *table.resolve(output).1)
+            .collect();
+        assert_eq!(producers.len(), Destination::REGISTERED.len() + 1);
     }
 
     #[test]
