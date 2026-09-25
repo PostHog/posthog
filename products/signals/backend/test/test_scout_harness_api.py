@@ -4153,6 +4153,9 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         # Read scopes ride every scout token.
         assert tools["insight-get"]["holdable"] is True
         assert tools["insight-get"]["missing_scopes"] == []
+        # Scout tokens carry `signal_scout_internal:write` only, and a write scope satisfies its read scope.
+        assert tools["scout-members-list"]["holdable"] is True
+        assert tools["scout-members-list"]["missing_scopes"] == []
         # Grantable from the scout's own settings, so it is reachable but not by default.
         assert tools["dashboard-create"]["holdable"] is True
         assert tools["dashboard-create"]["missing_scopes"] == ["dashboard:write"]

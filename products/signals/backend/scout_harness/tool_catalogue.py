@@ -24,7 +24,7 @@ from posthog.temporal.oauth import (
 @frozen
 class ScoutToolEntry:
     definition: McpToolDefinition
-    # Every required scope is inside the widest posture a scout run can be dispatched with.
+    # The widest posture a scout run can be dispatched with satisfies every required scope.
     holdable: bool
     # Required scopes the baseline `signals_scout` posture does not carry. On a holdable tool
     # these name what the scout has to be granted, or which preset it has to opt into. On a
@@ -50,6 +50,16 @@ def _preset_scopes(preset: ScoutScopePreset, *, extra_write_scopes: list[str] | 
     return frozenset(resolve_scopes(scout_scope_posture(preset, extra_write_scopes or [])))
 
 
+def _satisfies(scopes: frozenset[str], required_scope: str) -> bool:
+    # A write scope also satisfies the read scope on the same object, in the MCP server
+    # (`hasScope` in services/mcp/src/lib/api.ts) and in `posthog/permissions.py`. Scout tokens
+    # carry `signal_scout_internal:write` and never its read scope, so plain set membership
+    # would report tools a scout calls as out of reach.
+    if required_scope in scopes:
+        return True
+    return required_scope.endswith(":read") and f"{required_scope.removesuffix(':read')}:write" in scopes
+
+
 @lru_cache(maxsize=1)
 def get_scout_tool_catalogue() -> ScoutToolCatalogue:
     """The catalogue every scout is measured against.
@@ -70,8 +80,8 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
         tools.append(
             ScoutToolEntry(
                 definition=definition,
-                holdable=required <= widest,
-                missing_scopes=tuple(sorted(required - baseline)),
+                holdable=all(_satisfies(widest, scope) for scope in required),
+                missing_scopes=tuple(sorted(scope for scope in required if not _satisfies(baseline, scope))),
             )
         )
 
