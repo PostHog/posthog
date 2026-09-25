@@ -1,3 +1,4 @@
+from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
@@ -95,6 +96,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    InboxRankingScoringWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
@@ -118,6 +120,7 @@ ACTIVITIES = [
     load_scout_trial_evaluation_activity,
     judge_scout_trial_run_activity,
     finish_scout_trial_evaluation_activity,
+    score_inbox_reports_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
