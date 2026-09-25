@@ -6,10 +6,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
 import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
-import { BellIcon, Dot, LockIcon } from "@/components/Icons";
+import { BellIcon, Dot, LockIcon, SteeringIcon } from "@/components/Icons";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
 import { useChannels, useTasks } from "@/lib/queries";
+import { useReports, useSeenReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
 const PREVIEW_COUNT = 3;
@@ -90,6 +91,11 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const channels = useChannels();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
+  const reports = useReports().data ?? [];
+  const seenReports = useSeenReports((s) => s.seen);
+  const newReports = reports.filter(
+    (report) => !seenReports.has(report.id),
+  ).length;
   // Starred spaces open by default, the rest closed; a toggle flips that.
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -234,6 +240,21 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
           {unread > 0 ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{unread}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            closeDrawer();
+            router.push("/(drawer)/self-driving");
+          }}
+          style={({ pressed }) => [styles.navRow, pressed && { opacity: 0.5 }]}
+        >
+          <SteeringIcon />
+          <Text style={styles.navLabel}>Self-driving</Text>
+          {newReports > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{newReports}</Text>
             </View>
           ) : null}
         </Pressable>
