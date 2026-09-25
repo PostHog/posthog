@@ -1,6 +1,7 @@
 """Periodic batch refresh of the per-scanner search suggestions shown on the Search tab's empty state."""
 
 import asyncio
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import workflow
@@ -88,5 +89,7 @@ async def create_replay_vision_search_suggestions_schedule(client: "Client") -> 
         workflow_id=SEARCH_SUGGESTIONS_WORKFLOW_ID,
         inputs=RefreshSearchSuggestionsInputs(),
         interval=SEARCH_SUGGESTIONS_REFRESH_INTERVAL,
+        offset=dt.timedelta(minutes=2),
+        jitter=dt.timedelta(minutes=10),
         execution_timeout=SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT,
     )
