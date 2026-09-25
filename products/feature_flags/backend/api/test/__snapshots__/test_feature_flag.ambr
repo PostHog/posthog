@@ -779,6 +779,20 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.11
   '''
+  SELECT "product_tours_producttour"."id",
+         "product_tours_producttour"."name",
+         "product_tours_producttour"."internal_targeting_flag_id"
+  FROM "product_tours_producttour"
+  WHERE (NOT "product_tours_producttour"."archived"
+         AND "product_tours_producttour"."internal_targeting_flag_id" IN (1,
+                                                                          2,
+                                                                          3,
+                                                                          4,
+                                                                          5 /* ... */))
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.12
+  '''
   SELECT "posthog_featureflagevaluationcontext"."id",
          "posthog_featureflagevaluationcontext"."feature_flag_id",
          "posthog_featureflagevaluationcontext"."evaluation_context_id",
@@ -797,7 +811,7 @@
                                                                      5 /* ... */)
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.12
+# name: TestFeatureFlag.test_creating_static_cohort.13
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -830,7 +844,7 @@
                                                    5 /* ... */)
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.13
+# name: TestFeatureFlag.test_creating_static_cohort.14
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -932,31 +946,6 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.14
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."surface",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE (("posthog_filesystem"."surface" IS NULL
-          OR "posthog_filesystem"."surface" = 'web')
-         AND "posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
 # name: TestFeatureFlag.test_creating_static_cohort.15
   '''
   SELECT "posthog_filesystem"."team_id",
@@ -984,6 +973,31 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.16
   '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.17
+  '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
          "posthog_filesystemshortcut"."user_id",
@@ -1005,7 +1019,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.17
+# name: TestFeatureFlag.test_creating_static_cohort.18
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."project_id"
@@ -1014,7 +1028,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.18
+# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1049,37 +1063,6 @@
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
   WHERE ("posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.19
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."updated_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."archived",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads",
-         "posthog_featureflag"."evaluation_runtime",
-         "posthog_featureflag"."bucketing_identifier",
-         "posthog_featureflag"."last_called_at"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_featureflag"."deleted")
-         AND "posthog_featureflag"."key" = 'some-feature'
          AND "posthog_team"."project_id" = 99999)
   LIMIT 21
   '''
@@ -1228,6 +1211,37 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.20
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."updated_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
+         "posthog_featureflag"."bucketing_identifier",
+         "posthog_featureflag"."last_called_at"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (NOT ("posthog_featureflag"."deleted")
+         AND "posthog_featureflag"."key" = 'some-feature'
+         AND "posthog_team"."project_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
   SELECT "feature_flags_teamfeatureflagsconfig"."property_matching_version" AS "property_matching_version"
   FROM "feature_flags_teamfeatureflagsconfig"
   WHERE "feature_flags_teamfeatureflagsconfig"."team_id" = 99999
@@ -1235,7 +1249,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.21
+# name: TestFeatureFlag.test_creating_static_cohort.22
   '''
   SELECT 1 AS "a"
   FROM "posthog_cohort"
@@ -1251,7 +1265,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.22
+# name: TestFeatureFlag.test_creating_static_cohort.23
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1353,7 +1367,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.23
+# name: TestFeatureFlag.test_creating_static_cohort.24
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1378,7 +1392,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.24
+# name: TestFeatureFlag.test_creating_static_cohort.25
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -1401,7 +1415,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.25
+# name: TestFeatureFlag.test_creating_static_cohort.26
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1503,7 +1517,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.26
+# name: TestFeatureFlag.test_creating_static_cohort.27
   '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
@@ -1540,7 +1554,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.27
+# name: TestFeatureFlag.test_creating_static_cohort.28
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1642,7 +1656,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.28
+# name: TestFeatureFlag.test_creating_static_cohort.29
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1689,7 +1703,22 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.29
+# name: TestFeatureFlag.test_creating_static_cohort.3
+  '''
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
+         "posthog_project"."organization_id",
+         "posthog_project"."name",
+         "posthog_project"."created_at",
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
+  FROM "posthog_project"
+  WHERE "posthog_project"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.30
   '''
   SELECT "posthog_cohortcalculationhistory"."id",
          "posthog_cohortcalculationhistory"."team_id",
@@ -1710,22 +1739,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.3
-  '''
-  SELECT "posthog_project"."updated_at",
-         "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion",
-         "posthog_project"."deletion_scheduled_at"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.30
+# name: TestFeatureFlag.test_creating_static_cohort.31
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -1769,7 +1783,7 @@
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.31
+# name: TestFeatureFlag.test_creating_static_cohort.32
   '''
   /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT person_id
@@ -1780,7 +1794,7 @@
   GROUP BY person_id
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.32
+# name: TestFeatureFlag.test_creating_static_cohort.33
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT persons.id AS id
