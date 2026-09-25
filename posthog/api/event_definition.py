@@ -56,9 +56,10 @@ from posthog.taxonomy.definition_listing import (
 )
 from posthog.taxonomy.definition_search import (
     LARGE_PROJECT_COUNT_CAP,
+    NAME_ORDER_MIN_DEFINITIONS,
     PROJECT_SCAN_MAX_DEFINITIONS,
     bounded_count_sql,
-    is_large_project,
+    project_definition_scale,
 )
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
@@ -434,10 +435,10 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
-        large_project = is_large_project("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+        scale = project_definition_scale("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
         # A small project is cheaper to search through its own index than through the global trigram index.
         search_query, search_kwargs = term_search_filter_sql(
-            self.search_fields, search, avoid_trigram_index=not large_project
+            self.search_fields, search, avoid_trigram_index=not scale.large
         )
 
         params = {
@@ -446,19 +447,6 @@ class EventDefinitionViewSet(
             "count_cap": LARGE_PROJECT_COUNT_CAP,
             **search_kwargs,
         }
-        # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
-        # `ordering=event`, which nothing serves, and it must still get the large-project default.
-        requested_ordering = self._requested_ordering()
-        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
-        if large_project and not requested_ordering:
-            # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
-            # project has for each page. Name order pages straight from the unique index instead.
-            order_expressions = [("name", "ASC")]
-        else:
-            order_expressions = self._stable_ordering(requested_ordering)
-
-        if has_search_terms and not requested_ordering:
-            order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
@@ -478,7 +466,8 @@ class EventDefinitionViewSet(
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
         verified_param = self.request.GET.get("verified")
-        if verified_param is not None and EE_AVAILABLE:
+        filters_by_verified = verified_param is not None and EE_AVAILABLE
+        if filters_by_verified:
             if verified_param.lower() == "true":
                 search_query = (
                     search_query + " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
@@ -518,6 +507,34 @@ class EventDefinitionViewSet(
             params["tags"] = tags_list
             params["tagged_content_type_id"] = content_type_for(EventDefinition).id
 
+        # A filter that matches few rows makes `ORDER BY name LIMIT` walk most of the project in name order,
+        # probing each row, before it fills a page or reaches the count cap. The recency sort and the exact
+        # count read the project once with a parallel scan instead. So only the filters that leave most
+        # rows matching take the name-ordered, bounded path on a large project.
+        sparse_filter = (
+            has_search_terms
+            or exclude_stale
+            or filters_by_verified
+            or bool(names)
+            or bool(tags_list)
+            or event_type == EventDefinitionType.EVENT_POSTHOG
+        )
+        bounded = scale.large and not sparse_filter
+
+        # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
+        # `ordering=event`, which nothing serves, and it must still get the large-project default.
+        requested_ordering = self._requested_ordering()
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
+        if bounded and scale.orders_by_name and not requested_ordering:
+            # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
+            # project has for each page. Name order pages straight from the unique index instead.
+            order_expressions = [("name", "ASC")]
+        else:
+            order_expressions = self._stable_ordering(requested_ordering)
+
+        if has_search_terms and not requested_ordering:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
+
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
@@ -535,7 +552,7 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
-            bounded=large_project,
+            bounded=bounded,
         )
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
@@ -543,9 +560,7 @@ class EventDefinitionViewSet(
             cursor.execute(count_sql, params)
             definition_count = cursor.fetchone()[0]
             # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
-            paginator.set_count(
-                definition_count, is_capped=large_project and definition_count >= LARGE_PROJECT_COUNT_CAP
-            )
+            paginator.set_count(definition_count, is_capped=bounded and definition_count >= LARGE_PROJECT_COUNT_CAP)
 
         return event_definition_object_manager.raw(sql, params=params)
 
@@ -616,8 +631,10 @@ class EventDefinitionViewSet(
     @extend_schema(
         description=(
             "List the event definitions of a project. On projects with more than "
-            f"{PROJECT_SCAN_MAX_DEFINITIONS} event definitions `count` is capped at {LARGE_PROJECT_COUNT_CAP} "
-            "and the default ordering is by name."
+            f"{PROJECT_SCAN_MAX_DEFINITIONS} event definitions, `count` stops at {LARGE_PROJECT_COUNT_CAP} and "
+            "`count_is_capped` is true, unless the request sets `search`, `exclude_stale`, `verified`, `names`, "
+            f"`tags` or `event_type=event_posthog`. Projects with more than {NAME_ORDER_MIN_DEFINITIONS} event "
+            "definitions also default to ordering by name under the same condition."
         ),
         parameters=[
             EventDefinitionQuerySerializer,
@@ -648,7 +665,9 @@ class EventDefinitionViewSet(
                 enum=[*EVENT_DEFINITION_ORDERING_FIELDS, *(f"-{field}" for field in EVENT_DEFINITION_ORDERING_FIELDS)],
                 description=(
                     "Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. "
-                    f"Projects with more than {PROJECT_SCAN_MAX_DEFINITIONS} event definitions default to `name`."
+                    f"Projects with more than {NAME_ORDER_MIN_DEFINITIONS} event definitions default to `name`, "
+                    "unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or "
+                    "`event_type=event_posthog`."
                 ),
             ),
             OpenApiParameter(

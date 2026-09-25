@@ -57,7 +57,7 @@ export const getEventDefinitionsListUrl = (projectId: string, params?: EventDefi
 }
 
 /**
- * List the event definitions of a project. On projects with more than 50000 event definitions `count` is capped at 10000 and the default ordering is by name.
+ * List the event definitions of a project. On projects with more than 50000 event definitions, `count` stops at 10000 and `count_is_capped` is true, unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or `event_type=event_posthog`. Projects with more than 100000 event definitions also default to ordering by name under the same condition.
  */
 export const eventDefinitionsList = async (
     projectId: string,
