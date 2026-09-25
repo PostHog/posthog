@@ -878,6 +878,7 @@ export class ImageBatcher {
                       )
                   )
                 : new Map()
+            // A strongly consistent read finds no month key only after a team or month deletion, which a conditional put never reverses, so every later copy of these refs is dropped the same way.
             const keyed = handoff.images.filter(
                 ({ image }) =>
                     image.sessionMonth === undefined ||
