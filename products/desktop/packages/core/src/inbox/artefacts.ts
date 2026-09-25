@@ -135,10 +135,7 @@ export function buildSuggestedReviewerItems(
 
   for (const reviewer of reviewers) {
     const reason = suggestedReviewerExplanation(reviewer);
-    const groupKey = reason
-      ? suggestedReviewerReasonGroupKey(reviewer, reason)
-      : null;
-    if (!reason || !groupKey) {
+    if (!reason) {
       items.push({
         kind: "person",
         key: suggestedReviewerKey(reviewer),
@@ -147,6 +144,7 @@ export function buildSuggestedReviewerItems(
       continue;
     }
 
+    const groupKey = suggestedReviewerReasonGroupKey(reviewer, reason);
     const existing = reasonGroups.get(groupKey);
     if (existing) {
       existing.reviewers.push(reviewer);
