@@ -1630,9 +1630,14 @@ class CDCExtractActivity:
         pending = self._pending_reset(schema)
         if pending is None or not pending.get("awaiting_slot"):
             return
-        self._update_schema_sync_type_config(
-            schema, updates={CDC_RESET_PENDING_KEY: {**pending, "awaiting_slot": False}}
-        )
+
+        def _clear_wait(config: dict[str, typing.Any]) -> None:
+            # Read under the row lock, so fields a request added since — its `trigger` — survive.
+            current = config.get(CDC_RESET_PENDING_KEY)
+            if isinstance(current, dict):
+                config[CDC_RESET_PENDING_KEY] = {**current, "awaiting_slot": False}
+
+        self._update_schema_sync_type_config(schema, mutate=_clear_wait)
 
     def _pause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
@@ -1657,7 +1662,14 @@ class CDCExtractActivity:
         # key is dropped only once that snapshot is under way, so a failed start is retried too.
         if isinstance(pending, dict) and pending.get("trigger") and not self._trigger_resnapshot(schema):
             return
-        self._update_schema_sync_type_config(schema, removes=[CDC_RESET_PENDING_KEY])
+
+        def _drop_finished_reset(config: dict[str, typing.Any]) -> None:
+            # Only the reset this run finished. A request that staged another one while the snapshot
+            # was starting keeps it, and a later run does that reset too.
+            if config.get(CDC_RESET_PENDING_KEY) == pending:
+                config.pop(CDC_RESET_PENDING_KEY, None)
+
+        self._update_schema_sync_type_config(schema, mutate=_drop_finished_reset)
 
     def _trigger_resnapshot(self, schema: ExternalDataSchema) -> bool:
         """Start the snapshot for a reset a request handed over, recovering a missing schedule first.

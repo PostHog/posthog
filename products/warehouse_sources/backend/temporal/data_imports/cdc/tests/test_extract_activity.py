@@ -4078,6 +4078,34 @@ class TestBufferedIngressCapture:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_reset_staged_while_the_snapshot_was_starting_is_left_pending(self, MockBufferWriter, _mock_purge):
+        # The unpause lets a sync start, so a request can hand its own reset over before this run
+        # has dropped the key. Dropping it wholesale would lose that reset with nothing to redo it.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        staged = {"clear_deferred_runs": True, "trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        def hand_another_reset_over(_schedule_id):
+            schema.sync_type_config["cdc_reset_pending"] = staged
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.unpause_external_data_schedule",
+                side_effect=hand_another_reset_over,
+            ),
+        ):
+            self._run(MockBufferWriter, events, [schema], source)
+
+        assert schema.sync_type_config["cdc_reset_pending"] == staged
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self, MockBufferWriter, mock_purge):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here
         # would unpause the schedule, and the snapshot would start with no slot to resume from. A
