@@ -231,15 +231,15 @@ def _implementation_slot_claim(
     for task_id, status, pr_url in rows:
         runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
     claims = {
-        task_id: claim
-        for task_id, runs in runs_by_task.items()
+        claimant_id: claim
+        for claimant_id, runs in runs_by_task.items()
         if (claim := _runs_claim_implementation_slot(runs)) is not None
     }
     # A shipped PR is the better answer when one task shipped and another is still working.
     for reason in (_ImplementationSlotClaim.SHIPPED_PR, _ImplementationSlotClaim.IN_FLIGHT):
-        for task_id, claim in claims.items():
+        for claimant_id, claim in claims.items():
             if claim is reason:
-                return _ImplementationSlotClaimant(reason=reason, task_id=task_id)
+                return _ImplementationSlotClaimant(reason=reason, task_id=claimant_id)
     return None
 
 
