@@ -12,6 +12,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { PaginatedEnterprisePropertyDefinitionListApi } from '~/generated/core/api.schemas'
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
@@ -32,7 +33,10 @@ export interface EventDefinitionsPaginatedResponse
     page?: number
 }
 
-export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<PropertyDefinition> {
+export interface PropertyDefinitionsPaginatedResponse
+    extends
+        PaginatedResponse<PropertyDefinition>,
+        Pick<PaginatedEnterprisePropertyDefinitionListApi, 'count_is_capped'> {
     current?: string
     count?: number
     page?: number

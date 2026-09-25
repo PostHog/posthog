@@ -155,6 +155,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     controlled: true,
                     currentPage: propertyDefinitions?.page ?? 1,
                     entryCount: propertyDefinitions?.count ?? 0,
+                    entryCountIsLowerBound: propertyDefinitions?.count_is_capped === true,
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
                     onForward: propertyDefinitions.next
                         ? () => {
