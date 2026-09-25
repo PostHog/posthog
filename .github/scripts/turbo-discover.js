@@ -1282,6 +1282,10 @@ function fullRunJsonTargets(targets, skippedProducts) {
     return targets.filter((target) => !isUnderProduct(target, skippedProducts))
 }
 
+// The runLegacyReason values of a diff that edited products only. A schema or lib change
+// reaches core directly, so the events_json leg keeps the whole list for those.
+const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
+
 // Which events_json paths this run executes. The leg follows the legacy tests. Null means
 // the whole list at the full-run shard count. An array is the list to run, and an empty
 // one means the leg does not run.
@@ -1296,11 +1300,27 @@ function fullRunJsonTargets(targets, skippedProducts) {
 //   draft            the PR is a draft. Only read in selected mode, the one mode that the
 //                    merge queue's draft trunk-merge/** PR never reaches.
 //   doubled          retain only paths the schema copies do not cover
+//   skipReason       why the selection fell back, from decideSelection
+//   runLegacyReason  why the Django suite runs
+//   diffProducts     the products the diff reached before a cascade widened the matrix to
+//                    all products, or null when that set is unknown
 function decideJsonTargets({
-    targets, mode, runLegacy, selectedTests, products, skippedProducts = [], draft = false, doubled = false,
+    targets,
+    mode,
+    runLegacy,
+    selectedTests,
+    products,
+    skippedProducts = [],
+    draft = false,
+    doubled = false,
+    skipReason = '',
+    runLegacyReason = '',
+    diffProducts = null,
 }) {
     if (doubled) {
-        const paths = decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts, draft })
+        const paths = decideJsonTargets({
+            targets, mode, runLegacy, selectedTests, products, skippedProducts, draft, skipReason, runLegacyReason, diffProducts,
+        })
         // Dagster tests are excluded from the doubled Django suites and have no product job.
         return (paths ?? targets).filter(
             (target) =>
@@ -1321,6 +1341,13 @@ function decideJsonTargets({
     }
     if (mode !== 'selected') {
         const kept = fullRunJsonTargets(targets, skippedProducts)
+        if (mode === 'full' && skipReason === 'untrusted' && diffProducts !== null && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
+            // A product-only diff runs the whole Django suite because core can import the
+            // product's internals, and no selector can see that edge. The events_json leg
+            // then keeps the paths of the products the diff reached and leaves the legacy
+            // paths to the merge queue, which runs the whole list before anything lands.
+            return kept.filter((target) => isUnderProduct(target, diffProducts))
+        }
         return kept.length === targets.length ? null : kept
     }
     // Product test files come in through productPaths instead, so that the leg tests the
@@ -1559,6 +1586,9 @@ let runLegacyReason = ''
 // selection, the matrix narrows to these products plus the ones the selector reached
 // through the import graph. Null when that narrowing is not safe.
 let mustRunProducts = null
+// The products a product-only diff reached, kept apart from a matrix that a cascade widened
+// to all products. Null when a change reaches core directly or the reach is unknown.
+let diffProducts = null
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1585,6 +1615,7 @@ if (legacyChanged) {
         products = allProducts
         runLegacy = true
         runLegacyReason = 'non_isolated_product'
+        diffProducts = affectedProducts
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -1609,6 +1640,7 @@ if (legacyChanged) {
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
+                diffProducts = products
             }
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
@@ -1638,6 +1670,7 @@ if (legacyChanged) {
                 console.error(`${libModule} is imported by core (${coreImporters.join(', ')}) — Django will run`)
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             }
         }
         if (directConsumers.size === 0) {
@@ -1651,12 +1684,16 @@ if (legacyChanged) {
                 products = allProducts
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             } else {
                 if (cascaded.length > 0) {
                     console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
                 }
                 const reached = [...new Set([...directConsumers, ...cascaded])].sort()
                 products = [...new Set([...products, ...reached])].sort()
+                if (diffProducts !== null) {
+                    diffProducts = [...new Set([...diffProducts, ...reached])].sort()
+                }
                 const nonIsolatedReached = reached.filter((p) => !isolatedProducts.has(p))
                 if (nonIsolatedReached.length > 0) {
                     console.error(
@@ -1763,6 +1800,9 @@ const jsonTargetFiles = decideJsonTargets({
     skippedProducts,
     draft: process.env.PR_DRAFT === 'true',
     doubled: process.env.RUN_NEW_EVENTS_SCHEMA === 'true',
+    skipReason: selectionDecision.skip_reason,
+    runLegacyReason,
+    diffProducts,
 })
 
 console.error('\nDjango shard calculation:')
@@ -1789,8 +1829,8 @@ const result = {
         run_poe,
         run_temporal,
         segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
-        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets
-        // even when a skipped product shortens its list here.
+        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets,
+        // and build_django_matrix lowers that to json_targets_shards when this list is shorter.
         json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
         json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
     },

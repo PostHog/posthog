@@ -2607,8 +2607,13 @@ jobs:
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS, JsonTargets=$JSON_TARGETS_FULL_SHARDS"
                       fi
-                      # A full run takes every listed events_json path.
+                      # A full run takes every listed events_json path, unless discovery
+                      # shortened the list: a skipped product, or a product-only diff whose
+                      # legacy paths the merge queue runs. An empty list gives 0 rows.
                       json_targets_count="$JSON_TARGETS_FULL_SHARDS"
+                      if [[ -n "$JSON_TARGETS_SHARDS" ]] && (( JSON_TARGETS_SHARDS < json_targets_count )); then
+                          json_targets_count="$JSON_TARGETS_SHARDS"
+                      fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not
                       # land: merge queue and master. Ordinary PR lanes run the
