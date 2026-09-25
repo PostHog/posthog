@@ -20,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.digitaloce
 
 TOP_LEVEL_ENDPOINTS = [name for name, config in DIGITALOCEAN_ENDPOINTS.items() if config.fanout is None]
 INVOICE_UUID = "22737513-0ea7-4206-8ceb-98a575af7681"
+PROJECT_ID = "4e1bfbc3-dc3e-41f2-a18f-1b4d7ba71679"
+DATABASE_UUID = "9cc10173-e9ea-4176-9dbc-a4cee4c4ff30"
 
 
 def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 200) -> Response:
@@ -32,6 +34,11 @@ def _make_response(json_body: dict[str, Any] | None = None, status_code: int = 2
 
 def _endpoint(resource: Any) -> dict[str, Any]:
     return cast(dict[str, Any], resource["endpoint"])
+
+
+def _rows(endpoint: str) -> list[dict[str, Any]]:
+    resource = digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
+    return [row for page in resource for row in page]
 
 
 class TestDigitalOceanPaginator:
@@ -153,6 +160,8 @@ class TestDigitalOceanSensitiveFields:
             pytest.param("databases", True, id="secrets_in_the_response"),
             pytest.param("invoice_summaries", True, id="billing_identity_in_the_response"),
             pytest.param("invoice_items", True, id="resource_level_spend_in_the_response"),
+            pytest.param("database_backups", True, id="secrets_in_the_fanout_parent_response"),
+            pytest.param("database_events", True, id="secrets_in_the_other_fanout_parent_response"),
             pytest.param("droplets", False, id="nothing_to_withhold"),
         ],
     )
@@ -214,10 +223,6 @@ class TestDigitalOceanValidateCredentials:
 
 
 class TestDigitalOceanInvoiceFanout:
-    def _rows(self, endpoint: str) -> list[dict[str, Any]]:
-        resource = digitalocean_source("dop_v1_token", endpoint, team_id=1, job_id="job-1")
-        return [row for page in resource for row in page]
-
     def _mock_invoice_list(self, requests_mock: Any) -> None:
         requests_mock.get(
             f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices",
@@ -233,7 +238,7 @@ class TestDigitalOceanInvoiceFanout:
             json={"invoice_items": [{"product": "Droplets", "amount": "12.34"}]},
         )
 
-        assert self._rows("invoice_items") == [{"product": "Droplets", "amount": "12.34", "invoice_uuid": INVOICE_UUID}]
+        assert _rows("invoice_items") == [{"product": "Droplets", "amount": "12.34", "invoice_uuid": INVOICE_UUID}]
 
     def test_invoice_items_paginate_within_one_invoice(self, requests_mock: Any) -> None:
         # An invoice with hundreds of resources spans pages; the child must follow
@@ -248,7 +253,7 @@ class TestDigitalOceanInvoiceFanout:
             ],
         )
 
-        assert [row["product"] for row in self._rows("invoice_items")] == ["Droplets", "Spaces"]
+        assert [row["product"] for row in _rows("invoice_items")] == ["Droplets", "Spaces"]
 
     @pytest.mark.parametrize(
         "summary",
@@ -267,7 +272,7 @@ class TestDigitalOceanInvoiceFanout:
         self._mock_invoice_list(requests_mock)
         requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}/summary", json=summary)
 
-        assert self._rows("invoice_summaries") == [{**summary, "invoice_uuid": INVOICE_UUID}]
+        assert _rows("invoice_summaries") == [{**summary, "invoice_uuid": INVOICE_UUID}]
 
     def test_both_sides_of_the_fanout_ask_for_the_max_page(self, requests_mock: Any) -> None:
         # The fan-out helper is wired with no page-size param of its own, so `per_page` rides on
@@ -278,7 +283,103 @@ class TestDigitalOceanInvoiceFanout:
             json={"invoices": [{"invoice_uuid": INVOICE_UUID}]},
         )
         items = requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/customers/my/invoices/{INVOICE_UUID}", json={})
-        self._rows("invoice_items")
+        _rows("invoice_items")
 
         assert invoices.last_request.qs["per_page"] == [str(PAGE_SIZE)]
         assert items.last_request.qs["per_page"] == [str(PAGE_SIZE)]
+
+
+class TestDigitalOceanResourceFanouts:
+    def test_project_resources_carry_their_parent_project_id(self, requests_mock: Any) -> None:
+        # A resource row is only a URN and an assignment time; without the parent projection
+        # (and its rename off the `_projects_` prefix) there is no project column to join on,
+        # which is the whole point of the table.
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/projects",
+            json={"projects": [{"id": PROJECT_ID, "name": "web", "is_default": True}]},
+        )
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/projects/{PROJECT_ID}/resources",
+            json={"resources": [{"urn": "do:droplet:13457723", "assigned_at": "2018-09-28T19:26:37Z"}]},
+        )
+
+        assert _rows("project_resources") == [
+            {"urn": "do:droplet:13457723", "assigned_at": "2018-09-28T19:26:37Z", "project_id": PROJECT_ID}
+        ]
+
+    def test_domain_records_keep_their_own_name_alongside_the_zone(self, requests_mock: Any) -> None:
+        # A record's `name` is the host part, while the parent's `name` is the zone. Projecting
+        # the parent onto `domain_name` keeps both; renaming it to `name` would overwrite the host.
+        requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/domains", json={"domains": [{"name": "example.com"}]})
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/domains/example.com/records",
+            json={"domain_records": [{"id": 28448429, "type": "A", "name": "www", "data": "1.2.3.4"}]},
+        )
+
+        assert _rows("domain_records") == [
+            {"id": 28448429, "type": "A", "name": "www", "data": "1.2.3.4", "domain_name": "example.com"}
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint,child_path,child_body,expected",
+        [
+            pytest.param(
+                "database_backups",
+                "backups",
+                {"backups": [{"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03}]},
+                {"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03, "database_cluster_uuid": DATABASE_UUID},
+                id="backups",
+            ),
+            pytest.param(
+                "database_events",
+                "events",
+                {"events": [{"id": "pe8u2huh", "event_type": "cluster_create"}]},
+                {"id": "pe8u2huh", "event_type": "cluster_create", "database_cluster_uuid": DATABASE_UUID},
+                id="events",
+            ),
+        ],
+    )
+    def test_database_children_key_on_their_cluster_without_inheriting_its_credentials(
+        self, requests_mock: Any, endpoint: str, child_path: str, child_body: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        # A backup has no id at all and an event id is only unique within its cluster, so the
+        # cluster uuid has to reach every row or the primary key collapses across clusters. The
+        # parent is `/v2/databases`, which carries connection URIs and passwords, so the
+        # projection must stay narrow enough that none of them ride along into the child table.
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases",
+            json={
+                "databases": [
+                    {
+                        "id": DATABASE_UUID,
+                        "name": "prod-pg",
+                        "connection": {"uri": "postgresql://doadmin:secret@host:25060/defaultdb"},
+                    }
+                ]
+            },
+        )
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases/{DATABASE_UUID}/{child_path}",
+            json=child_body,
+        )
+
+        assert _rows(endpoint) == [expected]
+
+    def test_a_cluster_without_backups_does_not_fail_the_table(self, requests_mock: Any) -> None:
+        # Caching and Valkey clusters support no backups, and the fan-out visits every cluster
+        # on the account. Without the 404 action, one such cluster fails the whole sync for a
+        # team whose other clusters back up fine.
+        valkey_uuid = "0b1f8d3a-1c2e-4f5a-9b7c-2d3e4f5a6b7c"
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases",
+            json={"databases": [{"id": valkey_uuid, "engine": "valkey"}, {"id": DATABASE_UUID, "engine": "pg"}]},
+        )
+        requests_mock.get(f"{DIGITALOCEAN_BASE_URL}/v2/databases/{valkey_uuid}/backups", status_code=404, json={})
+        requests_mock.get(
+            f"{DIGITALOCEAN_BASE_URL}/v2/databases/{DATABASE_UUID}/backups",
+            json={"backups": [{"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03}]},
+        )
+
+        assert _rows("database_backups") == [
+            {"created_at": "2019-01-11T18:42:27Z", "size_gigabytes": 0.03, "database_cluster_uuid": DATABASE_UUID}
+        ]

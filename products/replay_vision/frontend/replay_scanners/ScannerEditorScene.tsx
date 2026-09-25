@@ -609,6 +609,8 @@ function EditorFooter({
                                     loading={isSubmitting}
                                     disabledReason={saveDisabledReason}
                                     onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                    // The consent popover anchors here, and a popover anchor gets a dropdown chevron unless told otherwise.
+                                    sideIcon={null}
                                     data-attr="vision-editor-save"
                                     data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
                                 >

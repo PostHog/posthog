@@ -20,7 +20,7 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DopplerEndpointConfig:
     name: str
     path: str  # Path under /v3, e.g. "/projects"
@@ -35,12 +35,22 @@ class DopplerEndpointConfig:
     per_page: Optional[int] = DEFAULT_PER_PAGE
     # Fan out one request-set per project: the endpoint requires a `project` query param.
     fan_out_over_projects: bool = False
+    # Fan out one request-set per config: the endpoint requires both `project` and `config`.
+    fan_out_over_configs: bool = False
+    # Stamp the fanned-out project slug onto each row. Only for endpoints whose rows omit it —
+    # most of Doppler's project-scoped responses already echo `project` back.
+    inject_project: bool = False
+    # The endpoint's responses contain plaintext secret values. Those are redacted out of the
+    # rows before they are yielded, and the responses are kept out of HTTP sample capture,
+    # whose name-based scrubbers cannot recognise a secret under a field named `added`.
+    carries_secret_values: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field to partition by. Only worthwhile for the (large, append-only)
-    # activity log; the remaining endpoints are small dimension tables.
+    # log endpoints; the remaining endpoints are small dimension tables.
     partition_key: Optional[str] = None
     sort_mode: SortMode = "asc"
     should_sync_default: bool = True
+    description: Optional[str] = None
 
 
 DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
@@ -76,6 +86,10 @@ DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
         # /v3/logs has no sort param and returns newest-first; incremental syncs stop paging once
         # a page reaches already-synced entries (see doppler.py).
         sort_mode="desc",
+        description=(
+            "Workplace activity log of project, config, and access changes. Incremental syncs "
+            "stop paging once they reach already-synced entries."
+        ),
     ),
     "workplace_users": DopplerEndpointConfig(
         name="workplace_users",
@@ -101,6 +115,53 @@ DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
         path="/workplace/invites",
         data_key="invites",
         primary_keys=["slug"],
+    ),
+    "project_members": DopplerEndpointConfig(
+        name="project_members",
+        path="/projects/project/members",
+        data_key="members",
+        # Member rows carry no project field, so the fan-out stamps one on. Doppler addresses a
+        # member by type and slug within a project, so all three make the row unique.
+        primary_keys=["project", "type", "slug"],
+        fan_out_over_projects=True,
+        inject_project=True,
+        description="Which workplace users, groups, service accounts, and invites can reach each project.",
+    ),
+    "project_roles": DopplerEndpointConfig(
+        name="project_roles",
+        path="/projects/roles",
+        data_key="roles",
+        primary_keys=["identifier"],
+        paginated=False,
+        per_page=None,
+        description="Project role definitions, including the permissions each role grants.",
+    ),
+    "workplace_roles": DopplerEndpointConfig(
+        name="workplace_roles",
+        path="/workplace/roles",
+        data_key="roles",
+        primary_keys=["identifier"],
+        paginated=False,
+        per_page=None,
+        description="Workplace role definitions, including the permissions each role grants.",
+    ),
+    "config_logs": DopplerEndpointConfig(
+        name="config_logs",
+        path="/configs/config/logs",
+        data_key="logs",
+        # Log ids are documented as unique per object, but this table pools every config's logs,
+        # so keep the parents in the key rather than rely on that holding workplace-wide.
+        primary_keys=["project", "config", "id"],
+        fan_out_over_configs=True,
+        carries_secret_values=True,
+        partition_key="created_at",
+        # One request-set per config, and the endpoint offers no time filter to narrow a re-sync,
+        # so this stays off by default and is opted into deliberately.
+        should_sync_default=False,
+        description=(
+            "Per-config change history of secret edits and rollbacks. This table syncs each config "
+            "separately, so it takes longer than the others."
+        ),
     ),
 }
 

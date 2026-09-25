@@ -267,7 +267,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 query: Node | null,
                 trendsSource: TrendsQuery | null
             ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test' &&
                 isEditableSurface &&
                 isTrends &&
                 !!query &&
