@@ -481,9 +481,7 @@ export class ImageBatcher {
                     // Marked here rather than on completion: a staged image is a local that a thrown
                     // batch discards, so a ref marked before retirement could be skipped on replay
                     // without ever having been persisted.
-                    if (ready.source === 'bytes') {
-                        this.seenRefs.add(ready.ref)
-                    }
+                    this.seenRefs.add(ready.ref)
                     staged[retired] = null
                     stagedCount -= 1
                     stagedBytes -= ready.image.bytes.length
@@ -655,16 +653,21 @@ export class ImageBatcher {
                 } else {
                     urlLocationByRef.set(ref, candidate)
                 }
+                // Copies in one batch all stay planned, so a later valid copy still stores when an earlier one fails validation.
+                if (this.seenRefs.has(ref)) {
+                    ImageScrubConsumerMetrics.incDeduped('pod', 'url')
+                    continue
+                }
                 planned.push(candidate)
                 continue
             }
             if (inlineRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('batch')
+                ImageScrubConsumerMetrics.incDeduped('batch', 'inline')
                 continue
             }
             inlineRefs.add(ref)
             if (this.seenRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('pod')
+                ImageScrubConsumerMetrics.incDeduped('pod', 'inline')
                 continue
             }
             planned.push(candidate)
@@ -674,10 +677,8 @@ export class ImageBatcher {
 
     /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
     private forgetUnwritten(images: ScrubbedRef[]): void {
-        for (const { ref, source } of images) {
-            if (source === 'bytes') {
-                this.seenRefs.delete(ref)
-            }
+        for (const { ref } of images) {
+            this.seenRefs.delete(ref)
         }
     }
 

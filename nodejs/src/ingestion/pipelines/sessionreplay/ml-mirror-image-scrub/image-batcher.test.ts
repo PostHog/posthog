@@ -336,15 +336,21 @@ describe('ImageBatcher', () => {
         ])
     })
 
-    it('scrubs a newer URL version after an earlier version was persisted by the same pod', async () => {
+    it('skips a URL ref in a later batch after this pod persisted it', async () => {
         const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         const first = Buffer.concat([png, Buffer.from('first')])
         const second = Buffer.concat([png, Buffer.from('second')])
         const store = new FakeStore()
+        let scrubs = 0
         const batcher = new ImageBatcher(
             store as unknown as ImageShardStore,
             new FakeOffsets(),
-            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            {
+                scrub: (bytes: Buffer) => {
+                    scrubs += 1
+                    return Promise.resolve(bytes)
+                },
+            } as unknown as ScrubClient,
             options
         )
         const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
@@ -352,10 +358,8 @@ describe('ImageBatcher', () => {
         await handleAndWrite(batcher, [msg(0, 10, pt(1), first, ref, [{ 'content-type': Buffer.from('image/png') }])])
         await handleAndWrite(batcher, [msg(0, 11, pt(1), second, ref, [{ 'content-type': Buffer.from('image/png') }])])
 
-        expect(store.urlWrites.map((image) => [image.sourceOffset, image.bytes])).toEqual([
-            [10, first],
-            [11, second],
-        ])
+        expect(scrubs).toBe(1)
+        expect(store.urlWrites.map((image) => [image.sourceOffset, image.bytes])).toEqual([[10, first]])
     })
 
     it('bounds concurrent URL-image writes by the write concurrency, not the scrub slots', async () => {
@@ -673,7 +677,21 @@ describe('ImageBatcher', () => {
         expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 5 }])
     })
 
-    it('rescrubs an image whose batch failed rather than pod-deduping the replay away', async () => {
+    it.each([
+        ['an inline image', () => msg(0, 0, pt(1), Buffer.from('sprite'))],
+        [
+            'a URL image',
+            () =>
+                msg(
+                    0,
+                    0,
+                    pt(1),
+                    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+                    urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png'))),
+                    [{ 'content-type': Buffer.from('image/png') }]
+                ),
+        ],
+    ])('rescrubs %s whose batch failed rather than pod-deduping the replay away', async (_name, message) => {
         // A ref is marked seen only once its image is buffered. Marking it at plan time, or inside
         // scrubOne, reads as a harmless simplification and silently drops the image instead: the
         // replay is pod-deduped, its offset advances, and nothing ever writes it. No error, no
@@ -687,12 +705,11 @@ describe('ImageBatcher', () => {
         } as unknown as ScrubClient
         const store = new FakeStore()
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), flakyClient, options)
-        const sprite = Buffer.from('sprite')
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), sprite)])).rejects.toThrow('sidecar down')
-        await handleAndWrite(batcher, [msg(0, 0, pt(1), sprite)])
+        await expect(batcher.handleBatch([message()])).rejects.toThrow('sidecar down')
+        await handleAndWrite(batcher, [message()])
 
-        expect(store.writes.flat()).toHaveLength(1)
+        expect(store.writes.flat().length + store.urlWrites.length).toBe(1)
     })
 
     it('advances every partition past the duplicates it skipped, not just the one it scrubbed on', async () => {

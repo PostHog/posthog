@@ -26,8 +26,8 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
-        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier). Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
-        labelNames: ['scope'],
+        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier), and by source: "inline" or "url". URL refs dedup only by pod, because every copy in one batch stays planned. Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
+        labelNames: ['scope', 'source'],
     })
     /**
      * Intra-batch dedup can only collapse copies that arrive in the same poll batch, so its ceiling is
@@ -232,8 +232,8 @@ export class ImageScrubConsumerMetrics {
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)
     }
-    public static incDeduped(scope: 'batch' | 'pod'): void {
-        this.deduped.labels(scope).inc()
+    public static incDeduped(scope: 'batch' | 'pod', source: ImageScrubSource): void {
+        this.deduped.labels(scope, source).inc()
     }
     public static incUrlImageWrite(outcome: UrlImageWriteOutcome): void {
         this.urlImageWrites.labels(outcome).inc()
