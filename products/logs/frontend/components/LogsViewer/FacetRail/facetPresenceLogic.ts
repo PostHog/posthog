@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { logsAttributesRetrieve } from '../../../generated/api'
+import type { _DateRangeApi } from '../../../generated/api.schemas'
 import { customFacetsLogic } from './customFacetsLogic'
 import { FACETS, FacetConfig, resolveFacets } from './facets'
 
@@ -92,7 +93,8 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
                     }
                     const response = await logsAttributesRetrieve(String(values.currentTeamId), {
                         attribute_type: 'resource',
-                        dateRange: PRESENCE_LOOKBACK,
+                        // The endpoint expects JSON, but the generated URL builder uses String() for query parameters.
+                        dateRange: JSON.stringify(PRESENCE_LOOKBACK) as unknown as _DateRangeApi,
                         limit: 100,
                     })
                     return response.results.map((r) => r.name)
