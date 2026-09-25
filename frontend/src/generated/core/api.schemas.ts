@@ -3655,6 +3655,7 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
 export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
@@ -3664,6 +3665,7 @@ export const IngestionPipelineEnumApi = {
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
