@@ -173,6 +173,32 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert enabled_unsynced.status == ExternalDataSchema.Status.COMPLETED
         mock_pause.assert_called_once_with(str(enabled_unsynced.id))
 
+    def test_failed_pause_leaves_the_table_on_and_still_pauses_the_others(self) -> None:
+        # The sync workflow does not read should_sync, so a row written off while its schedule is
+        # still running keeps billing runs, and the next discovery run would skip it (already off)
+        # instead of retrying. A failed pause must leave the row on, so the next run tries again,
+        # and must not stop the other removed tables in the same commit from pausing.
+        source = self._make_source()
+        unreachable = self._make_synced_schema(source, "leads")
+        other_removed = self._make_synced_schema(source, "deals")
+
+        def pause(schema_id: str) -> None:
+            if schema_id == str(unreachable.id):
+                raise Exception("temporal unavailable")
+
+        with patch(_PAUSE_FN, side_effect=pause) as mock_pause, self.captureOnCommitCallbacks(execute=True):
+            sync_old_schemas_with_new_schemas(
+                {"contacts": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+            )
+
+        unreachable.refresh_from_db()
+        other_removed.refresh_from_db()
+        assert {call.args[0] for call in mock_pause.call_args_list} == {str(unreachable.id), str(other_removed.id)}
+        assert unreachable.should_sync is True
+        assert other_removed.should_sync is False
+
 
 class TestSchemaNameMatchesAutoSyncPatterns(SimpleTestCase):
     @parameterized.expand(

@@ -1693,6 +1693,39 @@ class SchemaSyncResult:
     deleted: list[str]
 
 
+def _pause_schedule_then_disable_schema(schema: "ExternalDataSchema") -> None:
+    """Pause a discovery-removed table's schedule, and only then persist the table as off.
+
+    The sync workflow does not read `should_sync`, so the schedule is what actually stops the
+    billable runs. Writing the row off first would strand the table whenever the pause fails: the
+    schedule keeps starting runs, and the next discovery run sees a row that is already off, so it
+    never retries the pause. Keeping the row on until the pause lands makes a failed pause
+    self-healing, because the table is still on and still unlisted when discovery next runs.
+
+    The failure is logged rather than raised: Django drops the remaining `on_commit` callbacks once
+    one raises, so raising here would also strand every other table removed in the same commit, and
+    on the API paths it would fail a request whose reconcile already committed.
+    """
+    # Call-time import for the reason given in update_should_sync above.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+    try:
+        pause_external_data_schedule(str(schema.id))
+    except Exception:
+        logger.exception(
+            "discovery_removed_schema_pause_failed",
+            external_data_schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
+        return
+
+    schema.should_sync = False
+    schema.status = ExternalDataSchema.Status.COMPLETED
+    # Scoped write: the row was read before the commit, so a full save would push back whatever a
+    # concurrent writer changed on the other columns in the meantime.
+    schema.save(update_fields=["should_sync", "status", "updated_at"])
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -1701,9 +1734,6 @@ def sync_old_schemas_with_new_schemas(
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
 ) -> SchemaSyncResult:
-    # Call-time import for the reason given in update_should_sync above.
-    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
-
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1794,16 +1824,16 @@ def sync_old_schemas_with_new_schemas(
             if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
+            elif s.should_sync:
+                # Turning the table off is the pause plus the write, in that order, and both run
+                # after the commit: callers can hold the source row lock in a transaction, and the
+                # Temporal call must not run inside it. A table that is already off needs no pause,
+                # and pausing it again on every discovery run would open a Temporal connection per
+                # table per run.
+                transaction.on_commit(partial(_pause_schedule_then_disable_schema, s))
             else:
-                was_syncing = s.should_sync
-                s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
-                if was_syncing:
-                    # The sync workflow does not read should_sync, so a schedule left running keeps
-                    # starting billable syncs. Callers can hold the source row lock in a transaction,
-                    # so the Temporal call waits for the commit.
-                    transaction.on_commit(partial(pause_external_data_schedule, str(s.id)))
 
     return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
