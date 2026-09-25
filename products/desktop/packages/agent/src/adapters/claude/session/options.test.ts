@@ -559,6 +559,24 @@ describe("buildSessionOptions", () => {
       expect(env?.[key]).toBeUndefined();
     });
 
+    // AWS serves Anthropic models under a bare id and under a cross-region
+    // inference-profile prefix, and the gateway serves none of those forms.
+    it.each([
+      "anthropic.claude-haiku-4-5-20251001-v1:0",
+      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "apac.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+    ])("drops the Bedrock id %s", (modelId) => {
+      process.env.ANTHROPIC_SMALL_FAST_MODEL = modelId;
+
+      const env = buildSessionOptions(makeParams()).env;
+
+      expect(env?.ANTHROPIC_SMALL_FAST_MODEL).toBeUndefined();
+    });
+
     it("keeps a public Anthropic model name", () => {
       process.env.ANTHROPIC_SMALL_FAST_MODEL = "claude-haiku-4-5";
 
