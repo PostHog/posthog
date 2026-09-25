@@ -157,6 +157,14 @@ export default meta
 
 type Story = StoryObj<typeof SidebarStory>
 export const Apps: Story = {}
+export const ConfigureStarred: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await canvas.findByLabelText('Starred options'))
+        await userEvent.click(await body.findByText('Configure starred', { exact: true }))
+    },
+}
 export const Files: Story = { args: { tab: 'files' } }
 export const FilesOptions: Story = {
     ...Files,

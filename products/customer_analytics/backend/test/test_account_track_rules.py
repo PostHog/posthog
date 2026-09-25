@@ -21,8 +21,10 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.logic.account_track_rules import (
     AccountTrackRuleValidationError,
     EnabledAccountTrackRuleConfig,
@@ -374,16 +376,20 @@ class AccountTrackRulesTestMixin:
         )
         return definition, paying, vip, unmatched, ignored, churned
 
-    def save_config(self, config: dict) -> None:
-        TeamCustomerAnalyticsConfig.objects.filter(team_id=self.team.id).update(account_track_rules=config)
+    def save_config(self, config: dict, team: Team | None = None) -> None:
+        team = team or self.team
+        get_or_create_team_extension(team, TeamCustomerAnalyticsConfig)
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=team.id).update(account_track_rules=config)
 
 
 @time_machine.travel("2026-08-20T12:00:00Z", tick=False)
 class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
     def test_config_defaults_to_a_disabled_empty_version(self) -> None:
-        config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules
+        get_account_track_rules(self.team.id)
+        config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id)
 
-        assert config == {"schema_version": 1, "version": 0, "enabled": False, "groups": []}
+        assert config.account_track_rules == {"schema_version": 1, "version": 0, "enabled": False, "groups": []}
+        assert config.activity_event == DEFAULT_ACTIVITY_EVENT
 
     def test_enablement_timestamp_tracks_the_current_enabled_period(self) -> None:
         update_account_track_rules(
@@ -822,9 +828,7 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
             (other_enabled_team, True),
             (disabled_team, False),
         ]:
-            TeamCustomerAnalyticsConfig.objects.filter(team_id=team.id).update(
-                account_track_rules=account_name_track_rules_config(version=3, enabled=enabled)
-            )
+            self.save_config(account_name_track_rules_config(version=3, enabled=enabled), team=team)
 
         found_team_ids: list[int] = []
         after_team_id = 0

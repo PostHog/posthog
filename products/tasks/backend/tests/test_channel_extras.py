@@ -10,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import PersonalAPIKey
+from posthog.models import Integration, PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
@@ -175,6 +175,7 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         with team_scope(self.team.id):
             self.channel.repositories = ["posthog/posthog"]
             self.channel.save(update_fields=["repositories"])
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
 
         response = self.client.post(f"{self.base}/setup/", self.GOAL_BODY, format="json")
 
@@ -185,6 +186,7 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         assert task.created_by_id == self.user.id
         assert "Increase the weekly activation rate" in task.description
         assert "posthog/posthog" in task.description
+        assert task.repository == "posthog/posthog"
         assert f"team_id: {self.team.id}" in task.description
         run = TaskRun.objects.get(task=task)
         assert run.state["model"] == "gpt-5.6-sol"
@@ -199,6 +201,18 @@ class TestChannelSetup(ChannelExtrasBaseTest):
         feed = ChannelFeedMessage.objects.unscoped().get(channel=self.channel, event="space_setup_started")
         assert feed.payload["kind"] == "goal"
         assert feed.payload["task_id"] == str(task.id)
+
+    @patch("products.cdp.backend.facade.api.is_hog_function_template_available", return_value=True)
+    def test_goal_setup_without_a_github_integration_is_refused_not_a_server_error(self, _template):
+        with team_scope(self.team.id):
+            self.channel.repositories = ["posthog/posthog"]
+            self.channel.save(update_fields=["repositories"])
+
+        response = self.client.post(f"{self.base}/setup/", self.GOAL_BODY, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert "GitHub integration" in response.json()["detail"]
+        assert not Task.objects.filter(channel=self.channel).exists()
 
     @parameterized.expand([("not_started",), ("queued",), ("in_progress",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

@@ -160,8 +160,9 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 ## Content Security Policy
 
-`CSPMiddleware` in `posthog/middleware.py` attaches a policy to every HTML response.
+`CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.
 Treat it as enforced.
+team-security owns that file in `.github/CODEOWNERS`, so every policy change needs their approval.
 A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
 
 Three policies exist, and a change lands in whichever one covers the page:
@@ -192,8 +193,13 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
 An app or admin page takes the matching list in `CSPMiddleware`.
+On PostHog Cloud, the app policy's `script-src` and `connect-src` name each PostHog host instead of `*.posthog.com`.
+A script or request that goes to another PostHog subdomain needs its host in the lists that `CSPMiddleware` passes to `narrowed_app_policy()`.
+Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
-Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+Say why the source is needed in a comment either way, then run `posthog/test/test_csp_middleware.py`.
+The `csp-header-outside-csp-middleware` semgrep rule blocks a `Content-Security-Policy` header set anywhere else.
+A new document that must carry its own policy needs team-security to add it to that rule's exceptions.
 To see what the policy currently blocks, query `$csp_violation` events in project 2.
 Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.

@@ -860,6 +860,9 @@ tools:
     tasks-runs-stream-token-retrieve:
         operation: tasks_runs_stream_token_retrieve
         enabled: false
+    tasks-runs-subscription-token-create:
+        operation: tasks_runs_subscription_token_create
+        enabled: false
     tasks-runs-task-session-retrieve:
         operation: tasks_runs_task_session_retrieve
         enabled: false

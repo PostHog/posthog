@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -102,9 +103,7 @@ export const BillingTeamIdsSchema = z
 export const BillingUsageTypesSchema = z
     .array(z.string().min(1))
     .nullish()
-    .describe(
-        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-    )
+    .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))

@@ -915,7 +915,7 @@ async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
 async def _acreate_batch_export_for_test(team_id: int, interval: str = "hour") -> BatchExport:
     """Create a minimal BatchExport via the ORM (no Temporal schedule) for FK-backed run rows."""
     destination = await BatchExportDestination.objects.acreate(
-        type="S3",
+        type="AwsS3",
         config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"},
     )
     return await BatchExport.objects.acreate(

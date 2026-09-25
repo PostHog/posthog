@@ -554,13 +554,6 @@ async def _get_query(
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
 
-    if filters is not None and len(filters) > 0:
-        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-            filters, team_id=team_id, values=extra_query_parameters
-        )
-    else:
-        filters_str, extra_query_parameters = "", extra_query_parameters
-
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
     num_partitions = num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
@@ -642,9 +635,17 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        if query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(use_new_events_schema)(
-            team_id
-        ):
+        native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
+            use_new_events_schema
+        )(team_id)
+
+        filters_str = ""
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters, native_events_source=native_source
+            )
+
+        if native_source:
             query = native_events_export_query(query_fields, filters_str, s3_function=s3_function)
         else:
             if filters_str:
