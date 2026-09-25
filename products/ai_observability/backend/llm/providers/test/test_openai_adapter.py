@@ -276,6 +276,7 @@ class TestOpenAIAdapterErrorMapping:
                 adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
         if expected_detail is not None:
+            assert isinstance(excinfo.value, ProviderBadRequestError)
             assert excinfo.value.detail == expected_detail
 
 

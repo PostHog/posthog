@@ -2394,15 +2394,21 @@ class TestExecuteHogEvalActivity:
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    async def test_hog_eval_length_null_returns_skipped(self):
+    @pytest.mark.parametrize(
+        "source",
+        ["return length(null) > 0", "return properties.missing <= 1.0"],
+        ids=["length-of-null", "ordering-against-null"],
+    )
+    async def test_hog_eval_null_comparisons_evaluate_to_false(self, source):
+        # A missing value is no match, not a runtime error, so the eval completes with a verdict.
         from posthog.cdp.validation import compile_hog
 
-        bytecode = compile_hog("return length(null) > 0", "destination")
+        bytecode = compile_hog(source, "destination")
         evaluation = {
             "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
-            "evaluation_config": {"source": "return length(null) > 0", "bytecode": bytecode},
+            "evaluation_config": {"source": source, "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
             "team_id": 1,
@@ -2410,39 +2416,9 @@ class TestExecuteHogEvalActivity:
 
         result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
 
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
         assert result["verdict"] is False
-        assert "Runtime error: Can not call length on null" in result["reasoning"]
-        assert "TypeError" not in result["reasoning"]
-        assert "NoneType" not in result["reasoning"]
-
-    @pytest.mark.asyncio
-    async def test_hog_eval_comparison_type_error_returns_skipped(self):
-        from posthog.cdp.validation import compile_hog
-
-        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
-        evaluation = {
-            "id": "eval-id",
-            "name": "Hog Eval",
-            "evaluation_type": "hog",
-            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
-            "output_type": "boolean",
-            "output_config": {},
-            "team_id": 1,
-        }
-
-        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
-
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "hog_error"
-        assert result["terminal_user_error"] is True
-        assert result["status_reason"] == "hog_error"
-        assert result["verdict"] is False
-        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
-        assert "Unexpected error during evaluation" not in result["reasoning"]
+        assert not result.get("skipped")
+        assert "Runtime error" not in (result.get("reasoning") or "")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
