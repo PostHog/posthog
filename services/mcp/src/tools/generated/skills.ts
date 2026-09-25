@@ -60,6 +60,9 @@ const skillCreate = (): ToolBase<ReturnType<typeof SkillCreateSchema>, Schemas.L
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.owners !== undefined) {
             body['owners'] = params.owners
         }
@@ -270,6 +273,7 @@ const skillList = (): ToolBase<ReturnType<typeof SkillListSchema>, Schemas.Pagin
                 offset: params.offset,
                 owner_id: params.owner_id,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return result
@@ -377,6 +381,9 @@ const skillUpdate = (): ToolBase<ReturnType<typeof SkillUpdateSchema>, Schemas.L
         }
         if (params.owners !== undefined) {
             body['owners'] = params.owners
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version

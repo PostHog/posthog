@@ -111,6 +111,7 @@ from .skill_serializers import (
     LLMSkillSearchQuerySerializer,
     LLMSkillSearchResponseSerializer,
     LLMSkillSerializer,
+    LLMSkillTagOptionsSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
     validate_new_skill_name_value,
@@ -142,10 +143,14 @@ from .skill_services import (
     resolve_owner_users,
     resolve_skill_owners,
     resolve_skill_owners_for_names,
+    resolve_skill_tags_for_names,
     resolve_versions_page,
     set_skill_owners,
+    set_skill_tags,
     skill_name_is_well_formed,
     skill_names_owned_by,
+    skill_names_with_any_tag,
+    skill_tag_names_for_skills,
     team_skills_version,
 )
 
@@ -796,6 +801,12 @@ class LLMSkillViewSet(
         if owner_id:
             queryset = queryset.filter(name__in=skill_names_owned_by(self.team, owner_id))
 
+        # Tags are keyed on the logical skill name, like owners above. A skill matching any of the
+        # requested tags is included — see `skill_names_with_any_tag`.
+        tags = [tag for tag in params.get("tags", "").split(",") if tag.strip()]
+        if tags:
+            queryset = queryset.filter(name__in=skill_names_with_any_tag(self.team, tags))
+
         # Presence of the param — even as an empty string — is a filter: `?category=` returns only
         # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
         if "category" in request.query_params:
@@ -1061,6 +1072,8 @@ class LLMSkillViewSet(
         # Resolve owners before publishing so a bad UUID 400s without minting a version. `owner_uuids`
         # is None when omitted (owners left untouched), [] when the caller clears them.
         owner_uuids = payload.validated_data.get("owners")
+        # None when omitted (tags left untouched), [] when the caller clears them.
+        tag_names = payload.validated_data.get("tags")
         owner_users = None
         if owner_uuids is not None:
             try:
@@ -1071,13 +1084,15 @@ class LLMSkillViewSet(
                     code="invalid_owner",
                 )
 
-        # An owner-only PATCH must not publish a version: owners live on the logical skill, not a
-        # version row, so minting an identical version would rewrite version-history authorship, bump
-        # marketplace/update timestamps, and burn toward MAX_SKILL_VERSION for a no-op body. Same
-        # optimistic-concurrency contract as a publish when `base_version` is supplied: a stale value
-        # still 409s. It may be omitted (the generated PATCH schema marks it optional), which skips
-        # the version check — ownership isn't version-keyed, so the replace is still exact.
-        if owner_uuids is not None and all(payload.validated_data.get(p) is None for p in PUBLISH_CONTENT_FIELDS):
+        # A PATCH that only sets owners or tags must not publish a version: both live on the logical
+        # skill, not a version row, so minting an identical version would rewrite version-history
+        # authorship, bump marketplace/update timestamps, and burn toward MAX_SKILL_VERSION for a
+        # no-op body. Same optimistic-concurrency contract as a publish when `base_version` is
+        # supplied: a stale value still 409s. It may be omitted (the generated PATCH schema marks it
+        # optional), which skips the version check — neither is version-keyed, so the replace is
+        # still exact.
+        sets_logical_metadata = owner_uuids is not None or tag_names is not None
+        if sets_logical_metadata and all(payload.validated_data.get(p) is None for p in PUBLISH_CONTENT_FIELDS):
             base_version = payload.validated_data.get("base_version")
             # Lock the latest row for the check + replace (mirrors publish_skill_version): requests
             # run autocommit, so without the lock an owner update racing a publish from the same
@@ -1099,7 +1114,10 @@ class LLMSkillViewSet(
                         },
                         status=status.HTTP_409_CONFLICT,
                     )
-                set_skill_owners(self.team, skill_name, cast(list, owner_users))
+                if owner_uuids is not None:
+                    set_skill_owners(self.team, skill_name, cast(list, owner_users))
+                if tag_names is not None:
+                    set_skill_tags(self.team, skill_name, tag_names)
             refreshed = get_skill_by_name_from_db(self.team, skill_name=skill_name)
             return Response(self._serialize_skill(cast(LLMSkill, refreshed)))
 
@@ -1124,10 +1142,12 @@ class LLMSkillViewSet(
                     base_version=payload.validated_data["base_version"],
                     version_description=payload.validated_data.get("version_description"),
                 )
-                # Owners are keyed on the logical skill, so this runs only when the caller passed
-                # `owners` — a plain body edit never touches ownership.
+                # Owners and tags are keyed on the logical skill, so these run only when the caller
+                # passed them — a plain body edit never touches ownership or grouping.
                 if owner_uuids is not None:
                     set_skill_owners(self.team, skill_name, cast(list, owner_users))
+                if tag_names is not None:
+                    set_skill_tags(self.team, skill_name, tag_names)
         except IntegrityError as err:
             if "unique_skill_file_path" in str(err):
                 raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
@@ -1188,6 +1208,7 @@ class LLMSkillViewSet(
             "allowed_tools_changed": payload.validated_data.get("allowed_tools") is not None,
             "metadata_changed": payload.validated_data.get("metadata") is not None,
             "owners_changed": owner_uuids is not None,
+            "tags_changed": tag_names is not None,
             "version_description_set": payload.validated_data.get("version_description") is not None,
         }
         logger.info(
@@ -2114,6 +2135,21 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(published_skill))
 
+    @extend_schema(responses={200: LLMSkillTagOptionsSerializer})
+    @action(methods=["GET"], detail=False, url_path="tags", required_scopes=["llm_skill:read"])
+    def tags(self, request: Request, **kwargs) -> Response:
+        """Every tag applied to a skill this caller can read.
+
+        Backs the tag filter on the Skills page, which needs the whole vocabulary rather than the
+        tags of the skills on the current page. Same object-level filter the list endpoint applies,
+        so the picker never offers a tag that only exists on a skill the list would hide.
+        """
+        return Response(
+            LLMSkillTagOptionsSerializer(
+                {"tags": skill_tag_names_for_skills(self.team, self._visible_skills_queryset())}
+            ).data
+        )
+
     @extend_schema(
         parameters=[LLMSkillListQuerySerializer],
         responses={
@@ -2141,12 +2177,12 @@ class LLMSkillViewSet(
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
-            context = self._list_context_with_owners(page)
+            context = self._list_context(page)
             serializer = self.get_serializer(page, many=True, context=context)
             return self.get_paginated_response(serializer.data)
 
         skills = list(queryset)
-        context = self._list_context_with_owners(skills)
+        context = self._list_context(skills)
         serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data
         return Response({"count": len(data), "results": data})
@@ -2169,11 +2205,12 @@ class LLMSkillViewSet(
 
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.
-    def _list_context_with_owners(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
-        """Serializer context carrying the per-page owners and bundled-file paths, one query each.
+    def _list_context(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
+        """Serializer context carrying the per-page owners, tags, and bundled-file paths, one query each.
 
         The list drops the file manifest but still reports `spec_problems`, which the paths decide.
         """
+        skill_names = [skill.name for skill in skills]
         file_paths_by_skill_id: dict[Any, list[str]] = {}
         for skill_id, path in (
             LLMSkillFile.objects.filter(skill__in=skills).order_by("path").values_list("skill_id", "path")
@@ -2181,7 +2218,8 @@ class LLMSkillViewSet(
             file_paths_by_skill_id.setdefault(skill_id, []).append(path)
         return {
             **self.get_serializer_context(),
-            "owners_by_skill_name": resolve_skill_owners_for_names(self.team, [skill.name for skill in skills]),
+            "owners_by_skill_name": resolve_skill_owners_for_names(self.team, skill_names),
+            "tags_by_skill_name": resolve_skill_tags_for_names(self.team, skill_names),
             "file_paths_by_skill_id": file_paths_by_skill_id,
         }
 

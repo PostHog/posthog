@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.models.tag import tagify
 
 from ..bundled_skills import bundled_skill_names
 from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
@@ -17,6 +18,7 @@ from ..models.skills import (
     LLMSkill,
     LLMSkillFile,
     LLMSkillOwner,
+    LLMSkillTag,
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
@@ -241,6 +243,14 @@ def compute_spec_problems(name: str, description: str, file_paths: list[str]) ->
     tree real git can clone.
     """
     return [*_name_problems(name), *_description_problems(description), *compute_file_path_problems(file_paths)]
+
+
+def check_skill_tag_name(value: str) -> None:
+    """Raise ValueError when a tag name can't survive the list endpoint's tag filter."""
+    # The filter takes tags as one comma-separated param, so a comma in a name would split it into
+    # two tags the filter can never match.
+    if "," in value:
+        raise ValueError("Tag names cannot contain commas. Use a space or a hyphen instead.")
 
 
 def check_allowed_tool_name(value: str) -> None:
@@ -752,6 +762,7 @@ def duplicate_skill(
         # A duplicate is a brand-new, user-authored skill: the duplicating user owns it, not the
         # source's owners (who never chose to own this fork).
         seed_skill_owner(team, new_name, user)
+        copy_skill_tags(team, source_name, new_name)
 
         _copy_files(source_latest, new_skill)
 
@@ -915,9 +926,11 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
             is_latest=False,
             updated_at=timezone.now(),
         )
-        # Owners are keyed on the logical `(team, skill_name)`, so they'd otherwise outlive the
-        # archived skill and attach to a later skill that reuses the name. Retire them with it.
+        # Owners and tags are keyed on the logical `(team, skill_name)`, so they'd otherwise
+        # outlive the archived skill and attach to a later skill that reuses the name. Retire them
+        # with it.
         clear_skill_owners(team, skill_name)
+        clear_skill_tags(team, skill_name)
     return skill_versions
 
 
@@ -927,11 +940,11 @@ def _product_owned_name_prefix(name: str) -> str:
 
 
 def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
-    """Move a logical skill to `new_name`, keeping its versions, files, and owners.
+    """Move a logical skill to `new_name`, keeping its versions, files, owners, and tags.
 
-    Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
-    has to move all of them together or it loses history and ownership — which is exactly what the
-    duplicate-then-archive workaround did.
+    Every version row carries the name, and owners and tags are keyed on `(team, skill_name)`, so the
+    rename has to move all of them together or it loses history, ownership, and grouping — which is
+    exactly what the duplicate-then-archive workaround did.
     """
     blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
     if blocked_prefix:
@@ -964,6 +977,7 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
             version.stamp_digest()
         LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
+        rename_skill_tags(team, skill_name, new_name)
 
     return _renamed_skill_or_missing(team, new_name)
 
@@ -1152,3 +1166,117 @@ def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel
         model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
         stamped += len(rows)
         cursor = rows[-1].pk
+
+
+# --- Skill tags -----------------------------------------------------------------------------------
+# Tags are the team's own grouping, keyed on the *logical* skill `(team, skill_name)` exactly like
+# owners above, so publishing a version never regroups a skill. Reads and writes go through
+# `_tag_qs` for the same exact-environment scoping — see the `LLMSkillTag` model docstring.
+
+
+def _tag_qs(team: Team) -> "QuerySet[LLMSkillTag]":
+    """Tag rows scoped to the exact environment team — see `_owner_qs` for why `canonical=True`."""
+    return LLMSkillTag.objects.for_team(team.id, canonical=True)
+
+
+def normalize_skill_tags(raw_tags: list[str]) -> list[str]:
+    """Tag names as they are stored: `tagify`-normalized, blanks dropped, duplicates collapsed.
+
+    `tagify` is the same normalization dashboards and insights apply, so "Growth" and " growth "
+    reach the same chip here as they would there. Blanks are dropped rather than rejected: a picker
+    that submits a stray empty string would otherwise store a tag that renders as nothing.
+    """
+    normalized: list[str] = []
+    for raw_tag in raw_tags:
+        name = tagify(raw_tag)
+        if name and name not in normalized:
+            normalized.append(name)
+    return normalized
+
+
+def resolve_skill_tags(team: Team, skill_name: str) -> list[str]:
+    """Tags on a logical skill, alphabetical — the order the chips render in."""
+    return sorted(_tag_qs(team).filter(skill_name=skill_name).values_list("name", flat=True))
+
+
+def resolve_skill_tags_for_names(team: Team, skill_names: list[str]) -> dict[str, list[str]]:
+    """Batch `resolve_skill_tags` for many skills in one query — for the list endpoint's N rows."""
+    if not skill_names:
+        return {}
+    tags_by_name: dict[str, list[str]] = {}
+    for skill_name, name in (
+        _tag_qs(team).filter(skill_name__in=skill_names).order_by("name").values_list("skill_name", "name")
+    ):
+        tags_by_name.setdefault(skill_name, []).append(name)
+    return tags_by_name
+
+
+def set_skill_tags(team: Team, skill_name: str, tags: list[str]) -> list[str]:
+    """Replace the tags on a logical skill with `tags`; an empty list clears them.
+
+    Only the difference is written, so re-saving a skill with unchanged tags touches no row and the
+    `created_at` of a surviving tag keeps recording when the team first applied it.
+    """
+    wanted = set(normalize_skill_tags(tags))
+    with transaction.atomic():
+        current = set(_tag_qs(team).filter(skill_name=skill_name).values_list("name", flat=True))
+        removed = current - wanted
+        if removed:
+            _tag_qs(team).filter(skill_name=skill_name, name__in=removed).delete()
+        added = sorted(wanted - current)
+        if added:
+            # `ignore_conflicts` so two edits that land together don't fail on the unique
+            # constraint: both want the tag to exist, and the row holds nothing but its own identity.
+            _tag_qs(team).bulk_create(
+                [LLMSkillTag(team=team, skill_name=skill_name, name=name) for name in added],
+                ignore_conflicts=True,
+            )
+    return sorted(wanted)
+
+
+def rename_skill_tags(team: Team, skill_name: str, new_name: str) -> None:
+    """Move every tag row of a logical skill onto `new_name`, so a rename keeps its grouping.
+
+    Mirrors `rename_skill_owners`, including the pre-delete: tag rows already on `new_name` can only
+    be leftovers from a name nothing active holds, and the `(team, skill_name, name)` unique
+    constraint would otherwise reject the move.
+    """
+    _tag_qs(team).filter(skill_name=new_name).delete()
+    _tag_qs(team).filter(skill_name=skill_name).update(skill_name=new_name)
+
+
+def clear_skill_tags(team: Team, skill_name: str) -> None:
+    """Drop every tag row for a logical skill — called on archive, like `clear_skill_owners`, so a
+    later skill that reuses the name doesn't inherit the archived skill's grouping."""
+    _tag_qs(team).filter(skill_name=skill_name).delete()
+
+
+def copy_skill_tags(team: Team, source_skill_name: str, target_skill_name: str) -> None:
+    """Give `target_skill_name` the tags of `source_skill_name`.
+
+    Duplicating a skill keeps its grouping, unlike ownership: a fork belongs to whoever made it, but
+    it is still the same kind of skill, so it stays in the groups its team filters by.
+    """
+    set_skill_tags(team, target_skill_name, resolve_skill_tags(team, source_skill_name))
+
+
+def skill_names_with_any_tag(team: Team, tags: list[str]) -> list[str]:
+    """Names of the logical skills carrying at least one of `tags` — backs the list endpoint's filter.
+
+    Any rather than all: the filter row is how somebody narrows a long list to the groups they care
+    about, so selecting two tags widens the result the way selecting two owners would.
+    """
+    normalized = normalize_skill_tags(tags)
+    if not normalized:
+        return []
+    return list(_tag_qs(team).filter(name__in=normalized).values_list("skill_name", flat=True).distinct())
+
+
+def skill_tag_names_for_skills(team: Team, skills: "QuerySet[LLMSkill]") -> list[str]:
+    """Every tag carried by `skills`, alphabetical — the tag picker's options.
+
+    Takes the readable skill queryset rather than the whole team because object-level access can hide
+    a skill from someone who still reaches this endpoint, and a tag name is the team's own words —
+    the same narrowing the list endpoint applies to the skills themselves.
+    """
+    return sorted(_tag_qs(team).filter(skill_name__in=skills.values("name")).values_list("name", flat=True).distinct())

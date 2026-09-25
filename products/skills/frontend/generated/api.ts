@@ -28,6 +28,7 @@ import type {
     LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
     LLMSkillSearchResponseApi,
+    LLMSkillTagOptionsApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
@@ -616,6 +617,27 @@ export const llmSkillsSearchRetrieve = async (
     options?: RequestInit
 ): Promise<LLMSkillSearchResponseApi> => {
     return apiMutator<LLMSkillSearchResponseApi>(getLlmSkillsSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsTagsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_skills/tags/`
+}
+
+/**
+ * Every tag applied to a skill this caller can read.
+ *
+ * Backs the tag filter on the Skills page, which needs the whole vocabulary rather than the
+ * tags of the skills on the current page. Same object-level filter the list endpoint applies,
+ * so the picker never offers a tag that only exists on a skill the list would hide.
+ */
+export const llmSkillsTagsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LLMSkillTagOptionsApi> => {
+    return apiMutator<LLMSkillTagOptionsApi>(getLlmSkillsTagsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

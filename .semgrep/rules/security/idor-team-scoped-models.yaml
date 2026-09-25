@@ -271,6 +271,7 @@ rules:
                               |LLMProviderKey
                               |LLMSkill
                               |LLMSkillOwner
+                              |LLMSkillTag
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
@@ -699,6 +700,7 @@ rules:
                         |LLMProviderKey
                         |LLMSkill
                         |LLMSkillOwner
+                        |LLMSkillTag
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob

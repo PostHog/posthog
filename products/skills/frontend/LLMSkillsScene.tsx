@@ -8,6 +8,9 @@ import { LemonDivider, LemonModal, LemonSwitch, LemonTag, Link } from '@posthog/
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
+import type { TagPage } from 'lib/components/tagSelectLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -21,6 +24,7 @@ import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ApiConfig } from '~/lib/api'
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
@@ -29,6 +33,7 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmSkillsTagsRetrieve } from 'products/skills/frontend/generated/api'
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
@@ -59,6 +64,7 @@ function buildSkillColumns(
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
     publishToCommunity: (skill: LLMSkillListApi) => void,
+    filterByTag: (tag: string) => void,
     options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
@@ -101,6 +107,21 @@ function buildSkillColumns(
                 const text = typeof description === 'string' ? description : ''
                 const truncated = text.length > 100 ? text.slice(0, 100) + '...' : text
                 return <span className="text-muted text-sm">{truncated || <i>-</i>}</span>
+            },
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: function renderTags(_, skill) {
+                return (
+                    <ObjectTags
+                        tags={[...skill.tags]}
+                        staticOnly
+                        // Clicking a chip is the fastest way to see the rest of its group.
+                        onTagClick={filterByTag}
+                        maxVisibleTags={2}
+                    />
+                )
             },
         },
         {
@@ -446,6 +467,23 @@ function ConnectToClaudeCodeModal(): JSX.Element {
     )
 }
 
+const SKILL_TAGS_PER_PAGE = 50
+
+/** The team's skill tags, for the filter's dropdown.
+ *
+ * The endpoint answers with the whole vocabulary rather than a page, so the search and the slice
+ * happen here. Going through `loadTags` rather than handing `TagSelect` a ready list is what gives
+ * the dropdown its loading, error, and retry states.
+ */
+async function loadSkillTags(search: string, offset: number): Promise<TagPage> {
+    const response = await llmSkillsTagsRetrieve(String(ApiConfig.getCurrentTeamId()))
+    const matches = response.tags.filter((tag) => tag.toLowerCase().includes(search.toLowerCase()))
+    return {
+        results: matches.slice(offset, offset + SKILL_TAGS_PER_PAGE).map((tag) => ({ tag })),
+        hasMore: offset + SKILL_TAGS_PER_PAGE < matches.length,
+    }
+}
+
 export function LLMSkillsScene(): JSX.Element {
     const {
         setFilters,
@@ -477,8 +515,10 @@ export function LLMSkillsScene(): JSX.Element {
 
     const showScoutOrigin = activeCategory === 'scout'
     const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
-    // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community catalog.
-    const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
+    // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community
+    // catalog. An active filter with no matches is a different screen, so it must not trigger this.
+    const showCommunityDiscovery =
+        communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search && filters.tags.length === 0
 
     const openPublishDialog = (skill: LLMSkillListApi): void => {
         openPublishToCommunityDialog({ skillName: skill.name, githubLogin, onPublish: publishToCommunity })
@@ -488,11 +528,26 @@ export function LLMSkillsScene(): JSX.Element {
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
         () =>
-            buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, openPublishDialog, {
-                showScoutOrigin,
-            }),
+            buildSkillColumns(
+                skillUrl,
+                duplicateSkill,
+                deleteSkill,
+                downloadSkillZip,
+                openPublishDialog,
+                (tag) => setFilters({ tags: [tag], page: 1 }),
+                { showScoutOrigin }
+            ),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, publishToCommunity, githubLogin, showScoutOrigin]
+        [
+            searchParams,
+            duplicateSkill,
+            deleteSkill,
+            downloadSkillZip,
+            publishToCommunity,
+            githubLogin,
+            showScoutOrigin,
+            setFilters,
+        ]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -538,6 +593,23 @@ export function LLMSkillsScene(): JSX.Element {
                         onChange={(value) => setFilters({ search: value })}
                         className="max-w-md"
                     />
+                    <TagSelect
+                        logicKey="skills"
+                        loadTags={loadSkillTags}
+                        value={filters.tags}
+                        onChange={(tags) => setFilters({ tags, page: 1 })}
+                    >
+                        {(selectedTags) => (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                active={selectedTags.length > 0}
+                                data-attr="skills-tag-filter"
+                            >
+                                {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
+                            </LemonButton>
+                        )}
+                    </TagSelect>
                     <LemonSwitch
                         label="Group by prefix"
                         checked={filters.group_by_prefix}
