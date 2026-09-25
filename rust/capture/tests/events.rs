@@ -114,9 +114,9 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let overflow_topic = EphemeralTopic::new().await;
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = main_topic.topic_name().to_string();
+    config.kafka_topics.historical = histo_topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.drop_events_by_token_distinct_id = Some(format!("{token}:{dropped_id}"));
     let server = ServerHandle::for_config(config).await;
 
@@ -343,12 +343,8 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     let mut config = DEFAULT_CONFIG.clone();
     // this is the candidate list of tokens/event keys to reroute on sight
     config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{token1},{key2}"));
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
@@ -523,12 +519,8 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     let mut config = DEFAULT_CONFIG.clone();
     // this is the candidate list of tokens/event keys to reroute on sight
     config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{token1},{key2}"));
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
     config.overflow_preserve_partition_locality = true;
     config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
@@ -693,12 +685,8 @@ async fn it_should_not_set_force_disable_person_processing_header_when_rate_limi
     let mut config = DEFAULT_CONFIG.clone();
     // NO forced overflow keys - only rate limiting
     config.ingestion_force_overflow_by_token_distinct_id = None;
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0;
-    config.kafka.kafka_message_timeout_ms = 10000;
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
     // Very low limits to trigger rate-based overflow
     config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
@@ -781,12 +769,8 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     config.enable_historical_rerouting = true;
     config.historical_rerouting_threshold_days = 1_i64;
 
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_historical_topic = historical_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.historical = historical_topic.topic_name().to_string();
     config.overflow_enabled = false;
     config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
@@ -858,12 +842,8 @@ async fn it_overflows_events_on_burst() -> Result<()> {
     let overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
@@ -926,7 +906,7 @@ async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
     let topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
@@ -970,8 +950,8 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
     let overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
+    config.kafka_topics.overflow = overflow_topic.topic_name().to_string();
     config.overflow_enabled = false;
     config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
@@ -1114,7 +1094,7 @@ async fn it_applies_billing_limits() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.redis_key_prefix = redis.key_prefix();
-    config.kafka.kafka_topic = topic.topic_name().to_string();
+    config.kafka_topics.main = topic.topic_name().to_string();
     let server = ServerHandle::for_config(config).await;
 
     for payload in [
@@ -1168,10 +1148,10 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
     let heatmaps_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = main_topic.topic_name().to_string();
-    config.kafka.kafka_client_ingestion_warning_topic = warnings_topic.topic_name().to_string();
-    config.kafka.kafka_error_tracking_topic = error_tracking_topic.topic_name().to_string();
-    config.kafka.kafka_heatmaps_topic = heatmaps_topic.topic_name().to_string();
+    config.kafka_topics.main = main_topic.topic_name().to_string();
+    config.kafka_topics.client_ingestion_warning = warnings_topic.topic_name().to_string();
+    config.kafka_topics.error_tracking = error_tracking_topic.topic_name().to_string();
+    config.kafka_topics.heatmaps = heatmaps_topic.topic_name().to_string();
 
     let server = ServerHandle::for_config(config).await;
 

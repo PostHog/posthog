@@ -242,6 +242,7 @@ async function fetchCachedListResponse(
     if (apiCache[url]) {
         return apiCache[url]
     }
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     const response = await api.get(url, options)
     // Never cache an empty response. A transient empty result (a backend blip, a race) would
     // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
