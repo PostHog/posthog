@@ -4372,7 +4372,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_accepts_claude_plan_from_personal_api_key(self, mock_workflow):
+    def test_run_endpoint_accepts_claude_plan_from_api_key(self, mock_workflow):
         """Unattended automation has no Desktop to start from, but it can still relay the
         token its own key's owner saved — so the key is allowed to make the choice."""
         task = self.create_task()
@@ -4399,11 +4399,17 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_still_rejects_claude_plan_from_a_session(self, mock_workflow):
-        """The relaxation is for Desktop and personal API keys only. A browser session has
-        nothing that can answer the run's credential request."""
-        task = self.create_task()
+        """The relaxation is for Desktop and API keys only. A browser session has nothing
+        that can answer the run's credential request.
 
-        response = self.client.post(
+        A fresh client with `force_login`, not `self.client`: the shared one is wired up
+        with `force_authenticate`, which leaves no `successful_authenticator` at all, so it
+        would pass this test without ever exercising SessionAuthentication."""
+        task = self.create_task()
+        client = APIClient()
+        client.force_login(self.user)
+
+        response = client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {"claude_model_access": "own-subscription"},
             format="json",

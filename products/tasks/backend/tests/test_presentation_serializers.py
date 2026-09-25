@@ -204,12 +204,12 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 (TaskRunBootstrapCreateRequestSerializer, False),
                 (TaskRunCreateRequestSerializer, True),
             ]
-            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session", "personal_api_key"]
+            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session", "api_key"]
         ]
     )
     def test_subscription_checks_oauth_origin(self, serializer_class, resume, caller) -> None:
         authenticator = None
-        if caller == "personal_api_key":
+        if caller == "api_key":
             authenticator = PersonalAPIKeyAuthentication()
         elif caller != "session":
             authenticator = OAuthAccessTokenAuthentication()
@@ -233,9 +233,9 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 "team": SimpleNamespace(id=1),
             },
         )
-        # A personal API key may select the plan outright, like Desktop. Resuming without
-        # naming the choice stays sandbox-only for every caller.
-        accepted = (caller.startswith("desktop") or caller == "personal_api_key") and not resume
+        # An API key acting as a user may select the plan outright, like Desktop. Resuming
+        # without naming the choice stays sandbox-only for every caller.
+        accepted = (caller.startswith("desktop") or caller == "api_key") and not resume
         with patch.object(
             tasks_facade,
             "get_task_run_claude_model_access",

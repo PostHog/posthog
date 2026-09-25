@@ -4,7 +4,13 @@ from typing import cast
 from parameterized import parameterized
 from rest_framework.request import Request
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    DelegatedPersonalAPIKeyAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+)
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -12,7 +18,7 @@ from posthog.temporal.oauth import (
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
 
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_api_key_request
 from products.tasks.backend.models import TaskClientProvenance
 
 
@@ -106,3 +112,27 @@ class TestTaskClientProvenance:
 
         assert is_sandbox_origin_request(request)
         assert not is_sandbox_oauth_request(request)
+
+
+class TestIsApiKeyRequest:
+    @parameterized.expand(
+        [
+            ("personal_api_key", PersonalAPIKeyAuthentication, True),
+            ("delegated_personal_api_key", DelegatedPersonalAPIKeyAuthentication, True),
+            # Neither of these resolves to a real user — a team secret hands back a synthetic
+            # TeamSecretTokenUser and a PSAK is project-scoped — so neither may stand in for a
+            # person on something billed or attributed to one.
+            ("team_secret_token", TeamSecretTokenAuthentication, False),
+            ("project_secret_api_key", ProjectSecretAPIKeyAuthentication, False),
+            ("oauth", OAuthAccessTokenAuthentication, False),
+            ("unauthenticated", None, False),
+        ]
+    )
+    def test_only_user_bound_api_keys_qualify(
+        self, _name: str, authenticator_type: type | None, expected: bool
+    ) -> None:
+        request = cast(
+            Request,
+            SimpleNamespace(successful_authenticator=authenticator_type() if authenticator_type else None),
+        )
+        assert is_api_key_request(request) is expected
