@@ -20,7 +20,9 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.api.offline_experiment_reads import OfflineScorerViewSet
 from products.ai_observability.backend.api.offline_experiments import OfflineExperimentViewSet
+from products.ai_observability.backend.api.score_definitions import ScoreDefinitionViewSet
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
@@ -450,6 +452,32 @@ class TestOfflineExperimentValidationErrors(SimpleTestCase):
 
 
 class TestOfflineExperimentActionSchemas(SimpleTestCase):
+    def test_read_pages_are_object_envelopes_instead_of_arrays_of_pages(self) -> None:
+        router = SimpleRouter()
+        router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")
+        router.register("offline_scorers", OfflineScorerViewSet, basename="offline_scorers")
+        router.register("score_definitions", ScoreDefinitionViewSet, basename="score_definitions")
+        schema = SchemaGenerator(patterns=router.urls).get_schema(request=None, public=True)
+        components = schema["components"]["schemas"]
+
+        for path in [
+            "/offline_experiments/",
+            "/offline_experiments/{id}/items/",
+            "/offline_experiments/{id}/items/{item_id}/results/",
+            "/offline_experiments/{id}/scorer_summaries/",
+            "/offline_scorers/{id}/history/",
+            "/score_definitions/{id}/versions/",
+        ]:
+            with self.subTest(path=path):
+                response_schema = schema["paths"][path]["get"]["responses"]["200"]["content"]["application/json"][
+                    "schema"
+                ]
+                self.assertIn("$ref", response_schema)
+                page_schema = components[response_schema["$ref"].rsplit("/", 1)[-1]]
+                self.assertEqual(page_schema["type"], "object")
+                self.assertTrue({"count", "next_cursor", "results"} <= set(page_schema["properties"]))
+                self.assertEqual(page_schema["properties"]["results"]["type"], "array")
+
     @parameterized.expand(
         [
             ("upload", {"items", "results"}, {"items", "results"}),

@@ -26,6 +26,11 @@ The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate report
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
 The harness above still uses event capture; it does not call this API yet.
 
+Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
+Scorers and hosted datasets must belong to that same environment.
+Parent, child, and sibling environments do not share experiment data.
+Existing stored rows retain their current ownership.
+
 Use the base path `/api/projects/{project_id}/ai_observability/offline_experiments/`.
 
 | Method and path                   | Purpose                                                                              |
@@ -111,3 +116,90 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
 Automatic payload deletion and usage billing are not enabled by these endpoints.
+
+## Postgres experiment reads
+
+Read endpoints use the same feature flag as ingestion.
+The existing event-based offline UI and harness remain separate until they switch to these APIs.
+
+The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
+
+| Path                                                               | Response                                                                             |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `offline_experiments/`                                             | Experiments, run context, lifecycle state, and counts.                               |
+| `offline_experiments/{experiment_id}/`                             | One experiment, regardless of list date filters.                                     |
+| `offline_experiments/{experiment_id}/items/`                       | Item metadata, payload availability, and optionally selected scorer-version results. |
+| `offline_experiments/{experiment_id}/items/{item_id}/`             | One item's metadata and payload availability.                                        |
+| `offline_experiments/{experiment_id}/items/{item_id}/results/`     | The item's results with pinned scorer configurations.                                |
+| `offline_experiments/{experiment_id}/items/{item_id}/payload/`     | Shared input, output, expected output, and item metadata.                            |
+| `offline_experiments/{experiment_id}/results/{result_id}/payload/` | One result's reasoning, error details, and metadata.                                 |
+| `offline_experiments/{experiment_id}/scorer_summaries/`            | Summaries grouped by exact scorer version.                                           |
+| `offline_scorers/{definition_id}/history/`                         | Experiment summaries for one stable scorer definition.                               |
+
+Reads accept logged-in sessions and personal API keys.
+Experiment and item metadata, including shared item payloads, require `evaluation:read` and evaluation viewer access.
+Results, result payloads, summaries, history, and scorer filters also require `llm_analytics:read` and viewer access to the corresponding scorer definitions.
+An upload-only credential cannot read stored results or payloads.
+Project secret API keys remain limited to the ingestion and lifecycle operations above.
+Reads have separate caller and shared project limits of 60 requests per minute and 1,000 per hour, so browsing does not consume the upload budget.
+The shared read budget includes child environments of the same parent project.
+
+Experiment responses expose `accepted_item_count` separately from `visible_result_count`, `visible_scorer_definition_count`, and `visible_scorer_version_count`.
+Visible counts include only authorized scorers and are marked with `result_count_scope: "authorized"`.
+For personal keys without `llm_analytics:read`, these three counts are null, `result_counts_available` is false, and `result_count_scope` is `"unavailable"`.
+Declared expected counts remain caller-supplied totals, so they are not a measure of the reader's visible result coverage.
+Missing and inaccessible scorer references produce the same response.
+
+Paginated responses contain `count`, `next_cursor`, and `results`.
+Use `limit` to request between 1 and 100 rows; the default is 50.
+Pass `next_cursor` back as `cursor`, keeping the same filters, to continue.
+Unsupported filters, duplicate query parameters, and selections over the limit return HTTP 400.
+Experiment and history ordering follows execution time with stable identity tie-breakers; server receipt times remain separate fields.
+Uploading experiments can change between requests, so their pages are a live view.
+
+Experiment lists and scorer history support execution-time filters (`date_from`, `date_to`), name search (`search`), run source, lifecycle states (`statuses`), suite key, dataset source and identifiers, application/model/prompt versions, scorer definition, and exact scorer versions.
+The date range includes `date_from` and excludes `date_to`; `statuses` accepts comma-separated `uploading`, `completed`, and `failed` values.
+Use `run_source=not_specified` to select runs without a source.
+Experiment lists include all lifecycle states by default; scorer history includes completed experiments unless other states are selected explicitly.
+Filters use retained identifiers and continue to work after linked resources are deleted.
+
+Item pages can include result cells for up to 20 comma-separated `scorer_version_ids`.
+Version selection preserves unscored items, which have missing cells.
+Use the paginated item results endpoint to inspect additional versions.
+List and summary endpoints do not load input/output or reasoning payloads.
+
+## Scorer versions and summaries
+
+Discover immutable versions through `GET /api/projects/{project_id}/llm_analytics/score_definitions/{definition_id}/versions/`.
+Retrieve a specific version at the same path followed by `{version_id}/`.
+These operations use the existing scorer read permissions and include historical versions without recent results.
+Archived scorers remain addressable, including their versions and offline history, while default scorer selection excludes them.
+Creating another version with an unchanged configuration remains supported.
+
+Experiment summaries and scorer history use the same aggregation rules over all matching results, independently of item pagination or payload availability.
+Different scorer versions remain separate, even when their configurations match.
+
+| Kind        | Summary                                                                                |
+| ----------- | -------------------------------------------------------------------------------------- |
+| Numeric     | Mean of successful values and the successful sample count.                             |
+| Boolean     | True and false counts, with the true rate among successful results.                    |
+| Categorical | Counts and rates per key from the pinned version, including keys with no observations. |
+
+Multiple-selection category rates divide by the successful result count and can add up to more than 100%.
+Error, skipped, and not-applicable outcomes are counted separately and excluded from value summaries.
+No successful results produces a null mean or rate.
+Missing results among observed items are reported separately and do not indicate how many entirely absent items were intended.
+Each repeated trial contributes one item; summaries also expose case and trial coverage without applying per-case weighting.
+Numeric increases and boolean true do not imply better quality unless that meaning is established by the scorer.
+
+## Reading payload availability
+
+Items and results expose their own `payload_state` and `payload_expires_at`.
+Payload detail responses include `available` and `data`, preserving omitted properties, empty objects, and explicit JSON null values.
+`not_provided` means the caller omitted the payload; `expired` means it was removed while its owner was retained.
+An unavailable payload has null `data`, while durable identities, results, and summaries remain readable.
+
+A deadline alone does not mean a cleanup worker has removed the payload.
+Automatic deletion remains separate work.
+Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
+Opening those resources requires their own permissions.

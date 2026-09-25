@@ -21,6 +21,10 @@ from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationIngestionSustainedThrottle,
     OfflineEvaluationIngestionTeamBurstThrottle,
     OfflineEvaluationIngestionTeamSustainedThrottle,
+    OfflineEvaluationReadBurstThrottle,
+    OfflineEvaluationReadSustainedThrottle,
+    OfflineEvaluationReadTeamBurstThrottle,
+    OfflineEvaluationReadTeamSustainedThrottle,
 )
 
 
@@ -77,6 +81,10 @@ class TestOfflineExperimentThrottles(SimpleTestCase):
             ("sustained_session", OfflineEvaluationIngestionSustainedThrottle, "session"),
             ("sustained_personal_key", OfflineEvaluationIngestionSustainedThrottle, "personal_key"),
             ("sustained_project_key", OfflineEvaluationIngestionSustainedThrottle, "project_key"),
+            ("read_burst_session", OfflineEvaluationReadBurstThrottle, "session"),
+            ("read_burst_personal_key", OfflineEvaluationReadBurstThrottle, "personal_key"),
+            ("read_sustained_session", OfflineEvaluationReadSustainedThrottle, "session"),
+            ("read_sustained_personal_key", OfflineEvaluationReadSustainedThrottle, "personal_key"),
         ]
     )
     def test_each_caller_is_throttled_independently(
@@ -94,14 +102,22 @@ class TestOfflineExperimentThrottles(SimpleTestCase):
             ("burst_child_environments", OfflineEvaluationIngestionTeamBurstThrottle, True),
             ("sustained", OfflineEvaluationIngestionTeamSustainedThrottle, False),
             ("sustained_child_environments", OfflineEvaluationIngestionTeamSustainedThrottle, True),
+            ("read_burst", OfflineEvaluationReadTeamBurstThrottle, False, "session"),
+            ("read_burst_child_environments", OfflineEvaluationReadTeamBurstThrottle, True, "personal_key"),
+            ("read_sustained", OfflineEvaluationReadTeamSustainedThrottle, False, "session"),
+            ("read_sustained_child_environments", OfflineEvaluationReadTeamSustainedThrottle, True, "personal_key"),
         ]
     )
     def test_project_budget_is_shared_across_authentication_methods_and_environments(
-        self, _name: str, throttle_class: type[PersonalApiKeyRateThrottle], child_environments: bool
+        self,
+        _name: str,
+        throttle_class: type[PersonalApiKeyRateThrottle],
+        child_environments: bool,
+        last_auth_kind: str = "project_key",
     ) -> None:
         view = _ProjectView()
         personal_key_view = _ProjectView(team_id=2, parent_team_id=1) if child_environments else view
-        project_key_view = _ProjectView(team_id=3, parent_team_id=1) if child_environments else view
+        last_view = _ProjectView(team_id=3, parent_team_id=1) if child_environments else view
         other_view = _ProjectView(team_id=4)
         with patch.object(throttle_class, "rate", "2/minute"):
             self.assertTrue(throttle_class().allow_request(self._request("session"), view))
@@ -111,11 +127,35 @@ class TestOfflineExperimentThrottles(SimpleTestCase):
                 )
             )
             self.assertFalse(
-                throttle_class().allow_request(
-                    self._request("project_key", team_id=project_key_view.team_id), project_key_view
-                )
+                throttle_class().allow_request(self._request(last_auth_kind, team_id=last_view.team_id), last_view)
             )
-            self.assertTrue(throttle_class().allow_request(self._request("project_key", team_id=4), other_view))
+            self.assertTrue(throttle_class().allow_request(self._request(last_auth_kind, team_id=4), other_view))
+
+    @parameterized.expand(
+        [
+            ("caller_burst", OfflineEvaluationReadBurstThrottle, OfflineEvaluationIngestionBurstThrottle),
+            ("caller_sustained", OfflineEvaluationReadSustainedThrottle, OfflineEvaluationIngestionSustainedThrottle),
+            ("project_burst", OfflineEvaluationReadTeamBurstThrottle, OfflineEvaluationIngestionTeamBurstThrottle),
+            (
+                "project_sustained",
+                OfflineEvaluationReadTeamSustainedThrottle,
+                OfflineEvaluationIngestionTeamSustainedThrottle,
+            ),
+        ]
+    )
+    def test_reading_cannot_consume_the_upload_budget(
+        self,
+        _name: str,
+        read_throttle: type[PersonalApiKeyRateThrottle],
+        upload_throttle: type[PersonalApiKeyRateThrottle],
+    ) -> None:
+        view = _ProjectView()
+        request = self._request("personal_key")
+        with patch.object(read_throttle, "rate", "1/minute"), patch.object(upload_throttle, "rate", "1/minute"):
+            self.assertTrue(read_throttle().allow_request(request, view))
+            self.assertFalse(read_throttle().allow_request(request, view))
+            self.assertTrue(upload_throttle().allow_request(request, view))
+            self.assertFalse(upload_throttle().allow_request(request, view))
 
     def test_unused_api_key_cannot_change_session_bucket(self) -> None:
         view = _ProjectView()

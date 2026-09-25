@@ -4,7 +4,7 @@ from django.db.models import F, Func, Q, Value
 from django.db.models.lookups import Exact
 from django.utils import timezone
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 
@@ -14,7 +14,7 @@ class PayloadState(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
-class OfflineExperiment(TeamScopedRootMixin):
+class OfflineExperiment(models.Model):
     class Status(models.TextChoices):
         UPLOADING = "uploading", "Uploading"
         COMPLETED = "completed", "Completed"
@@ -53,6 +53,8 @@ class OfflineExperiment(TeamScopedRootMixin):
     model_version = models.CharField(max_length=255, null=True, blank=True)
     prompt_version = models.CharField(max_length=255, null=True, blank=True)
 
+    objects = EnvironmentScopedManager()
+
     class Meta:
         db_table = "llm_analytics_offlineexperiment"
         constraints = [
@@ -82,12 +84,14 @@ class OfflineExperiment(TeamScopedRootMixin):
         ]
 
 
-class OfflinePayloadOwner(TeamScopedRootMixin):
+class OfflinePayloadOwner(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     accepted_at = models.DateTimeField(default=timezone.now, editable=False)
     payload_state = models.CharField(max_length=16, choices=PayloadState.choices, default=PayloadState.NOT_PROVIDED)
     payload_expires_at = models.DateTimeField(null=True, blank=True)
     submission_fingerprint = models.CharField(max_length=64)
+
+    objects = EnvironmentScopedManager()
 
     class Meta:
         abstract = True
@@ -210,10 +214,12 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         ]
 
 
-class OfflinePayload(TeamScopedRootMixin):
+class OfflinePayload(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # An object preserves omitted properties separately from explicitly supplied JSON nulls.
     data = models.JSONField()
+
+    objects = EnvironmentScopedManager()
 
     class Meta:
         abstract = True

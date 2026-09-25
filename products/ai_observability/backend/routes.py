@@ -24,6 +24,7 @@ from products.ai_observability.backend.api import (
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
     OfflineExperimentViewSet,
+    OfflineScorerViewSet,
     ParserRecipeViewSet,
     PersonalSpendInternalViewSet,
     PersonalSpendViewSet,
@@ -40,6 +41,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"ai_observability/offline_experiments",
         OfflineExperimentViewSet,
         "project_ai_observability_offline_experiments",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/offline_scorers",
+        OfflineScorerViewSet,
+        "project_ai_observability_offline_scorers",
         ["team_id"],
     )
     routers.projects.register(r"ai_blob", AIBlobViewSet, "project_ai_blob", ["project_id"])

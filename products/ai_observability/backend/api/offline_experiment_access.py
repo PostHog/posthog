@@ -46,3 +46,21 @@ class OfflineEvaluationIngestionTeamBurstThrottle(PersonalApiKeyOrUserRateThrott
 class OfflineEvaluationIngestionTeamSustainedThrottle(OfflineEvaluationIngestionTeamBurstThrottle):
     scope = "offline_evaluation_ingestion_team_sustained"
     rate = "1000/hour"
+
+
+class OfflineEvaluationReadBurstThrottle(_OfflineEvaluationCallerThrottle):
+    scope = "offline_evaluation_read_burst"
+    rate = "60/minute"
+
+
+class OfflineEvaluationReadSustainedThrottle(_OfflineEvaluationCallerThrottle):
+    scope = "offline_evaluation_read_sustained"
+    rate = "1000/hour"
+
+
+class OfflineEvaluationReadTeamBurstThrottle(OfflineEvaluationIngestionTeamBurstThrottle):
+    scope = "offline_evaluation_read_team_burst"
+
+
+class OfflineEvaluationReadTeamSustainedThrottle(OfflineEvaluationIngestionTeamSustainedThrottle):
+    scope = "offline_evaluation_read_team_sustained"

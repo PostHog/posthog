@@ -13,7 +13,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
@@ -143,10 +142,10 @@ def _provenance_identifier(submitted: str | None, derived: str, *, field: str) -
 
 def _experiment_counts(experiment: OfflineExperiment) -> ExperimentCounts:
     return ExperimentCounts(
-        accepted_item_count=OfflineExperimentItem.objects.for_team(experiment.team_id, canonical=True)
+        accepted_item_count=OfflineExperimentItem.objects.for_team(experiment.team_id)
         .filter(experiment_id=experiment.id)
         .count(),
-        accepted_result_count=OfflineEvaluationResult.objects.for_team(experiment.team_id, canonical=True)
+        accepted_result_count=OfflineEvaluationResult.objects.for_team(experiment.team_id)
         .filter(item__experiment_id=experiment.id)
         .count(),
         expected_item_count=experiment.expected_item_count,
@@ -155,9 +154,7 @@ def _experiment_counts(experiment: OfflineExperiment) -> ExperimentCounts:
 
 
 def _locked_experiment(*, team_id: int, experiment_id: UUID) -> OfflineExperiment:
-    experiment = (
-        OfflineExperiment.objects.for_team(team_id, canonical=True).select_for_update().filter(id=experiment_id).first()
-    )
+    experiment = OfflineExperiment.objects.for_team(team_id).select_for_update().filter(id=experiment_id).first()
     if experiment is None:
         raise OfflineEvaluationNotFound
     return experiment
@@ -165,7 +162,7 @@ def _locked_experiment(*, team_id: int, experiment_id: UUID) -> OfflineExperimen
 
 class _OfflineEvaluationService:
     def __init__(self, *, team_id: int, user_access_control: UserAccessControl | None) -> None:
-        self.team_id = resolve_effective_team_id(team_id)
+        self.team_id = team_id
         self._user_access_control = user_access_control
 
     def _dataset_revisions(self) -> QuerySet[DatasetRevision]:
@@ -215,7 +212,7 @@ class OfflineExperimentService(_OfflineEvaluationService):
         fingerprint = submission_fingerprint(submission)
         try:
             with transaction.atomic():
-                experiments = OfflineExperiment.objects.for_team(self.team_id, canonical=True).select_for_update()
+                experiments = OfflineExperiment.objects.for_team(self.team_id).select_for_update()
                 existing = experiments.filter(id=submission.id).first()
                 if existing is not None:
                     _check_fingerprint(existing.submission_fingerprint, fingerprint, field="id")
@@ -274,7 +271,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             requested_pairs |= Q(scorer_version_id=version_id, item_id__in=item_ids)
         return {
             ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id): result
-            for result in OfflineEvaluationResult.objects.for_team(self.team_id, canonical=True).filter(
+            for result in OfflineEvaluationResult.objects.for_team(self.team_id).filter(
                 requested_pairs, item__experiment_id=experiment_id
             )
         }
@@ -418,7 +415,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         item_ids = list(dict.fromkeys(result.item_id for result in submission.results))
         items = {
             item.id: item
-            for item in OfflineExperimentItem.objects.for_team(self.team_id, canonical=True).filter(
+            for item in OfflineExperimentItem.objects.for_team(self.team_id).filter(
                 experiment_id=experiment.id, id__in=item_ids
             )
         }
@@ -490,18 +487,18 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)] = row
         if errors:
             raise OfflineEvaluationValidationError.from_errors(errors)
-        OfflineExperimentItem.objects.for_team(self.team_id, canonical=True).bulk_create(new_items)
+        OfflineExperimentItem.objects.for_team(self.team_id).bulk_create(new_items)
         new_item_ids = {item.id for item in new_items}
-        OfflineExperimentItemPayload.objects.for_team(self.team_id, canonical=True).bulk_create(
+        OfflineExperimentItemPayload.objects.for_team(self.team_id).bulk_create(
             [
                 OfflineExperimentItemPayload(team_id=self.team_id, item_id=item.id, data=item.payload)
                 for item in submission.items
                 if item.id in new_item_ids and item.payload is not None
             ]
         )
-        OfflineEvaluationResult.objects.for_team(self.team_id, canonical=True).bulk_create(new_result_rows)
+        OfflineEvaluationResult.objects.for_team(self.team_id).bulk_create(new_result_rows)
         new_result_ids = {result.id for result in new_result_rows}
-        OfflineEvaluationResultPayload.objects.for_team(self.team_id, canonical=True).bulk_create(
+        OfflineEvaluationResultPayload.objects.for_team(self.team_id).bulk_create(
             [
                 OfflineEvaluationResultPayload(
                     team_id=self.team_id,
