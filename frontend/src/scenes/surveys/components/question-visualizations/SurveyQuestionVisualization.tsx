@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -78,7 +78,7 @@ function QuestionTitle({
                         <span className={part.className}>{part.text}</span>
                     </span>
                 ))}
-                {question.id && (
+                {question.id && question.type !== SurveyQuestionType.Link && (
                     <>
                         <span className="text-border-dark">•</span>
                         <LemonButton
@@ -238,7 +238,20 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
         )
     }
 
-    if (!question.id || question.type === SurveyQuestionType.Link) {
+    if (question.type === SurveyQuestionType.Link) {
+        return (
+            <div className="flex flex-col gap-2">
+                <QuestionTitle question={question} questionIndex={questionIndex} />
+
+                <LemonBanner type="info">
+                    Link questions don't collect answers, so there is no chart or export column for this one. The other
+                    questions are not affected.
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    if (!question.id) {
         return null
     }
 
