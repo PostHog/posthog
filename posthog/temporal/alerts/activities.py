@@ -36,6 +36,7 @@ from posthog.errors import (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
 )
+from posthog.exceptions import QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -703,6 +704,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             if is_llm_detector_config(alert.detector_config):
                 record_ai_detector_check_outcome("evaluated")
         except CH_TRANSIENT_ERRORS:
+            raise
+        except QueryRanConcurrently:
+            # A query single-flight follower gets this error when its leader fails in a way that the
+            # flight cannot share, such as a cluster at capacity. Re-raise it so that the retry runs
+            # the query again and handles the leader's real error.
             raise
         except CHQueryErrorQueryWasCancelled:
             # A cancelled attempt kills its query and decides what to record; the thread it left

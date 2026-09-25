@@ -37,6 +37,7 @@ from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
+    QueryRanConcurrently,
 )
 from posthog.models import Team, User
 from posthog.redis import get_client
@@ -1173,7 +1174,8 @@ class TestEvaluateAlert:
     # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     # A killed query is the cancelled attempt's own doing, and recording it would write a check
-    # the attempt that killed it never asked for.
+    # the attempt that killed it never asked for. A single-flight follower gets QueryRanConcurrently
+    # when its leader hits one of these errors, so the retry must run the query and see it.
     @pytest.mark.parametrize(
         "error",
         [
@@ -1183,6 +1185,7 @@ class TestEvaluateAlert:
             NetworkError(),
             LLMDetectorUnavailableError(),
             CHQueryErrorQueryWasCancelled("killed", code=394),
+            QueryRanConcurrently(),
         ],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error) -> None:
