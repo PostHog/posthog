@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import time, timedelta
 
 from unittest.mock import MagicMock, patch
 
@@ -1170,7 +1170,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
         self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
-        self.assertEqual(config.experiment_recalculation_time.hour, 14)
+        self.assertEqual(config.experiment_recalculation_time, time(hour=14))
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
@@ -1180,7 +1180,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
-        self.assertEqual(config.experiment_recalculation_time.hour, 8)
+        self.assertEqual(config.experiment_recalculation_time, time(hour=8))
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
