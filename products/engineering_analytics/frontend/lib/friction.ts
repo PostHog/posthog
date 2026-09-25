@@ -52,7 +52,7 @@ export function pullRequestFrictionFacts(pr: PullRequestFrictionBreakdownApi): F
             ciSeconds ? `${compactAgeLabel(ciSeconds)} over ${pluralize(pr.push_count, 'push', 'pushes')}` : null,
         ],
         ['rework', 'Red until the next push', count(pr.own_red_count)],
-        ['rework', 'Extra pushes', count(pr.push_count - 1)],
+        ['rework', 'Extra pushes', count(Math.max(0, pr.push_count - 1))],
         ['rework', 'Pushes after approval', count(pr.pushes_after_approval)],
     ]
     return facts.flatMap(([group, label, value]) => (value ? [{ group, label, value }] : []))

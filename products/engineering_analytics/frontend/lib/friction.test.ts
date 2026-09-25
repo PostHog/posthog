@@ -20,6 +20,7 @@ const QUIET: PullRequestFrictionBreakdownApi = {
 describe('pullRequestFrictionFacts', () => {
     test.each([
         ['a pull request that met nothing lists nothing', QUIET, []],
+        ['a pull request without CI pushes shows no negative extra pushes', { ...QUIET, push_count: 0 }, []],
         [
             'only what happened shows, in group order',
             { ...QUIET, master_red_count: 2, kickout_count: 1, push_count: 3, ci_wait_seconds: [600, 1200] },

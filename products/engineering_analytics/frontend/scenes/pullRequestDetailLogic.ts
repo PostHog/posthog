@@ -547,6 +547,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 actions.loadJobs({ runId, runAttempt })
             }
         },
+        // Only a merged pull request has friction, so an open one skips the read.
+        loadLifecycleSuccess: ({ lifecycle }) => {
+            if (lifecycle?.pull_request?.state === 'merged') {
+                actions.loadFriction()
+            }
+        },
         // Failure logs only exist once something failed — skip the Logs query otherwise.
         loadPrRunsSuccess: () => {
             if (values.prRuns.some((run) => isDecisiveFailure(run.conclusion))) {
@@ -741,6 +747,5 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
         actions.loadPrRuns()
         actions.loadTimelines()
         actions.loadPrCost()
-        actions.loadFriction()
     }),
 ])
