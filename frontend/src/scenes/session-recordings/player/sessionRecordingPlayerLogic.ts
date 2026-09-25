@@ -179,6 +179,9 @@ const RENDERED_SAMPLE_MAX = 40
 interface RenderedSampleCache {
     renderedSampleCount?: number
     lastRenderedSampleAt?: number
+    // Playhead buckets already sampled, so the 40-sample budget spreads across the whole recording
+    // instead of being spent in the first ~78s of playback by the wall-clock throttle alone.
+    renderedSamplePlayheadBuckets?: Set<number>
     droppedFrames?: number
     frameCount?: number
     maxFrameTime?: number
@@ -246,14 +249,38 @@ function captureRenderedScrollSample(args: {
     recordingId: string
     timestamp: number | undefined
     rrwebPlayerTime: number | null | undefined
+    recordingDurationMs: number | undefined
     speed: number | undefined
     skippingInactivity: boolean | undefined
     cache: RenderedSampleCache
 }): void {
-    const { replayer, recordingId, timestamp, rrwebPlayerTime, speed, skippingInactivity, cache } = args
+    const { replayer, recordingId, timestamp, rrwebPlayerTime, recordingDurationMs, speed, skippingInactivity, cache } =
+        args
     try {
         if ((cache.renderedSampleCount ?? 0) >= RENDERED_SAMPLE_MAX) {
             return
+        }
+        // Reading scroll before the replay iframe document exists yields an empty sample that would
+        // still burn a slot; skip without counting so the first real frame gets sampled instead.
+        if (!replayer || isReplayerDocumentUnavailable(replayer)) {
+            return
+        }
+        // Reserve one sample per playhead bucket so coverage spans the whole recording, not just the start.
+        const playheadBucket =
+            rrwebPlayerTime != null && recordingDurationMs && recordingDurationMs > 0
+                ? Math.max(
+                      0,
+                      Math.min(
+                          RENDERED_SAMPLE_MAX - 1,
+                          Math.floor((rrwebPlayerTime / recordingDurationMs) * RENDERED_SAMPLE_MAX)
+                      )
+                  )
+                : null
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets ??= new Set()
+            if (cache.renderedSamplePlayheadBuckets.has(playheadBucket)) {
+                return
+            }
         }
         const nowMs = performance.now()
         if (
@@ -264,6 +291,9 @@ function captureRenderedScrollSample(args: {
         }
         cache.lastRenderedSampleAt = nowMs
         cache.renderedSampleCount = (cache.renderedSampleCount ?? 0) + 1
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets?.add(playheadBucket)
+        }
         posthog.capture('recording anchor diagnostic rendered', {
             recording_id: recordingId,
             is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
@@ -2918,6 +2948,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
             cache.renderedSampleCount = 0
+            cache.renderedSamplePlayheadBuckets = new Set()
             cache.lastRenderedSampleAt = undefined
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
@@ -3435,6 +3466,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         recordingId: props.sessionRecordingId,
                         timestamp: newTimestamp,
                         rrwebPlayerTime,
+                        recordingDurationMs: values.sessionPlayerData?.durationMs,
                         speed: values.speed,
                         skippingInactivity: values.isSkippingInactivity,
                         cache,
