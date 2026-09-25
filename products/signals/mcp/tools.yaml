@@ -1177,6 +1177,24 @@ tools:
     signals-config-list:
         operation: signals_config_list
         enabled: false
+    signals-domains-create:
+        operation: signals_domains_create
+        enabled: false
+    signals-domains-list:
+        operation: signals_domains_list
+        enabled: false
+    signals-domains-partial-update:
+        operation: signals_domains_partial_update
+        enabled: false
+    signals-domains-retrieve:
+        operation: signals_domains_retrieve
+        enabled: false
+    signals-domains-teams-list:
+        operation: signals_domains_teams_list
+        enabled: false
+    signals-domains-update:
+        operation: signals_domains_update
+        enabled: false
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
@@ -1231,11 +1249,56 @@ tools:
     signals-reports-reviewers-update:
         operation: signals_reports_reviewers_update
         enabled: false
+    signals-reports-routing-create:
+        operation: signals_reports_routing_create
+        enabled: false
+    signals-reports-routing-list:
+        operation: signals_reports_routing_list
+        enabled: false
+    signals-reports-routing-not-me-create:
+        operation: signals_reports_routing_not_me_create
+        enabled: false
+    signals-reports-routing-propose-create:
+        operation: signals_reports_routing_propose_create
+        enabled: false
+    signals-reports-routing-restore-create:
+        operation: signals_reports_routing_restore_create
+        enabled: false
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve
         enabled: false
     signals-reports-viewed-create:
         operation: signals_reports_viewed_create
+        enabled: false
+    signals-routing-batches-apply-create:
+        operation: signals_routing_batches_apply_create
+        enabled: false
+    signals-routing-batches-list:
+        operation: signals_routing_batches_list
+        enabled: false
+    signals-routing-batches-reports-list:
+        operation: signals_routing_batches_reports_list
+        enabled: false
+    signals-routing-batches-retrieve:
+        operation: signals_routing_batches_retrieve
+        enabled: false
+    signals-routing-batches-retry-create:
+        operation: signals_routing_batches_retry_create
+        enabled: false
+    signals-routing-batches-undo-create:
+        operation: signals_routing_batches_undo_create
+        enabled: false
+    signals-routing-preferences-list:
+        operation: signals_routing_preferences_list
+        enabled: false
+    signals-routing-preferences-preview-create:
+        operation: signals_routing_preferences_preview_create
+        enabled: false
+    signals-routing-preferences-set-create:
+        operation: signals_routing_preferences_set_create
+        enabled: false
+    signals-routing-preferences-suggestions-list:
+        operation: signals_routing_preferences_suggestions_list
         enabled: false
     signals-scout-chat-tasks-create:
         operation: signals_scout_chat_tasks_create
