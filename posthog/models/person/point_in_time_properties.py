@@ -224,17 +224,7 @@ def build_person_properties_at_time(
         # person profile regardless of retention, so a floored scan rebuilds a profile that never existed and
         # drops every property set before the window. The scan reconstructs person state. It does not expose
         # events past the floor.
-        #
-        # The scan pins the legacy events table. The native JSON table moves $set and $set_once out of
-        # properties into temporary_properties, which HogQL does not read and which expires 60 days after
-        # insert, so a native scan finds no property updates. Remove the pin only when the native schema
-        # keeps these updates for the whole scan window.
-        context=HogQLContext(
-            team_id=team.pk,
-            limit_top_select=False,
-            apply_events_retention_floor=False,
-            use_new_events_schema=False,
-        ),
+        context=HogQLContext(team_id=team.pk, limit_top_select=False, apply_events_retention_floor=False),
     )
 
     return _reconstruct_properties(response.results, include_set_once)

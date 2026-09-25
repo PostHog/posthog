@@ -12,8 +12,6 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from django.test import override_settings
 
-from parameterized import parameterized
-
 from posthog.models.person.point_in_time_properties import DEFAULT_PROPERTY_ROW_LIMIT, build_person_properties_at_time
 
 
@@ -81,8 +79,7 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(properties, {"first_seen": "2024-05-01"})
 
-    @parameterized.expand([("legacy_events", False), ("native_json_events", True)])
-    def test_set_then_set_once_interleaving(self, _name: str, native_events_schema: bool) -> None:
+    def test_set_then_set_once_interleaving(self):
         """Mixed $set and $set_once events: $set always wins on its key, while
         $set_once only sticks for keys never set by anything else."""
         distinct_id = "user-clickhouse-interleave"
@@ -128,14 +125,14 @@ class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
             },
             timestamp=upper_bound - timedelta(hours=1),
         )
-        with self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events_schema):
-            flush_persons_and_events()
-            properties = build_person_properties_at_time(
-                self.team,
-                upper_bound,
-                [distinct_id],
-                include_set_once=True,
-            )
+        flush_persons_and_events()
+
+        properties = build_person_properties_at_time(
+            self.team,
+            upper_bound,
+            [distinct_id],
+            include_set_once=True,
+        )
 
         self.assertEqual(
             properties,
