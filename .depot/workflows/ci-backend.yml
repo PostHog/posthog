@@ -53,9 +53,9 @@
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
 #   Actions API by run id, and GitHub has no run for a Depot run id. Here
-#   .github/scripts/capture_depot_running_time.py reads the run from the Depot API with
-#   DEPOT_CI_CANCEL_TOKEN and sends the same events with the same properties, with runner
-#   `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
+#   .github/scripts/capture_depot_running_time.py reads the workflow with `depot ci workflow show`
+#   and DEPOT_CI_CANCEL_TOKEN, then sends the same events with the same property keys and
+#   runner `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
@@ -4302,11 +4302,13 @@ jobs:
               with:
                   sparse-checkout: .github/scripts/capture_depot_running_time.py
                   sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              if: github.run_attempt == '1'
             - name: Capture running time to PostHog and DevEx PostHog
               if: github.run_attempt == '1'
               continue-on-error: true
               env:
-                  DEPOT_CI_API_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
                   POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   STATUS_JOB: django_tests
