@@ -1174,11 +1174,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        expected_ids = (
-            set()
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and property_name == "$ai_span_name"
-            else {"trace_with_empty_name"}
-        )
+        # The native-JSON table treats an empty value as absent, so an explicit '' never matches there.
+        expected_ids = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"trace_with_empty_name"}
         self.assertEqual({result.id for result in response.results}, expected_ids)
 
     @snapshot_clickhouse_queries

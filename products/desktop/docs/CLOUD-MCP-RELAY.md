@@ -330,3 +330,69 @@ The task sandbox has the same credential boundary as GitHub runs. Code inside it
 A Claude setup token lasts longer than a GitHub token. Remove token does not revoke it or clear an active Claude process.
 
 Direct event uploads stay open by default. Local development closes each batch because local proxies can buffer an open request.
+
+## ChatGPT subscription credentials
+
+The Codex cloud subscription is under `posthog-code-codex-own-subscription-cloud`.
+It does not use the credential relay. PostHog stores the ChatGPT login server-side, as it stores the GitHub login, and each cloud run gets a short-lived access token from PostHog.
+Desktop deletes the local credential file after PostHog accepts the tokens, if cleanup succeeds. A failed upload or cleanup can leave the file behind. Desktop is not needed while a run is active. Tasks continue when Desktop is closed.
+During connect, the tokens pass through the Desktop renderer process once: the host reads the file over tRPC and the renderer uploads it with the user's PostHog session. The renderer does not save the tokens. A cleanup warning identifies a local file that still needs deletion.
+
+Users log in once from Settings > Harness > ChatGPT subscription > Cloud tasks.
+Log in opens a dialog that runs `codex login --device-auth` in an embedded terminal, with `CODEX_HOME` set to `~/.codex-posthog`.
+The bundled codex binary runs the login, so the flow does not depend on a `codex` on the user's PATH.
+Desktop never reads `~/.codex`, so the user's own codex login is not affected.
+A stale `~/.codex-posthog/auth.json` is deleted before the terminal starts, so a cancelled attempt cannot be connected later.
+When the command exits 0, Desktop reads the file the login wrote, sends the tokens to `POST /api/users/@me/integrations/codex/`, and deletes the file after PostHog accepts them.
+A failed connect keeps the file for another try. Desktop shows an error when the file is missing, is not JSON, or holds an API key login instead of ChatGPT tokens.
+The host permits one login attempt at a time. File reads and cleanup require that attempt's ID.
+Closing the dialog during an upload lets the upload and cleanup finish before another attempt can start.
+An old attempt cannot delete a newer attempt's file.
+PostHog refreshes the tokens once on connect, so the local copy is stale after that. The refresh token rotates and is single use.
+One database record holds the user's Codex connection. Connect, refresh, and disconnect use the same per-user lock.
+`GET` on the same path reports `not_connected`, `connected`, or `reauth_required`, with the plan type and account email. `DELETE` disconnects. No route returns a refresh token.
+
+```mermaid
+sequenceDiagram
+  actor U as User
+  participant D as Desktop
+  participant T as In-app terminal
+  participant P as PostHog
+  participant O as OpenAI
+  U->>D: Settings > Harness > Cloud tasks > Log in
+  D->>T: codex login --device-auth, CODEX_HOME=~/.codex-posthog
+  T-->>U: Device code and link
+  U->>O: Approve in a browser
+  O-->>T: Writes ~/.codex-posthog/auth.json
+  T-->>D: Exit 0
+  D->>D: Read auth.json
+  D->>P: POST /api/users/@me/integrations/codex/
+  P->>O: Refresh once
+  O-->>P: New access token + rotated refresh token
+  P->>P: Store the pair encrypted on the user
+  P-->>D: connected (email, plan)
+  D->>D: Delete auth.json
+  U->>D: Disconnect, later
+  D->>P: DELETE /api/users/@me/integrations/codex/
+  P->>O: Revoke the refresh token
+  P->>P: Delete the row
+```
+
+PostHog stores the tokens in an encrypted `UserIntegration` row of kind `codex`, owned by the user, not by a project.
+It refreshes the access token against OpenAI on demand and keeps only one refresh in flight per user.
+When OpenAI rejects the refresh token, the row moves to `reauth_required`, and Desktop asks the user to log in and connect again.
+Desktop checks the account state before each Codex cloud start or resume that uses the plan.
+
+Each subscription run gets a run-scoped secret. The worker writes it to a file that the sandbox command opens on file descriptor 3 and deletes before the agent server starts.
+The agent server reads descriptor 3 once. The secret is absent from the environment, the command arguments, and the filesystem after that.
+The agent server calls `POST /api/projects/{team}/tasks/{task_id}/runs/{run_id}/subscription_token/` with the secret in `X-Task-Run-Token`.
+The endpoint accepts only that secret for that run, together with the sandbox identity, and returns an access token, the workspace id, and the plan type.
+The general sandbox token alone cannot obtain a ChatGPT token. Code that runs inside the sandbox as a tool does not receive descriptor 3.
+The sandbox tries to set `kernel.yama.ptrace_scope=1` so a tool process cannot read the agent server memory. This is best effort: the write fails where `/proc/sys` is read-only, and the local Docker sandbox holds `CAP_SYS_PTRACE` for agentsh, which bypasses it. Code running in the sandbox can obtain access tokens for the run's lifetime in any case, because the Codex process holds one.
+
+Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
+On a 401 codex asks the agent server for a fresh token and waits ten seconds. The agent server calls the endpoint with the digest of the rejected token, and PostHog refreshes before it answers unless it already holds a newer token.
+The run fails at the `subscription_token` phase when PostHog reports `reauth_required` or when OpenAI is unreachable. Desktop shows a retryable error for an OpenAI outage and asks for a new login when the chain is dead.
+Subscription runs do not use a warm sandbox, because a warm sandbox started before the plan choice holds no run secret.
+Codex tokens are JSON Web Tokens, so logs and events redact anything with that shape.
+Sandbox compute still uses PostHog credits.

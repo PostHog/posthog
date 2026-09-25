@@ -221,36 +221,6 @@ def synthetic_source_project(legacy_code: str | None) -> dict[str, Any]:
     }
 
 
-def apply_source_edits(
-    project: dict[str, Any], operations: list[dict[str, Any]]
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Apply per-file set/delete operations to a source project.
-
-    Returns the edited project (input untouched) and diagnostics; any
-    diagnostic means the edit set could not be applied atomically.
-    """
-    project = {**project, "files": dict(project["files"])}
-    diagnostics: list[dict[str, Any]] = []
-    for operation in operations:
-        path = operation["path"]
-        content = operation.get("content")
-        if content is None:
-            if path not in project["files"]:
-                diagnostics.append(
-                    diagnostic(
-                        "error",
-                        "edit_target_missing",
-                        f"cannot delete {path} — the project has no file at that path",
-                        path=path,
-                    )
-                )
-                continue
-            del project["files"][path]
-        else:
-            project["files"][path] = content
-    return project, diagnostics
-
-
 def validate_relative_path(path: str, *, restrict_charset: bool = True) -> str | None:
     """Validate a relative, forward-slash file path; returns the problem or None.
 

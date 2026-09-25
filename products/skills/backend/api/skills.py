@@ -1254,6 +1254,7 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillMarkdownSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["GET"],
         detail=False,
@@ -1522,6 +1523,7 @@ class LLMSkillViewSet(
         }
 
     @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
     @llma_track_latency("llma_skills_marketplace_command")
     @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")
@@ -1752,6 +1754,7 @@ class LLMSkillViewSet(
         request=LLMSkillPublishToCommunitySerializer,
         responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,
@@ -2046,6 +2049,7 @@ class LLMSkillViewSet(
         return Response(self._serialize_skill(published_skill))
 
     @extend_schema(request=LLMSkillFileRenameSerializer, responses={200: LLMSkillSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,

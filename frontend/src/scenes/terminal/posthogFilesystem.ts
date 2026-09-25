@@ -19,13 +19,8 @@ import { cohortsPartialUpdate, cohortsRetrieve } from 'products/cohorts/frontend
 import { dashboardsPartialUpdate, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { experimentsPartialUpdate, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
 import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
-import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
-import type { NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
-import {
-    insightsList,
-    insightsPartialUpdate,
-    insightsRetrieve,
-} from 'products/product_analytics/frontend/generated/api'
+import { notebooksCreate, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import { insightsPartialUpdate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import { surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
 import { ConfirmTerminalOperation, TerminalConfirmation } from './terminalConfirmation'
@@ -120,9 +115,16 @@ Try:
 
 open [path] opens a project file or folder in PostHog. With no path, it opens the
 current folder. JSON files open their PostHog item, including files in /posthog/api.
+Folders open in the Files tab when the simple side panel is enabled.
+
+Optional tools download on first use: node, pi, nyancat, and doom.
+In Doom, W/S move, A/D strafe, left/right arrows turn, Space fires, E opens doors,
+and Shift runs. Use Capture mouse to turn with the mouse; left-click fires.
 
 Saving a .sql insight updates its query and preserves its query options.
 Use run report.sql to execute SQL, or run --help for JSON, CSV, and TSV exports.
+Use hogql "select 1" for a query, echo "select 1" | hogql for piped SQL, or hogql
+for an interactive prompt. Run hogql --help for formats, connections, and query options.
 The terminal follows the current resource's folder while its prompt is empty. Active commands and typed input stay intact.
 
 Saving an existing .md notebook updates PostHog using your current permissions.
@@ -139,13 +141,16 @@ inside /posthog/files. Keep .md, .sql, or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
 replaced. Folders inferred from file paths cannot be moved; move their files instead.
 Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
-Deletes require a blocking confirmation. Click a button to approve or cancel;
-keyboard input cannot approve a deletion. rm groups all its PostHog targets into
+Project writes and connected tools require a blocking confirmation. Click a button
+to approve or cancel; keyboard input cannot approve changes. rm groups its PostHog targets into
 one confirmation. Other programs confirm each removal. Local Linux files do not
 require confirmation. Delete local and PostHog files in separate commands.
-JSON saves that mark an object deleted and connected tools also ask for confirmation.
 Removing the last file reference deletes the PostHog object, using your permissions.
-Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
+Files open for writing must be closed before removal. Use touch Notes.md or save a
+new .md file in an editor to create a blank markdown notebook in the current folder.
+Other new file types and editor backup files are not supported under /posthog/files.
+Notebook names are not unique across clients. If another client creates the same
+name, run ph refresh to see both notebooks with distinct filenames.
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
@@ -153,9 +158,9 @@ Directories load when you browse them and stay cached until ph refresh.
 The terminal starts without downloading the project tree. Browsing /posthog/files
 loads one folder at a time; /posthog/api loads one object type at a time.
 Listing directories never downloads object contents. File contents load on open.
-Sizes are zero until a file is opened, then show its last known size. The notebook
-index loads when you first browse notebooks, without fetching their bodies.
-SQL insight detection loads a metadata index when you first browse insights.
+Sizes are zero until a file is opened, then show its last known size.
+Filenames use content types from the filesystem listing. Notebook and insight
+contents load only when you open a file.
 Run ph refresh to discover new or renamed objects. Unsupported object types
 expose their filesystem record as JSON. Legacy rich-text notebooks stay JSON.
 Characters that cannot appear in Unix filenames are percent-encoded. Duplicate
@@ -182,7 +187,11 @@ For a break, try these commands. Each downloads on first use:
 Ctrl+C also stops the train and Matrix animation.
 The browser downloads verified packages from GitHub and caches them when storage
 is available. Stopping the terminal discards the installed files and local sessions.
-pi runs offline: model calls, login, and package downloads need a network bridge.
+pi uses PostHog AI through your signed-in session and defaults to Claude Opus 5.
+Use /model in pi to choose Opus 5, Sonnet 5, Sonnet 4.6, or Haiku 4.5.
+Try pi -p 'What can ph tools do?'
+Run one pi session at a time. AI credit limits apply. Gateway setup is required.
+The VM has no general network access, so external login and package downloads are unavailable.
 Use /tmp for local scripts and pi sessions; mounted PostHog files keep their API rules.
 Project file sizes stay zero until opened; ncdu does not download their contents.
 Bundled tool licenses and source links are in /opt/posthog-tools/licenses.
@@ -212,8 +221,6 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private readonly loadedDirectories = new Set<TerminalNode>()
     private readonly pendingDirectories = new Map<TerminalNode, Promise<void>>()
     private directoryQueue: Promise<void> = Promise.resolve()
-    private markdownNotebooks?: Map<string, NotebookMinimalApi>
-    private sqlInsights?: Set<string>
 
     async folderFor(ref: ProjectTreeRef | null): Promise<string | null> {
         if (!ref) {
@@ -335,7 +342,8 @@ export class PosthogFilesystem extends TerminalFilesystem {
     constructor(
         private projectId: string,
         private signal: AbortSignal,
-        private confirm: ConfirmTerminalOperation = async () => false
+        private confirm: ConfirmTerminalOperation = async () => false,
+        private confirmWrites = false
     ) {
         super()
         this.text('README.txt', this.root, TERMINAL_README)
@@ -351,12 +359,18 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
         this.projectNodes.set(node, { parts, entry })
         node.loadChildren = () => this.ensureDirectory(node)
+        node.create = (name, signal) => this.createNotebook(node, name, signal)
         node.mkdir = async (name) => {
             const directory = this.projectNodes.get(node)
             if (!directory) {
                 throw new FilesystemError(116)
             }
             const parts = [...directory.parts, this.storedName(name)]
+            await this.confirmWrite({
+                title: 'Create a PostHog folder?',
+                description: `Create a folder in project ${this.projectId}. This affects everyone in the project.`,
+                items: [joinPath(parts)],
+            })
             const entry = await fileSystemCreate(
                 this.projectId,
                 { path: joinPath(parts), type: 'folder' },
@@ -370,6 +384,67 @@ export class PosthogFilesystem extends TerminalFilesystem {
         if (node !== this.files) {
             node.rename = (parent, name) => this.move(node, parent, name)
             node.remove = () => this.remove(node)
+        }
+    }
+
+    private async createNotebook(parent: TerminalNode, name: string, signal?: AbortSignal): Promise<TerminalNode> {
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        const directory = this.projectNodes.get(parent)
+        if (!directory || parent.removed) {
+            throw new FilesystemError(116)
+        }
+        if (!name.endsWith('.md')) {
+            throw new FilesystemError(95)
+        }
+        const title = this.storedName(name)
+        if (terminalFilename(title) !== name) {
+            throw new FilesystemError(22)
+        }
+        await this.confirmWrite({
+            title: 'Create a PostHog notebook?',
+            description: `Create a blank markdown notebook in project ${this.projectId}. This affects everyone in the project.`,
+            items: [joinPath([...directory.parts, title])],
+        })
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        // Finish reconciling approved writes even if the guest cancels after the POST starts.
+        const notebook = await notebooksCreate(
+            this.projectId,
+            {
+                title,
+                _create_in_folder: joinPath(directory.parts),
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'ph-markdown-notebook',
+                            attrs: { nodeId: 'markdown-notebook-v2', markdown: '' },
+                        },
+                    ],
+                },
+                text_content: '',
+            },
+            { signal: this.signal }
+        )
+        const params = { type: 'notebook', ref: notebook.short_id, include_content_type: true }
+        try {
+            const page = await fileSystemList(this.projectId, params, { signal: this.signal })
+            const entry = page.results.find((entry) => entry.type === 'notebook' && entry.ref === notebook.short_id)
+            if (!entry) {
+                throw new Error(
+                    'The notebook was created but could not be loaded. Run ph refresh to reload the folder.'
+                )
+            }
+            this.mountEntries([entry], true)
+            return this.mountedFiles.get(this.fileIdentity(entry, '.md'))!
+        } catch (error) {
+            // The notebook exists but is not mounted. Reload the folder on the next lookup so that
+            // a retry finds the notebook instead of creating a duplicate.
+            this.loadedDirectories.delete(parent)
+            throw error
         }
     }
 
@@ -393,6 +468,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
     async confirmOperation(confirmation: TerminalConfirmation): Promise<void> {
         if (this.signal.aborted || !(await this.confirm(confirmation)) || this.signal.aborted) {
             throw new Error('Canceled. No changes made.')
+        }
+    }
+
+    async confirmWrite(confirmation: TerminalConfirmation): Promise<void> {
+        if (this.confirmWrites) {
+            await this.confirmOperation(confirmation)
         }
     }
 
@@ -540,6 +621,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
             // Creating an implicit folder before moving it cannot be rolled back safely when it has children.
             throw new FilesystemError(95)
         }
+        await this.confirmWrite({
+            title: 'Move a PostHog file or folder?',
+            description: `Move or rename an item in project ${this.projectId}. This affects everyone in the project.`,
+            items: [`${this.mountedPath(node)} → /posthog/files/${joinPath(parts)}`],
+        })
         // The generated move body describes a filesystem row, but this action requires new_path.
         await apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(this.projectId, entry.id), {
             method: 'POST',
@@ -707,6 +793,12 @@ export class PosthogFilesystem extends TerminalFilesystem {
                                   description: `Save a deletion to ${entry.type} ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
                                   items: [JSON.stringify(payload, null, 2)],
                               })
+                          } else {
+                              await this.confirmWrite({
+                                  title: 'Save changes to a PostHog object?',
+                                  description: `Update ${entry.type} ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
+                                  items: [JSON.stringify(payload, null, 2)],
+                              })
                           }
                           if (entry.type === 'notebook' && 'content' in payload && !('text_content' in payload)) {
                               const node = markdownNode(payload.content)
@@ -754,6 +846,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 if (markdown === saved) {
                     return
                 }
+                await this.confirmWrite({
+                    title: 'Save changes to a PostHog notebook?',
+                    description: `Update notebook ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
+                    items: [markdown],
+                })
                 notebook = await notebooksPartialUpdate(
                     this.projectId,
                     entry.ref!,
@@ -799,60 +896,6 @@ export class PosthogFilesystem extends TerminalFilesystem {
         return request
     }
 
-    private async loadNotebookIndex(): Promise<Map<string, NotebookMinimalApi>> {
-        if (this.markdownNotebooks) {
-            return this.markdownNotebooks
-        }
-        const notebooks = new Map<string, NotebookMinimalApi>()
-        let offset = 0
-        while (true) {
-            const page = await notebooksList(
-                this.projectId,
-                { contains: 'markdown-notebook', limit: 500, offset },
-                { signal: this.signal }
-            )
-            for (const notebook of page.results) {
-                notebooks.set(notebook.short_id, notebook)
-            }
-            if (!page.next) {
-                break
-            }
-            if (!page.results.length || offset > 50_000) {
-                throw new Error('This notebook index is too large for the terminal experiment.')
-            }
-            offset += page.results.length
-        }
-        this.markdownNotebooks = notebooks
-        return notebooks
-    }
-
-    private async loadSqlIndex(): Promise<Set<string>> {
-        if (this.sqlInsights) {
-            return this.sqlInsights
-        }
-        const insights = new Set<string>()
-        let offset = 0
-        while (true) {
-            const page = await insightsList(
-                this.projectId,
-                { basic: true, insight: 'SQL', limit: 500, offset },
-                { signal: this.signal }
-            )
-            for (const insight of page.results) {
-                insights.add(insight.short_id)
-            }
-            if (!page.next) {
-                break
-            }
-            if (!page.results.length || offset > 50_000) {
-                throw new Error('This SQL insight index is too large for the terminal.')
-            }
-            offset += page.results.length
-        }
-        this.sqlInsights = insights
-        return insights
-    }
-
     private directoryParams(
         node: TerminalNode
     ): FileSystemListParams & { parent?: string; depth?: number; type?: string } {
@@ -874,7 +917,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
         while (true) {
             const page = await fileSystemList(
                 this.projectId,
-                { ...params, limit: 500, offset },
+                { ...params, include_content_type: true, limit: 500, offset },
                 { signal: this.signal }
             )
             entries.push(...page.results)
@@ -890,13 +933,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
 
     private async loadDirectory(node: TerminalNode): Promise<void> {
         const entries = await this.directoryEntries(this.directoryParams(node))
-        if (entries.some((entry) => entry.type === 'insight')) {
-            await this.loadSqlIndex()
-        }
-        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
-            ? await this.loadNotebookIndex()
-            : (this.markdownNotebooks ?? new Map<string, NotebookMinimalApi>())
-        this.mountEntries(entries, markdownNotebooks, true)
+        this.mountEntries(entries, true)
         this.loadedDirectories.add(node)
     }
 
@@ -937,16 +974,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
         for (const entry of refreshed.values()) {
             merged.set(entry.id, entry)
         }
-        this.markdownNotebooks = undefined
-        this.sqlInsights = undefined
-        const entries = [...merged.values()]
-        if (entries.some((entry) => entry.type === 'insight')) {
-            await this.loadSqlIndex()
-        }
-        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
-            ? await this.loadNotebookIndex()
-            : new Map<string, NotebookMinimalApi>()
-        this.mountEntries(entries, markdownNotebooks)
+        this.mountEntries([...merged.values()])
         for (const node of directories) {
             if (!node.removed) {
                 this.loadedDirectories.add(node)
@@ -960,11 +988,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
         return request
     }
 
-    private mountEntries(
-        entries: FileSystemApi[],
-        markdownNotebooks: Map<string, NotebookMinimalApi>,
-        incremental = false
-    ): void {
+    private mountEntries(entries: FileSystemApi[], incremental = false): void {
         entries.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id))
         const previousNodes = incremental ? new Set<TerminalNode>() : this.mountedNodes()
         const directories = new Map(
@@ -987,11 +1011,22 @@ export class PosthogFilesystem extends TerminalFilesystem {
             this.mountApiDirectories(directories)
         } else {
             for (const entry of entries) {
-                const extension = this.extension(entry, markdownNotebooks)
-                const existing = files.get(this.fileIdentity(entry, extension))
-                if (existing) {
+                const extension = this.extension(entry)
+                // A content-type change gives the entry a new extension, so the node under the old
+                // extension is not reused below and must be retired here to avoid a stale duplicate.
+                for (const candidate of ['.md', '.sql', '.json']) {
+                    const identity = this.fileIdentity(entry, candidate)
+                    const existing = files.get(identity)
+                    if (!existing) {
+                        continue
+                    }
                     existing.parent!.children!.delete(existing.name)
                     this.references.delete(this.mountedPath(existing))
+                    if (candidate !== extension) {
+                        files.delete(identity)
+                        this.projectNodes.delete(existing)
+                        existing.removed = true
+                    }
                 }
             }
         }
@@ -1004,11 +1039,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
                 continue
             }
-            const notebook = entry.type === 'notebook' ? markdownNotebooks.get(entry.ref ?? '') : undefined
             const parts = splitPath(entry.path)
             const basename = terminalFilename(parts.pop() ?? 'Untitled')
             const parent = this.parent(parts, this.files, directories)
-            const extension = this.extension(entry, markdownNotebooks)
+            const extension = this.extension(entry)
             let name = basename.endsWith(extension) ? basename : `${basename}${extension}`
             if (parent.children!.has(name)) {
                 name = `${basename}~${entry.id}${extension}`
@@ -1017,15 +1051,13 @@ export class PosthogFilesystem extends TerminalFilesystem {
             while (parent.children!.has(name)) {
                 name = `${basename}~${entry.id}-${duplicate++}${extension}`
             }
-            const access = notebook?.user_access_level ?? entry.user_access_level
+            const access = entry.user_access_level
             const writable =
-                !!this.objectApi(entry) &&
-                entry.user_access_level !== 'viewer' &&
-                (access === null || ['editor', 'manager'].includes(access ?? ''))
+                !!this.objectApi(entry) && (access === null || ['editor', 'manager'].includes(access ?? ''))
             const file = this.mountFile(
                 name,
                 parent,
-                notebook
+                extension === '.md'
                     ? (signal) => this.notebook(entry, signal)
                     : (signal) => this.document(entry, writable, signal, extension === '.sql'),
                 writable,
@@ -1069,10 +1101,17 @@ export class PosthogFilesystem extends TerminalFilesystem {
         return JSON.stringify([entry.id, entry.type, entry.ref, extension])
     }
 
-    private extension(entry: FileSystemApi, notebooks: Map<string, NotebookMinimalApi>): string {
-        return entry.type === 'notebook' && notebooks.has(entry.ref ?? '')
+    private extension(entry: FileSystemApi): string {
+        if (!this.validReference(entry)) {
+            return '.json'
+        }
+        const contentType =
+            entry.meta && typeof entry.meta === 'object' && 'content_type' in entry.meta
+                ? entry.meta.content_type
+                : undefined
+        return entry.type === 'notebook' && contentType === 'text/markdown'
             ? '.md'
-            : entry.type === 'insight' && this.sqlInsights?.has(entry.ref ?? '')
+            : entry.type === 'insight' && contentType === 'application/sql'
               ? '.sql'
               : '.json'
     }

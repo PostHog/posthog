@@ -144,7 +144,6 @@ tools:
         exclude_params:
             - limit
             - offset
-        feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/overview
         response:
             exclude:
@@ -286,7 +285,6 @@ tools:
                     project, which is the default and the right choice for most questions. Set it only when an
                     organization has enough projects that the full response is unwieldy, and say so in your answer,
                     because a limited response names only the largest spenders.
-        feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/spend
         response:
             informational_wrapper:
@@ -463,7 +461,6 @@ tools:
                 description: >
                     The `next` cursor from the previous page. Opaque - do not construct one. Omit it for the first page,
                     and stop when a response comes back with `next` null.
-        feature_flag: billing-mcp-read-tools
         url_prefix: /organization/billing/usage
         response:
             informational_wrapper:

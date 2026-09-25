@@ -6,9 +6,119 @@
             "type": "number"
         },
         "widgets": {
-            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
+            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
             "items": {
                 "anyOf": [
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the notebook widget widget.",
+                                "properties": {
+                                    "notebookShortId": {
+                                        "anyOf": [
+                                            {
+                                                "maxLength": 128,
+                                                "minLength": 1,
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Source notebook short ID."
+                                    },
+                                    "snapshotId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
+                                "type": "string"
+                            },
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["notebook_widget"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
+                    },
                     {
                         "properties": {
                             "config": {

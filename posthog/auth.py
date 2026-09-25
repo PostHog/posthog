@@ -1576,7 +1576,11 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Webhook integration not found or disabled.")
 
         django_request = getattr(request, "_request", request)
-        raw_body = django_request.body.decode()
+        try:
+            raw_body = django_request.body.decode()
+        except UnicodeDecodeError:
+            # The signed input is text, so a body that is not UTF-8 cannot carry a valid signature.
+            raise AuthenticationFailed("Invalid webhook signature.")
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
         expected = hmac_sha256_signature(signing_secret, hmac_input.encode())

@@ -36,7 +36,6 @@ import { getChartAlternatives } from './chartRecommendations'
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
 
 export interface ChartAlternativesLogicProps extends InsightLogicProps {
-    editMode?: boolean
     embedded: boolean
     inSharedMode?: boolean
 }
@@ -52,7 +51,6 @@ export interface chartAlternativesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     canEditInsight: boolean // insightLogic
     editingDisabledReason: null // insightLogic
-    isInDashboardContext: boolean // insightLogic
     display: ChartDisplayType | null | undefined // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
     isSingleSeriesOutput: boolean // insightVizDataLogic
@@ -75,7 +73,6 @@ export interface chartAlternativesLogicValues {
     canShowAlternatives: boolean
     currentDisplay: ChartDisplayType
     currentOption: ChartDisplayOption | undefined
-    editMode: boolean | undefined
     embedded: boolean
     galleryOpen: boolean
     inSharedMode: boolean | undefined
@@ -119,7 +116,6 @@ export interface chartAlternativesLogicActions {
 export interface chartAlternativesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        editMode: (arg: any) => boolean | undefined
         embedded: (arg: any) => boolean
         inSharedMode: (arg: any) => boolean | undefined
         currentDisplay: (display: ChartDisplayType | null | undefined) => ChartDisplayType
@@ -148,14 +144,7 @@ export interface chartAlternativesLogicMeta {
             options: ChartDisplayOptionGroup[],
             currentDisplay: ChartDisplayType
         ) => ChartDisplayOption | undefined
-        isEditableSurface: (
-            editMode: boolean | undefined,
-            embedded: boolean,
-            inSharedMode: boolean | undefined,
-            isInDashboardContext: boolean,
-            canEditInsight: boolean,
-            editingDisabledReason: null
-        ) => boolean
+        isEditableSurface: (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean) => boolean
         canShowAlternatives: (
             featureFlags: FeatureFlagsSet,
             isEditableSurface: boolean,
@@ -188,7 +177,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             insightLogic(props),
-            ['canEditInsight', 'editingDisabledReason', 'isInDashboardContext'],
+            ['canEditInsight', 'editingDisabledReason'],
             insightVizDataLogic(props),
             ['display', 'insightDataLoading', 'isSingleSeriesOutput', 'isTrends', 'query', 'querySource', 'series'],
         ],
@@ -212,7 +201,6 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         ],
     }),
     selectors({
-        editMode: [() => [(_, props) => props.editMode], (editMode: boolean | undefined) => editMode],
         embedded: [() => [(_, props) => props.embedded], (embedded: boolean) => embedded],
         inSharedMode: [() => [(_, props) => props.inSharedMode], (inSharedMode: boolean | undefined) => inSharedMode],
         currentDisplay: [
@@ -266,28 +254,9 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 optionForDisplay(options, currentDisplay),
         ],
         isEditableSurface: [
-            (s) => [
-                s.editMode,
-                s.embedded,
-                s.inSharedMode,
-                s.isInDashboardContext,
-                s.canEditInsight,
-                s.editingDisabledReason,
-            ],
-            (
-                editMode: boolean | undefined,
-                embedded: boolean,
-                inSharedMode: boolean | undefined,
-                isInDashboardContext: boolean,
-                canEditInsight: boolean,
-                editingDisabledReason: null
-            ): boolean =>
-                !!editMode &&
-                !embedded &&
-                !inSharedMode &&
-                !isInDashboardContext &&
-                canEditInsight &&
-                !editingDisabledReason,
+            (s) => [s.embedded, s.inSharedMode, s.canEditInsight],
+            (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean): boolean =>
+                !embedded && !inSharedMode && canEditInsight,
         ],
         canShowAlternatives: [
             (s) => [s.featureFlags, s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
@@ -298,7 +267,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 query: Node | null,
                 trendsSource: TrendsQuery | null
             ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test' &&
                 isEditableSurface &&
                 isTrends &&
                 !!query &&

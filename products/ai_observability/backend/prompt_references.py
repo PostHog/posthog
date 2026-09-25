@@ -101,7 +101,12 @@ def get_active_references_to(team_id: int, child_name: str) -> list[dict[str, An
 
 
 def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
-    """Prompts whose latest or labeled version references `prompt_name` through this label."""
+    """Prompts whose latest or labeled version references `prompt_name` through this label.
+
+    Capped like its siblings: the names end up in error messages and dialogs,
+    and existence checks stay correct because over the cap still means
+    "referenced".
+    """
     return sorted(
         LLMPromptDependency.objects.filter(
             team_id=team_id, child_name=prompt_name, child_label=label_name, prompt__deleted=False
@@ -110,6 +115,7 @@ def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_n
         .exclude(parent_name=prompt_name)
         .values_list("parent_name", flat=True)
         .distinct()
+        .order_by("parent_name")[:MAX_ACTIVE_REFERENCE_RESULTS]
     )
 
 

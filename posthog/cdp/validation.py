@@ -16,7 +16,15 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import TEMPLATE_CALLABLES, TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    DATA_WAREHOUSE_SOURCES,
+    FILTER_FUNCTIONS,
+    RUNTIME_CONTRACT,
+    TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    compile_filters_bytecode,
+    compile_filters_expr,
+)
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -210,6 +218,7 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogSendTicketMessage")
 register_supported_function("postHogGetAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
@@ -284,6 +293,9 @@ class TemplateGlobalsValidator(TraversingVisitor):
     """
 
     invalid_globals: set[str]
+    # Calls the Node runtime would refuse for their argument count, as messages. Only checked for
+    # names the runtime table knows, so a name it does not know is left to the globals check.
+    invalid_calls: list[str]
 
     def __init__(
         self,
@@ -295,6 +307,7 @@ class TemplateGlobalsValidator(TraversingVisitor):
     ):
         super().__init__()
         self.invalid_globals = set()
+        self.invalid_calls = []
         self._python_stl = python_stl
         self._declared: set[str] = set()
         self._available_globals = (
@@ -326,6 +339,20 @@ class TemplateGlobalsValidator(TraversingVisitor):
         ):
             return
         self.invalid_globals.add(root)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        if self._python_stl or node.name in self._declared:
+            return
+        arity = FILTER_FUNCTIONS.get(node.name)
+        if arity is None:
+            return
+        minimum, maximum = arity
+        count = len(node.args)
+        if count < minimum:
+            self.invalid_calls.append(f"{node.name} needs at least {minimum} argument(s), got {count}")
+        elif maximum is not None and count > maximum:
+            self.invalid_calls.append(f"{node.name} takes at most {maximum} argument(s), got {count}")
 
 
 class DeclaredNamesCollector(TraversingVisitor):
@@ -514,6 +541,10 @@ def generate_template_bytecode(
                     f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
                     f"also variables."
                 )
+            if template_validator.invalid_calls:
+                raise Exception(
+                    "This template would fail on every event: " + "; ".join(template_validator.invalid_calls)
+                )
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -630,6 +661,7 @@ class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
+    bytecode_contract = serializers.CharField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
 
@@ -813,6 +845,7 @@ class InputsItemSerializer(serializers.Serializer):
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
+                            attrs.pop("bytecode_contract", None)
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
@@ -823,6 +856,7 @@ class InputsItemSerializer(serializers.Serializer):
                                 validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
+                            attrs["bytecode_contract"] = RUNTIME_CONTRACT
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
@@ -952,11 +986,6 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
-# Filter sources whose rows come from the warehouse rather than from events: one invocation per
-# row, with the row under `event.properties` and no person attached.
-DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
-
-
 def _contains_behavioral_property(filters: dict) -> bool:
     """Behavioral ("performed event") property filters compile to a ClickHouse subquery over events
     history, which realtime function filters (bytecode per-event, or JS transpiled into the browser)
@@ -986,6 +1015,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    bytecode_contract = serializers.CharField(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -998,6 +1028,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        # The compiler writes the stamp below, so a value a client echoes back is never kept.
+        data.pop("bytecode_contract", None)
 
         if _contains_behavioral_property(data):
             raise serializers.ValidationError(
@@ -1060,6 +1093,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
 
         if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            # A row filter is compiled against its entry's table name, so without one it matches nothing.
+            # Checked before the placeholder is dropped, or a filter on the placeholder would vanish silently.
+            if any(
+                entry.get("properties") and (not entry.get("table_name") or entry.get("name") == "Select a table")
+                for entry in data["data_warehouse"]
+            ):
+                raise serializers.ValidationError({"data_warehouse": "Pick a table for each row filter."})
             data["data_warehouse"] = [
                 entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
             ]

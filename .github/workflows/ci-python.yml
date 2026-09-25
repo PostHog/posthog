@@ -508,6 +508,10 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
+                  # So `HEAD^1` (the pull request's base commit) resolves below, letting
+                  # the ratchet tell a builder a schema change merely exposed apart from
+                  # one this branch actually added.
+                  fetch-depth: 2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -522,6 +526,8 @@ jobs:
 
             # Skip on unrebased branches: the command may not be registered yet.
             - name: Ratchet product paths in lib/api.ts
+              env:
+                  API_RATCHET_BASE: HEAD^1
               run: |
                   if [ ! -f tools/hogli-commands/hogli_commands/api_ratchet.py ]; then
                       echo "hogli lint:api-ratchet not present on this branch yet — skipping (rebase to pick it up)"
