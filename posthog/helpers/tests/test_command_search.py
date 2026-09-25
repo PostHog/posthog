@@ -3,10 +3,10 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-import requests
+import httpx
 from parameterized import parameterized
 
-from posthog.helpers.command_search import COMMAND_SEARCH_MODEL, CommandSearch, SearchCandidate
+from posthog.helpers.command_search import COMMAND_SEARCH_MODEL, CommandSearch, SearchCandidate, _transport
 
 
 @override_settings(
@@ -38,12 +38,20 @@ class TestCommandSearchRanking(SimpleTestCase):
         self.lease = patch("posthog.helpers.command_search.get_client").start()
         self.addCleanup(patch.stopall)
 
+    @parameterized.expand([(True,), (False,)])
     @patch("posthog.helpers.command_search._transport.session.post")
-    def test_rank_cache_is_scoped_to_user_team_query_and_candidates(self, infer: MagicMock) -> None:
+    def test_rank_cache_is_scoped_to_user_team_query_and_candidates(self, typed: bool, infer: MagicMock) -> None:
         infer.return_value.status_code = 200
         infer.return_value.json.return_value = {
             "model": "jevk5-fp8-0.2",
-            "answers": {"match": {"type": "choice", "probabilities": {"0": 0.2, "1": 0.7, "none": 0.1}}},
+            "answers": {
+                "match": {
+                    **({"type": "choice"} if typed else {}),
+                    "choice": "1",
+                    "confidence": 0.7,
+                    "probabilities": {"0": 0.2, "1": 0.7, "none": 0.1},
+                }
+            },
         }
         for _ in range(2):
             result = CommandSearch.rank("checkout", self.candidates, team_id=1, user_id=1)
@@ -54,8 +62,10 @@ class TestCommandSearchRanking(SimpleTestCase):
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test-only-gateway-key")
         self.assertEqual(kwargs["headers"]["X-PostHog-Product"], "command_search")
         self.assertEqual(kwargs["headers"]["X-PostHog-Distinct-Id"], "team-1")
-        self.assertEqual(kwargs["timeout"], (0.3, 0.8))
-        self.assertFalse(kwargs["allow_redirects"])
+        self.assertEqual(_transport.session.timeout, httpx.Timeout(0.8, connect=0.3))
+        self.assertFalse(_transport.session.trust_env)
+        self.assertFalse(_transport.session.is_closed)
+        self.assertFalse(kwargs["follow_redirects"])
         self.assertEqual(kwargs["json"]["model"], COMMAND_SEARCH_MODEL)
         self.assertEqual(kwargs["json"]["state"]["query"], "checkout")
         self.assertEqual(
@@ -76,8 +86,8 @@ class TestCommandSearchRanking(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (requests.Timeout(),),
-            (requests.ConnectionError(),),
+            (httpx.ReadTimeout("test timeout"),),
+            (httpx.ConnectError("test connection error"),),
             (ValueError("Invalid JSON"),),
         ]
     )
@@ -97,10 +107,18 @@ class TestCommandSearchRanking(SimpleTestCase):
             (503, {}),
             (302, {}),
             (200, {}),
-            (200, {"answers": {"match": {"type": "choice", "probabilities": {"0": 0.9}}}}),
             *[
-                (200, {"answers": {"match": {"type": "choice", "probabilities": {"0": score, "1": 0.2, "none": 0.1}}}})
-                for score in [True, "0.7", -0.1, float("nan"), float("inf")]
+                (
+                    200,
+                    {
+                        "model": COMMAND_SEARCH_MODEL,
+                        "answers": {"match": {"choice": "0", "confidence": 0.7, "probabilities": probabilities}},
+                    },
+                )
+                for probabilities in [
+                    {"0": 0.9},
+                    *[{"0": score, "1": 0.2, "none": 0.1} for score in [True, "0.7", -0.1, float("nan"), float("inf")]],
+                ]
             ],
         ]
     )
@@ -113,6 +131,20 @@ class TestCommandSearchRanking(SimpleTestCase):
         self.assertEqual(CommandSearch.rank("checkout", self.candidates, team_id=1, user_id=1), self.candidates[:1])
         CommandSearch.rank("watch", self.candidates, team_id=1, user_id=2)
         infer.assert_called_once()
+
+    @parameterized.expand([("http://gateway.example.com/v1",), ("",)])
+    @patch("posthog.llm.system_one_client.system_one")
+    @patch("posthog.helpers.command_search._transport.session.post")
+    @patch("posthog.helpers.command_search.posthoganalytics.feature_enabled", return_value=True)
+    def test_unusable_gateway_never_sends_credentials_or_uses_typesafe(
+        self, url: str, evaluate_flag: MagicMock, infer: MagicMock, typesafe: MagicMock
+    ) -> None:
+        with self.settings(AI_GATEWAY_URL=url, TYPESAFE_API_KEY="test-only-typesafe-key"):
+            self.assertFalse(CommandSearch.enabled(MagicMock(), MagicMock()))
+            self.assertEqual(CommandSearch.rank("checkout", self.candidates, team_id=1, user_id=1), self.candidates[:1])
+        evaluate_flag.assert_not_called()
+        infer.assert_not_called()
+        typesafe.assert_not_called()
 
     @patch("posthog.helpers.command_search._transport.session.post")
     def test_overlapping_requests_skip_inference(self, infer: MagicMock) -> None:
@@ -150,12 +182,15 @@ class TestCommandSearchRanking(SimpleTestCase):
         candidates.append(self.candidates[0])
         infer.return_value.status_code = 200
         infer.return_value.json.return_value = {
+            "model": COMMAND_SEARCH_MODEL,
             "answers": {
                 "match": {
                     "type": "choice",
+                    "choice": "0",
+                    "confidence": 0.9,
                     "probabilities": {**{str(index): 0.0 for index in range(15)}, "0": 0.9, "none": 0.1},
                 }
-            }
+            },
         }
         self.assertEqual(CommandSearch.rank("chekout", candidates, team_id=1, user_id=1), self.candidates[:1])
         body = infer.call_args.kwargs["json"]

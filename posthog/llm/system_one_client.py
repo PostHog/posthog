@@ -8,6 +8,7 @@ its own, and the result says which model answered.
 """
 
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import field
 from urllib.parse import urlparse, urlunparse
 
@@ -58,18 +59,26 @@ class GatewaySystemOneClient:
     model: str
     timeout: float
 
-    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+    def decide(
+        self, *, state: JsonValue, questions: Mapping[str, Question], http_client: httpx.Client | None = None
+    ) -> SystemOneResult:
         if not 1 <= len(questions) <= GATEWAY_MAX_QUESTIONS:
             raise ValueError(f"A System One request needs between 1 and {GATEWAY_MAX_QUESTIONS} questions")
         for question_id, question in questions.items():
             if isinstance(question, ChoiceQuestion) and len(question.criteria) > GATEWAY_MAX_CHOICE_OPTIONS:
                 raise ValueError(f"{question_id!r} has more than {GATEWAY_MAX_CHOICE_OPTIONS} options")
         try:
-            with httpx.Client(trust_env=False, timeout=self.timeout) as client:
+            # A supplied client owns its connection pool, timeout policy, and lifetime.
+            with (
+                nullcontext(http_client)
+                if http_client is not None
+                else httpx.Client(trust_env=False, timeout=self.timeout) as client
+            ):
                 response = client.post(
                     self.url,
                     json=build_system_one_body(state=state, questions=questions, model=self.model),
                     headers={**self.headers, "Authorization": f"Bearer {self.api_key}"},
+                    follow_redirects=False,
                 )
         except httpx.HTTPError as exc:
             raise SystemOneRequestFailed(f"The ai-gateway was not reached: {exc.__class__.__name__}") from exc

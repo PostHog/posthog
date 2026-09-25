@@ -1,4 +1,4 @@
-import { commandDescriptions, commandExamples } from 'lib/components/Search/commandDescriptions'
+import { commandExamples } from 'lib/components/Search/commandDescriptions'
 
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
@@ -6,9 +6,9 @@ import { sidebarToolMeta } from '../../sidebarToolMeta'
 import { appsItemName } from './appsCatalog'
 
 export function NavAppTooltip({ item }: { item: FileSystemImport }): JSX.Element {
-    const description = commandDescriptions[item.path] ?? sidebarToolMeta(item).description
-    const example = commandExamples[item.path]
     const isGroup = item.iconType === 'group' || item.iconType?.startsWith('group_') || item.type?.startsWith('group_')
+    const description = sidebarToolMeta(item).description
+    const example = isGroup ? undefined : commandExamples[item.path]
     return (
         <div className="w-72 max-w-full p-1 text-left whitespace-normal">
             <div className="text-sm font-semibold mb-2">{appsItemName(item)}</div>

@@ -450,7 +450,7 @@ function SearchRoot({
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
         const normalizedQuery = searchValue.trim().toLowerCase()
         if (
-            !isSearching &&
+            !(useRankedSearch && isSearching) &&
             normalizedQuery &&
             SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))
         ) {

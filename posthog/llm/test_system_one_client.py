@@ -117,6 +117,20 @@ class TestBuildSystemOneClient(SimpleTestCase):
             "team": ChoiceAnswer(choice="billing", confidence=0.7, probabilities={"billing": 0.7, "support": 0.3}),
         }
 
+    def test_supplied_http_client_keeps_its_pool_and_timeout_policy(self) -> None:
+        with override_settings(**{**NOTHING, **GATEWAY}):
+            client = _build()
+        assert isinstance(client, GatewaySystemOneClient)
+        with httpx.Client(trust_env=False, timeout=httpx.Timeout(0.8, connect=0.3)) as http_client:
+            with patch.object(http_client, "send", return_value=httpx.Response(200, json=ANSWERS)) as send:
+                for _ in range(2):
+                    assert client.decide(state="x", questions=QUESTIONS, http_client=http_client).model == GATEWAY_MODEL
+                    assert not http_client.is_closed
+            assert send.call_count == 2
+            request: httpx.Request = send.call_args.args[0]
+            assert request.extensions["timeout"] == {"connect": 0.3, "read": 0.8, "write": 0.8, "pool": 0.8}
+            assert send.call_args.kwargs["follow_redirects"] is False
+
     @parameterized.expand(
         [
             ("http_error", httpx.Response(404, json={"error": "not found"}), 404),

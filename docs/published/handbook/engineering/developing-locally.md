@@ -189,12 +189,13 @@ If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced 
 ### Trying command palette ranking
 
 Cmd+k can rank commands and files with Jev through Django.
-Set `AI_GATEWAY_URL` to your region's gateway base URL, including `/v1`, and `AI_GATEWAY_API_KEY` to a gateway credential with the `llm_gateway:read` scope in `.env.local`.
+Set `AI_GATEWAY_URL` to your region's HTTPS gateway base URL, including `/v1`, and `AI_GATEWAY_API_KEY` to a gateway credential with the `llm_gateway:read` scope in `.env.local`.
 Enable the `command-search-jev` flag for the user.
 The backend evaluates the flag locally, so the analytics SDK must have its local feature flag definitions available.
 Ranking calls the configured AI gateway's `/v1/systemone` endpoint with `posthog/hogference/jevk5-fp8-0.2`.
 The shared gateway credential owns billing; the `command_search` product header and team distinct ID attribute usage.
 Missing or invalid gateway configuration keeps the existing search active.
+The shared System One client permits plain HTTP only for loopback development gateways and never falls back to TypeSafe for command search.
 
 The browser sends the search text and available command metadata; it does not fetch or upload a project's files for ranking.
 Django retrieves up to 48 newest files, 48 files created by the current user, and 32 path text matches, within the current team and web surface.
@@ -208,8 +209,10 @@ File bodies and arbitrary file metadata are excluded.
 Typing waits 200 milliseconds before starting a request.
 The palette displays one completed result set and discards superseded responses.
 Rankings are cached for 30 seconds; provider failures and exhausted budgets fall back to text matches without a later rerank.
-Each user can trigger at most 120 inference requests per minute, with identical in-flight requests coalesced.
+Each user can trigger at most 120 inference requests per minute.
+An identical request already in flight returns text matches immediately instead of waiting for the ranked response or making another gateway call.
 The request uses a 300-millisecond connection timeout and an 800-millisecond read timeout, reuses HTTP connections, and does not retry or follow redirects.
+Gateway requests ignore environment proxy settings.
 States larger than 60 KB skip inference, and gateway failures open a shared 30-second cooldown.
 A denied or failed ranking request restores the existing search for that team while the palette is mounted.
 An empty ranking also uses the existing search, including people, groups, accounts, tickets, and playlists.

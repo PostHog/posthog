@@ -2707,6 +2707,12 @@ class TestCommandSearch(APIBaseTest):
                 href="/insights/matched",
                 shortcut=True,
             )
+        root_files = [
+            FileSystem.objects.create(
+                team=self.team, path=path, type="insight", ref=f"root-{index}", href=f"/insights/root-{index}"
+            )
+            for index, path in enumerate(["/", "////", ""])
+        ]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         FileSystem.objects.create(
             team=other_team, path="Checkout private", type="insight", ref="private", href="/insights/private"
@@ -2736,6 +2742,8 @@ class TestCommandSearch(APIBaseTest):
         ids = {item["id"] for item in results}
         self.assertIn(f"file:{owned.pk}", ids)
         self.assertIn(f"file:{matched.pk}", ids)
+        for file in root_files:
+            self.assertEqual(next(item["name"] for item in results if item["id"] == f"file:{file.pk}"), "insight")
         self.assertLessEqual(len(results), 254)
         self.assertEqual(sum(bool(item["command_id"]) for item in results), 126)
         self.assertNotIn("Checkout private", [item["name"] for item in results])
