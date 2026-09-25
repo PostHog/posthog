@@ -118,7 +118,8 @@ class CheckInput:
     error_message: str | None = None
     is_transient_error: bool = False
     # A mute the machine cannot see for itself, such as a schedule restriction the source
-    # resolves against the team's timezone.
+    # resolves against the team's timezone. Read only under `mute_gates_notification_only`, so a
+    # source that sets it against another policy is silently unmuted.
     muted: bool = False
 
 
@@ -186,8 +187,7 @@ def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
     )
 
 
-# A mute is about the alert's condition, not its health. BROKEN also stops future checks,
-# so an announcement held here would never be released by a later check.
+# A mute is about the alert's condition, not its health.
 _MUTABLE_NOTIFICATIONS = frozenset({NotificationAction.FIRE, NotificationAction.RESOLVE})
 
 
@@ -243,13 +243,15 @@ def evaluate_alert_check(
             return _stay(snapshot)
 
     if check.error_message is not None:
-        failure = evaluate_alert_failure(
+        # Not muted: a failure announces ERROR or BROKEN, which describe the alert's health rather
+        # than its condition, and BROKEN stops further checks so a held announcement would never
+        # be released.
+        return evaluate_alert_failure(
             snapshot,
             error_message=check.error_message,
             is_transient_error=check.is_transient_error,
             policy=policy,
         )
-        return _muted(failure) if muted else failure
 
     if check.is_inconclusive:
         return AlertCheckOutcome(
