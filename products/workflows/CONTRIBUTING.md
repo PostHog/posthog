@@ -342,6 +342,18 @@ For anything emitted after the run has ended — a webhook, a callback — the v
 
 Building a version picker? The list of versions that have metrics is `{flow.version} ∪ {revision versions}`, not just the revisions endpoint. A workflow that has never been edited has zero `HogFlowRevision` rows but still reports metrics under `<flow id>/1`.
 
+## Pushing a workflow from CI
+
+A CI job that pushes a workflow definition authenticates with the project's secret API key (`phs_...`, sent as `Authorization: Bearer`), not with a personal API key.
+A personal key stops working when its owner leaves the project; the project key does not.
+Mint the key in project settings and give it the `hog_flow:write` scope.
+A job that only compares the file against the project needs `hog_flow:read`.
+The `hog_flows` endpoint accepts the key for `list`, `retrieve`, `create`, `update` and `partial_update` only.
+Through `create` and `update` the key can do what a personal key with `hog_flow:write` can: set `status`, so it can activate or archive a workflow, and replace the live graph of an active workflow when the request does not send `stage_draft`.
+The delete, bulk delete, publish, discard, restore and invocation actions refuse it.
+A write made with the key has no user behind it: `created_by` is null on the workflow and on its revisions, and the activity log records a system row whose trigger names the key by label.
+A workflow the key creates cannot contain a "Create AI task" step, because that step runs as the workflow's creator.
+
 ## Common pitfalls
 
 - **Forgot the side-effect import**: triggers/actions must be imported by their `index.ts`, and async functions must be imported by nodejs/src/cdp/async-functions/index.ts.

@@ -70,8 +70,8 @@ from posthog.api.hog_invocation_results import (
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import log_activity_from_viewset
-from posthog.auth import InternalAPIAuthentication
+from posthog.api.utils import ACTIVITY_TYPES, log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
@@ -83,7 +83,8 @@ from posthog.cdp.validation import (
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Detail, Trigger, changes_between, log_activity
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -95,6 +96,7 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -313,7 +315,7 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
+def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache"] = None) -> dict:
     snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
     # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
@@ -323,8 +325,9 @@ def snapshot_flow_content(flow: HogFlow) -> dict:
             snapshot[field] = []
     # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
+    # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
+    # snapshot, so resolve each template once rather than once per action.
+    return strip_content_secrets(snapshot, {} if template_cache is None else template_cache)
 
 
 # --- Secret function-action inputs -------------------------------------------------------------
@@ -1200,9 +1203,12 @@ class HogFlowActionSerializer(serializers.Serializer):
     id = serializers.CharField(max_length=200, help_text="Unique node ID within the workflow.")
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
+    # Optional action keys carry default=None so a create stores the same keys the response echoes.
+    # Otherwise the editor's first resave of a new workflow compares unequal and bumps a phantom v2.
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
+        default=None,
         allow_null=True,
         help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
@@ -1282,6 +1288,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     output_variable = serializers.JSONField(
         required=False,
+        default=None,
         allow_null=True,
         help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
@@ -1353,6 +1360,13 @@ class HogFlowActionSerializer(serializers.Serializer):
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
         limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        request = self.context.get("request")
+        if self.context.get("workflow_owner_id") is None and isinstance(getattr(request, "user", None), SyntheticUser):
+            raise serializers.ValidationError(
+                "A workflow created with a project secret API key cannot contain a Create AI task step, because "
+                "the step runs as the workflow's creator and the key has no user. Create the workflow with a "
+                "personal API key or in the app, then push updates with the project key."
+            )
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
@@ -3371,7 +3385,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
         team_id = self.context["team_id"]
-        validated_data["created_by"] = request.user
+        validated_data["created_by"] = _actor(request)
         validated_data["team_id"] = team_id
         self._strip_secret_inputs(validated_data)
 
@@ -3894,6 +3908,34 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
+PSAK_TRIGGER_JOB_TYPE = "project_secret_api_key"
+
+
+def _actor(request: Request) -> Optional[User]:
+    user = request.user
+    return user if isinstance(user, User) else None
+
+
+class HogFlowBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "burst"
+    rate = "480/minute"
+
+
+class HogFlowSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class HogFlowProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "hog_flow_psak_team_burst"
+    rate = "480/minute"
+
+
+class HogFlowProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "hog_flow_psak_team_sustained"
+    rate = "4800/hour"
+
+
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
 # with style and script blocks and tags removed, so CSS, script and markup never match a search term.
 # The block patterns start with a non-greedy quantifier because Postgres gives a whole regex the
@@ -4075,6 +4117,14 @@ class HogFlowViewSet(
     pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["list", "retrieve", "create", "update", "partial_update"]
+    throttle_classes = [
+        HogFlowBurstRateThrottle,
+        HogFlowSustainedRateThrottle,
+        HogFlowProjectSecretApiKeyTeamBurstThrottle,
+        HogFlowProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
@@ -4366,6 +4416,42 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
+    def _log_activity(
+        self,
+        instance: HogFlow,
+        *,
+        activity: Optional[str] = None,
+        previous: Optional[HogFlow] = None,
+        detail_type: Optional[str] = None,
+    ) -> None:
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+            log_activity_from_viewset(
+                self, instance, activity=activity, name=instance.name, previous=previous, detail_type=detail_type
+            )
+            return
+        psak = authenticator.project_secret_api_key
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(instance.id),
+                scope="HogFlow",
+                activity=activity or ACTIVITY_TYPES.get(self.action, ACTIVITY_TYPES["default"]),
+                detail=Detail(
+                    name=instance.name,
+                    type=detail_type,
+                    changes=changes_between("HogFlow", previous=previous, current=instance)
+                    if previous is not None
+                    else None,
+                    trigger=Trigger(job_type=PSAK_TRIGGER_JOB_TYPE, job_id=psak.id, payload={"label": psak.label}),
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to write workflow activity for a project secret API key", flow_id=instance.id)
+
     def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
         # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
@@ -4393,8 +4479,12 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
+        with transaction.atomic():
+            serializer.save()
+            # A new workflow is already version 1, so its history starts here. Without this snapshot
+            # the history stays empty until the first content edit.
+            self._append_revision(serializer.instance, created_by=_actor(self.request))
+        self._log_activity(serializer.instance, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
         self._report_workflow_action(
@@ -4535,7 +4625,7 @@ class HogFlowViewSet(
         if not route_to_draft:
             self._maybe_reschedule_timing_edits(before_update, serializer.instance)
             self._pause_schedules_on_audience_change(before_update, serializer.instance)
-        log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
+        self._log_activity(serializer.instance, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
         # PostHog capture for hog_flow activated (draft -> active)
@@ -4559,7 +4649,7 @@ class HogFlowViewSet(
         # usage event fires only after commit. delete() nulls the pk, so stash it for the event.
         flow_id = instance.id
         with transaction.atomic():
-            log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
+            self._log_activity(instance, activity="deleted")
             instance.delete()
         instance.id = flow_id
         self._report_workflow_action("hog_flow_deleted", instance, {"via": "destroy"})
@@ -4600,23 +4690,21 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before creates wrote revisions has no rows yet: on its first tracked write, also snapshot
+        # the outgoing live content so the state before any tracked change is always available to
+        # roll back to (there's no backfill).
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=_actor(self.request))
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content=snapshot_flow_content(flow),
+            created_by=created_by,
         )
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
@@ -5521,7 +5609,9 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
