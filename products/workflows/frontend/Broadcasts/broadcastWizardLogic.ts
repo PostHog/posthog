@@ -21,6 +21,7 @@ import {
     hogFlowsPartialUpdate,
     hogFlowsRetrieve,
     hogFlowsSchedulesCreate,
+    hogFlowsSchedulesPartialUpdate,
     hogFlowsUserBlastRadiusCreate,
 } from 'products/workflows/frontend/generated/api'
 import type {
@@ -808,7 +809,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
                         timezone: values.effectiveTimezone,
                     }
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    // A workflow shown as a broadcast can already carry a schedule. A second one would
+                    // fire alongside it and send twice. Saving new audience filters pauses it, and launch
+                    // has just previewed the audience, so it resumes here.
+                    const existingScheduleId = values.broadcast?.schedules?.[0]?.id
+                    if (existingScheduleId) {
+                        await hogFlowsSchedulesPartialUpdate(projectId, broadcastId, existingScheduleId, {
+                            ...schedule,
+                            status: 'active',
+                        } as any)
+                    } else {
+                        await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    }
                     lemonToast.success('Broadcast scheduled')
                 }
                 // Resuming a draft launches from the broadcast's own URL, so the router push below is a
@@ -863,14 +875,48 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
 // (the audience), one email action, and an exit node.
-function buildBroadcastPayload(values: {
+export function buildBroadcastPayload(values: {
     name: string
     audienceProperties: AnyPropertyFilter[]
     goalEnabled: boolean
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    broadcast?: HogFlowApi | null
 }): Record<string, any> {
+    const existing = values.broadcast
+    if (existing && existing.origin_product !== 'broadcasts') {
+        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
+        // wizard does not manage survive, and origin_product stays as it was created.
+        return {
+            name: values.name,
+            conversion: values.goalEnabled ? values.conversion : null,
+            email_sending_rate_limit: values.emailRateLimit,
+            actions: (existing.actions as Record<string, any>[]).map((action) =>
+                action.type === 'trigger'
+                    ? {
+                          ...action,
+                          config: {
+                              ...action.config,
+                              filters: { ...action.config?.filters, properties: values.audienceProperties },
+                          },
+                      }
+                    : action.type === 'function_email'
+                      ? {
+                            ...action,
+                            config: {
+                                ...action.config,
+                                inputs: {
+                                    ...action.config?.inputs,
+                                    email: { ...action.config?.inputs?.email, value: values.email },
+                                },
+                            },
+                        }
+                      : action
+            ),
+            edges: existing.edges,
+        }
+    }
     return {
         origin_product: 'broadcasts',
         status: 'draft',

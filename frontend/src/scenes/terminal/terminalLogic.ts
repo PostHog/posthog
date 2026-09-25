@@ -317,6 +317,11 @@ export const terminalLogic = kea<terminalLogicType>([
                 actions.followFolder()
             }
         },
+        setRequestedFolder: ({ folder }) => {
+            if (folder !== null) {
+                actions.followFolder()
+            }
+        },
         answerConfirmation: ({ confirmation, approved }) => {
             if (values.confirmation === confirmation) {
                 cache.answerConfirmation?.(approved)
