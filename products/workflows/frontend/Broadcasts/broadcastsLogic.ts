@@ -140,6 +140,9 @@ export function getBroadcastStatus(
         }
         if (latestJob.status === 'completed') {
             // A recurring broadcast between runs has more to send. A failed run still reads as failed.
+            if (details.hasPendingSchedule === undefined) {
+                return 'unknown'
+            }
             return details.hasPendingSchedule ? 'scheduled' : 'sent'
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
