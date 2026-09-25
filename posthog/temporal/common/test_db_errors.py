@@ -4,7 +4,13 @@ import pytest
 
 from django.db import InterfaceError, InternalError, OperationalError
 
-from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
+from posthog.temporal.common.db_errors import is_transient_clickhouse_error, is_transient_db_error
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 
 class _WithSqlstate(Exception):
@@ -74,3 +80,19 @@ def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate:
     error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
     assert is_transient_db_error(error) is expected
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (ClickHouseClusterMemoryLimitExceeded(), True),
+        (ClickHouseAtCapacity(), True),
+        # A per-query memory limit is the query's own fault, and it is the parent class of the
+        # cluster-wide one, so an isinstance check that is too loose would swallow it as well.
+        (ClickHouseQueryMemoryLimitExceeded(), False),
+        (ValueError("MEMORY_LIMIT_EXCEEDED"), False),
+    ],
+)
+def test_transient_clickhouse_errors_are_expected_activity_failures(error: BaseException, expected: bool) -> None:
+    assert is_transient_clickhouse_error(error) is expected
+    assert is_expected_activity_failure(error) is expected

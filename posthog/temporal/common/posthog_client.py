@@ -16,7 +16,7 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
-from posthog.temporal.common.db_errors import is_transient_db_error
+from posthog.temporal.common.db_errors import is_transient_clickhouse_error, is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
@@ -58,7 +58,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     already records via record_outbound_decision), errors explicitly marked non-reportable
     (expected customer/upstream conditions, e.g. a REST API serving a login page instead of JSON),
     expected-control-flow ApplicationErrors (activity-retry-as-poll probes), and a saturated or
-    restarting database that clears on its own.
+    restarting database, Postgres or ClickHouse, that clears on its own.
 
     The activity interceptor below re-raises these without reporting them. An activity that also
     captures locally must apply the same filter, or a worker drain mints an error tracking issue
@@ -72,6 +72,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
             and error.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         )
         or is_transient_db_error(error)
+        or is_transient_clickhouse_error(error)
     )
 
 
@@ -123,7 +124,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             if is_expected_activity_failure(e):
                 # A pool problem that outlives the retries surfaces as a workflow failure, so a
                 # log here is enough. Capturing would mint an issue per module for one condition.
-                if is_transient_db_error(e):
+                if is_transient_db_error(e) or is_transient_clickhouse_error(e):
                     await logger.awarning(
                         "Transient database error in activity %s, leaving retry to Temporal",
                         activity.info().activity_type,

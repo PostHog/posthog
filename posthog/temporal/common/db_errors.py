@@ -2,6 +2,8 @@ import errno
 
 from django.db import InterfaceError, InternalError, OperationalError
 
+from posthog.errors import CH_TRANSIENT_ERRORS
+
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
 # connections as closed or reset connections. Both clear on their own, so a Temporal retry
@@ -81,3 +83,13 @@ def is_transient_db_error(error: BaseException) -> bool:
         return True
     message = str(error)
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+
+
+def is_transient_clickhouse_error(error: BaseException) -> bool:
+    """True if ClickHouse refused the query because of its own capacity or connectivity.
+
+    `CH_TRANSIENT_ERRORS` is the existing list of those conditions, already used by the Celery
+    retry paths. The query is fine, the cluster is busy, and the condition clears on its own, so a
+    Temporal retry gets past it the same way a transient Postgres failure does.
+    """
+    return isinstance(error, CH_TRANSIENT_ERRORS)
