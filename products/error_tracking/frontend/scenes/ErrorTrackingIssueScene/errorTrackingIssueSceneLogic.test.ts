@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -11,6 +13,7 @@ import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './err
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const OTHER_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
 const ISSUE: ErrorTrackingRelationalIssue = {
     id: VALID_ISSUE_ID,
     name: 'TypeError',
@@ -61,6 +64,9 @@ describe('errorTrackingIssueSceneLogic', () => {
                 scopedLogic.mount()
             }).toNotHaveDispatchedActions(['loadIssue'])
             expect(scopedLogic.values.issueIdValid).toBe(false)
+            // Shared consumers such as the notebook views read issueLoading as final. A default of
+            // true would never clear here, leaving them on a permanent placeholder.
+            expect(scopedLogic.values.issueLoading).toBe(false)
             scopedLogic.unmount()
         }
     )
@@ -72,6 +78,48 @@ describe('errorTrackingIssueSceneLogic', () => {
         }).toDispatchActions(['loadIssue'])
         expect(scopedLogic.values.issueIdValid).toBe(true)
         scopedLogic.unmount()
+    })
+
+    // A merge deletes the merged-away id, so old links to it answer 404. The scene offers a retry
+    // for a failed load, which can never recover a missing issue.
+    it.each([
+        [404, true],
+        [500, false],
+    ])('marks the issue as missing only for a 404 response (%s)', async (status, missing) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/:id/': () => [status, { detail: 'Issue not found' }],
+            },
+        })
+        const scopedLogic = errorTrackingIssueSceneLogic({ id: OTHER_ISSUE_ID })
+        await expectLogic(scopedLogic, () => {
+            scopedLogic.mount()
+        }).toDispatchActions(['loadIssueFailure'])
+
+        expect(scopedLogic.values.issueNotFound).toBe(missing)
+        scopedLogic.unmount()
+    })
+
+    // An outage fails every loader at once. A retry that only reloaded the issue left the page
+    // reporting zero occurrences, with no volume, spikes, fingerprints or linked reports.
+    it('reloads every scene loader when the scene data is requested again', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSceneData()
+        }).toDispatchActions([
+            'loadIssue',
+            'loadSummary',
+            'loadIssueFingerprints',
+            'loadSpikeEvents',
+            'loadLinkedReports',
+        ])
+    })
+
+    it('reloads the deep-linked event when the scene data is requested again', async () => {
+        logic.actions.setInitialEventTimestamp('2026-01-01T00:00:00Z')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSceneData()
+        }).toDispatchActions(['loadInitialEvent'])
     })
 
     it('keeps the events query stable when the loaded fingerprints change', () => {
@@ -107,6 +155,25 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    // The issue query returns a space-separated timestamp, the events query an ISO one. Writing the
+    // raw value back made the two encodings alternate in the URL, remounting the scene on every
+    // timestamp deep link.
+    it('writes the selected event timestamp back in ISO form', () => {
+        router.actions.push(urls.errorTrackingIssue(VALID_ISSUE_ID))
+
+        logic.actions.selectEvent({ uuid: 'event-1', timestamp: '2026-01-02 03:04:05.678000+00:00' } as ErrorEventType)
+
+        expect(router.values.searchParams.timestamp).toBe('2026-01-02T03:04:05.678Z')
+    })
+
+    it('leaves the URL untouched when it already points at the selected event', () => {
+        router.actions.push(urls.errorTrackingIssue(VALID_ISSUE_ID), { timestamp: '2026-01-02 03:04:05.678000+00:00' })
+
+        logic.actions.selectEvent({ uuid: 'event-1', timestamp: '2026-01-02T03:04:05.678Z' } as ErrorEventType)
+
+        expect(router.values.searchParams.timestamp).toBe('2026-01-02 03:04:05.678000+00:00')
     })
 
     it('allows the event selection to close', () => {
