@@ -15,7 +15,7 @@ from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
-from products.signals.backend.typesafe_decision import REPORT_SAFETY_THRESHOLD, run_model_decision
+from products.signals.backend.typesafe_decision import REPORT_SAFETY_THRESHOLD, SAFETY_CATEGORIES, run_model_decision
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +79,18 @@ def _build_report_safety_judge_prompt(
     )
 
 
+def _typesafe_judgment(safe: bool, category: str | None) -> SafetyJudgeResponse:
+    if safe:
+        return SafetyJudgeResponse(choice=True)
+    if category is None or category == "none":
+        return SafetyJudgeResponse(
+            choice=False, explanation="The safety model marked the report unsafe without naming a category."
+        )
+    return SafetyJudgeResponse(
+        choice=False, explanation=f"Flagged as {category.replace('_', ' ')}. {SAFETY_CATEGORIES[category]}."
+    )
+
+
 # One thing I'd like to be doing here, or maybe on the signal-ingestion side, is compare each signals embedding
 # to the average embedding for all signals of the same type - if it's some enormous outlier, it's probably a warning
 # that it's a bit odd (but the mechanics of exactly how that comparison should work are TBD).
@@ -126,10 +138,7 @@ async def judge_report_safety(
         threshold=REPORT_SAFETY_THRESHOLD,
         traditional=sonnet_verdict,
         verdict=lambda result: result.choice,
-        typesafe_result=lambda safe, _category: SafetyJudgeResponse(
-            choice=safe,
-            explanation="" if safe else "TypeSafe classified the report as unsafe.",
-        ),
+        typesafe_result=_typesafe_judgment,
     )
 
 
