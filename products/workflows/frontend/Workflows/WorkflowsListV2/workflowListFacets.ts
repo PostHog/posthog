@@ -1,21 +1,17 @@
 import type { FacetDefinition } from 'lib/components/FacetSearchBar/facetQuery'
 
-import { WORKFLOW_TRIGGER_TYPE_OPTIONS } from '../workflowsLogic'
+import {
+    CHANNEL_LABELS,
+    HEALTH_TAGS,
+    KIND_LABELS,
+    STATUS_LABELS,
+    TRIGGER_LABELS,
+    TYPE_LABELS,
+} from './workflowListLabels'
 import { WorkflowListRow, rowCreatedBy } from './workflowListRows'
 
-const STATUS_LABELS: Record<string, string> = { draft: 'Draft', active: 'Active', archived: 'Archived' }
-const KIND_LABELS: Record<string, string> = { workflow: 'Workflow', 'email-template': 'Email template' }
-const CHANNEL_LABELS: Record<string, string> = {
-    email: 'Email',
-    sms: 'SMS',
-    push: 'Push',
-    slack: 'Slack',
-    webhook: 'Webhook',
-}
-const HEALTH_LABELS: Record<string, string> = { failing: 'Failing', healthy: 'Healthy', idle: 'No runs' }
-const TYPE_LABELS: Record<string, string> = { messaging: 'Messaging', automation: 'Automation', loop: 'Loop' }
-const TRIGGER_LABELS: Record<string, string> = Object.fromEntries(
-    WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => [option.value, option.label])
+const HEALTH_LABELS: Record<string, string> = Object.fromEntries(
+    Object.entries(HEALTH_TAGS).map(([health, { label }]) => [health, label])
 )
 
 const labelFrom =
@@ -25,14 +21,14 @@ const labelFrom =
 
 const unique = (values: string[]): string[] => [...new Set(values)]
 
-export function rowSubjects(row: WorkflowListRow): string[] {
+function rowSubjects(row: WorkflowListRow): string[] {
     if (row.kind === 'email_template') {
         return row.template.subject ? [row.template.subject] : []
     }
     return unique(row.workflow.email_steps.map((step) => step.subject).filter(Boolean))
 }
 
-export function rowFromAddresses(row: WorkflowListRow): string[] {
+function rowFromAddresses(row: WorkflowListRow): string[] {
     if (row.kind === 'email_template') {
         return unique([...row.template.from_addresses])
     }

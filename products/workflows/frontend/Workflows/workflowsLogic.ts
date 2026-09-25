@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -6,12 +6,14 @@ import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse, HogFlowListType } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
+import { confirmArchiveWorkflow, confirmDeleteWorkflow, restoreWorkflowToDraft } from './workflowRowActions'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
@@ -252,6 +254,7 @@ export type workflowsLogicType = MakeLogicType<
 export const workflowsLogic = kea<workflowsLogicType>([
     key(() => 'workflowsLogic'),
     path(['products', 'workflows', 'frontend', 'workflowsLogic']),
+    connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     actions({
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
@@ -332,83 +335,23 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 archiveWorkflow: async ({ workflow }) => {
-                    LemonDialog.open({
-                        width: 500,
-                        title: 'Archive workflow?',
-                        description: `Are you sure you want to archive "${workflow.name}"?${
-                            workflow.status === 'active'
-                                ? ' In-progress workflow invocations will end without completing.'
-                                : ''
-                        }`,
-                        primaryButton: {
-                            children: 'Archive',
-                            type: 'primary',
-                            status: 'danger',
-                            onClick: async () => {
-                                try {
-                                    await api.hogFlows.updateHogFlow(workflow.id, {
-                                        status: 'archived',
-                                    })
-                                    lemonToast.success(`Workflow "${workflow.name}" archived`)
-                                    router.actions.push(urls.workflows())
-                                    actions.loadWorkflows()
-                                } catch (error: any) {
-                                    lemonToast.error(
-                                        `Failed to archive workflow: ${error.detail || error.message || 'Unknown error'}`
-                                    )
-                                }
-                            },
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                        },
+                    confirmArchiveWorkflow(String(values.currentProjectId), workflow, () => {
+                        router.actions.push(urls.workflows())
+                        actions.loadWorkflows()
                     })
                     // Return unchanged workflows since dialog handles the update
                     return values.workflows
                 },
                 restoreWorkflow: async ({ workflow }) => {
-                    try {
-                        await api.hogFlows.updateHogFlow(workflow.id, {
-                            status: 'draft',
-                        })
-                        lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
-                        // Restored workflows become drafts, so they drop out of the archived filter —
-                        // reload rather than keep the stale row in the current filtered page.
+                    // Restored workflows become drafts, so they drop out of the archived filter —
+                    // reload rather than keep the stale row in the current filtered page.
+                    if (await restoreWorkflowToDraft(String(values.currentProjectId), workflow)) {
                         actions.loadWorkflows()
-                        return values.workflows
-                    } catch (error: any) {
-                        lemonToast.error(
-                            `Failed to restore workflow: ${error?.detail || error?.message || 'Unknown error'}`
-                        )
-                        return values.workflows
                     }
+                    return values.workflows
                 },
                 deleteWorkflow: async ({ workflow }) => {
-                    LemonDialog.open({
-                        width: 500,
-                        title: 'Delete workflow?',
-                        description: `Are you sure you want to permanently delete "${workflow.name}"? This action cannot be undone.`,
-                        primaryButton: {
-                            children: 'Delete',
-                            type: 'primary',
-                            status: 'danger',
-                            onClick: async () => {
-                                try {
-                                    await api.hogFlows.deleteHogFlow(workflow.id)
-                                    lemonToast.success(`Workflow "${workflow.name}" deleted`)
-                                    deleteFromTree('hog_flow/', workflow.id)
-                                    actions.loadWorkflows()
-                                } catch (error: any) {
-                                    lemonToast.error(
-                                        `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
-                                    )
-                                }
-                            },
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                        },
-                    })
+                    confirmDeleteWorkflow(String(values.currentProjectId), workflow, () => actions.loadWorkflows())
                     return values.workflows
                 },
             },

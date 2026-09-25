@@ -3,16 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { OPTIONAL_COLUMNS, OptionalColumn, workflowsListV2Logic } from './workflowsListV2Logic'
-
-const COLUMN_LABELS: Record<OptionalColumn, string> = {
-    type: 'Type',
-    trigger: 'Trigger',
-    owner: 'Owner',
-    created_by: 'Created by',
-    last_7_days: 'Last 7 days',
-    health: 'Health',
-}
+import { OPTIONAL_COLUMNS, OPTIONAL_COLUMN_TITLES } from './workflowListLabels'
+import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 /** The "…" menu next to "New workflow": picks the optional columns of the list. */
 export function WorkflowsListV2ColumnsMenu(): JSX.Element {
@@ -26,7 +18,7 @@ export function WorkflowsListV2ColumnsMenu(): JSX.Element {
                 {
                     title: 'Columns',
                     items: OPTIONAL_COLUMNS.map((column) => ({
-                        label: COLUMN_LABELS[column],
+                        label: OPTIONAL_COLUMN_TITLES[column],
                         icon: visibleColumns.includes(column) ? <IconCheck /> : <span className="w-4" />,
                         onClick: () => toggleColumn(column),
                         'data-attr': `workflows-list-v2-column-${column}`,
