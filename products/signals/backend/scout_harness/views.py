@@ -1337,7 +1337,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ignored_fields=ignored_fields,
             )
         except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            # An edit can carry a declared field and still have nothing to apply, and the ignored
+            # names are the likeliest reason. Without them the caller reads a generic refusal and
+            # cannot tell a skew from its own mistake.
+            detail = f"{exc} (ignored unknown fields: {', '.join(ignored_fields)})" if ignored_fields else str(exc)
+            raise exceptions.ValidationError({"detail": detail})
         return Response(
             EditReportResponseSerializer(
                 {
