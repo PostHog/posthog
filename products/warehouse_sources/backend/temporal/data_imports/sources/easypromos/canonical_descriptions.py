@@ -71,7 +71,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ref": "Reference code the organizer gave the prize type.",
             "description": "Description of the prize type.",
             "assignation_type": "How units of this prize type are assigned to winners.",
-            "qty": "Total number of units of this prize type in the promotion.",
+            "qty": "Total units of this prize type the organizer configured, not the units remaining. The value 5000010 means unlimited.",
             "given": "Number of units of this prize type already awarded.",
             "image": "URL of the prize type image.",
             "instructions": "Instructions shown to the winner for claiming the prize.",
