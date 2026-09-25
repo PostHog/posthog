@@ -232,6 +232,7 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
             ("email_key", "email", "exact", "someone@example.com", "email is a specific value"),
             ("username_key", "username", "exact", "jdoe123", "username is a specific value"),
             ("hostname_is_not_personal", "hostname", "exact", "shop", "hostname is shop"),
+            ("camel_case_name_key", "fullName", "exact", "Jane Doe", "fullName is a specific value"),
             ("email_value", "note", "exact", "someone@example.com", "note is a specific value"),
             ("long_token", "token", "exact", "a" * 61, "token is a specific value"),
             ("is_set", "$browser", "is_set", None, "browser is set"),

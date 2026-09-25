@@ -577,9 +577,17 @@ _OPERATOR_WORDS: dict[str, str] = {
 
 # Filter values on these keys identify a person, so they are named but never quoted.
 _PERSONAL_KEYS = re.compile(
-    r"(^|[_$])(email|e-mail|emailaddress|name|username|surname|nickname|first_name|last_name|phone|distinct_id|user_id|ip|ipaddress|address|ssn|dob)$",
+    r"(^|[_$])(email|e-mail|emailaddress|name|username|surname|nickname|fullname|displayname|first_name|last_name|phone|distinct_id|user_id|ip|ipaddress|address|ssn|dob)$",
     re.IGNORECASE,
 )
+# A camelCase boundary counts as a separator, so fullName is personal and hostname is not.
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+
+def _is_personal_key(key: str) -> bool:
+    return bool(_PERSONAL_KEYS.search(_CAMEL_BOUNDARY.sub("_", key)))
+
+
 _LOOKS_PERSONAL = re.compile(r"@|^[A-Za-z0-9+/=_-]{24,}$|^\+?\d[\d\s().-]{7,}$")
 _MAX_FILTER_VALUE_CHARS = 60
 
@@ -592,7 +600,7 @@ def _filter_value_words(key: str, value: object) -> str | None:
         if item is None:
             continue
         text = str(item)
-        if _PERSONAL_KEYS.search(key) or _LOOKS_PERSONAL.search(text) or len(text) > _MAX_FILTER_VALUE_CHARS:
+        if _is_personal_key(key) or _LOOKS_PERSONAL.search(text) or len(text) > _MAX_FILTER_VALUE_CHARS:
             return None
         words.append(text)
     if not words:
