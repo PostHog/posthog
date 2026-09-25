@@ -533,13 +533,30 @@ class TestVercelIntegration(TestCase):
         assert user.email == "new-sso-user@example.com"
         assert user.is_email_verified is claim_email_verified
 
-    @parameterized.expand([("mapped_user", True), ("unmapped_user", False)])
-    def test_sso_continue_with_a_different_email_accepts_only_the_mapped_user(self, _name: str, mapped: bool) -> None:
-        if mapped:
-            self.installation.config["user_mappings"] = {"vercel_other_email": self.user.pk}
+    @parameterized.expand(
+        [
+            ("mapped_user_with_a_different_email", "self", "vercel-login@example.com", True, True),
+            ("unmapped_user_with_a_different_email", None, "vercel-login@example.com", True, False),
+            ("mapping_to_another_user", "other", "vercel-login@example.com", True, False),
+            ("unverified_matching_email", None, "test@example.com", False, False),
+        ]
+    )
+    def test_sso_continue_links_only_a_proven_or_already_mapped_user(
+        self,
+        _name: str,
+        mapping_owner: str | None,
+        claim_email: str,
+        claim_email_verified: bool,
+        expect_linked: bool,
+    ) -> None:
+        other_user = User.objects.create_user(email="other-owner@example.com", password="other", first_name="Other")
+        owners = {"self": self.user.pk, "other": other_user.pk}
+        if mapping_owner:
+            self.installation.config["user_mappings"] = {"vercel_login_user": owners[mapping_owner]}
             self.installation.save()
-        claims = self._create_user_claims("vercel_other_email")
-        claims.user_email = "vercel-login@example.com"
+        claims = self._create_user_claims("vercel_login_user")
+        claims.user_email = claim_email
+        claims.user_email_verified = claim_email_verified
         code = f"continue_code_{_name}"
         VercelIntegration.set_cached_claims(code, claims, timeout=300)
         request = RequestFactory().get("/")
@@ -551,10 +568,9 @@ class TestVercelIntegration(TestCase):
         )
 
         self.installation.refresh_from_db()
-        assert ("/integrations/vercel/link-error" in redirect_url) is not mapped
-        assert self.installation.config.get("user_mappings", {}).get("vercel_other_email") == (
-            self.user.pk if mapped else None
-        )
+        assert ("/integrations/vercel/link-error" in redirect_url) is not expect_linked
+        expected_mapping = self.user.pk if expect_linked else owners.get(mapping_owner or "")
+        assert self.installation.config.get("user_mappings", {}).get("vercel_login_user") == expected_mapping
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):

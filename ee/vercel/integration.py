@@ -927,9 +927,9 @@ class VercelIntegration:
             if not claims.user_email:
                 raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
 
-            if request.user.email.lower() != claims.user_email.lower() and not VercelIntegration._is_mapped_user(
-                claims, request.user.pk
-            ):
+            if not VercelIntegration._claims_prove_email(
+                claims, request.user.email
+            ) and not VercelIntegration._is_mapped_user(claims, request.user.pk):
                 logger.warning(
                     "Email mismatch in Vercel SSO",
                     expected_email=claims.user_email,
