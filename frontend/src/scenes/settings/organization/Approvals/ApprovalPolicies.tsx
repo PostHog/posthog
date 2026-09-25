@@ -20,7 +20,13 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { APPROVAL_ACTIONS, ApprovalActionKey, getApprovalActionLabel } from 'scenes/approvals/utils'
+import {
+    APPROVAL_ACTIONS,
+    ApprovalActionKey,
+    getApprovalActionCoverage,
+    getApprovalActionCoverageSummary,
+    getApprovalActionLabel,
+} from 'scenes/approvals/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
@@ -74,7 +80,20 @@ export function ApprovalPolicies(): JSX.Element {
         {
             title: 'Action',
             dataIndex: 'action_key',
-            render: (_, policy) => getApprovalActionLabel(policy.action_key),
+            render: (_, policy) => {
+                const coverage = getApprovalActionCoverage(policy.action_key)
+                const summary = getApprovalActionCoverageSummary(policy.action_key)
+                return (
+                    <div>
+                        <div>{getApprovalActionLabel(policy.action_key)}</div>
+                        {summary && (
+                            <Tooltip title={coverage}>
+                                <span className="text-muted text-xs">{summary}</span>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Approvers',
@@ -212,6 +231,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     }
 
     const [rules, setRules] = useState<ConditionRule[]>(parseExistingConditions)
+    const coverage = getApprovalActionCoverage(actionKey)
 
     useEffect(() => {
         loadAllMembers()
@@ -331,6 +351,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                             value,
                         }))}
                     />
+                    {coverage && <p className="text-muted text-xs mt-1 mb-0">{coverage}</p>}
                 </div>
 
                 {actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && (
@@ -373,7 +394,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         )}
 
                         <p className="text-xs text-secondary">
-                            If no conditions are set, all changes to this action type will require approval.
+                            If no conditions are set, any change to the fields above requires approval.
                         </p>
                     </div>
                 )}
