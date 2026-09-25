@@ -14,6 +14,20 @@ The parts that break when improvised, in the order they matter:
 
 Capabilities for this project: the full `capabilities.posthog` shape with `state: ["shared"]` and everything else empty (`insights: []`, `inlineQueries: false`, `captureEvents: []`, `actions: []`, `network.origins: []`). Keep `index.html` and `dependencies` exactly as `canvas-source-retrieve` returned them.
 
+## What is in here
+
+- [The content module (`src/plan.ts`)](#the-content-module-srcplants): the `Step` and `Section` types, the sample `SECTIONS` tree, and `TOTAL_STEPS`.
+- [The component (`src/canvas.tsx`)](#the-component-srccanvastsx): one file, in this order. It is a single block, so find a part by its name.
+  - `Entry` and `PREFIX`: the shape of one persisted step, and the `step:<id>` prefix on its shared-state key.
+  - `RESET_KEY`: the `saveErrors` key that holds a failed reset.
+  - `CommandBlock`: the copy button, with its success and failure states.
+  - The first `useEffect`: reads saved progress with `ph.state.list`, and sets the loading and load-failure states.
+  - The second `useEffect`: on unmount, clears the debounce timers it captured when it mounted.
+  - `persist`: one shared-state write per step, and a null write when the entry returns to blank.
+  - `update`: the single save path. It reads the ref, debounces note saves, and saves a checkbox at once.
+  - `resetAll`: the two-click reset. It cancels pending timers first, then deletes the keys.
+  - The returned JSX: header, progress, the section cards, and the per-step notes field.
+
 ## The content module (`src/plan.ts`)
 
 Replace the sample sections with the user's actual steps. Keep the shape: stable ids (they key the persisted state — renaming an id orphans its saved progress), an `expect` on every step, optional `detail`, `cmd`, and `tag`.
