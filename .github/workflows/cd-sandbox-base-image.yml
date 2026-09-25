@@ -321,6 +321,7 @@ jobs:
             packages: write # allow push to ghcr.io
         outputs:
             promoted: ${{ steps.promote.outcome }}
+            base_smoke: ${{ steps.smoke.outcome }}
 
         steps:
             - name: Check out
@@ -394,7 +395,8 @@ jobs:
                         platforms: linux/arm64,linux/amd64
 
             - name: Smoke the installed agent on both architectures
-              if: github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true'
+              id: smoke
+              if: ${{ !cancelled() && steps.build.outcome == 'success' && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
               env:
                   IMAGE: ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
               run: |
@@ -415,7 +417,7 @@ jobs:
 
             - name: Promote the smoked base image to :master
               id: promote
-              if: github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
+              if: ${{ !cancelled() && steps.smoke.outcome == 'success' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
               env:
                   IMAGE: ghcr.io/posthog/posthog-sandbox-base
               run: |
@@ -578,6 +580,24 @@ jobs:
                       channel: "${{ env.SLACK_CHANNEL }}"
                       unfurl_links: false
                       text: "${{ steps.message.outputs.text }}"
+
+    sandbox_base_smoke_check:
+        needs: [build_skills, sandbox_base_build]
+        name: Sandbox Base Image Smoke
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+        permissions: {}
+        steps:
+            - name: Check the base image build and agent smoke
+              env:
+                  SMOKE: ${{ needs.sandbox_base_build.outputs.base_smoke }}
+              run: |
+                  if [ "$SMOKE" != "success" ]; then
+                    echo "::error::The base image agent smoke concluded ${SMOKE:-without a result}."
+                    exit 1
+                  fi
+                  echo "The base image built and its agent smoke passed."
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.

@@ -1,12 +1,20 @@
 import re
 import json
 from datetime import date
+from pathlib import Path
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.facade.contracts import SpaceFeatureRequest, SpaceGoalRequest, SpaceSetupRequest
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, INTERNAL_SCOPES
+
+from products.tasks.backend.facade.contracts import (
+    SPACE_SETUP_SCOPES,
+    SpaceFeatureRequest,
+    SpaceGoalRequest,
+    SpaceSetupRequest,
+)
 from products.tasks.backend.logic.services.space_setup import (
     DEFAULT_AUTONOMY,
     GOAL_LOOP_BRIEFS,
@@ -133,3 +141,34 @@ class TestChannelSetupWriteSerializer(SimpleTestCase):
             goal=SpaceGoalRequest(statement="Grow activation", target="20%", period="week", direction="at_least"),
             repository=None,
         )
+
+
+class TestSpaceSetupScopes(SimpleTestCase):
+    def test_every_tool_the_setup_steps_name_is_callable_with_the_setup_scopes(self):
+        definitions = json.loads(
+            (Path(__file__).parents[5] / "services" / "mcp" / "schema" / "tool-definitions-all.json").read_text()
+        )
+        prompt = build_space_setup_prompt(
+            team_id=1,
+            channel_id=CHANNEL_ID,
+            channel_name="scopes",
+            request=SpaceSetupRequest(
+                kind="goal", goal=SpaceGoalRequest(statement="Move one metric"), repository="posthog/posthog"
+            ),
+        )
+        setup_steps = prompt.split("## Loop graph", 1)[0]
+        named_tools = {name for name in re.findall(r"`([a-z]+(?:-[a-z]+)+)`", setup_steps) if name in definitions}
+        assert {"canvas-create", "workflows-schedule-create", "workflows-test-run", "metric-list"} <= named_tools
+
+        granted = {*SPACE_SETUP_SCOPES, *INTERNAL_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE}
+        missing = {
+            name: sorted(
+                scope for scope in definitions[name].get("required_scopes", []) if not _granted(granted, scope)
+            )
+            for name in sorted(named_tools)
+        }
+        assert {name: scopes for name, scopes in missing.items() if scopes} == {}
+
+
+def _granted(granted: set[str], required: str) -> bool:
+    return required in granted or (required.endswith(":read") and required.replace(":read", ":write") in granted)

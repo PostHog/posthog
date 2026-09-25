@@ -1,5 +1,10 @@
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import manifest from './terminal-packages.json'
 import { TerminalFilesystem } from './terminalFilesystem'
 import { TerminalPackage, TerminalPackages } from './terminalPackages'
 
@@ -87,6 +92,72 @@ describe('optional terminal packages', () => {
             Reflect.deleteProperty(crypto, 'subtle')
         }
     })
+
+    it.each(
+        Object.entries(manifest.packages).flatMap(([id, pkg]) => Object.keys(pkg.commands).map((cmd) => [id, cmd]))
+    )(
+        'announces %s command %s after installation, stays quiet on repeat, and allows retry after failure',
+        async (id, command) => {
+            const directory = mkdtempSync(join(tmpdir(), 'terminal-package-launch-'))
+            try {
+                const filesystem = new TerminalFilesystem()
+                new TerminalPackages(filesystem, new AbortController().signal).mount()
+                const bin = filesystem.root.children!.get('bin')!
+                const packages: Record<string, TerminalPackage> = manifest.packages
+                const pkg = packages[id]
+                const installed = join(directory, 'installed')
+                const mount = join(directory, 'posthog')
+                mkdirSync(join(mount, 'bin'), { recursive: true })
+                mkdirSync(join(mount, 'packages'))
+                mkdirSync(join(mount, 'config'))
+                writeFileSync(join(mount, 'config', 'doom.cfg'), '')
+                for (const name of ['install-tool', command]) {
+                    const script = new TextDecoder().decode((await bin.children!.get(name)!.open!()).bytes)
+                    writeFileSync(
+                        join(mount, 'bin', name),
+                        script
+                            .replaceAll('/opt/posthog-packages', installed)
+                            .replaceAll('/posthog/', `${mount}/`)
+                            .replaceAll('/tmp/doom', join(directory, 'doom'))
+                    )
+                }
+                for (const dependency of [...pkg.dependencies, id]) {
+                    const stage = join(directory, dependency)
+                    mkdirSync(join(stage, 'bin'), { recursive: true })
+                    writeFileSync(join(stage, 'bin', dependency), '#!/bin/sh\nprintf "launched:%s\\n" "$@"\n', {
+                        mode: 0o700,
+                    })
+                    expect(
+                        spawnSync('tar', ['-cf', join(mount, 'packages', `${dependency}.tar`), '-C', stage, '.']).status
+                    ).toBe(0)
+                }
+                const run = (): ReturnType<typeof spawnSync> =>
+                    spawnSync('/bin/sh', [join(mount, 'bin', command), 'two words'], { encoding: 'utf8' })
+                const first = run()
+                expect(first.status).toBe(0)
+                expect(first.stderr).toContain(`Starting ${command}...\n`)
+                expect(first.stdout).toContain('launched:two words\n')
+                const repeated = run()
+                expect(repeated.status).toBe(0)
+                expect(repeated.stderr).toBe('')
+
+                rmSync(join(installed, `${id}-${pkg.version}`), { recursive: true })
+                const archivePath = join(mount, 'packages', `${id}.tar`)
+                const archive = readFileSync(archivePath)
+                writeFileSync(archivePath, 'invalid archive')
+                const failed = run()
+                expect(failed.status).not.toBe(0)
+                expect(failed.stderr).not.toContain('Starting ')
+                expect(failed.stdout).toBe('')
+                writeFileSync(archivePath, archive)
+                const retry = run()
+                expect(retry.status).toBe(0)
+                expect(retry.stderr).toContain(`Starting ${command}...\n`)
+            } finally {
+                rmSync(directory, { recursive: true, force: true })
+            }
+        }
+    )
 
     it.each([undefined, 'https://raw.githubusercontent.com/example/tools/package-pin'])(
         'downloads lazily and reuses verified downloads with package source %s',
