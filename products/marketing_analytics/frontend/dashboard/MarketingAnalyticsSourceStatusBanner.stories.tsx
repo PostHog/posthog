@@ -22,9 +22,17 @@ const table: DatabaseSchemaDataWarehouseTable = {
 const meta: Meta<typeof MarketingAnalyticsSourceStatusBanner> = {
     title: 'Scenes-App/Marketing Analytics/Source status',
     component: MarketingAnalyticsSourceStatusBanner,
+    render: () => (
+        <div id="source-status-snapshot" className="w-200 max-w-[calc(100vw-2rem)]">
+            <MarketingAnalyticsSourceStatusBanner />
+        </div>
+    ),
     parameters: {
         featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
-        testOptions: { waitForSelector: '[data-attr="marketing-source-status-settings"]' },
+        testOptions: {
+            waitForSelector: '[data-attr="marketing-source-status-settings"][href*="managed-example-openai-source"]',
+            snapshotTargetSelector: '#source-status-snapshot',
+        },
     },
     decorators: [
         mswDecorator({
