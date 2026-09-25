@@ -36,17 +36,25 @@ class TestAccountViews(APIBaseTest):
         self.viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "testtest")
         self.editor = User.objects.create_and_join(self.organization, "editor@example.com", "testtest")
         self.project_admin = User.objects.create_and_join(self.organization, "admin@example.com", "testtest")
-        admin_membership = OrganizationMembership.objects.get(user=self.project_admin, organization=self.organization)
-        admin_membership.level = OrganizationMembership.Level.ADMIN
-        admin_membership.save(update_fields=["level"])
+        project_admin_membership = OrganizationMembership.objects.get(
+            user=self.project_admin, organization=self.organization
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=project_admin_membership,
+            access_level="admin",
+        )
         self._set_access(self.viewer, "viewer")
         self._set_access(self.editor, "editor")
+        self._set_access(self.project_admin, "viewer")
 
     def _set_access(self, user: User, access_level: str) -> None:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="account",
+            resource="customer_analytics",
             access_level=access_level,
             organization_member=membership,
         )
@@ -126,10 +134,31 @@ class TestAccountViews(APIBaseTest):
         deleted = self.client.delete(f"{self.endpoint}{view['id']}/?version={view['version']}")
         self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_project_admin_can_change_visibility_and_delete_team_views(self) -> None:
+    def test_project_admin_without_account_editor_can_only_change_team_view_visibility(self) -> None:
         view = self._publish(self._create())
 
         self.client.force_login(self.project_admin)
+        listed = self.client.get(self.endpoint)
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.json())
+        self.assertFalse(listed.json()[0]["can_edit"])
+        self.assertTrue(listed.json()[0]["can_change_visibility"])
+
+        denied_name = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {"name": "Blocked edit", "version": view["version"]},
+            format="json",
+        )
+        self.assertEqual(denied_name.status_code, status.HTTP_403_FORBIDDEN, denied_name.json())
+        denied_content = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {
+                "content": account_view_content('<Usage nodeId="blocked-usage" title="Blocked content" />'),
+                "version": view["version"],
+            },
+            format="json",
+        )
+        self.assertEqual(denied_content.status_code, status.HTTP_403_FORBIDDEN, denied_content.json())
+
         made_private = self.client.patch(
             f"{self.endpoint}{view['id']}/",
             {"visibility": "private", "version": view["version"]},

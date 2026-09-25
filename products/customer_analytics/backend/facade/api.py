@@ -1233,7 +1233,8 @@ def _to_account_view(
         last_modified_by=view.last_modified_by_id,
         created_at=view.created_at,
         updated_at=view.updated_at,
-        can_edit=is_creator or (view.visibility == AccountViewVisibility.TEAM and can_edit_team_views),
+        can_edit=(view.visibility == AccountViewVisibility.PRIVATE and is_creator)
+        or (view.visibility == AccountViewVisibility.TEAM and can_edit_team_views),
         can_delete=is_creator or is_project_admin,
         can_change_visibility=is_creator or is_project_admin,
     )
