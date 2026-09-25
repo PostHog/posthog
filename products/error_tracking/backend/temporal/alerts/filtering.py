@@ -54,6 +54,8 @@ LIFECYCLE_PROPERTY_KEYS = frozenset(
         "exception_timestamp",
         "fingerprint",
         "assignee",
+        "assignee_name",
+        "assignee_email",
     }
 )
 

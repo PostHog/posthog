@@ -36,7 +36,7 @@ class AlertDeliveryWorkflowInputs:
     # time there while event_timestamp stays the exception's own time (the fetch anchor);
     # filters must see the same value on both delivery paths.
     lifecycle_timestamp: str | None = None
-    # Small event-specific extras (e.g. spike baseline values); never exception payloads.
+    # Small extras (spike baseline values, assignee name and email); never exception payloads.
     extra: dict[str, str] | None = None
     # Bulk mutations set this off: they only reply into threads that already exist,
     # so one action over many issues cannot open a thread per issue.

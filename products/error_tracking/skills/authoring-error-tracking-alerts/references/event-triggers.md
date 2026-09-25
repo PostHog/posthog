@@ -92,6 +92,17 @@ detector is running.
 and `{project.name}`. The alert's own metadata is exposed as `{source.url}` and `{source.name}` —
 useful for "manage this alert" links inside the message body.
 
+**Assignee** properties are present only when the issue has an assignee.
+On an unassigned issue the keys are missing, so a test run against an unassigned issue does not show them.
+
+- `event.properties.assignee` — a JSON string such as `{"type":"user","id":1234}`, not an object, so `event.properties.assignee.id` does not work.
+  Use it for "is set" / "is not set" filters.
+- `event.properties.assignee_name` — the user's full name (their email when they have no name), or the role name.
+- `event.properties.assignee_email` — user assignees only.
+
+To show the assignee in a message, use `{event.properties.assignee_name ?? 'Unassigned'}`.
+To alert only on unassigned issues, add the property filter `assignee` **is not set**.
+
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
 ```text

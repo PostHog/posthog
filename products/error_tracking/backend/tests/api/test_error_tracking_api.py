@@ -689,6 +689,7 @@ class TestErrorTracking(APIBaseTest):
         assert notification["event"] == "$error_tracking_issue_assigned"
         assert notification["issue_id"] == str(issues[0].id)
         assert notification["opener_allowed"] is False
+        assert notification["extra"] == {"assignee_name": self.user.email, "assignee_email": self.user.email}
 
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
@@ -775,6 +776,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_assign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()
+        self.user.first_name = "Jane"
+        self.user.last_name = "Doe"
+        self.user.save()
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -793,6 +797,8 @@ class TestErrorTracking(APIBaseTest):
         # Byte-identical to cymbal's compact serde output so exact-match filters work.
         assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
         assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
+        assert event.properties["assignee_name"] == "Jane Doe"
+        assert event.properties["assignee_email"] == self.user.email
 
     def test_issue_unassign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()

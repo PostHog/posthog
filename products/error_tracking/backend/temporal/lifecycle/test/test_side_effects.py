@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,6 +9,7 @@ from confluent_kafka import KafkaError, KafkaException
 from posthog.cdp.internal_events import InternalEventEvent
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
+from products.error_tracking.backend.logic.assignees import ResolvedAssignee
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
@@ -28,6 +30,17 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     produce_issue_lifecycle_internal_event,
 )
 
+ASSIGNEE = '{"type":"user","id":1}'
+
+
+@pytest.fixture(autouse=True)
+def resolve_assignee() -> Iterator[MagicMock]:
+    with patch(
+        "products.error_tracking.backend.temporal.lifecycle.side_effects.resolve_current_assignee",
+        return_value=None,
+    ) as resolve:
+        yield resolve
+
 
 def _inputs() -> IssueReopenedWorkflowInputs:
     return IssueReopenedWorkflowInputs(
@@ -44,7 +57,7 @@ def _inputs() -> IssueReopenedWorkflowInputs:
         fingerprint="fingerprint",
         event_uuid="01982721-5e00-7000-8000-000000000003",
         event_timestamp="2026-07-21T12:05:00Z",
-        assignee='{"type":"user","id":1}',
+        assignee=ASSIGNEE,
     )
 
 
@@ -98,8 +111,9 @@ def test_created_internal_event_preserves_raw_status() -> None:
     assert sent_events[0].properties["severity"] == "critical"
 
 
-def test_oversized_internal_event_retries_without_exception_properties() -> None:
+def test_oversized_internal_event_retries_without_exception_properties(resolve_assignee: MagicMock) -> None:
     inputs = _inputs()
+    resolve_assignee.return_value = ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com")
     event_properties = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
     oversized_result = MagicMock()
     oversized_result.get.side_effect = KafkaException(KafkaError(KafkaError.MSG_SIZE_TOO_LARGE))  # type: ignore[attr-defined]
@@ -151,6 +165,8 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         "exception_props": event_properties,
         "status": "Pending Release",
         "assignee": inputs.assignee,
+        "assignee_name": "Jane Doe",
+        "assignee_email": "jane@example.com",
         "attempt": 2,
     }
     assert sent_events[1].properties == {
@@ -245,7 +261,32 @@ def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own
         _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
     )
     assert reopened.status == "Pending Release"
-    assert reopened.assignee == '{"type":"user","id":1}'
+    assert reopened.assignee == ASSIGNEE
+
+
+@pytest.mark.parametrize(
+    "resolved, expected_extra",
+    [
+        (
+            ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com"),
+            {"assignee_name": "Jane Doe", "assignee_email": "jane@example.com"},
+        ),
+        (ResolvedAssignee(property_value='{"type":"role","id":"r1"}', name="Backend", email=None), None),
+        (None, None),
+    ],
+    ids=["same_assignee", "reassigned_since_ingestion", "unassigned_since_ingestion"],
+)
+def test_alert_inputs_name_the_assignee_only_while_it_matches_the_snapshot(
+    resolve_assignee: MagicMock, resolved: ResolvedAssignee | None, expected_extra: dict[str, str] | None
+) -> None:
+    resolve_assignee.return_value = resolved
+
+    alert = alert_delivery_inputs(
+        _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+    )
+
+    assert alert.assignee == ASSIGNEE
+    assert alert.extra == expected_extra
 
 
 def test_dispatch_raises_so_the_activity_retries() -> None:

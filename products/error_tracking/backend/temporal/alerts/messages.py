@@ -140,7 +140,9 @@ def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
         case "$error_tracking_issue_suppressed":
             return f"🔇 Suppressed{by}"
         case "$error_tracking_issue_assigned":
-            return f"👤 Assigned{by}"
+            assignee_name = extra.get("assignee_name")
+            to = f" to {escape_slack_mrkdwn(assignee_name)}" if assignee_name else ""
+            return f"👤 Assigned{to}{by}"
         case "$error_tracking_issue_unassigned":
             return f"👤 Unassigned{by}"
         case "$error_tracking_issue_reopened":
