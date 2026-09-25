@@ -147,7 +147,7 @@ def classify_turn(
 ) -> TurnVerdict | None:
     """``None`` means the judgment failed. A verdict whose draft is ``None`` offers nothing, either
     because the policy picked nothing or because drafting the picked offer failed."""
-    judgment = judge_turn(transcript, available=available)
+    judgment = judge_turn(transcript, available=available, team_id=team_id)
     if judgment is None:
         return None
     picked = pick_offer(judgment, available)
