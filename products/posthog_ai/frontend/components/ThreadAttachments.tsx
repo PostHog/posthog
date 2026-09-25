@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 
 import { IconDocument } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { getTasksRunsArtifactsDownloadRetrieveUrl } from 'products/tasks/frontend/generated/api'
 
 import type { ThreadAttachment } from '../types/streamTypes'
+import { getAttachmentPreview } from '../utils/attachmentPreviews'
 import { isImageAttachment } from '../utils/attachments'
 
 // Capped on both axes and free to shrink, so no screenshot pushes a message past its panel.
@@ -26,6 +27,22 @@ function downloadUrl(projectId: string, attachment: ThreadAttachment): string | 
         attachment.runId,
         attachment.artifactId
     )
+}
+
+/** The staged file's own bytes, available from the send until its upload lands. */
+function useLocalPreviewUrl(previewId: string | undefined): string | null {
+    const [url, setUrl] = useState<string | null>(null)
+    useEffect(() => {
+        const file = getAttachmentPreview(previewId)
+        if (!file) {
+            setUrl(null)
+            return
+        }
+        const objectUrl = URL.createObjectURL(file)
+        setUrl(objectUrl)
+        return () => URL.revokeObjectURL(objectUrl)
+    }, [previewId])
+    return url
 }
 
 function AttachmentChip({ name, href }: { name: string; href: string | null }): JSX.Element {
@@ -48,52 +65,84 @@ function AttachmentChip({ name, href }: { name: string; href: string | null }): 
     )
 }
 
-/** Until the ids arrive, an image holds its space so the message does not jump once they do. */
-const ThreadAttachmentItem = memo(function ThreadAttachmentItem({
+/** The artifact wins once it exists, so a message shows what the agent received. */
+const ThreadAttachmentImage = memo(function ThreadAttachmentImage({
     attachment,
-    projectId,
+    href,
+    onUnavailable,
 }: {
     attachment: ThreadAttachment
-    projectId: string | null
+    href: string | null
+    onUnavailable: () => void
 }): JSX.Element {
-    const [failed, setFailed] = useState(false)
-    const href = projectId ? downloadUrl(projectId, attachment) : null
+    const localUrl = useLocalPreviewUrl(attachment.previewId)
+    const src = href ?? localUrl
 
-    if (!isImageAttachment(attachment.name) || failed) {
-        return <AttachmentChip name={attachment.name} href={href} />
-    }
-    if (!href) {
+    if (!src) {
         return <LemonSkeleton className="h-24 w-32 rounded shrink-0" />
     }
+    const image = <img src={src} alt={attachment.name} className={THUMBNAIL_CLASSES} onError={onUnavailable} />
     return (
         <Tooltip title={attachment.name}>
-            <Link
-                to={href}
-                target="_blank"
-                disableClientSideRouting
-                targetBlankIcon={false}
-                className="min-w-0 max-w-full"
-            >
-                <img src={href} alt={attachment.name} className={THUMBNAIL_CLASSES} onError={() => setFailed(true)} />
-            </Link>
+            {href ? (
+                <Link to={href} target="_blank" disableClientSideRouting targetBlankIcon={false} className="min-w-0">
+                    {image}
+                </Link>
+            ) : (
+                <span className="min-w-0">{image}</span>
+            )}
         </Tooltip>
     )
 })
 
+function attachmentKey(attachment: ThreadAttachment): string {
+    return `${attachment.artifactId ?? attachment.previewId ?? 'pending'}-${attachment.name}`
+}
+
+/** Images first, then a badge per remaining file, so a screenshot is not competing with a row of names. */
 export function ThreadAttachments({ attachments }: { attachments: ThreadAttachment[] }): JSX.Element | null {
     const { currentProjectId } = useValues(projectLogic)
+    // An unfetchable image moves down to the badges rather than leaving a broken frame.
+    const [unavailable, setUnavailable] = useState<Set<string>>(new Set())
+
     if (attachments.length === 0) {
         return null
     }
+
+    const projectId = currentProjectId === null ? null : String(currentProjectId)
+    const showsImage = (attachment: ThreadAttachment): boolean =>
+        isImageAttachment(attachment.name) && !unavailable.has(attachmentKey(attachment))
+    const images = attachments.filter(showsImage)
+    const files = attachments.filter((attachment) => !showsImage(attachment))
+
     return (
-        <div className="flex flex-wrap items-start gap-1 mt-1 min-w-0 max-w-full">
-            {attachments.map((attachment) => (
-                <ThreadAttachmentItem
-                    key={`${attachment.artifactId ?? 'pending'}-${attachment.name}`}
-                    attachment={attachment}
-                    projectId={currentProjectId === null ? null : String(currentProjectId)}
-                />
-            ))}
+        <div className="flex flex-col gap-1 mt-1 min-w-0 max-w-full">
+            {images.length > 0 && (
+                <div className="flex flex-wrap items-start gap-1 min-w-0 max-w-full">
+                    {images.map((attachment) => {
+                        const key = attachmentKey(attachment)
+                        return (
+                            <ThreadAttachmentImage
+                                key={key}
+                                attachment={attachment}
+                                href={projectId ? downloadUrl(projectId, attachment) : null}
+                                onUnavailable={() => setUnavailable((seen) => new Set(seen).add(key))}
+                            />
+                        )
+                    })}
+                </div>
+            )}
+            {files.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1 min-w-0 max-w-full">
+                    {files.map((attachment) => (
+                        <AttachmentChip
+                            key={attachmentKey(attachment)}
+                            name={attachment.name}
+                            href={projectId ? downloadUrl(projectId, attachment) : null}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
     )
 }

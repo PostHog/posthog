@@ -356,10 +356,14 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxHumanMessage: (
         content: string,
-        attachmentNames?: string[] | undefined
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     ) => {
-        attachmentNames: string[] | undefined
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true

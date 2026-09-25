@@ -1395,18 +1395,18 @@ describe('runStreamLogic', () => {
                 const items = foldReplay([
                     notification('_client/human_message', {
                         content: 'Look here',
-                        attachments: ['report.csv'],
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
                     }),
                 ])
 
-                expect(items[0].attachments).toEqual([{ name: 'report.csv' }])
+                expect(items[0].attachments).toEqual([{ name: 'report.csv', previewId: 'preview-1' }])
             })
 
             it('fills the ids onto that optimistic name rather than adding a second chip', () => {
                 const frames: StoredLogEntry[] = [
                     notification('_client/human_message', {
                         content: 'Look here',
-                        attachments: ['report.csv'],
+                        attachments: [{ name: 'report.csv', previewId: 'preview-1' }],
                     }),
                     sessionUpdate({
                         sessionUpdate: 'user_message_chunk',
@@ -1419,7 +1419,13 @@ describe('runStreamLogic', () => {
                 ).threadItems
 
                 expect(items[0].attachments).toEqual([
-                    { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                    {
+                        name: 'report.csv',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-9',
+                    },
                 ])
             })
         })

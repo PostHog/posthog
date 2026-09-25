@@ -41,6 +41,7 @@ import type {
     RunConnectionState,
     RunTerminalStatus,
     SdkSession,
+    StagedAttachment,
     ThreadAttachment,
     ThreadItem,
     ThreadItemType,
@@ -426,12 +427,22 @@ export function userAttachment(content: unknown): ThreadAttachment | null {
     return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
 }
 
-/** Names an optimistic send knows before its files have artifacts to point at. */
+/** What an optimistic send knows before its files have artifacts to point at. */
 function optimisticAttachments(value: unknown): ThreadAttachment[] {
     if (!Array.isArray(value)) {
         return []
     }
-    return value.flatMap((name) => (typeof name === 'string' && name.trim() ? [{ name: name.trim() }] : []))
+    return value.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()) {
+            return []
+        }
+        return [
+            {
+                name: entry.name.trim(),
+                ...(typeof entry.previewId === 'string' ? { previewId: entry.previewId } : {}),
+            },
+        ]
+    })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2197,10 +2208,10 @@ export interface runStreamLogicActions {
     }
     pushHumanMessage: (
         content: string,
-        attachmentNames?: string[]
+        stagedAttachments?: StagedAttachment[]
     ) => {
-        attachmentNames: string[] | undefined
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
     recoveryProgress: (
         phase: RecoveryPhase,
@@ -2294,17 +2305,17 @@ export interface runStreamLogicActions {
     }
     startOptimisticResume: (
         message: string,
-        attachmentNames?: string[]
+        stagedAttachments?: StagedAttachment[]
     ) => {
-        attachmentNames: string[] | undefined
         message: string
+        stagedAttachments: StagedAttachment[] | undefined
     }
     startOptimisticRun: (
         message?: string,
-        attachmentNames?: string[]
+        stagedAttachments?: StagedAttachment[]
     ) => {
-        attachmentNames: string[] | undefined
         message: string | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     }
     streamEnded: () => {
         value: true
@@ -2568,7 +2579,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
          */
         markTurnStarted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
-        pushHumanMessage: (content: string, attachmentNames?: string[]) => ({ content, attachmentNames }),
+        pushHumanMessage: (content: string, stagedAttachments?: StagedAttachment[]) => ({
+            content,
+            stagedAttachments,
+        }),
         /**
          * Open a run optimistically before its real id exists: flips the thread to the provisioning
          * indicator and, when a first message is given, renders it immediately as the human bubble. The
@@ -2577,9 +2591,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * created; the live SSE echo dedups the seeded message. Pure composition of `setRunOpening` +
          * `pushHumanMessage`.
          */
-        startOptimisticRun: (message?: string, attachmentNames?: string[]) => ({ message, attachmentNames }),
+        startOptimisticRun: (message?: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         setPendingRunMessage: (message: PendingRunMessage | null) => ({ message }),
-        startOptimisticResume: (message: string, attachmentNames?: string[]) => ({ message, attachmentNames }),
+        startOptimisticResume: (message: string, stagedAttachments?: StagedAttachment[]) => ({
+            message,
+            stagedAttachments,
+        }),
         appendResumeBoundary: true,
         rollbackOptimisticResume: true,
         attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => ({ taskId, run }),
@@ -4218,10 +4238,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 cache.streamTokenRefreshes = 0
                 cache.disposables.dispose('event-source')
             },
-            startOptimisticRun: ({ message, attachmentNames }) => {
+            startOptimisticRun: ({ message, stagedAttachments }) => {
                 actions.setRunOpening(true)
                 if (message) {
-                    actions.pushHumanMessage(message, attachmentNames)
+                    actions.pushHumanMessage(message, stagedAttachments)
                 }
             },
             appendResumeBoundary: () => {
@@ -4239,13 +4259,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ])
                 }
             },
-            startOptimisticResume: ({ message, attachmentNames }) => {
+            startOptimisticResume: ({ message, stagedAttachments }) => {
                 const historyComplete = values.historyComplete
                 const turnComplete = values.turnComplete
                 const previousEntryCount = values.log.entries.length
                 actions.appendResumeBoundary()
                 actions.setRunOpening(true)
-                actions.pushHumanMessage(message, attachmentNames)
+                actions.pushHumanMessage(message, stagedAttachments)
                 cache.optimisticResume = {
                     entries: values.log.entries.slice(previousEntryCount),
                     message,
@@ -4288,7 +4308,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     ...(!resume.historyComplete ? { retainedMessage: resume.message } : {}),
                 })
             },
-            pushHumanMessage: ({ content, attachmentNames }) => {
+            pushHumanMessage: ({ content, stagedAttachments }) => {
                 // The echo is always a live turn (replayed human turns render straight from the log), so
                 // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
                 // log entry the projection renders in order.
@@ -4308,7 +4328,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                                 method: '_client/human_message',
                                 params: {
                                     content,
-                                    ...(attachmentNames?.length ? { attachments: attachmentNames } : {}),
+                                    ...(stagedAttachments?.length ? { attachments: stagedAttachments } : {}),
                                 },
                             },
                         },

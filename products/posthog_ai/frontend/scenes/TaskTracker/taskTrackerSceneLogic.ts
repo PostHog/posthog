@@ -50,6 +50,7 @@ import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -734,7 +735,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
             stream.actions.startOptimisticRun(
                 description,
-                values.attachedFiles.map((file) => file.name)
+                values.attachedFiles.map((file) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
             )
 
             try {

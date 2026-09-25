@@ -46,8 +46,9 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
-import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -123,6 +124,11 @@ const EFFORT_CONFIG_ID = 'effort'
 // The agent-server's permission-mode config option (`/code`'s "mode" preset). Sending
 // `set_config_option { configId: 'mode' }` is how `/code` applies a live shift+tab mode change.
 const MODE_CONFIG_ID = 'mode'
+
+/** Hands the echo each file's name plus a handle to its bytes, so the message can draw it right away. */
+function stageAttachmentPreviews(files: File[]): StagedAttachment[] {
+    return files.map((file) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+}
 
 /** Matches a bare `/clear` invocation, not a longer command that starts with it. */
 function isClearCommand(content: string): boolean {
@@ -287,10 +293,10 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     pushHumanMessage: (
         content: string,
-        attachmentNames?: string[] | undefined
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
-        attachmentNames: string[] | undefined
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     resetStream: () => {
         value: true
@@ -314,10 +320,10 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     startOptimisticResume: (
         message: string,
-        attachmentNames?: string[] | undefined
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
-        attachmentNames: string[] | undefined
         message: string
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
@@ -1382,10 +1388,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     }
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     // The names ride along so the chips show on send, not when the turn echoes back.
-                    actions.pushHumanMessage(
-                        content,
-                        attachedFiles.map((file) => file.name)
-                    )
+                    actions.pushHumanMessage(content, stageAttachmentPreviews(attachedFiles))
                     markPendingContextSent(pendingContext)
                     // A failed send leaves them staged, since the content it restored is going to be resent.
                     actions.clearAttachments()
@@ -1516,10 +1519,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
-                    actions.startOptimisticResume(
-                        content,
-                        attachedFiles.map((file) => file.name)
-                    )
+                    actions.startOptimisticResume(content, stageAttachmentPreviews(attachedFiles))
                     optimisticStarted = true
                     const result = await submitWithWarmRunRetry(
                         (options) =>
