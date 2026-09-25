@@ -40,8 +40,12 @@ Every `reminder-create` call **must** include `title` — the short text shown a
 title. Write it from the user's request (for "remind me to review the launch dashboard", use
 `"Review the launch dashboard"`).
 
-Omit `organization`. The server fills it from the active organization. Pass it only when the user
-names a different organization and gives you its ID. Do not guess the value.
+Omit `organization`. The server fills it from the active organization.
+
+Pass `organization` only when the user names a different organization and gives you its ID. If the
+user names one but gives no ID, ask for the ID before you continue. Do not guess the value, and do
+not omit the field instead: an omitted `organization` puts the reminder in the active organization,
+not the one the user named.
 
 Also set `team` (the numeric project ID) whenever you know the project. It is required when you
 attach a resource, and it makes the project timezone the default.
