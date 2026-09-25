@@ -73,13 +73,11 @@ function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
 }
 
 function WaterfallMeta(): JSX.Element | null {
-    const { currentPage, sizeBreakdown, page, pageCount } = useValues(networkViewLogic)
+    const { currentPage, sizeBreakdown, page, pageCount, navigationItem, pageUrl } = useValues(networkViewLogic)
     const { prevPage, nextPage } = useActions(networkViewLogic)
     if (!currentPage[0]) {
         return null
     }
-
-    const pageUrl = currentPage[0].name
 
     return (
         <>
@@ -99,11 +97,13 @@ function WaterfallMeta(): JSX.Element | null {
                         className="flex-shrink-0 p-0 min-w-4"
                     />
 
-                    <Tooltip title={pageUrl}>
-                        <Link to={pageUrl} target="_blank" className="block truncate">
-                            {pageUrl}
-                        </Link>
-                    </Tooltip>
+                    {pageUrl ? (
+                        <Tooltip title={pageUrl}>
+                            <Link to={pageUrl} target="_blank" className="block truncate">
+                                {pageUrl}
+                            </Link>
+                        </Tooltip>
+                    ) : null}
                 </div>
                 <LemonButton
                     onClick={nextPage}
@@ -116,8 +116,16 @@ function WaterfallMeta(): JSX.Element | null {
             </div>
             <LemonDivider />
             <div className="px-4">
-                <h3 className="mb-0">Page score</h3>
-                <PerformanceCardRow item={currentPage[0]} />
+                {navigationItem ? (
+                    <>
+                        <h3 className="mb-0">Page score</h3>
+                        <PerformanceCardRow item={navigationItem} />
+                    </>
+                ) : (
+                    <p className="mb-2 text-secondary">
+                        This recording started after the page had loaded, so there's no page load timing to score.
+                    </p>
+                )}
                 <AssetProportions data={sizeBreakdown} />
             </div>
         </>
@@ -213,7 +221,7 @@ export function NetworkView(): JSX.Element {
                         emptyState={
                             hasPageViews
                                 ? 'error displaying network data'
-                                : 'network data does not include any "navigation" events'
+                                : 'No network requests were captured in this recording. Check your network capture settings if you expected some.'
                         }
                         columns={[
                             {

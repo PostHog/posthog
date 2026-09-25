@@ -319,6 +319,52 @@ function hasMeasuredSize(value: any): value is number {
 // for example a read timeout or a body over the record limit. Some of those messages carry a
 // "[SessionReplay] " prefix and some do not, so match both shapes here. Returns a reader-facing
 // explanation, or null when the body is a real one.
+/**
+ * The waterfall shows one page at a time, and a navigation event marks the start of a page.
+ * A recording that starts after the document loaded has no navigation event to anchor its
+ * first page, so the events before the first navigation make a page of their own.
+ */
+export function groupIntoPageViews<T extends PerformanceEvent>(events: T[]): T[][] {
+    const pages: T[][] = []
+
+    for (const event of events) {
+        if (event.entry_type === 'navigation' || !pages.length) {
+            pages.push([event])
+        } else {
+            pages[pages.length - 1].push(event)
+        }
+    }
+
+    return pages
+}
+
+export function endTimeOf(item: PerformanceEvent): number | undefined {
+    return item.load_event_end ? item.load_event_end : item.response_end
+}
+
+/** the span every timing bar on a page is drawn within */
+export function pageTimingRange(page: PerformanceEvent[]): { rangeStart: number; rangeEnd: number } | null {
+    let rangeStart: number | undefined
+    let rangeEnd: number | undefined
+
+    for (const item of page) {
+        const itemStart = item.start_time
+        const itemEnd = endTimeOf(item)
+        if (itemStart !== undefined && (rangeStart === undefined || itemStart < rangeStart)) {
+            rangeStart = itemStart
+        }
+        if (itemEnd !== undefined && (rangeEnd === undefined || itemEnd > rangeEnd)) {
+            rangeEnd = itemEnd
+        }
+    }
+
+    if (rangeStart === undefined || rangeEnd === undefined) {
+        return null
+    }
+
+    return { rangeStart, rangeEnd }
+}
+
 export function unreadableBodyExplanation(body: unknown): string | null {
     if (typeof body !== 'string') {
         return null

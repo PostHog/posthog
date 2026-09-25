@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, red
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { endTimeOf, groupIntoPageViews, pageTimingRange } from 'scenes/session-recordings/apm/performance-event-utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 import {
@@ -28,11 +29,6 @@ export interface networkViewLogicValues {
     currentPage: (PerformanceEvent & {
         timeInRecording: number
     })[]
-    finalItem:
-        | (PerformanceEvent & {
-              timeInRecording: number
-          })
-        | null
     formattedDurationFor: (item: PerformanceEvent) => string | undefined
     hasPageViews: boolean
     isLoading: boolean
@@ -43,6 +39,11 @@ export interface networkViewLogicValues {
         | null
     page: number
     pageCount: number
+    pageRange: {
+        rangeStart: number
+        rangeEnd: number
+    } | null
+    pageUrl: string | null
     pageViews: (PerformanceEvent & {
         timeInRecording: number
     })[][]
@@ -100,26 +101,27 @@ export interface networkViewLogicMeta {
                   timeInRecording: number
               })
             | null
-        finalItem: (
+        pageRange: (
             currentPage: (PerformanceEvent & {
                 timeInRecording: number
             })[]
-        ) =>
-            | (PerformanceEvent & {
-                  timeInRecording: number
-              })
-            | null
-        positionPercentagesFor: (
+        ) => {
+            rangeStart: number
+            rangeEnd: number
+        } | null
+        pageUrl: (
             navigationItem:
                 | (PerformanceEvent & {
                       timeInRecording: number
                   })
                 | null,
-            finalItem:
-                | (PerformanceEvent & {
-                      timeInRecording: number
-                  })
-                | null
+            sessionPlayerMetaData: SessionRecordingType | null
+        ) => string | null
+        positionPercentagesFor: (
+            pageRange: {
+                rangeStart: number
+                rangeEnd: number
+            } | null
         ) => (item: PerformanceEvent) =>
             | {
                   startPercentage: string
@@ -180,29 +182,12 @@ export const networkViewLogic = kea<networkViewLogicType>([
                 allPerformanceEvents: PerformanceEvent[],
                 start: Dayjs
             ): (PerformanceEvent & { timeInRecording: number })[][] => {
-                // ignore events before the first navigation event
-                // then we create an array of performance events for each page
-                // and store them in an array
-                const pages: (PerformanceEvent & { timeInRecording: number })[][] = []
+                const timedEvents = allPerformanceEvents.map((perfEvent) => ({
+                    ...perfEvent,
+                    timeInRecording: dayjs(perfEvent.timestamp).valueOf() - start?.valueOf(),
+                }))
 
-                for (const perfEvent of allPerformanceEvents) {
-                    const hasAnyNavigation = Object.keys(pages).length
-                    const eventType = perfEvent.entry_type
-                    if (!hasAnyNavigation && eventType !== 'navigation') {
-                        continue
-                    }
-                    const timedEvent = {
-                        ...perfEvent,
-                        timeInRecording: dayjs(perfEvent.timestamp).valueOf() - start?.valueOf(),
-                    }
-                    if (eventType === 'navigation') {
-                        pages.push([timedEvent])
-                    } else {
-                        pages[pages.length - 1].push(timedEvent)
-                    }
-                }
-
-                return pages
+                return groupIntoPageViews(timedEvents)
             },
         ],
         pageCount: [
@@ -231,24 +216,31 @@ export const networkViewLogic = kea<networkViewLogicType>([
                     timeInRecording: number
                 })[]
             ) => {
-                if (currentPage.length) {
-                    return currentPage[0]
-                }
-                return null
+                const firstItem = currentPage[0]
+                return firstItem?.entry_type === 'navigation' ? firstItem : null
             },
         ],
-        finalItem: [
+        pageRange: [
             (s) => [s.currentPage],
             (
                 currentPage: (PerformanceEvent & {
                     timeInRecording: number
                 })[]
-            ) => {
-                if (currentPage.length) {
-                    return currentPage[currentPage.length - 1]
-                }
-                return null
-            },
+            ) => pageTimingRange(currentPage),
+        ],
+        pageUrl: [
+            (s) => [s.navigationItem, s.sessionPlayerMetaData],
+            (
+                navigationItem:
+                    | (PerformanceEvent & {
+                          timeInRecording: number
+                      })
+                    | null,
+                sessionPlayerMetaData: SessionRecordingType | null
+            ) =>
+                // only the first page can lack a navigation event, and that page is where the
+                // recording started, so its URL is the recording's start URL
+                navigationItem?.name || sessionPlayerMetaData?.start_url || null,
         ],
         formattedDurationFor: [
             () => [],
@@ -256,7 +248,7 @@ export const networkViewLogic = kea<networkViewLogicType>([
                 return (item: PerformanceEvent) => {
                     let formattedDuration: string | undefined
                     const itemStart = item.start_time
-                    const itemEnd = item.load_event_end ? item.load_event_end : item.response_end
+                    const itemEnd = endTimeOf(item)
                     if (itemStart !== undefined && itemEnd !== undefined) {
                         const itemDuration = itemEnd - itemStart
                         formattedDuration = humanFriendlyMilliseconds(itemDuration)
@@ -269,42 +261,23 @@ export const networkViewLogic = kea<networkViewLogicType>([
             },
         ],
         positionPercentagesFor: [
-            (s) => [s.navigationItem, s.finalItem],
-            (
-                navigationItem:
-                    | (PerformanceEvent & {
-                          timeInRecording: number
-                      })
-                    | null,
-                finalItem:
-                    | (PerformanceEvent & {
-                          timeInRecording: number
-                      })
-                    | null
-            ) => {
+            (s) => [s.pageRange],
+            (pageRange: { rangeStart: number; rangeEnd: number } | null) => {
                 return (item: PerformanceEvent) => {
-                    if (!navigationItem || !finalItem) {
+                    if (!pageRange) {
                         return
                     }
 
-                    const rangeStart = navigationItem.start_time
-                    const rangeEnd = finalItem.load_event_end ? finalItem.load_event_end : finalItem.response_end
-
                     const itemStart = item.start_time
-                    const itemEnd = item.load_event_end ? item.load_event_end : item.response_end
+                    const itemEnd = endTimeOf(item)
 
-                    if (
-                        itemStart === undefined ||
-                        itemEnd === undefined ||
-                        rangeStart === undefined ||
-                        rangeEnd === undefined
-                    ) {
+                    if (itemStart === undefined || itemEnd === undefined) {
                         return null
                     }
 
                     const percentages = percentagesWithinEventRange({
-                        rangeStart,
-                        rangeEnd,
+                        rangeStart: pageRange.rangeStart,
+                        rangeEnd: pageRange.rangeEnd,
                         partStart: itemStart,
                         partEnd: itemEnd,
                     })
