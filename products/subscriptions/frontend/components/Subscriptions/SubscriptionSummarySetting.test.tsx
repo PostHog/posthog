@@ -39,12 +39,12 @@ describe('SubscriptionSummarySetting', () => {
         logic.mount()
 
         render(
-            <Form logic={logic} formKey="subscription">
+            <Form logic={subscriptionLogic} props={logicProps} formKey="subscription">
                 <SubscriptionSummarySetting logicProps={logicProps} />
             </Form>
         )
 
-        const toggle = screen.getByRole('switch', { name: new RegExp(label) })
+        const toggle = screen.getByText(label).closest('.LemonSwitch')?.querySelector('button') as HTMLButtonElement
         expect(posthog.capture).not.toHaveBeenCalledWith('subscription summary toggled', expect.anything())
 
         fireEvent.click(toggle)
