@@ -357,6 +357,9 @@ class TestTaskRunEventIngest(TestCase):
                 "mode": "publish",
                 "delivered": True,
                 "spent_usd": 14.1,
+                "threshold_spent_usd": 14.0,
+                "threshold_at": "2026-01-01T00:00:00.000Z",
+                "delivered_at": "2026-01-01T00:00:05.000Z",
                 "cap_usd": 20,
             },
         )
@@ -367,30 +370,39 @@ class TestTaskRunEventIngest(TestCase):
             5, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": 10**400, "cap_usd": 2}
         )
 
-        with patch("products.tasks.backend.logic.stream.event_ingest._capture_budget_steer") as capture_budget_steer:
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture_budget_steer:
             first_status, _ = self._call_ingest(token, [good, bad_stage, bad_amount, list_stage, huge_amount])
             duplicate_status, duplicate_body = self._call_ingest(token, [good])
 
         self.assertEqual(first_status, 200)
         self.assertEqual(duplicate_status, 200)
         self.assertEqual(duplicate_body["duplicate"], 1)
-        capture_budget_steer.assert_called_once_with(
-            self.team.id,
-            str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:1")),
+        self.assertEqual(capture_budget_steer.call_count, 1)
+        self.assertEqual(
+            capture_budget_steer.call_args.kwargs["kwargs"],
             {
                 "team_id": self.team.id,
-                "task_id": str(self.task.id),
-                "run_id": str(self.task_run.id),
-                "stage": "warn",
-                "mode": "publish",
-                "delivered": True,
-                "spent_usd": 14.1,
-                "cap_usd": 20.0,
+                "event_uuid": str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:1")),
+                "timestamp": "2026-01-01T00:00:05+00:00",
+                "properties": {
+                    "team_id": self.team.id,
+                    "task_id": str(self.task.id),
+                    "run_id": str(self.task_run.id),
+                    "stage": "warn",
+                    "mode": "publish",
+                    "delivered": True,
+                    "spent_usd": 14.1,
+                    "cap_usd": 20.0,
+                    "threshold_spent_usd": 14.0,
+                    "threshold_at": "2026-01-01T00:00:00.000Z",
+                    "delivered_at": "2026-01-01T00:00:05.000Z",
+                },
             },
         )
 
+    @parameterized.expand([(False,), (True,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_budget_steer_capture_failure_does_not_block_the_stream(self) -> None:
+    def test_budget_steer_delivery_does_not_block_the_stream(self, dispatch_fails: bool) -> None:
         token = self._create_token()
         event = {
             "seq": 1,
@@ -402,16 +414,25 @@ class TestTaskRunEventIngest(TestCase):
                 },
             },
         }
+        following_event = {
+            "seq": 2,
+            "event": {"type": "notification", "notification": {"method": "_posthog/usage_update", "params": {}}},
+        }
 
-        with patch(
-            "products.tasks.backend.logic.stream.event_ingest._capture_budget_steer",
-            side_effect=RuntimeError("capture failed"),
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.budget_steer.current_app.send_task",
+                side_effect=RuntimeError("dispatch failed") if dispatch_fails else None,
+            ) as dispatch,
+            patch("posthoganalytics.consumer.Consumer.request") as upload,
         ):
-            status, body = self._call_ingest(token, [event])
+            status, body = self._call_ingest(token, [event, following_event])
 
+        dispatch.assert_called_once()
+        upload.assert_not_called()
         self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
-        self.assertEqual(self._read_notification_methods(), ["_posthog/budget_steer"])
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/budget_steer", "_posthog/usage_update"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_failure_can_be_retried(self) -> None:

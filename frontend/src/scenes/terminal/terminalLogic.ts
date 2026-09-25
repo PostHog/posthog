@@ -2,13 +2,16 @@ import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, re
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { navFilesTabLogic } from '~/layout/panel-layout/navbar/tabs/navFilesTabLogic'
 import type { ProjectTreeRef } from '~/types'
 
 import { NinePServer } from './ninepServer'
@@ -114,6 +117,9 @@ export interface terminalLogicActions {
     insertCommand: (command: string) => {
         command: string
     }
+    openUrl: (url: string) => {
+        url: string
+    }
     paste: () => {
         value: true
     }
@@ -177,6 +183,7 @@ export const terminalLogic = kea<terminalLogicType>([
         actions: [terminalDockLogic, ['focusTerminal', 'setRequestedFolder']],
     }),
     actions({
+        openUrl: (url: string) => ({ url }),
         setConfirmation: (confirmation: TerminalConfirmation | null) => ({ confirmation }),
         answerConfirmation: (confirmation: TerminalConfirmation, approved: boolean) => ({ confirmation, approved }),
         setDisplayFullscreen: (fullscreen: boolean) => ({ fullscreen }),
@@ -261,6 +268,21 @@ export const terminalLogic = kea<terminalLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openUrl: ({ url }) => {
+            const target = new URL(url, window.location.origin)
+            const targetProjectId = getProjectIdentifierInPath(target.pathname)
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&
+                target.origin === window.location.origin &&
+                (targetProjectId === null || targetProjectId === String(values.currentTeamId)) &&
+                removeProjectIdIfPresent(target.pathname) === urls.projectFiles()
+            ) {
+                cache.disposables.add(() => navFilesTabLogic.mount(), 'files-navigation')
+                navFilesTabLogic.actions.openFolder(target.searchParams.get('folder') ?? '')
+            } else {
+                router.actions.push(url)
+            }
+        },
         followFolder: async (_, breakpoint) => {
             const runtime: TerminalRuntime | undefined = cache.runtime
             const filesystem: PosthogFilesystem | undefined = cache.filesystem
@@ -292,6 +314,11 @@ export const terminalLogic = kea<terminalLogicType>([
         },
         [terminalDockLogic.actionTypes.setDockOpen]: ({ open }) => {
             if (open) {
+                actions.followFolder()
+            }
+        },
+        setRequestedFolder: ({ folder }) => {
+            if (folder !== null) {
                 actions.followFolder()
             }
         },
@@ -412,7 +439,17 @@ export const terminalLogic = kea<terminalLogicType>([
                 return
             }
             cache.projectId = projectId
-            const runtime = new TerminalRuntime((bytes) => cache.session?.view.write(bytes), actions.setDisplayOpen)
+            const runtime = new TerminalRuntime(
+                (bytes) => cache.session?.view.write(bytes),
+                actions.setDisplayOpen,
+                (message) => {
+                    if (!controller.signal.aborted) {
+                        actions.setError(message)
+                        actions.setStatus('error')
+                        disposables.dispose('terminal')
+                    }
+                }
+            )
             cache.runtime = runtime
             cache.session.view.clear()
             runtime.resize(cache.session.view.cols, cache.session.view.rows)
@@ -485,7 +522,7 @@ export const terminalLogic = kea<terminalLogicType>([
                     true
                 )
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem, (url) => router.actions.push(url))
+                new PosthogCommands(String(projectId), controller.signal, filesystem, actions.openUrl)
                 new TerminalAI(filesystem, String(projectId), controller.signal)
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {

@@ -19,7 +19,7 @@ from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
-from posthog.team_notifications.slack import SlackChannel
+from posthog.slack.channels import SlackChannel
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
 from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX

@@ -39,7 +39,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
-from posthog.team_notifications.slack import SlackChannel, fetch_channel_map, find_channel
+from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
@@ -207,7 +207,7 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
             declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
-        channels_by_name = fetch_channel_map(integration)
+        channels_by_name = fetch_channel_map(integration, source="stamphog")
     except Exception as e:
         raise RoutingUnavailable(f"could not list Slack channels for team {team_id}: {e}") from e
 

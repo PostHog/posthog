@@ -2799,6 +2799,38 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     assert "events" not in params
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failed_step,raises",
+    [
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, True),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, False),
+    ],
+)
+def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(failed_step, raises):
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0 if raises else 1,
+            failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
+        )
+        if raises:
+            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+                delete_person_profiles_op(build_op_context(), ctx)
+        else:
+            assert delete_person_profiles_op(build_op_context(), ctx) is ctx
+
+
 @pytest.mark.parametrize(
     "document,prop,expected",
     [

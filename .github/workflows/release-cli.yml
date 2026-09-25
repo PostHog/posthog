@@ -1157,6 +1157,8 @@ jobs:
         # `brew install` resolves. npm can at least carry a prerelease on a
         # separate dist-tag. Do not "fix" this to match publish-npm.
         if: ${{ needs.plan-release.result == 'success' && !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease }}
+        # Holds the tap token and only admits master.
+        environment: homebrew-tap
         steps:
             # cargo-dist generates the formula complete with per-platform URLs and
             # checksums, so unlike the phrocs formula there is no template to fill.

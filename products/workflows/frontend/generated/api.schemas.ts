@@ -1781,6 +1781,10 @@ export type HogFlowTemplatesLogsRetrieveParams = {
 }
 
 export type HogFlowsListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean
     created_at?: string
     /**
      * Filter to workflows created by the user with this uuid.

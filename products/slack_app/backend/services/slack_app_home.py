@@ -40,11 +40,14 @@ from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
     REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
+    ModelChoice,
     available_model_choices,
     describe_run_model,
     display_name_for_model,
     group_by_runtime,
     label_for,
+    offered_model_choices,
+    runtime_adapter_for,
 )
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
@@ -183,36 +186,52 @@ def _describe_cost(cost_multiplier: str | None) -> str | None:
     return f"Cost per token vs {display_name_for_model(COST_BASELINE_MODEL)}: {cost_multiplier}"
 
 
+def _picker_model(choice: ModelChoice) -> PickerModel:
+    """One model dressed in the effort labels the modal's linked dropdowns render."""
+    return PickerModel(
+        value=choice.model,
+        label=choice.label,
+        supported_efforts=tuple(
+            PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES)) for e in choice.supported_efforts
+        ),
+        cost_description=_describe_cost(choice.cost_multiplier),
+    )
+
+
 def get_picker_choices() -> tuple[PickerAdapter, ...]:
-    """Dress the catalogue's runtime → model tree in the effort labels the modal's linked
-    dropdowns render. Adapters with no available models are omitted entirely."""
+    """The runtime → model tree the modal offers, retired models left out.
+
+    Adapters with no models are omitted entirely.
+    """
     return tuple(
         PickerAdapter(
             value=group.runtime_adapter,
             label=group.label,
-            models=tuple(
-                PickerModel(
-                    value=choice.model,
-                    label=choice.label,
-                    supported_efforts=tuple(
-                        PickerEffort(value=e, label=label_for(e, REASONING_EFFORT_DISPLAY_NAMES))
-                        for e in choice.supported_efforts
-                    ),
-                    cost_description=_describe_cost(choice.cost_multiplier),
-                )
-                for choice in group.choices
-            ),
+            models=tuple(_picker_model(choice) for choice in group.choices),
         )
-        for group in group_by_runtime(available_model_choices())
+        for group in group_by_runtime(offered_model_choices())
     )
 
 
-def _models_for(runtime_adapter: str) -> tuple[PickerModel, ...]:
-    """The models the modal's model dropdown offers for one runtime."""
-    for adapter in get_picker_choices():
-        if adapter.value == runtime_adapter:
-            return adapter.models
-    return ()
+def _models_for(runtime_adapter: str, keep: str | None = None) -> tuple[PickerModel, ...]:
+    """The models the modal's model dropdown offers for one runtime.
+
+    ``keep`` names a model to list even where the catalog retired it, so someone whose
+    stored preference is on one still sees it selected, and saving the modal does not
+    quietly move them off it.
+    """
+    models = next((adapter.models for adapter in get_picker_choices() if adapter.value == runtime_adapter), ())
+    if not keep or any(model.value == keep for model in models):
+        return models
+    retained = next(
+        (
+            choice
+            for choice in available_model_choices()
+            if choice.runtime_adapter == runtime_adapter and choice.model == keep
+        ),
+        None,
+    )
+    return (*models, _picker_model(retained)) if retained else models
 
 
 def _runtime_adapter_options() -> tuple[tuple[str, str], ...]:
@@ -445,8 +464,7 @@ def render_home_view(
     blocks.extend(_personal_section_blocks(run_defaults))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own. Absent when the workspace
-    # hasn't been opted into untagged follow-ups at all.
+    # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
@@ -875,8 +893,7 @@ UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
 def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
     """Picker for how untagged replies land in the threads you started.
 
-    Off until picked, so the card doubles as the only way to turn the behaviour
-    on for your own threads. The choice covers every reply in those threads,
+    Ask until picked. The choice covers every reply in those threads,
     including the ones you write yourself.
     """
     options = [
@@ -1371,7 +1388,7 @@ def render_edit_modal(
                     else {}
                 ),
             }
-            for model in _models_for(current.runtime_adapter)
+            for model in _models_for(current.runtime_adapter, keep=current.model)
         ]
         if model_options:
             model_element: dict[str, Any] = {
@@ -1804,7 +1821,7 @@ def _drop_invalidated_selections(
     effort. The scoped block ids stop Slack handing those back on the next interaction;
     this stops the view we render from the same payload showing them in the meantime.
     """
-    if model and model not in {offered.value for offered in _models_for(runtime_adapter or "")}:
+    if model and runtime_adapter_for(model) != runtime_adapter:
         model = None
     if reasoning_effort and reasoning_effort not in (_supported_efforts(runtime_adapter, model) or ()):
         reasoning_effort = None
