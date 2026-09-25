@@ -580,7 +580,7 @@ function CanvasCell({
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center gap-2 border-gray-6 border-b px-2 py-1">
-        <Shapes size={12} className="shrink-0 text-violet-9" />
+        <Shapes size={12} className="shrink-0 text-violet-11" />
         <QuillText
           className="min-w-0 flex-1 truncate font-medium text-[12px]"
           title={dashboard?.name}

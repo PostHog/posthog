@@ -62,7 +62,7 @@ export function ChannelPinnedMenu({ channelId }: { channelId: string }) {
             <DropdownMenuItem key={d.id} onClick={() => openCanvas(d.id)}>
               {iconForTemplate(d.templateId, {
                 size: 14,
-                className: "text-violet-9",
+                className: "text-violet-11",
               })}
               <span className="truncate">{d.name}</span>
             </DropdownMenuItem>

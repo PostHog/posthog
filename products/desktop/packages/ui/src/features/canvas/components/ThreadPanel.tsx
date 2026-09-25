@@ -230,7 +230,7 @@ function CanvasArtifactCard({
   const open = canvasArtifactOpenHandler(url);
   return (
     <ArtifactCardButton
-      icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}
+      icon={iconForTemplate("", { size: 14, className: "text-violet-11" })}
       title={name}
       onOpen={open}
     />

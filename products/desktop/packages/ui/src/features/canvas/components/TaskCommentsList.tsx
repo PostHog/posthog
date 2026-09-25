@@ -108,7 +108,7 @@ function sourceIcon(kind: SourceKind, label: string, size = 12) {
         <GitPullRequestIcon size={size} className="shrink-0 text-gray-11" />
       );
     case "canvas":
-      return iconForTemplate("", { size, className: "text-violet-9" });
+      return iconForTemplate("", { size, className: "text-violet-11" });
     case "task":
       return <ChatCircleIcon size={size} className="shrink-0 text-gray-11" />;
     default:

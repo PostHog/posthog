@@ -61,7 +61,7 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
       ts: d.updatedAt,
       icon: iconForTemplate(d.templateId, {
         size: 15,
-        className: "text-violet-9",
+        className: "text-violet-11",
       }),
       accent: "violet",
       onClick: () =>

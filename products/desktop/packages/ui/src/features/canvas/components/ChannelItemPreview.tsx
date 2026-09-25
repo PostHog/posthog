@@ -62,7 +62,7 @@ function previewGlyph(item: ChannelItemModel, dot: TaskDot | null): ReactNode {
     // Matches the schema's own default for boards saved before templating.
     return iconForTemplate(item.templateId ?? "freeform", {
       size: 15,
-      className: "text-violet-9",
+      className: "text-violet-11",
     });
   }
   if (!dot) return <ChatCircleIcon size={15} className="text-gray-10" />;
