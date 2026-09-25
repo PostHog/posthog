@@ -180,11 +180,6 @@ export const SourceCellAction_Unmapped: Story = {
     },
 }
 
-export const SourceCellAction_IntegrationDisabled: Story = {
-    ...SourceCellAction_Unmapped,
-    parameters: { featureFlags: [] },
-}
-
 export const SourceCellAction_CustomMapped: Story = {
     render: () => {
         const items = buildSourceMappingMenuItems({
