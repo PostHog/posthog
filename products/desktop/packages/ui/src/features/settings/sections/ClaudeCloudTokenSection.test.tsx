@@ -270,9 +270,15 @@ describe("ClaudeCloudTokenSection", () => {
     expect(
       screen.queryByLabelText("Claude setup token"),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/PostHog keeps your Claude token/),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(
       await screen.findByLabelText("Claude setup token"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/PostHog keeps your Claude token/),
     ).toBeInTheDocument();
   });
 });

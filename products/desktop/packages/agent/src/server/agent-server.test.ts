@@ -2157,21 +2157,35 @@ describe("AgentServer HTTP Mode", () => {
         };
         handleClaudeTokenRejected(token: string): void;
       };
-      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(async () => {
-        throw new ClaudeSubscriptionTokenError(
-          "reauth_required",
-          409,
-          "Paste again.",
-        );
-      });
+      let rejectReport: (error: Error) => void = () => undefined;
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        () =>
+          new Promise<string>((_resolve, reject) => {
+            rejectReport = reject;
+          }),
+      );
 
       testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
       testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
-      await testServer.handleTurnFailure(
+      const failure = testServer.handleTurnFailure(
         interactivePayload,
         "initial",
         RequestError.authRequired(),
       );
+      await vi.waitFor(() =>
+        expect(
+          testServer.posthogAPI.requestClaudeSubscriptionToken,
+        ).toHaveBeenCalled(),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+      rejectReport(
+        new ClaudeSubscriptionTokenError(
+          "reauth_required",
+          409,
+          "Paste again.",
+        ),
+      );
+      await failure;
 
       expect(
         testServer.posthogAPI.requestClaudeSubscriptionToken,
@@ -2188,6 +2202,40 @@ describe("AgentServer HTTP Mode", () => {
         expect.objectContaining({
           status: "failed",
           error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
+        }),
+      );
+    });
+
+    it("does not blame the Claude token for a failure in a later turn", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+        runOwnedTurn<T>(operation: () => Promise<T>): Promise<T>;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        async () => "sk-ant-oat01-fake",
+      );
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.runOwnedTurn(async () => undefined);
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        new Error("Tool crashed"),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: expect.not.stringContaining(
+            CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required,
+          ),
         }),
       );
     });

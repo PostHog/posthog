@@ -212,6 +212,12 @@ describe("PostHogAPIClient", () => {
     it.each([
       { token: ["Paste the full Claude token."] },
       { token: "Paste the full Claude token." },
+      {
+        type: "validation_error",
+        code: "invalid_input",
+        detail: "Paste the full Claude token.",
+        attr: "token",
+      },
     ])("surfaces the server token error %j", async (body) => {
       const fetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify(body), {
