@@ -376,6 +376,20 @@ class TestSSOUserMapping:
                 sso_setup["installation"], "existing_user_123", sso_setup["user"].pk
             )
 
+    def test_sso_redirect_sends_a_mapped_user_with_another_email_to_login_without_an_email(self, sso_setup):
+        sso_setup["installation"].config["user_mappings"] = {"existing_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
+        claims = create_user_claims(sso_setup["installation_id"], "existing_user_123", email="vercel-only@example.com")
+
+        with (
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(claims),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
+        assert "email" not in parse_qs(urlparse(response.url).query)
+
     def test_sso_redirect_cleans_up_stale_user_mapping(self, sso_setup):
         """
         When a user mapping exists for a deleted user, the SSO flow should:

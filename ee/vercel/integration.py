@@ -54,10 +54,11 @@ class VercelSSOError(Exception):
 
 
 class RequiresExistingUserLogin(Exception):
-    def __init__(self, email: str, vercel_user_id: str, installation_id: str):
+    def __init__(self, email: str, vercel_user_id: str, installation_id: str, prefill_email: bool = True):
         self.email = email
         self.vercel_user_id = vercel_user_id
         self.installation_id = installation_id
+        self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
 
 
@@ -1065,8 +1066,12 @@ class VercelIntegration:
                 VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
 
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
-            message = f"Please log in with {e.email} to link your Vercel account"
-            login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
+            if e.prefill_email:
+                message = f"Please log in with {e.email} to link your Vercel account"
+                login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
+            else:
+                message = "Please log in to PostHog to link your Vercel account"
+                login_url = f"/login?message={quote(message)}&next={quote(continuation_url)}"
 
             logger.info(
                 "Vercel SSO requires existing user login",
@@ -1153,9 +1158,20 @@ class VercelIntegration:
                     raise exceptions.PermissionDenied("User no longer has access to this organization")
                 if VercelIntegration._claims_prove_email(claims, user.email):
                     return user
+                logger.info(
+                    "Vercel SSO mapping needs a PostHog login",
+                    reason="email_unverified" if claims.user_email_verified is not True else "email_mismatch",
+                    email_verified=claims.user_email_verified,
+                    installation_id=claims.installation_id,
+                    integration="vercel",
+                )
                 # Falling through would create a second account for this person, so a mismatch goes to a PostHog login.
+                # The token has not proven it owns the mapped account's email, so the login page must not show it.
                 raise RequiresExistingUserLogin(
-                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                    email=claims.user_email,
+                    vercel_user_id=claims.user_id,
+                    installation_id=claims.installation_id,
+                    prefill_email=False,
                 )
             # User was deleted, remove stale mapping
             user_mappings = installation.config.get("user_mappings", {})
