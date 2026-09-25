@@ -11,6 +11,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.helpers.two_factor_session import missing_two_factor_step
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -220,6 +221,8 @@ def get_billing_summary_for_app_context(
 
     organization = team.organization
     if has_active_v1_billing(organization):
+        return None
+    if missing_two_factor_step(request, user) is not None:
         return None
     if not is_impersonated_session(request) and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
         user.email, organization

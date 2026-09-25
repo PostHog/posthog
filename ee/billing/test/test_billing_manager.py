@@ -1,6 +1,7 @@
 import hmac
 import json
 import math
+import time
 import hashlib
 import datetime
 import dataclasses
@@ -14,16 +15,19 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import jwt
 import requests
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1978,6 +1982,8 @@ class TestBillingResponseCache(BaseTest):
             ("no_license", "no_license", False),
             ("v1_billing", "v1_billing", False),
             ("outside_verified_domains", "enforce_verified_domains", False),
+            ("enforced_2fa_not_set_up", "enforce_2fa", False),
+            ("enforced_2fa_verified", "enforce_2fa_verified", True),
         ]
     )
     @patch("ee.billing.billing_manager.http_session")
@@ -1995,13 +2001,22 @@ class TestBillingResponseCache(BaseTest):
             self.organization.enforce_verified_domains = True
             self.organization.save()
 
+        request = self._request()
+        if setup in ("enforce_2fa", "enforce_2fa_verified"):
+            self.organization.enforce_2fa = True
+            self.organization.save()
+            request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+        if setup == "enforce_2fa_verified":
+            TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+            set_two_factor_verified_in_session(request)
+
         with patch.object(
             Organization,
             "billing",
             SimpleNamespace(stripe_subscription_id="sub_123" if setup == "v1_billing" else None),
             create=True,
         ):
-            context = get_context_for_template("layout", self._request())
+            context = get_context_for_template("layout", request)
 
         app_context = json.loads(context["posthog_app_context"])
         expected_summary = {
