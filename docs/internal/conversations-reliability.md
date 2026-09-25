@@ -148,6 +148,7 @@ If the setting is absent, tickets remain unassigned.
 An invalid or deleted role rejects the submission without saving a ticket or its attachments.
 The ticket, assignment, and messages commit together.
 Assignment events run after the transaction commits.
+Desktop feedback tickets show the Exceptions panel only when they have a session ID.
 
 ## What must not happen
 

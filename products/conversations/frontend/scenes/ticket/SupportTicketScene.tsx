@@ -628,11 +628,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             />
 
                             {/* Exceptions Panel */}
-                            <ExceptionsPanel
-                                exceptionsQuery={exceptionsQuery}
-                                sessionId={ticket?.session_id}
-                                distinctId={ticket?.distinct_id}
-                            />
+                            {(ticket.channel_source === 'widget' || ticket.session_id) && (
+                                <ExceptionsPanel
+                                    exceptionsQuery={exceptionsQuery}
+                                    sessionId={ticket?.session_id}
+                                    distinctId={ticket?.distinct_id}
+                                />
+                            )}
 
                             {/* Previous Tickets Panel */}
                             <PreviousTicketsPanel
