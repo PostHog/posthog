@@ -10,6 +10,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
+import type { TagPage } from 'lib/components/tagSelectLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -23,6 +24,7 @@ import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ApiConfig } from '~/lib/api'
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
@@ -31,6 +33,7 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmSkillsTagsRetrieve } from 'products/skills/frontend/generated/api'
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
@@ -39,7 +42,6 @@ import { ShareSkillMenuItem } from './ShareSkillMenuItem'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
-import { skillTagsModel } from './skillTagsModel'
 
 export const scene: SceneExport = {
     component: LLMSkillsScene,
@@ -465,6 +467,23 @@ function ConnectToClaudeCodeModal(): JSX.Element {
     )
 }
 
+const SKILL_TAGS_PER_PAGE = 50
+
+/** The team's skill tags, for the filter's dropdown.
+ *
+ * The endpoint answers with the whole vocabulary rather than a page, so the search and the slice
+ * happen here. Going through `loadTags` rather than handing `TagSelect` a ready list is what gives
+ * the dropdown its loading, error, and retry states.
+ */
+async function loadSkillTags(search: string, offset: number): Promise<TagPage> {
+    const response = await llmSkillsTagsRetrieve(String(ApiConfig.getCurrentTeamId()))
+    const matches = response.tags.filter((tag) => tag.toLowerCase().includes(search.toLowerCase()))
+    return {
+        results: matches.slice(offset, offset + SKILL_TAGS_PER_PAGE).map((tag) => ({ tag })),
+        hasMore: offset + SKILL_TAGS_PER_PAGE < matches.length,
+    }
+}
+
 export function LLMSkillsScene(): JSX.Element {
     const {
         setFilters,
@@ -490,7 +509,6 @@ export function LLMSkillsScene(): JSX.Element {
         githubLogin,
     } = useValues(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { availableTags, availableTagsLoading } = useValues(skillTagsModel)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -577,8 +595,7 @@ export function LLMSkillsScene(): JSX.Element {
                     />
                     <TagSelect
                         logicKey="skills"
-                        availableTags={availableTags}
-                        availableTagsLoading={availableTagsLoading}
+                        loadTags={loadSkillTags}
                         value={filters.tags}
                         onChange={(tags) => setFilters({ tags, page: 1 })}
                     >
