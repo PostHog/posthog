@@ -284,6 +284,7 @@ layer = "modules"
 [[modules]]
 path = "products.dashboards"
 depends_on = [
+    "products.notebooks",
     "ee",
     "posthog",
     "products.alerts",
@@ -647,6 +648,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.canvas",
+    "products.dashboards",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
@@ -834,7 +836,7 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
-    # Facade-only: the DRI pick on a self-driving pull request asks which team owns each of its files.
+    # Facade-only: reviewer suggestions read the GitHub team roster to route work at a team slug.
     "products.engineering_analytics",
     # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
     # its catalog-first prompt rule on the data catalog flag.
@@ -1037,6 +1039,7 @@ from = [
 path = "products.tracing"
 depends_on = [
     "posthog", "products.access_control",
+    "products.logs",
 ]
 layer = "modules"
 
@@ -1053,7 +1056,6 @@ layer = "modules"
 path = "products.visual_review"
 depends_on = [
     "posthog",
-    "products.engineering_analytics",
 ]
 layer = "modules"
 

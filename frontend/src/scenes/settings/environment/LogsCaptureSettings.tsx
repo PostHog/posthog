@@ -5,7 +5,6 @@ import { LemonDialog, LemonSwitch } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,8 +14,10 @@ import {
     LOGS_RETENTION_DEFAULT_DAYS,
     isValidLogsRetentionDays,
     logsRetentionDaysLabel,
+    retentionThrottleReason,
 } from 'products/logs/frontend/components/LogsRetention/logsRetentionPeriod'
 import { LogsRetentionPeriodPicker } from 'products/logs/frontend/components/LogsRetention/LogsRetentionPeriodPicker'
+import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 export function LogsCaptureSettings(): JSX.Element {
@@ -134,19 +135,9 @@ export function LogsRetentionSettings(): JSX.Element {
         : LOGS_RETENTION_DEFAULT_DAYS
     const retentionLastUpdated = currentTeam?.logs_settings?.retention_last_updated
 
-    const getThrottleReason = (): string | undefined => {
-        if (!retentionLastUpdated) {
-            return undefined
-        }
-        const hoursSinceUpdate = dayjs().diff(dayjs(retentionLastUpdated), 'hours')
-        if (hoursSinceUpdate < 24) {
-            const hoursRemaining = Math.max(1, 24 - hoursSinceUpdate)
-            return `You can update retention again in ${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''}`
-        }
-        return undefined
-    }
-
-    const disabledReason = currentTeamLoading ? 'Loading...' : (restrictedReason ?? getThrottleReason())
+    const disabledReason = currentTeamLoading
+        ? 'Loading...'
+        : (restrictedReason ?? retentionThrottleReason(retentionLastUpdated))
 
     const handleRetentionChange = (retentionDays: number): void => {
         if (retentionDays === currentRetention) {
@@ -181,5 +172,16 @@ export function LogsRetentionSettings(): JSX.Element {
                 customCommit="apply"
             />
         </AccessControlAction>
+    )
+}
+
+export function LogsRetentionSettingsBlock(): JSX.Element {
+    // `LogsRetentionSection` gates itself on the retention-rules flag, so the environment
+    // default below stays visible to everyone.
+    return (
+        <div className="flex flex-col gap-4">
+            <LogsRetentionSettings />
+            <LogsRetentionSection />
+        </div>
     )
 }

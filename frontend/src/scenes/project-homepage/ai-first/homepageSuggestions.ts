@@ -2,7 +2,9 @@ import { HOMEPAGE_SUGGESTION_TOPICS, SuggestionTopic, TopicSuggestion } from 'sc
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { Conversation } from '~/types'
+import { Conversation, ConversationType } from '~/types'
+
+import type { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { HomepageGridItem } from './aiFirstHomepageLogic'
 
@@ -97,25 +99,60 @@ function suggestionVisual(
     return { itemType: suggestion.iconType ?? topic.iconType }
 }
 
+/** A chat the user can resume: a legacy conversation, or a sandbox task started in the web UI. */
+export interface ResumableChat {
+    kind: 'conversation' | 'task'
+    id: string
+    title: string
+}
+
+/**
+ * Picks the most recently active chat the user started in the PostHog AI web UI, across the
+ * legacy conversations and the newest `posthog_ai` sandbox task.
+ */
+export function pickLastChat(
+    conversationHistory: Conversation[],
+    latestWebTask: TaskListItemApi | null
+): ResumableChat | null {
+    // The API returns conversations newest-first. Tool-call and deep-research rows
+    // aren't resumable chats, and a conversation without a title has nothing to show.
+    const conversation = conversationHistory.find(
+        (candidate) => candidate.type === ConversationType.Assistant && !!candidate.title
+    )
+    const conversationChat: ResumableChat | null = conversation?.title
+        ? { kind: 'conversation', id: conversation.id, title: conversation.title }
+        : null
+    const taskChat: ResumableChat | null = latestWebTask?.title
+        ? { kind: 'task', id: latestWebTask.id, title: latestWebTask.title }
+        : null
+    if (!conversationChat || !taskChat) {
+        return conversationChat ?? taskChat
+    }
+    // A task row is often never edited while its run streams, so its activity time is the one to compare.
+    const taskActiveAt = Date.parse(latestWebTask?.last_activity_at ?? latestWebTask?.updated_at ?? '') || 0
+    const conversationActiveAt = Date.parse(conversation?.updated_at ?? '') || 0
+    return taskActiveAt > conversationActiveAt ? taskChat : conversationChat
+}
+
 /**
  * Composes the homepage "Suggestions" column: continue the last conversation, then prompts
  * inferred from recently visited items, then static topic prompts as fill. The static
  * fill guarantees the column is never empty once its sources have loaded.
  */
 export function buildSuggestionItems(
-    lastConversation: Conversation | null,
+    lastChat: ResumableChat | null,
     recentItems: FileSystemEntry[]
 ): HomepageGridItem[] {
     const items: HomepageGridItem[] = []
 
-    if (lastConversation?.title) {
+    if (lastChat) {
         items.push({
-            id: `suggestion-continue-${lastConversation.id}`,
+            id: `suggestion-continue-${lastChat.id}`,
             label: 'Continue your last conversation',
-            description: lastConversation.title,
+            description: lastChat.title,
             kind: 'suggestion',
             source: 'continue',
-            conversationId: lastConversation.id,
+            ...(lastChat.kind === 'task' ? { taskId: lastChat.id } : { conversationId: lastChat.id }),
         })
     }
 

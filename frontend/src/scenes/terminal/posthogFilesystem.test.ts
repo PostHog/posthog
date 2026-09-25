@@ -1,5 +1,3 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-
 import { waitFor } from '@testing-library/react'
 
 import apiMutator from 'lib/api-orval-mutator'
@@ -8,7 +6,7 @@ import { fileSystemCreate, fileSystemDestroy, fileSystemList, fileSystemRetrieve
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
 import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
-import type { NotebookApi, NotebookMinimalApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
 import { NinePReader, NinePWriter } from './ninepCodec'
@@ -49,6 +47,7 @@ describe('PostHog filesystem projection', () => {
         created_by: null,
         last_viewed_at: null,
         user_access_level: 'editor',
+        meta: type === 'notebook' ? { content_type: 'text/markdown' } : {},
     })
     const notebook = {
         short_id: 'note1',
@@ -59,13 +58,6 @@ describe('PostHog filesystem projection', () => {
             content: [{ type: 'ph-markdown-notebook', attrs: { markdown: '# Hello 🦔', nodeId: 'preserved' } }],
         },
     } as NotebookApi
-    const notebookIndex: NotebookMinimalApi = {
-        ...notebook,
-        title: 'Notes',
-        deleted: false,
-        user_access_level: 'editor',
-    }
-
     beforeEach(() => {
         jest.clearAllMocks()
         jest.mocked(insightsList).mockResolvedValue({ count: 0, results: [] })
@@ -74,11 +66,6 @@ describe('PostHog filesystem projection', () => {
             next: null,
             results: [entry('note1', 'Research/Notes')],
         })
-        jest.mocked(notebooksList).mockResolvedValue({
-            count: 2,
-            next: null,
-            results: [notebookIndex, { ...notebookIndex, short_id: 'note2' }],
-        })
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
     })
 
@@ -86,43 +73,7 @@ describe('PostHog filesystem projection', () => {
         const signal = new AbortController().signal
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 1,
-            results: [entry('sql1', 'Research/Report', 'insight')],
-        })
-        jest.mocked(insightsList).mockResolvedValue({
-            count: 1,
-            results: [
-                {
-                    id: 1,
-                    short_id: 'sql1',
-                    dashboard_tiles: [],
-                    last_refresh: null,
-                    cache_target_age: null,
-                    next_allowed_client_refresh: null,
-                    result: null,
-                    hasMore: null,
-                    columns: null,
-                    created_at: null,
-                    created_by: { ...MOCK_DEFAULT_BASIC_USER, hedgehog_config: null, role_at_organization: null },
-                    updated_at: '2026-01-01T00:00:00Z',
-                    last_modified_at: '2026-01-01T00:00:00Z',
-                    last_modified_by: { ...MOCK_DEFAULT_BASIC_USER, hedgehog_config: null, role_at_organization: null },
-                    is_sample: false,
-                    effective_restriction_level: 21,
-                    effective_privilege_level: 37,
-                    user_access_level: 'editor',
-                    timezone: 'UTC',
-                    is_cached: false,
-                    query_status: null,
-                    hogql: null,
-                    types: null,
-                    resolved_date_range: {},
-                    query_scan: null,
-                    alerts: [],
-                    filter_override_context: null,
-                    last_viewed_at: null,
-                    search_match_type: null,
-                },
-            ],
+            results: [{ ...entry('sql1', 'Research/Report', 'insight'), meta: { content_type: 'application/sql' } }],
         })
         const original = {
             name: 'Report',
@@ -131,6 +82,7 @@ describe('PostHog filesystem projection', () => {
         jest.mocked(apiMutator).mockResolvedValue(original)
         const fs = new PosthogFilesystem('42', signal)
         await fs.load()
+        expect(insightsList).not.toHaveBeenCalled()
         expect(apiMutator).not.toHaveBeenCalled()
         const sql =
             await fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Report.sql')!.open!()
@@ -181,6 +133,8 @@ describe('PostHog filesystem projection', () => {
             entry('nested', 'Research/Nested', 'folder'),
             entry('note1', 'Research/Notes'),
             entry('12', 'Other/Dashboard', 'dashboard'),
+            { ...entry('sql1', 'Research/Query', 'insight'), meta: { content_type: 'application/sql' } },
+            entry('trend1', 'Research/Trend', 'insight'),
         ]
         jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
             const { parent, depth, type } = params as { parent?: string; depth?: number; type?: string }
@@ -208,7 +162,7 @@ describe('PostHog filesystem projection', () => {
         expect(fileSystemList).toHaveBeenCalledTimes(1)
         expect(fileSystemList).toHaveBeenLastCalledWith(
             '42',
-            { parent: '', depth: 1, limit: 500, offset: 0 },
+            { parent: '', depth: 1, include_content_type: true, limit: 500, offset: 0 },
             expect.anything()
         )
         expect(notebooksList).not.toHaveBeenCalled()
@@ -219,10 +173,10 @@ describe('PostHog filesystem projection', () => {
         expect(fileSystemList).toHaveBeenCalledTimes(2)
         expect(fileSystemList).toHaveBeenLastCalledWith(
             '42',
-            { parent: 'Research', depth: 2, limit: 500, offset: 0 },
+            { parent: 'Research', depth: 2, include_content_type: true, limit: 500, offset: 0 },
             expect.anything()
         )
-        expect([...research.children!.keys()]).toEqual(['Nested', 'Notes.md'])
+        expect([...research.children!.keys()]).toEqual(['Nested', 'Notes.md', 'Query.sql', 'Trend.json'])
         expect(notebooksRetrieve).not.toHaveBeenCalled()
         const note = research.children!.get('Notes.md')!
         await request(
@@ -247,6 +201,9 @@ describe('PostHog filesystem projection', () => {
         expect(research.children!.has('New.md')).toBe(true)
         expect(files.children!.get('Other')!.children!.has('Dashboard.json')).toBe(true)
         expect(research.children!.get('Nested')!.children!.size).toBe(0)
+        expect(insightsList).not.toHaveBeenCalled()
+        expect(notebooksList).not.toHaveBeenCalled()
+        expect(apiMutator).not.toHaveBeenCalled()
         expect(notebooksRetrieve).not.toHaveBeenCalled()
         entries = entries.map((item) => ({ ...item, path: item.path.replace(/^Research/, 'Published') }))
         await fs.load()
@@ -295,10 +252,10 @@ describe('PostHog filesystem projection', () => {
             expect(fs.resolveReference(`/posthog/api/${name}/13.json`, '/', type)).toBe('13')
             expect([...directory.children!.keys()]).toEqual(['12.json', '13.json'])
             expect(jest.mocked(fileSystemList).mock.calls.map(([, params]) => params)).toEqual([
-                { type, limit: 500, offset: 0 },
-                { type, limit: 500, offset: 1 },
-                { type, limit: 500, offset: 0 },
-                { type, limit: 500, offset: 1 },
+                { type, include_content_type: true, limit: 500, offset: 0 },
+                { type, include_content_type: true, limit: 500, offset: 1 },
+                { type, include_content_type: true, limit: 500, offset: 0 },
+                { type, include_content_type: true, limit: 500, offset: 1 },
             ])
             expect(notebooksList).not.toHaveBeenCalled()
             expect(apiMutator).not.toHaveBeenCalled()
@@ -362,11 +319,7 @@ describe('PostHog filesystem projection', () => {
             'Expected a dashboard'
         )
         expect(notebooksRetrieve).not.toHaveBeenCalled()
-        expect(notebooksList).toHaveBeenCalledWith(
-            '42',
-            { contains: 'markdown-notebook', limit: 500, offset: 0 },
-            expect.anything()
-        )
+        expect(notebooksList).not.toHaveBeenCalled()
         const file = fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
         expect(file.writable).toBe(true)
         const opened = await file.open!(read.signal)
@@ -594,21 +547,36 @@ describe('PostHog filesystem projection', () => {
         }
     )
 
-    it.each(['remove', 'json'] as const)('fails closed without a confirmation handler for %s', async (operation) => {
-        const fs = new PosthogFilesystem('42', new AbortController().signal)
-        await fs.load()
-        const node =
-            operation === 'remove'
-                ? fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
+    it.each(['remove', 'json', 'edit-json', 'markdown', 'mkdir', 'rename'] as const)(
+        'fails closed without a confirmation handler for %s',
+        async (operation) => {
+            const fs = new PosthogFilesystem('42', new AbortController().signal, undefined, true)
+            await fs.load()
+            const files = fs.root.children!.get('files')!
+            const node = ['remove', 'markdown', 'rename'].includes(operation)
+                ? files.children!.get('Research')!.children!.get('Notes.md')!
                 : fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
-        const pending =
-            operation === 'remove'
-                ? node.remove!()
-                : (await node.open!()).save!(new TextEncoder().encode(JSON.stringify({ deleted: true })))
-        await expect(pending).rejects.toThrow('Canceled. No changes made.')
-        expect(fileSystemDestroy).not.toHaveBeenCalled()
-        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
-    })
+            const pending =
+                operation === 'remove'
+                    ? node.remove!()
+                    : operation === 'mkdir'
+                      ? files.mkdir!('New folder')
+                      : operation === 'rename'
+                        ? node.rename!(files, 'Renamed.md')
+                        : (await node.open!()).save!(
+                              new TextEncoder().encode(
+                                  operation === 'markdown'
+                                      ? '# Changed'
+                                      : JSON.stringify(operation === 'json' ? { deleted: true } : { title: 'Changed' })
+                              )
+                          )
+            await expect(pending).rejects.toThrow('Canceled. No changes made.')
+            expect(fileSystemDestroy).not.toHaveBeenCalled()
+            expect(fileSystemCreate).not.toHaveBeenCalled()
+            expect(apiMutator).not.toHaveBeenCalled()
+            expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+        }
+    )
 
     it('rejects moves of implicit folders without creating records or changing their contents', async () => {
         const fs = new PosthogFilesystem('42', new AbortController().signal)
@@ -729,7 +697,10 @@ describe('PostHog filesystem projection', () => {
             .mockResolvedValueOnce({
                 count: 3,
                 next: null,
-                results: [entry('note2', 'Research/Notes'), entry('legacy', 'Research/Legacy')],
+                results: [
+                    entry('note2', 'Research/Notes'),
+                    { ...entry('legacy', 'Research/Legacy'), meta: { content_type: 'application/json' } },
+                ],
             })
         jest.mocked(notebooksRetrieve).mockImplementation(async (_, id) =>
             id === 'legacy' ? { ...notebook, content: { type: 'doc', content: [{ type: 'paragraph' }] } } : notebook
@@ -747,11 +718,10 @@ describe('PostHog filesystem projection', () => {
     it('does not offer writes on viewer notebooks or expose entries without read access', async () => {
         jest.mocked(fileSystemList).mockResolvedValue({
             count: 2,
-            results: [entry('note1', 'Notes'), { ...entry('hidden', 'Hidden'), user_access_level: 'none' }],
-        })
-        jest.mocked(notebooksList).mockResolvedValue({
-            count: 1,
-            results: [{ ...notebookIndex, user_access_level: 'viewer' }],
+            results: [
+                { ...entry('note1', 'Notes'), user_access_level: 'viewer' },
+                { ...entry('hidden', 'Hidden'), user_access_level: 'none' },
+            ],
         })
         const fs = new PosthogFilesystem('42', new AbortController().signal)
         await fs.load()
@@ -833,6 +803,22 @@ describe('PostHog filesystem projection', () => {
         expect(apiFile.writable).toBe(false)
         expect(fs.root.children!.get('files')!.children!.get('Object.json')).toBe(file)
         expect(type.children!.get('12.json')).toBe(apiFile)
+    })
+
+    it('renames a file when its content type changes while browsing an overlapping API type', async () => {
+        const note = entry('note1', 'Notes')
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [note] })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const files = fs.root.children!.get('files')!
+        await files.loadChildren!()
+        const markdown = files.children!.get('Notes.md')!
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            results: [{ ...note, meta: { content_type: 'application/json' } }],
+        })
+        await fs.root.children!.get('api')!.children!.get('notebook')!.loadChildren!()
+        expect([...files.children!.keys()]).toEqual(['Notes.json'])
+        await expect(markdown.open!()).rejects.toMatchObject({ errno: 116 })
     })
 
     it('rejects invalid JSON and propagates API failures without retrying a failed update', async () => {

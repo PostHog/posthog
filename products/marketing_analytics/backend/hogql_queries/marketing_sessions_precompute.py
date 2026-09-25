@@ -133,6 +133,7 @@ def ensure_marketing_sessions_precomputed(
             team.timezone,
             max_window_days=CHUNK_DAYS,
             settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
+            invalidate_at_window_start=True,
         ),
         table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         modifiers=modifiers,

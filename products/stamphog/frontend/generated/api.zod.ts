@@ -94,6 +94,19 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on stamphog.
+ */
+export const StamphogRepoConfigsAddRepositoryCreateBody = /* @__PURE__ */ zod
+    .object({
+        repository: zod
+            .string()
+            .describe(
+                "Repository full name, e.g. 'PostHog\/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on."
+            ),
+    })
+    .describe('Request body for turning reviews on for a repository from a connected installation.')
+
+/**
  * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
  */
 export const stamphogRepoConfigsSyncInstallationCreateBodyInstallationIdDefault = ``

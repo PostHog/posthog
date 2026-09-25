@@ -17,8 +17,16 @@ function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
 
 const RULES: CompiledRule[] = TOKEN_RULES.map((rule) => ({
   head: new RegExp(tokenSource(rule, "*"), "g"),
-  tail: new RegExp(`^${rule.body.source}+`),
+  tail: new RegExp(`^${rule.body.source}*`),
 }));
+
+// A JWT body contains dots, so a match can end in sentence punctuation. The dots belong to
+// the token only when more of it follows; at the end of a chunk that is not yet known.
+const TRAILING_DOTS = /\.+$/;
+
+function trailingDots(match: string): string {
+  return TRAILING_DOTS.exec(match)?.[0] ?? "";
+}
 
 const TOKEN = new RegExp(
   TOKEN_RULES.map((rule) => tokenSource(rule, "+")).join("|"),
@@ -54,7 +62,8 @@ export function redactSecrets(value: string): string;
 export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
-  if (typeof value === "string") return value.replace(TOKEN, REDACTED);
+  if (typeof value === "string")
+    return value.replace(TOKEN, (match) => REDACTED + trailingDots(match));
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
     return {
@@ -126,6 +135,7 @@ export class SecretEventRedactor {
   private pending: TextEvent | null = null;
   private active: CompiledRule | null = null;
   private chunkKind: string | null = null;
+  private heldDots = 0;
 
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
     const events: Record<string, unknown>[] = [];
@@ -142,25 +152,38 @@ export class SecretEventRedactor {
       return events;
     }
     const previous = this.pending;
-    let text =
-      (previous?.notification.params.update.content.text ?? "") +
-      event.notification.params.update.content.text;
+    const previousText =
+      previous?.notification.params.update.content.text ?? "";
+    let text = previousText + event.notification.params.update.content.text;
     this.pending = null;
+    let heldDots = 0;
     if (this.active) {
-      text = text.replace(this.active.tail, "");
-      if (text.length > 0) this.active = null;
+      // The held dots of the previous chunk are part of the continuation.
+      const start = previousText.length - this.heldDots;
+      const rest = text.slice(start);
+      const match = this.active.tail.exec(rest)?.[0] ?? "";
+      const dots = trailingDots(match);
+      const remainder = rest.slice(match.length - dots.length);
+      text = text.slice(0, start) + remainder;
+      if (remainder === dots) heldDots = dots.length;
+      else if (remainder.length > 0) this.active = null;
     }
     for (const rule of RULES) {
       text = text.replace(
         rule.head,
         (match, offset: number, source: string) => {
-          if (offset + match.length === source.length) this.active = rule;
-          return REDACTED;
+          const dots = trailingDots(match);
+          if (offset + match.length === source.length) {
+            this.active = rule;
+            heldDots = dots.length;
+          }
+          return REDACTED + dots;
         },
       );
     }
     const redacted = redactSecrets(withText(event, text)) as TextEvent;
-    const held = this.active ? 0 : partialPrefixLength(text);
+    const held = this.active ? heldDots : partialPrefixLength(text);
+    this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {
         events.push(withText(previous, text.slice(0, -held)));

@@ -76,6 +76,7 @@ tools:
         exclude_params:
             - format
             - properties
+            - include_matched_fields
         param_overrides:
             limit:
                 cast: string-int

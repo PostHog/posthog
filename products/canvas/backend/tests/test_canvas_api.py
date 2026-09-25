@@ -64,6 +64,9 @@ class CanvasAPIBaseTest(APIBaseTest):
         enqueue = patch("products.canvas.backend.tasks.process_canvas_build.delay")
         self.enqueue = enqueue.start()
         self.addCleanup(enqueue.stop)
+        no_build_wait = patch.object(build_service, "PUBLISH_BUILD_WAIT_SECONDS", 0)
+        no_build_wait.start()
+        self.addCleanup(no_build_wait.stop)
         with team_scope(self.team.id):
             self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
 
@@ -739,12 +742,29 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         build = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id)
         assert build.status == CanvasBuild.STATUS_QUEUED
         self.enqueue.assert_called_once_with(self.team.id, str(build.id))
+        assert response.json()["build"] == {"id": str(build.id), "build_status": "queued", "diagnostics": []}
+
+        CanvasBuild.objects.unscoped().filter(id=build.id).update(status=CanvasBuild.STATUS_READY)
+        assert build_service.wait_for_build_result(build).status == CanvasBuild.STATUS_READY
 
         # The multi-file project round-trips from the stored version.
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/")
         body = response.json()
         assert body["current_version_id"] == version_id
         assert body["project"]["files"]["src/extra.ts"] == "export const x = 1"
+
+        def finish_build(queued: CanvasBuild) -> CanvasBuild:
+            CanvasBuild.objects.unscoped().filter(id=queued.id).update(status=CanvasBuild.STATUS_READY)
+            Canvas.objects.unscoped().filter(id=queued.canvas_id).update(published_build_id=queued.id)
+            return CanvasBuild.objects.unscoped().get(id=queued.id)
+
+        with patch.object(build_service, "wait_for_build_result", side_effect=finish_build):
+            second = self._publish(
+                canvas_id,
+                self._project("export default function C() { return 2 }"),
+                expected_current_version_id=version_id,
+            )
+        assert second.json()["canvas"]["published_build_id"] == second.json()["build"]["id"]
 
     @parameterized.expand([("member", False), ("sandbox", True)])
     def test_public_members_can_edit_and_publish_but_not_rename(self, _name: str, sandbox: bool) -> None:
@@ -835,6 +855,19 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert body["current_version_id"] == first.json()["current_version_id"]
         assert len(self.storage.objects) == 1
 
+        stale_edit = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+            {
+                "operations": [
+                    {"op": "str_replace", "path": "src/canvas.tsx", "old_string": "return 2", "new_string": "return 3"}
+                ],
+                "expected_current_version_id": None,
+            },
+            format="json",
+        )
+        assert stale_edit.status_code == status.HTTP_409_CONFLICT
+        assert stale_edit.json()["current_version_id"] == first.json()["current_version_id"]
+
     def test_validation_errors_reject_publish(self):
         canvas_id = self._create_canvas()
         response = self._publish(canvas_id, self._project('import x from "left-pad"'))
@@ -892,7 +925,25 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
             {
-                "operations": [{"path": "src/added.ts", "content": "export {}"}],
+                "operations": [
+                    {"path": "src/added.ts", "content": "export {}"},
+                    {
+                        "op": "str_replace",
+                        "path": "src/added.ts",
+                        "old_string": "export {}",
+                        "new_string": "export const y = 1",
+                    },
+                    {
+                        "type": "str_replace",
+                        "path": "src/canvas.tsx",
+                        "old_string": "return null",
+                        "new_string": 'return ph.loadInsight("abc123")',
+                    },
+                ],
+                "capabilities": {
+                    "posthog": {"insights": ["abc123"], "inlineQueries": False, "captureEvents": []},
+                    "network": {"origins": []},
+                },
                 "expected_current_version_id": version_id,
             },
             format="json",
@@ -900,22 +951,53 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
-        assert source["project"]["files"]["src/added.ts"] == "export {}"
-        # The original component survives the per-file edit.
-        assert "src/canvas.tsx" in source["project"]["files"]
+        assert source["project"]["files"]["src/added.ts"] == "export const y = 1"
+        assert (
+            source["project"]["files"]["src/canvas.tsx"]
+            == 'export default function C() { return ph.loadInsight("abc123") }'
+        )
+        assert source["project"]["capabilities"]["posthog"]["insights"] == ["abc123"]
 
     def test_edit_delete_of_missing_file_400s(self):
         canvas_id = self._create_canvas()
+        with patch("products.canvas.backend.presentation.views.report_user_action") as report:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
+                {
+                    "operations": [{"path": "src/nope.ts", "content": None}],
+                    "expected_current_version_id": None,
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["diagnostics"][0]["code"] == "edit_target_missing"
+        _user, event, properties = report.call_args.args
+        assert event == "canvas edit rejected"
+        assert properties["canvas_kind"] == "freeform"
+        assert properties["error_codes"] == ["edit_target_missing"]
+        assert properties["delete_operation_count"] == 1
+
+    @parameterized.expand(
+        [
+            ("str_replace_without_new_string", {"op": "str_replace", "old_string": "export"}),
+            ("new_string_without_op_or_old_string", {"new_string": "export const x = 2"}),
+            ("misspelled_content_field", {"contents": "export const x = 2"}),
+        ]
+    )
+    def test_incomplete_replacement_400s_and_keeps_the_file(self, _name: str, fields: dict[str, str]) -> None:
+        canvas_id = self._create_canvas()
+        project = self._project()
+        project["files"]["src/extra.ts"] = "export const x = 1"
+        version_id = self._publish(canvas_id, project, expected_current_version_id=None).json()["current_version_id"]
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/edit/",
-            {
-                "operations": [{"path": "src/nope.ts", "content": None}],
-                "expected_current_version_id": None,
-            },
+            {"operations": [{"path": "src/extra.ts", **fields}], "expected_current_version_id": version_id},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["diagnostics"][0]["code"] == "edit_target_missing"
+        source = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/").json()
+        assert source["project"]["files"]["src/extra.ts"] == "export const x = 1"
 
     def test_publish_clears_legacy_code(self):
         canvas_id = self._create_canvas()

@@ -2,7 +2,8 @@ import { type SpanContext, TraceFlags } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
-import { AgentServer, codexAuthFromGatewayEnv } from "./agent-server";
+import { AgentServer } from "./agent-server";
+import { codexAuthFromGatewayEnv } from "./gateway-env";
 
 interface TestableServer {
   configureEnvironment(args?: {
@@ -608,6 +609,27 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
     expect(env.openaiCustomHeaders?.["X-PostHog-Service-Tier"]).toBe("flex");
     expect(env.anthropicCustomHeaders).not.toContain("X-PostHog-Service-Tier");
+  });
+
+  // The header outranks `traceparent`, so giving it to Claude would replace the
+  // per-turn ids its CLI mints with one id for the whole run.
+  it("names the run as X-PostHog-Trace-Id for codex only", () => {
+    const codex = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "codex",
+    });
+    const claude = buildServer().configureEnvironment({
+      originProduct: "signal_report",
+      aiStage: "scout",
+      taskRunId: "run-1",
+      runtimeAdapter: "claude",
+    });
+
+    expect(codex.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBe("run-1");
+    expect(codex.anthropicCustomHeaders).not.toContain("X-PostHog-Trace-Id");
+    expect(claude.openaiCustomHeaders?.["X-PostHog-Trace-Id"]).toBeUndefined();
   });
 
   it("keeps non-signals products on their existing ai_product name", () => {
