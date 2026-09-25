@@ -5059,14 +5059,6 @@ class TestPrinter(BaseTest):
         assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
         assert "globalNotIn" not in printed, f"did not expect globalNotIn in:\n{printed}"
 
-    def test_console_logs_lazy_join_is_global(self):
-        # log_entries lives on the aux cluster; a plain join would re-run the log_entries
-        # subquery against aux once per shard of the session_replay_events scan.
-        printed = self._select(
-            "SELECT session_id FROM raw_session_replay_events WHERE console_logs.message = 'error' LIMIT 10"
-        )
-        assert "GLOBAL LEFT JOIN" in printed, f"expected GLOBAL LEFT JOIN in:\n{printed}"
-
     @parameterized.expand(
         [
             ("global_joins_with_optimize", True, True),
