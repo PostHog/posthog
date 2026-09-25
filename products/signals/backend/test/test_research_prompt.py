@@ -372,6 +372,44 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize(
+        "goal, goal_kept",
+        [
+            ({"goal_value": 0.01, "goal_direction": "at_most", "decision_window_days": 7}, True),
+            ({"goal_value": 0.01, "goal_direction": "at_most"}, False),
+            ({"goal_direction": "at_most", "decision_window_days": 7}, False),
+            ({"goal_value": 5, "goal_direction": "at_most", "minimum_data_points": 100}, False),
+        ],
+    )
+    def test_an_invalid_goal_is_cleared_without_failing_the_response(self, goal, goal_kept):
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "checkout_failed"}])
+        query["source"]["trendsFilter"] = {"aggregationAxisFormat": "percentage_scaled"}
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(checkout): Handle the payment timeout",
+                "summary": "Checkout errors rose over the week.",
+                "metrics": [
+                    {
+                        "metric_id": "checkout-error-rate",
+                        "title": "Checkout attempts that fail",
+                        "kind": "error_rate",
+                        "role": "primary",
+                        "value_format": "percentage_scaled",
+                        "query": query,
+                        **goal,
+                    }
+                ],
+            }
+        )
+
+        assert parsed.title == "fix(checkout): Handle the payment timeout"
+        assert [metric.metric_id for metric in parsed.metrics] == ["checkout-error-rate"]
+        assert {field: getattr(parsed.metrics[0], field) for field in goal} == (
+            goal if goal_kept else dict.fromkeys(goal)
+        )
+
+
 class TestOwnPullRequestCarveOut:
     _PR = "https://github.com/PostHog/posthog/pull/7"
 

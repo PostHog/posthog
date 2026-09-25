@@ -161,6 +161,37 @@ Hard rules:
                 )
         return kept
 
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def clear_goals_that_do_not_validate(cls, v: object) -> object:
+        # A goal is an optional proposal on a metric that is otherwise valid. Without this, a bad
+        # threshold or a missing decision rule fails the whole presentation step, and the run ends
+        # with no report. A metric that validates without its goal keeps its measurement. A metric
+        # that fails for any other reason still fails the response.
+        if not isinstance(v, list):
+            return v
+        kept: list[object] = []
+        for index, entry in enumerate(v):
+            if not isinstance(entry, dict) or all(entry.get(field) is None for field in REPORT_METRIC_GOAL_FIELDS):
+                kept.append(entry)
+                continue
+            try:
+                kept.append(ReportMetric.model_validate(entry))
+                continue
+            except Exception as e:
+                reason = _rejection_reason(e)
+            try:
+                kept.append(
+                    ReportMetric.model_validate(
+                        {key: value for key, value in entry.items() if key not in REPORT_METRIC_GOAL_FIELDS}
+                    )
+                )
+            except Exception:
+                kept.append(entry)
+                continue
+            logger.warning("presentation: cleared goal on metric at index %d that did not validate (%s)", index, reason)
+        return kept
+
     @field_validator("title", "summary")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
