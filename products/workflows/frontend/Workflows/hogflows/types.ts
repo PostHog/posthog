@@ -37,7 +37,6 @@ export const HogFlowSchema = z.object({
     conversion: z
         .object({
             window: z.string().optional(),
-            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             events: z
                 .array(
