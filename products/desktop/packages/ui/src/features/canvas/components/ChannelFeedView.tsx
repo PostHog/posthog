@@ -80,6 +80,11 @@ import {
   type SpaceActivityType,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
+import {
+  FeedRowContextMenu,
+  FeedSelection,
+  useFeedRowSelection,
+} from "@posthog/ui/features/canvas/components/FeedSelection";
 import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
 import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import {
@@ -108,6 +113,8 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { ArchiveRunningTaskDialog } from "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog";
+import { TaskSelectionScope } from "@posthog/ui/features/sidebar/TaskSelectionScope";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
   type SidebarPrState,
@@ -124,6 +131,7 @@ import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
+  type ComponentProps,
   memo,
   type ReactElement,
   type ReactNode,
@@ -1321,10 +1329,12 @@ const FeedLogRow = memo(function FeedLogRow({
   task,
   onOpenTask,
   onOpenThread,
+  selectable = false,
 }: {
   task: Task;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
+  selectable?: boolean;
 }) {
   const [ref, inView] = useInView<HTMLDivElement>({ rootMargin: "600px 0px" });
   const { mutate: markTasksRead } = useMarkTaskActivityRead();
@@ -1365,14 +1375,30 @@ const FeedLogRow = memo(function FeedLogRow({
     }),
     [archiveTask, commandCenterCells, task, taskData?.isPinned, togglePin],
   );
+  const { actions: selection, selected } = useFeedRowSelection(
+    task.id,
+    selectable,
+  );
+  const sessionAttribute = selection
+    ? { [SESSION_ROW_ATTRIBUTE]: task.id }
+    : {};
   return (
-    <TaskRowContextMenu menu={menu}>
+    <FeedRowContextMenu
+      menu={menu}
+      selected={selected}
+      onClearSelection={selection?.clearSelection}
+    >
       {/* biome-ignore lint/a11y/useSemanticElements: the row holds its own buttons (title, menu), and buttons cannot nest */}
       <div
         ref={ref}
         role="button"
         tabIndex={0}
-        className="group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-selected"
+        className={cn(
+          "group relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-[13px] transition-colors hover:bg-fill-selected",
+          selection && "select-none",
+          selected && "bg-primary/10 hover:bg-primary/15",
+        )}
+        {...sessionAttribute}
         onClick={(event) => {
           if (
             event.target instanceof Element &&
@@ -1380,6 +1406,7 @@ const FeedLogRow = memo(function FeedLogRow({
           ) {
             return;
           }
+          if (selection?.selectFromClick(task.id, event)) return;
           markRead();
           onOpenThread(task);
         }}
@@ -1398,6 +1425,7 @@ const FeedLogRow = memo(function FeedLogRow({
           className="min-w-0 flex-1 truncate text-left font-medium"
           onClick={(event) => {
             event.stopPropagation();
+            if (selection?.selectFromClick(task.id, event)) return;
             markRead();
             onOpenTask(task);
           }}
@@ -1419,7 +1447,7 @@ const FeedLogRow = memo(function FeedLogRow({
           <TaskRowDropdownMenu menu={menu} />
         </span>
       </div>
-    </TaskRowContextMenu>
+    </FeedRowContextMenu>
   );
 });
 
@@ -1643,7 +1671,15 @@ const FEED_KIND_FILTERS: readonly {
 // Multiplayer — the list is team-visible and polls for teammates' cards and
 // status flips. Synthetic "PostHog agent" system rows (context lifecycle) are
 // interleaved by timestamp, and day separators group the cards.
-export function ChannelFeedView({
+export function ChannelFeedView(props: ComponentProps<typeof FeedView>) {
+  return (
+    <TaskSelectionScope>
+      <FeedView {...props} />
+    </TaskSelectionScope>
+  );
+}
+
+function FeedView({
   channelId,
   tasks,
   pending = NO_PENDING,
@@ -1672,6 +1708,7 @@ export function ChannelFeedView({
   filters,
   sort = DEFAULT_CHANNEL_ITEM_SORT,
   grouping = "date",
+  selectable = false,
 }: {
   channelId: string;
   tasks: Task[];
@@ -1714,6 +1751,7 @@ export function ChannelFeedView({
   filters?: ChannelItemFilters;
   sort?: ChannelItemSort;
   grouping?: ChannelItemGrouping;
+  selectable?: boolean;
 }) {
   // Archiving is local-only host state the server task list doesn't know about,
   // so a just-archived card would otherwise reappear on the next poll. Drop
@@ -1866,6 +1904,15 @@ export function ChannelFeedView({
   }, [latestPendingId]);
 
   const listRows = rowStyle ? rowStyle === "list" : compact;
+  const rowsSelectable = selectable && listRows;
+  const selectableItems = useMemo(() => {
+    if (!rowsSelectable) return NO_ITEMS;
+    return entries.slice(0, visibleCount).flatMap((entry) => {
+      if (entry.kind !== "task") return [];
+      const item = itemByKey.get(entryKey(entry) ?? "");
+      return item ? [item] : [];
+    });
+  }, [rowsSelectable, entries, visibleCount, itemByKey]);
   const composerBlock = composer && (
     <div
       className={cn(
@@ -2063,6 +2110,9 @@ export function ChannelFeedView({
               task={entry.task}
               onOpenTask={onOpenTask}
               onOpenThread={onOpenThread}
+              selectable={
+                rowsSelectable && itemByKey.has(entryKey(entry) ?? "")
+              }
             />
           ) : (
             <FeedRow
@@ -2147,7 +2197,22 @@ export function ChannelFeedView({
               rebuilding && "pointer-events-none opacity-50",
             )}
           >
-            {rows.length === 0 ? (narrowed ? noResults : kindEmptyNote) : rows}
+            {rows.length === 0 ? (
+              narrowed ? (
+                noResults
+              ) : (
+                kindEmptyNote
+              )
+            ) : rowsSelectable ? (
+              <FeedSelection
+                items={selectableItems}
+                onOpenThread={onOpenThread}
+              >
+                {rows}
+              </FeedSelection>
+            ) : (
+              rows
+            )}
 
             {visibleCount < entries.length && (
               <div ref={moreRef} className="h-8" aria-hidden />
