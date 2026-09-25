@@ -226,8 +226,8 @@ def _job(team, source, schema, status, age):
     ExternalDataJob.objects.filter(id=job.id).update(created_at=dt.datetime.now(tz=dt.UTC) - age)
 
 
-def _billing_blocked_schema(team, source, *, blocked_for, last_load_ago=None, other_outcome_ago=None):
-    schema = _create_cdc_schema(team, source)
+def _billing_blocked_schema(team, source, *, blocked_for, last_load_ago=None, other_outcome_ago=None, name="users"):
+    schema = _create_cdc_schema(team, source, name=name)
     ExternalDataSchema.objects.filter(id=schema.id).update(
         status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
         last_synced_at=dt.datetime.now(tz=dt.UTC) - (last_load_ago or blocked_for),
@@ -310,12 +310,12 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
 
 
 def test_a_job_from_another_table_does_not_defer_the_billing_stop(team):
-    # The billing limit is team-wide, so only the blocked tables' own jobs end their blocked run: a
-    # sibling table that fails, or a non-billable run that skips the billing check and completes,
-    # would otherwise reset the clock on every tick and defer the stop indefinitely.
+    # Each table's blocked run is measured from its own jobs: a sibling that fails, or a non-billable
+    # run that skips the billing check and completes, would otherwise reset the clock on every tick and
+    # defer the stop indefinitely.
     source = _create_source(team, job_inputs=_cdc_job_inputs())
     schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
-    sibling = _create_cdc_schema(team, source, name="events")
+    sibling = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(hours=1), name="events")
     _job(team, source, sibling, ExternalDataJob.Status.COMPLETED, dt.timedelta(hours=1))
     adapter = _mock_adapter()
 

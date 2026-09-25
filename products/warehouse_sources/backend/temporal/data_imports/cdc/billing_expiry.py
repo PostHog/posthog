@@ -13,7 +13,6 @@ from __future__ import annotations
 import uuid
 import typing
 import datetime as dt
-from collections.abc import Sequence
 
 from posthog.models.team.team import Team
 
@@ -68,28 +67,31 @@ def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) 
     if cdc_schemas.filter(sync_type_config__has_key="cdc_broken").exists():
         return False
     cutoff = now - BUFFER_FILE_RETENTION
-    blocked = list(cdc_schemas.filter(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED))
-    # A table blocked that long has not loaded since the cutoff either, so this rules out most sources
-    # before the job history is read.
-    if not any((schema.last_synced_at or schema.created_at) < cutoff for schema in blocked):
-        return False
-    blocked_since = _billing_blocked_since(source, [schema.id for schema in blocked])
-    if blocked_since is None or blocked_since >= cutoff:
+    blocked = cdc_schemas.filter(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+    # A table blocked that long has not loaded since the cutoff either, so this rules out most tables
+    # before any job history is read.
+    candidates = [schema for schema in blocked if (schema.last_synced_at or schema.created_at) < cutoff]
+    if not any(_blocked_past(source, schema.id, cutoff) for schema in candidates):
         return False
     team = Team.objects.only("api_token").get(id=source.team_id)
     return is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
 
-def _billing_blocked_since(source: ExternalDataSource, schema_ids: Sequence[uuid.UUID]) -> dt.datetime | None:
-    """When the current run of billing-blocked jobs on the blocked CDC tables began.
+def _blocked_past(source: ExternalDataSource, schema_id: uuid.UUID, cutoff: dt.datetime) -> bool:
+    """Whether this table's current run of billing-blocked jobs started before ``cutoff``."""
+    blocked_since = _billing_blocked_since(source, schema_id)
+    return blocked_since is not None and blocked_since < cutoff
 
-    The limit applies to the whole team, so every blocked table is blocked from the same moment: the
-    first blocked job after the last job with another outcome. Only the blocked tables' own jobs count
-    — another table of the source can fail, and a non-billable run skips the billing check and
-    completes, while these tables stay blocked. A table can also go longer without a load for other
-    reasons, which is why this is not the time since its last load.
+
+def _billing_blocked_since(source: ExternalDataSource, schema_id: uuid.UUID) -> dt.datetime | None:
+    """When this table's current run of billing-blocked jobs began.
+
+    That run starts at the table's first blocked job after its last job with another outcome. Only
+    this table's own jobs count — a sibling table can fail, and a non-billable run skips the billing
+    check and completes, while this table stays blocked. A table can also go longer without a load for
+    other reasons, which is why this is not the time since its last load.
     """
-    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id__in=schema_ids)
+    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id=schema_id)
     # One ordered lookup per status, because the (team, pipeline, status, created_at) index serves an
     # equality on status and not an exclusion.
     latest_by_outcome = [
