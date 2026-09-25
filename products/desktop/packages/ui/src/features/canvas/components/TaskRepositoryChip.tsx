@@ -21,7 +21,10 @@ import {
 import { MAX_REPOSITORIES } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useGithubRepositories } from "@posthog/ui/features/integrations/useIntegrations";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+// A repository full name always has a slash, so this can't collide with one.
+const LOAD_MORE_ITEM = "load-more";
 
 export function taskRepositoryLabel(repositories: string[]): string {
   if (repositories.length === 0) return "Add repositories…";
@@ -99,6 +102,7 @@ interface TaskRepositoryChipProps {
   ) => void;
   /** Opens the TaskRepositoryDialog. */
   onOpenSettings: () => void;
+  settingsOpen: boolean;
 }
 
 /**
@@ -115,6 +119,7 @@ export function TaskRepositoryChip({
   disabled,
   onRepositoriesChange,
   onOpenSettings,
+  settingsOpen,
 }: TaskRepositoryChipProps) {
   if (!cloud) {
     return (
@@ -141,6 +146,7 @@ export function TaskRepositoryChip({
       disabled={disabled}
       onChange={onRepositoriesChange}
       onOpenSettings={onOpenSettings}
+      settingsOpen={settingsOpen}
     />
   );
 }
@@ -151,12 +157,14 @@ function TaskRepositoryCombobox({
   disabled,
   onChange,
   onOpenSettings,
+  settingsOpen,
 }: {
   repositories: string[];
   integrationId: number | null;
   disabled: boolean;
   onChange: (repositories: string[], integrationId: number | null) => void;
   onOpenSettings: () => void;
+  settingsOpen: boolean;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -171,12 +179,16 @@ function TaskRepositoryCombobox({
     loadMore,
   } = useGithubRepositories(query, open, integrationId);
 
-  const items = orderTaskRepositoryItems({
+  const repositoryItems = orderTaskRepositoryItems({
     pinned,
     selected: repositories,
     fetched,
     query,
   });
+  // Load more is an option so the arrow keys reach it like any other row.
+  const items = hasMore
+    ? [...repositoryItems, LOAD_MORE_ITEM]
+    : repositoryItems;
   const atLimit = repositories.length >= MAX_REPOSITORIES;
   const label = taskRepositoryLabel(repositories);
 
@@ -186,6 +198,15 @@ function TaskRepositoryCombobox({
     else setQuery("");
   };
 
+  // The settings dialog is a detour from the menu, so closing it returns there.
+  const reopenAfterSettings = useRef(false);
+  useEffect(() => {
+    if (settingsOpen || !reopenAfterSettings.current) return;
+    reopenAfterSettings.current = false;
+    setOpen(true);
+    setPinned(repositories);
+  }, [settingsOpen, repositories]);
+
   return (
     <Combobox
       multiple
@@ -193,6 +214,10 @@ function TaskRepositoryCombobox({
       filter={null}
       value={repositories}
       onValueChange={(next: string[]) => {
+        if (next.includes(LOAD_MORE_ITEM)) {
+          if (!isFetchingMore) loadMore();
+          return;
+        }
         const selection = resolveTaskRepositorySelection({
           current: repositories,
           next,
@@ -246,9 +271,12 @@ function TaskRepositoryCombobox({
               size="icon-xs"
               aria-label="Repository settings"
               title="Repository settings"
+              // quill hides the ring on every button in a combobox popup, meant for options only.
+              className="focus-visible:border-ring! focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_30%,transparent)]!"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                reopenAfterSettings.current = true;
                 handleOpenChange(false);
                 onOpenSettings();
               }}
@@ -275,31 +303,26 @@ function TaskRepositoryCombobox({
             "No repositories found."
           )}
         </ComboboxEmpty>
-        <ComboboxList className="flex-1">
-          {(repository: string) => (
-            <ComboboxItem
-              key={repository}
-              value={repository}
-              disabled={atLimit && !repositories.includes(repository)}
-            >
-              {repository}
-            </ComboboxItem>
-          )}
+        <ComboboxList className="max-h-none min-h-0 flex-1">
+          {(repository: string) =>
+            repository === LOAD_MORE_ITEM ? (
+              <ComboboxItem key={LOAD_MORE_ITEM} value={LOAD_MORE_ITEM}>
+                {isFetchingMore ? <Spinner aria-hidden="true" /> : null}
+                {isFetchingMore
+                  ? "Loading more repositories…"
+                  : "Load more repositories"}
+              </ComboboxItem>
+            ) : (
+              <ComboboxItem
+                key={repository}
+                value={repository}
+                disabled={atLimit && !repositories.includes(repository)}
+              >
+                {repository}
+              </ComboboxItem>
+            )
+          }
         </ComboboxList>
-        {hasMore ? (
-          <div className="shrink-0 border-t p-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              disabled={isFetchingMore}
-              loading={isFetchingMore}
-              onClick={loadMore}
-            >
-              Load more repositories
-            </Button>
-          </div>
-        ) : null}
       </ComboboxContent>
     </Combobox>
   );

@@ -522,6 +522,7 @@ export const ChannelHomeComposer = forwardRef<
             })
           }
           onOpenSettings={() => setRepositoryDialogOpen(true)}
+          settingsOpen={repositoryDialogOpen}
         />
       </div>
 

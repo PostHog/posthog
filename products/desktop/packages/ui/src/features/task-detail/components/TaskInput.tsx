@@ -1493,6 +1493,7 @@ export function TaskInput({
                         })
                       }
                       onOpenSettings={() => setRepositoryDialogOpen(true)}
+                      settingsOpen={repositoryDialogOpen}
                     />
                   ) : (
                     <>

@@ -102,6 +102,7 @@ function CloudTaskComposer() {
             disabled={false}
             onRepositoriesChange={() => {}}
             onOpenSettings={() => {}}
+            settingsOpen={false}
           />
         </div>
         <PromptInput
