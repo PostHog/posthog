@@ -50,14 +50,11 @@ class TestOnboardingSessionIdempotency(TestCase):
         )
 
     @override_settings(DEBUG=False)
-    def test_both_spaces_flags_must_be_enabled(self) -> None:
-        with patch("posthoganalytics.feature_enabled", side_effect=[True, False]) as feature_enabled:
+    def test_the_spaces_flag_gates_the_session(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False) as feature_enabled:
             self.assertFalse(_session_enabled(self.team, self.user))
 
-        self.assertEqual(
-            [call.args[0] for call in feature_enabled.call_args_list],
-            ["code-spaces-layout", "project-bluebird"],
-        )
+        self.assertEqual([call.args[0] for call in feature_enabled.call_args_list], ["project-bluebird"])
 
     @override_settings(DEBUG=False)
     def test_onboarding_test_tools_use_their_feature_flag(self) -> None:
