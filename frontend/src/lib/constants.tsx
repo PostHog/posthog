@@ -455,7 +455,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
-    PRODUCT_ANALYTICS_METADATA_SUGGESTIONS: 'product-analytics-metadata-suggestions', // owner: @pauldambra #team-product-analytics, gates the insight title and tag suggestion buttons (Jev decision model through ml_inference)
+    PRODUCT_ANALYTICS_METADATA_SUGGESTIONS: 'product-analytics-metadata-suggestions', // owner: @pauldambra #team-product-analytics, gates the insight tag suggestion button (Jev decision model through the shared System One client)
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_NOTES: 'product-support-ai-notes', // owner: @veryayskiy #team-conversations, shows AI private notes in the ticket thread
