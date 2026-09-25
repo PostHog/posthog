@@ -1345,7 +1345,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1383,7 +1382,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_on_conversion',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],
@@ -1857,7 +1855,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 {
                     exitCondition: 'exit_only_at_end',
                     conversion: {
-                        window_minutes: 60,
                         filters: [],
                         bytecode: [],
                         events: [eventNameFilter('conversion_event')],

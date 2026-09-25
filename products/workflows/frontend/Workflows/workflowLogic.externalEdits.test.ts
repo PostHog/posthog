@@ -39,7 +39,7 @@ const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
         },
     ],
     edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',

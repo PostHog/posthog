@@ -58,6 +58,13 @@ def _time_offs_response(
     return _wrapped_response({"data": items, "next": next_token, "has_next_page": has_next})
 
 
+def _payroll_response(
+    items: list[dict[str, Any]], *, next_cursor: str | None = None, has_more: bool = False
+) -> Response:
+    # Payroll cycles and gross-to-net put both the cursor and the flag at the top level.
+    return _wrapped_response({"data": items, "has_more": has_more, "next_cursor": next_cursor})
+
+
 def _make_manager(resume_state: DeelResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -434,3 +441,185 @@ class TestTimeOffEvents:
         rows = _rows(_source("time_off_events", _make_manager()))
 
         assert [r["id"] for r in rows] == ["ev_2"]
+
+
+class TestTrackerEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_offboarding_asks_for_every_termination(self, MockSession):
+        # Deel defaults the offboarding tracker to the last 45 days; without this the table
+        # silently loses every older leaver.
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"unique_id": "off_1"}])])
+
+        rows = _rows(_source("offboarding_tracker", _make_manager()))
+
+        assert [r["unique_id"] for r in rows] == ["off_1"]
+        assert params[0]["ignore_date_range"] == "true"
+        assert params[0]["sort_order"] == "ASC"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_onboarding_pages_on_cursor(self, MockSession):
+        session = MockSession.return_value
+        params = _wire(
+            session, [_response([{"unique_id": "on_1"}], cursor="cur_1"), _response([{"unique_id": "on_2"}])]
+        )
+
+        rows = _rows(_source("onboarding_tracker", _make_manager()))
+
+        assert [r["unique_id"] for r in rows] == ["on_1", "on_2"]
+        assert "ignore_date_range" not in params[0]
+        assert params[1]["cursor"] == "cur_1"
+
+
+class TestLookupEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_job_titles_page_on_after_cursor_without_a_page_size(self, MockSession):
+        session = MockSession.return_value
+        # Deel echoes a cursor past the last page, so the empty page is what ends the walk.
+        params = _wire(
+            session,
+            [_response([{"id": 1}], cursor="cur_1"), _response([], cursor="cur_2")],
+        )
+
+        rows = _rows(_source("job_titles", _make_manager()))
+
+        assert [r["id"] for r in rows] == [1]
+        assert "limit" not in params[0]
+        assert params[1]["after_cursor"] == "cur_1"
+        assert session.send.call_count == 2
+
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("departments", "https://api.letsdeel.com/rest/v2/departments"),
+            ("teams", "https://api.letsdeel.com/rest/v2/teams"),
+            ("countries", "https://api.letsdeel.com/rest/v2/lookups/countries"),
+            ("currencies", "https://api.letsdeel.com/rest/v2/lookups/currencies"),
+            ("seniorities", "https://api.letsdeel.com/rest/v2/lookups/seniorities"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_lookups_send_one_request_with_no_page_size(self, MockSession, endpoint, path):
+        session = MockSession.return_value
+        params, urls = _wire_capture(session, [_response([{"code": "US"}])])
+
+        _rows(_source(endpoint, _make_manager()))
+
+        assert urls == [path]
+        assert params[0] == {}
+        assert session.send.call_count == 1
+
+
+class TestPayrollEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_payroll_cycles_fan_out_and_carry_their_legal_entity(self, MockSession):
+        session = MockSession.return_value
+        params, urls = _wire_capture(
+            session,
+            [
+                _response([{"id": "le_1"}]),
+                _payroll_response([{"id": "cy_1"}], next_cursor="cur_1", has_more=True),
+                _payroll_response([{"id": "cy_2"}], has_more=False),
+            ],
+        )
+
+        rows = _rows(_source("payroll_cycles", _make_manager()))
+
+        assert urls[1:] == ["https://api.letsdeel.com/rest/v2/legal-entities/le_1/payroll-events"] * 2
+        assert params[2]["cursor"] == "cur_1"
+        assert params[1]["limit"] == PAGE_SIZE
+        assert [(r["id"], r["legal_entity_id"]) for r in rows] == [("cy_1", "le_1"), ("cy_2", "le_1")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_payroll_reports_carry_their_legal_entity(self, MockSession):
+        session = MockSession.return_value
+        _params, urls = _wire_capture(
+            session,
+            [
+                _response([{"id": "le_1"}]),
+                _wrapped_response({"data": [{"id": "ev_1", "status": "CLOSED"}]}),
+            ],
+        )
+
+        rows = _rows(_source("payroll_reports", _make_manager()))
+
+        assert urls[1] == "https://api.letsdeel.com/rest/v2/gp/legal-entities/le_1/reports"
+        assert rows == [{"id": "ev_1", "status": "CLOSED", "legal_entity_id": "le_1"}]
+
+
+class TestGrossToNet:
+    @mock.patch(DEEL_SESSION_PATCH)
+    def test_walks_legal_entities_then_cycles_then_reports(self, MockSession):
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _response([{"id": "le_1"}]),
+            _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": False}]),
+            _payroll_response([{"contract_oid": "con_1"}]),
+        ]
+
+        manager = _make_manager()
+        rows = _rows(_source("payroll_gross_to_net", manager))
+
+        assert [call.args[0] for call in session.get.call_args_list] == [
+            "https://api.letsdeel.com/rest/v2/legal-entities",
+            "https://api.letsdeel.com/rest/v2/legal-entities/le_1/payroll-events",
+            # cy_2 publishes no report, so it is never requested.
+            "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_1/gross-to-net",
+        ]
+        assert rows == [{"contract_oid": "con_1", "cycle_id": "cy_1", "legal_entity_id": "le_1"}]
+        assert rows[0]["legal_entity_id"] == "le_1"
+        # The cycle is checkpointed once its rows are out, so a resume skips it. A cycle id is
+        # only unique within its legal entity, so the checkpoint carries both.
+        manager.save_state.assert_called_once_with(DeelResumeConfig(completed=["le_1:cy_1"]))
+
+    @mock.patch(DEEL_SESSION_PATCH)
+    def test_resume_skips_cycles_already_emitted(self, MockSession):
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _response([{"id": "le_1"}]),
+            _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
+            _payroll_response([{"contract_oid": "con_2"}]),
+        ]
+
+        manager = _make_manager(DeelResumeConfig(completed=["le_1:cy_1"]))
+        rows = _rows(_source("payroll_gross_to_net", manager))
+
+        assert [call.args[0] for call in session.get.call_args_list][-1] == (
+            "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_2/gross-to-net"
+        )
+        assert [r["cycle_id"] for r in rows] == ["cy_2"]
+        assert manager.save_state.call_args.args[0] == DeelResumeConfig(completed=["le_1:cy_1", "le_1:cy_2"])
+
+    @mock.patch(DEEL_SESSION_PATCH)
+    def test_skips_a_cycle_whose_report_went_away(self, MockSession):
+        # A cycle can flag a report that 404s by the time we ask for it; that must not fail
+        # the whole sync.
+        gone = Response()
+        gone.status_code = 404
+        gone._content = b"{}"
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _response([{"id": "le_1"}]),
+            _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
+            gone,
+            _payroll_response([{"contract_oid": "con_2"}]),
+        ]
+
+        rows = _rows(_source("payroll_gross_to_net", _make_manager()))
+
+        assert [r["contract_oid"] for r in rows] == ["con_2"]
+
+    @mock.patch(DEEL_SESSION_PATCH)
+    def test_stops_a_report_that_keeps_echoing_the_same_cursor(self, MockSession):
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _response([{"id": "le_1"}]),
+            _payroll_response([{"id": "cy_1", "has_g2n_report": True}]),
+            _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
+            _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
+        ]
+
+        rows = _rows(_source("payroll_gross_to_net", _make_manager()))
+
+        assert [r["contract_oid"] for r in rows] == ["con_1", "con_1"]
+        assert session.get.call_count == 4
