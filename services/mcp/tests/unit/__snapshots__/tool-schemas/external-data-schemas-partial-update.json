@@ -40,6 +40,19 @@
             ],
             "description": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here."
         },
+        "full_refresh_interval_days": {
+            "anyOf": [
+                {
+                    "maximum": 90,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency."
+        },
         "id": {
             "description": "A UUID string identifying this external data schema.",
             "type": "string"
