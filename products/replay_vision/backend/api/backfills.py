@@ -75,6 +75,14 @@ class BackfillWindowSerializer(serializers.Serializer):
         return attrs
 
 
+class BackfillCreateSerializer(BackfillWindowSerializer):
+    max_total_credits = serializers.IntegerField(
+        min_value=0,
+        help_text="The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from "
+        "the estimate the person agreed to. The create is rejected if the window now costs more.",
+    )
+
+
 class BackfillEstimateResponseSerializer(serializers.Serializer):
     total_sessions = serializers.IntegerField(
         help_text="Upper bound on the sessions the backfill would scan, after sampling and quality "
@@ -291,7 +299,7 @@ class ReplayScannerBackfillViewSet(
         )
         return Response(response.data)
 
-    @extend_schema(request=BackfillWindowSerializer, responses={201: ReplayScannerBackfillSerializer})
+    @extend_schema(request=BackfillCreateSerializer, responses={201: ReplayScannerBackfillSerializer})
     def create(self, request: Request, **kwargs: Any) -> Response:
         """Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
 
@@ -300,7 +308,7 @@ class ReplayScannerBackfillViewSet(
         settled sessions between estimate and confirm can nudge total_count slightly.
         """
         scanner = self._scanner_for_url()
-        window = BackfillWindowSerializer(data=request.data)
+        window = BackfillCreateSerializer(data=request.data)
         window.is_valid(raise_exception=True)
         window_start, window_end = self._clamped_window(window.validated_data)
         if ReplayScannerBackfill.objects.filter(scanner=scanner, status__in=ACTIVE_BACKFILL_STATUSES).exists():
@@ -308,6 +316,16 @@ class ReplayScannerBackfillViewSet(
 
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
         total = self._unobserved_count(scanner, window_start, window_end)
+        credits_per_observation = observation_credits_for_model(snapshot.model)
+        max_total_credits = window.validated_data["max_total_credits"]
+        cost = total * credits_per_observation
+        if cost > max_total_credits:
+            raise ValidationError(
+                {
+                    "max_total_credits": f"This backfill now costs up to {cost} credits, "
+                    f"more than the {max_total_credits} agreed. Estimate it again."
+                }
+            )
         try:
             backfill = ReplayScannerBackfill.objects.create(
                 scanner=scanner,
@@ -315,7 +333,7 @@ class ReplayScannerBackfillViewSet(
                 window_start=window_start,
                 window_end=window_end,
                 scanner_snapshot=snapshot.model_dump(mode="json"),
-                credits_per_observation=observation_credits_for_model(snapshot.model),
+                credits_per_observation=credits_per_observation,
                 total_count=total,
                 created_by=cast(Any, request.user),
             )

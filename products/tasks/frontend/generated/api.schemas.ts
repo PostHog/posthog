@@ -344,6 +344,8 @@ export interface LoopConnectorsApi {
  * * `run_completed` - run_completed
  * * `run_failed` - run_failed
  * * `pr_created` - pr_created
+ * * `pr_merged` - pr_merged
+ * * `pr_closed` - pr_closed
  * * `needs_attention` - needs_attention
  */
 export type EventsEnumApi = (typeof EventsEnumApi)[keyof typeof EventsEnumApi]
@@ -352,6 +354,8 @@ export const EventsEnumApi = {
     RunCompleted: 'run_completed',
     RunFailed: 'run_failed',
     PrCreated: 'pr_created',
+    PrMerged: 'pr_merged',
+    PrClosed: 'pr_closed',
     NeedsAttention: 'needs_attention',
 } as const
 
@@ -363,7 +367,7 @@ export type LoopNotificationChannelApiParams = { [key: string]: unknown }
 export interface LoopNotificationChannelApi {
     /** Whether this channel is active. */
     enabled?: boolean
-    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
     events?: EventsEnumApi[]
     /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
     params?: LoopNotificationChannelApiParams
@@ -2892,7 +2896,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -3035,7 +3039,7 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
@@ -3503,7 +3507,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
-    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */

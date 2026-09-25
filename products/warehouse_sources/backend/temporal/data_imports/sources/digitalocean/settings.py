@@ -253,6 +253,97 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
             parent_params={"per_page": PAGE_SIZE},
         ),
     ),
+    # The join table between projects and everything in them: `/v2/projects` syncs the project
+    # headers, but membership only exists behind this per-project endpoint. Resources are
+    # identified by URN (`do:droplet:13457723`), which resolves against the id columns already
+    # synced on droplets, databases, volumes and the rest.
+    # `/v2/projects/default/resources` is an alias for whichever project carries `is_default`,
+    # and that project is in the `/v2/projects` listing, so fanning out over every project
+    # already covers it.
+    "project_resources": DigitalOceanEndpointConfig(
+        name="project_resources",
+        path="/v2/projects/{project_id}/resources",
+        data_selector="resources",
+        # A resource sits in one project at a time, but the API does not document the URN as
+        # unique across the whole fan-out, so the parent id is part of the key.
+        primary_keys=["project_id", "urn"],
+        partition_key="assigned_at",
+        fanout=DependentEndpointConfig(
+            parent_name="projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # DNS records under each synced domain. The domain itself is only a name, so the records
+    # are where the zone's actual contents live.
+    "domain_records": DigitalOceanEndpointConfig(
+        name="domain_records",
+        path="/v2/domains/{domain_name}/records",
+        data_selector="domain_records",
+        # The record id is documented as unique per domain, not across the account.
+        primary_keys=["domain_name", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="domains",
+            resolve_param="domain_name",
+            resolve_field="name",
+            include_from_parent=["name"],
+            # Renamed off the parent prefix, and away from the record's own `name` column,
+            # which holds the host part of the record rather than the zone.
+            parent_field_renames={"name": "domain_name"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # Backup inventory per managed database cluster, so retention and backup size can be read
+    # alongside the cluster metadata. The endpoint takes no page params and returns the whole
+    # list in one response.
+    "database_backups": DigitalOceanEndpointConfig(
+        name="database_backups",
+        path="/v2/databases/{database_cluster_uuid}/backups",
+        data_selector="backups",
+        # A backup record has no id of its own; it is identified by when it was taken.
+        primary_keys=["database_cluster_uuid", "created_at"],
+        partition_key="created_at",
+        # Both legs of the fan-out share one session, and the parent leg is `/v2/databases`,
+        # whose response embeds live connection URIs and passwords.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_cluster_uuid",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "database_cluster_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+            # Caching and Valkey clusters do not support backups, and the fan-out visits every
+            # cluster the account has. Treating the endpoint's documented not-found response as
+            # an empty page keeps one such cluster from failing the whole table.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Cluster event history (create, update, maintenance, failover, power cycles) — the
+    # state-transition log for managed databases, which `/v2/actions` does not cover.
+    "database_events": DigitalOceanEndpointConfig(
+        name="database_events",
+        path="/v2/databases/{database_cluster_uuid}/events",
+        data_selector="events",
+        # The event id is only documented as identifying the event within its cluster.
+        primary_keys=["database_cluster_uuid", "id"],
+        partition_key="create_time",
+        # Same shared-session reason as `database_backups`: the parent leg is `/v2/databases`.
+        captures_http_samples=False,
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_cluster_uuid",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "database_cluster_uuid"},
+            parent_params={"per_page": PAGE_SIZE},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(DIGITALOCEAN_ENDPOINTS.keys())

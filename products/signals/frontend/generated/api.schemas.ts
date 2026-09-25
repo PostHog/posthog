@@ -2479,6 +2479,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_dispatch` - Implementation Dispatch
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
+ * * `ranking_score` - Ranking Score
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2513,6 +2514,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationDispatch: 'implementation_dispatch',
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
+    RankingScore: 'ranking_score',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2617,11 +2619,10 @@ export interface PatchedSignalReportArtefactLogUpdateApi {
 }
 
 /**
- * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
- * repository default branch.
+ * Response for the `commit` artefact diff endpoint.
  */
 export interface CommitDiffResponseApi {
-    /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+    /** Unified diff (patch) text from the linked pull request or branch comparison. */
     readonly diff: string
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean

@@ -669,7 +669,9 @@ async def prepare_report_context_activity(
             evaluation_id=str(evaluation.id),
             evaluation_name=evaluation.name,
             evaluation_description=evaluation.description or "",
-            evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
+            evaluation_prompt=evaluation.evaluation_config.get(
+                "source" if evaluation.evaluation_type == "hog" else "prompt", ""
+            ),
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
             true_is_failure=bool(evaluation.output_config.get("true_is_failure")),

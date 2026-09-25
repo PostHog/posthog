@@ -297,3 +297,74 @@ class TestDovetailSourceFanout:
             {"id": "c2", "body": "world", "doc_id": "doc2"},
         ]
         assert response.primary_keys == ["doc_id", "id"]
+
+    def _mock_fields_fanout(self, requests_mock: Any) -> None:
+        requests_mock.get(
+            f"{BASE_URL}/v1/projects",
+            json={
+                "data": [{"id": "p1"}, {"id": "p2"}],
+                "page": {"total_count": 2, "has_more": False, "next_cursor": None},
+            },
+        )
+
+        def fields_response(request: Any, context: Any) -> dict[str, Any]:
+            project_id = request.qs["filter[project_id]"][0]
+            field_set_type = request.qs["filter[field_set_type]"][0]
+            return {
+                "data": [
+                    {
+                        "id": f"f-{project_id}-{field_set_type}",
+                        "project_id": project_id,
+                        "field_set_type": field_set_type,
+                    }
+                ],
+                "page": {"total_count": 1, "has_more": False, "next_cursor": None},
+            }
+
+        requests_mock.get(f"{BASE_URL}/v1/fields", json=fields_response)
+
+    def test_fields_fans_out_over_every_project_and_field_set_type(self, requests_mock: Any) -> None:
+        self._mock_fields_fanout(requests_mock)
+
+        response = dovetail_source(
+            api_key="tok",
+            endpoint="Fields",
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_FakeResumeManager(),
+        )
+        rows = _collect_rows(response)
+
+        assert rows == [
+            {"id": "f-p1-data", "project_id": "p1", "field_set_type": "data"},
+            {"id": "f-p2-data", "project_id": "p2", "field_set_type": "data"},
+            {"id": "f-p1-doc", "project_id": "p1", "field_set_type": "doc"},
+            {"id": "f-p2-doc", "project_id": "p2", "field_set_type": "doc"},
+        ]
+        assert response.primary_keys == ["project_id", "id"]
+
+        field_requests = [r for r in requests_mock.request_history if r.path == "/api/v1/fields"]
+        assert [(r.qs["filter[project_id]"][0], r.qs["filter[field_set_type]"][0]) for r in field_requests] == [
+            ("p1", "data"),
+            ("p2", "data"),
+            ("p1", "doc"),
+            ("p2", "doc"),
+        ]
+        assert field_requests[0].qs["page[limit]"] == ["100"]
+
+    def test_fields_multi_pass_fanout_saves_no_checkpoint(self, requests_mock: Any) -> None:
+        self._mock_fields_fanout(requests_mock)
+        manager = _FakeResumeManager()
+
+        response = dovetail_source(
+            api_key="tok",
+            endpoint="Fields",
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,
+        )
+        _collect_rows(response)
+
+        # The manager holds one checkpoint and each pass paginates independently, so resuming
+        # would restart in the wrong pass; the passes are cheap enough to redo instead.
+        assert manager.saved == []

@@ -150,6 +150,7 @@ export const draftsLogic = kea<draftsLogicType>([
                 },
                 loadMoreDrafts: async () => {
                     if (values.draftsResponse.next) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const drafts = await api.get<PaginatedResponse<DataWarehouseSavedQueryDraft>>(
                             values.draftsResponse.next
                         )
