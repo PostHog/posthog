@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 
@@ -38,18 +38,19 @@ describe('StepPipeline', () => {
         })
 
         it('should handle step errors and log the debug context', async () => {
+            const headers: MessageHeader[] = [
+                { token: Buffer.from('phc_token') },
+                { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                { event: '$pageview' },
+                { distinct_id: 'person@example.com' },
+                { session_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' },
+            ]
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
                 partition: 0,
                 offset: 1,
-                headers: [
-                    { token: Buffer.from('phc_token') },
-                    { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
-                    { event: '$pageview' },
-                    { distinct_id: 'person@example.com' },
-                    { session_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' },
-                ],
+                headers,
             } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
