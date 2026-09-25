@@ -22,6 +22,7 @@ import uuid
 import base64
 import argparse
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -33,6 +34,7 @@ DEFAULT_LOG_GROUP = "/aws/lambda/checkout-api"
 
 # Must exceed FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES (8 MiB) after base64, which costs 4/3.
 OVERSIZE_MESSAGE_BYTES = 8 * 1024 * 1024
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -65,13 +67,10 @@ class FirehoseReplay:
 
     def cloudwatch_envelope(self, index: int, message_type: str) -> dict[str, Any]:
         now_ms = int(time.time() * 1000)
-        return {
-            "messageType": message_type,
-            "owner": "123456789012",
-            "logGroup": self.options.log_group,
-            "logStream": f"2026/09/17/[$LATEST]{index:08x}",
-            "subscriptionFilters": ["posthog"],
-            "logEvents": [
+        log_events = (
+            []
+            if message_type == "CONTROL_MESSAGE"
+            else [
                 {
                     "id": f"{index:04d}{event:08d}",
                     "timestamp": now_ms - event,
@@ -79,8 +78,14 @@ class FirehoseReplay:
                 }
                 for event in range(self.options.events)
             ]
-            if message_type != "CONTROL_MESSAGE"
-            else [],
+        )
+        return {
+            "messageType": message_type,
+            "owner": "123456789012",
+            "logGroup": self.options.log_group,
+            "logStream": f"2026/09/17/[$LATEST]{index:08x}",
+            "subscriptionFilters": ["posthog"],
+            "logEvents": log_events,
         }
 
     def log_line(self, event: int) -> str:
@@ -138,12 +143,11 @@ class FirehoseReplay:
 
     def send(self) -> tuple[int, bytes]:
         request = self.build_request()
-        if request.type not in ("http", "https"):
-            raise SystemExit(f"--url must be http or https, got {request.type!r}")
         try:
-            # The scheme check above keeps urlopen off file:// and the other urllib schemes.
+            # `parse_args` rejects any scheme but http/https, keeping urlopen off file:// and
+            # the other urllib schemes.
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
             # Every status carries the contract body, so an error response is still worth checking.
@@ -185,19 +189,9 @@ def parse_args(argv: list[str] | None = None) -> ReplayOptions:
     parser.add_argument("--control", action="store_true", help="Lead with a CONTROL_MESSAGE record.")
     parser.add_argument("--common-attributes", default=None, help="JSON for the common attributes header.")
     args = parser.parse_args(argv)
-    return ReplayOptions(
-        url=args.url,
-        token=args.token,
-        source_id=args.source_id,
-        log_group=args.log_group,
-        events=args.events,
-        records=args.records,
-        gzip_body=args.gzip_body,
-        raw=args.raw,
-        oversize=args.oversize,
-        control=args.control,
-        common_attributes=args.common_attributes,
-    )
+    if urllib.parse.urlparse(args.url).scheme not in ("http", "https"):
+        parser.error(f"--url must be http or https, got {args.url!r}")
+    return ReplayOptions(**vars(args))
 
 
 def main() -> int:
