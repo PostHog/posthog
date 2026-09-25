@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconCopy, IconInfo, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSwitch, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonModal,
+    LemonSkeleton,
+    LemonSwitch,
+    Tooltip,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
@@ -11,8 +19,14 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 export function TwoFactorSettings(): JSX.Element {
-    const { status, isDisable2FAModalOpen, isBackupCodesModalOpen, generatingCodes, generatingCodesLoading } =
-        useValues(twoFactorLogic)
+    const {
+        status,
+        statusLoadFailed,
+        isDisable2FAModalOpen,
+        isBackupCodesModalOpen,
+        generatingCodes,
+        generatingCodesLoading,
+    } = useValues(twoFactorLogic)
 
     const { updateUser } = useActions(userLogic)
     const { loadMemberUpdates } = useActions(membersLogic)
@@ -30,9 +44,22 @@ export function TwoFactorSettings(): JSX.Element {
         loadMemberUpdates()
     }
 
-    const hasTotp = status?.has_totp ?? false
-    const hasPasskeys = status?.has_passkeys ?? false
-    const passkeysEnabled = status?.passkeys_enabled_for_2fa ?? false
+    if (!status) {
+        return statusLoadFailed ? (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadStatus() }}>
+                Couldn't load your 2FA settings.
+            </LemonBanner>
+        ) : (
+            <div className="space-y-2">
+                <LemonSkeleton className="h-6 w-40" />
+                <LemonSkeleton className="h-32 w-full" />
+            </div>
+        )
+    }
+
+    const hasTotp = status.has_totp
+    const hasPasskeys = status.has_passkeys
+    const passkeysEnabled = status.passkeys_enabled_for_2fa
 
     return (
         <div className="flex flex-col items-start space-y-4">
@@ -95,7 +122,7 @@ export function TwoFactorSettings(): JSX.Element {
                             </>
                         ) : (
                             <p>
-                                {status?.backup_codes_remaining
+                                {status.backup_codes_remaining
                                     ? `You have ${status.backup_codes_remaining} unused backup ${status.backup_codes_remaining === 1 ? 'code' : 'codes'}. Backup codes are only shown once, when you generate them. Generate new codes to replace them.`
                                     : "You don't have any unused backup codes. Generate codes to sign in if you lose access to your authentication device."}
                             </p>
@@ -105,7 +132,7 @@ export function TwoFactorSettings(): JSX.Element {
                             onClick={() => generateBackupCodes()}
                             loading={generatingCodesLoading}
                         >
-                            {status?.backup_codes_remaining ? 'Generate new codes' : 'Generate backup codes'}
+                            {status.backup_codes_remaining ? 'Generate new codes' : 'Generate backup codes'}
                         </LemonButton>
                     </div>
                 </LemonModal>
@@ -114,7 +141,7 @@ export function TwoFactorSettings(): JSX.Element {
             <div className="space-y-1">
                 {/* 2FA Status Indicator */}
                 <div className="mb-4 flex items-center deprecated-space-x-2">
-                    {status?.is_enabled ? (
+                    {status.is_enabled ? (
                         <>
                             <IconCheckCircle color="green" className="text-xl" />
                             <span className="font-medium">2FA enabled</span>
