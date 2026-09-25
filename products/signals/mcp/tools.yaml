@@ -1378,6 +1378,15 @@ tools:
         description:
             'DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be
             removed. Call scout-project-profile-get directly with the same arguments.'
+    signals-scout-rubrics-generate:
+        operation: signals_scout_rubrics_generate
+        enabled: false
+    signals-scout-rubrics-retrieve:
+        operation: signals_scout_rubrics_retrieve
+        enabled: false
+    signals-scout-rubrics-update:
+        operation: signals_scout_rubrics_update
+        enabled: false
     signals-scout-run-now:
         operation: signals_scout_config_run
         enabled: true
