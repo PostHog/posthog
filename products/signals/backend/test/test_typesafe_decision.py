@@ -262,13 +262,15 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
         patch(
             "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
-            side_effect=RuntimeError("gateway unavailable"),
+            side_effect=DecisionGatewayError(422, "echoed signal description"),
         ),
     ):
         with pytest.raises(SignalsDecisionError, match="Signals decision failed") as exc_info:
             await _run_actionability(traditional=traditional)
 
-    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value) == "Signals decision failed: DecisionGatewayError (status 422)"
+    assert exc_info.value.__cause__ is None
+    assert exc_info.value.__suppress_context__
     traditional.assert_not_awaited()
 
 

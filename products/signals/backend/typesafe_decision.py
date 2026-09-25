@@ -14,6 +14,7 @@ from posthog.dataclasses import frozen
 from products.ml_inference.backend.facade import api as decision_api
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
+    DecisionGatewayError,
     DecisionQuestion,
     DecisionRequest,
     JsonValue,
@@ -324,7 +325,12 @@ async def run_model_decision(
         )
     if decision_error is not None:
         if mode == "typesafe-only":
-            raise SignalsDecisionError("Signals decision failed") from decision_error
+            # The gateway error body can echo the state, which holds customer content.
+            # Only the error type and status leave here, so callers cannot log the body.
+            status = (
+                f" (status {decision_error.status_code})" if isinstance(decision_error, DecisionGatewayError) else ""
+            )
+            raise SignalsDecisionError(f"Signals decision failed: {type(decision_error).__name__}{status}") from None
         raise decision_error
     if decision is None:
         if mode == "typesafe-only":
