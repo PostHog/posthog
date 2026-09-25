@@ -8,7 +8,11 @@ import { useGravatarRefreshStore } from "@posthog/ui/features/auth/gravatarRefre
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
+import {
+  GRAVATAR_GET_STARTED_URL,
+  GRAVATAR_MANAGE_URL,
+  useGravatarUrl,
+} from "@posthog/ui/features/auth/useGravatarUrl";
 import {
   type ImageProbeResult,
   useImageProbe,
@@ -24,7 +28,6 @@ import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback } from "react";
 
-const GRAVATAR_MANAGE_URL = "https://gravatar.com/profile/avatars";
 const GRAVATAR_IMAGE_SIZE = 144;
 
 type ProfilePictureStatus = "unknown" | "found" | "missing";
@@ -48,7 +51,7 @@ function profilePictureDescription(
     case "found":
       return `Comes from Gravatar, matched to ${email}. Change it there, then refresh to see it here.`;
     case "missing":
-      return `No picture yet. Add one on Gravatar for ${email} and it shows here and anywhere teammates see you.`;
+      return `No picture yet. Add ${email} to your Gravatar account, or create one, then set a picture there.`;
   }
 }
 
@@ -197,6 +200,7 @@ export function AccountSection() {
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const candidateUrl = useGravatarUrl(user?.email, GRAVATAR_IMAGE_SIZE);
   const probe = useImageProbe(candidateUrl);
+  const status = probeStatus(probe.result);
 
   const handleRefresh = useCallback(() => {
     if (!user?.email) return;
@@ -211,8 +215,10 @@ export function AccountSection() {
   }, [user?.email]);
 
   const handleOpenGravatar = useCallback(() => {
-    window.open(GRAVATAR_MANAGE_URL, "_blank");
-  }, []);
+    const url =
+      status === "found" ? GRAVATAR_MANAGE_URL : GRAVATAR_GET_STARTED_URL;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [status]);
 
   if (!user) return null;
 
@@ -220,7 +226,7 @@ export function AccountSection() {
     <AccountSettingsView
       user={user}
       imageUrl={probe.url}
-      status={probeStatus(probe.result)}
+      status={status}
       checking={probe.loading || !candidateUrl}
       onRefresh={handleRefresh}
       onOpenGravatar={handleOpenGravatar}
