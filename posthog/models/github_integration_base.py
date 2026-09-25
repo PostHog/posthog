@@ -2681,24 +2681,6 @@ class GitHubIntegrationBase:
             cold_wait_seconds=GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS,
         )
 
-    def _filter_and_paginate_branch_cache(
-        self, cached: dict[str, Any], *, search: str, limit: int, offset: int
-    ) -> tuple[list[str], str | None, bool]:
-        branches = cast(list[str], cached["branches"])
-        default_branch = cast(str | None, cached.get("default_branch"))
-
-        normalized_search = search.strip().casefold()
-        filtered_branches = (
-            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
-        )
-
-        result = filtered_branches[offset : offset + limit]
-        has_more = offset + limit < len(filtered_branches)
-        span = trace.get_current_span()
-        span.set_attribute("github.branches.returned", len(result))
-        span.set_attribute("github.branches.has_more", has_more)
-        return result, default_branch, has_more
-
     @tracer.start_as_current_span("github.branches.cache")
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
@@ -2715,7 +2697,18 @@ class GitHubIntegrationBase:
             cached = branch_cache.get()
         except CacheRefreshInProgress as exc:
             raise GitHubIntegrationError("GitHub branch cache refresh already in progress") from exc
-        return self._filter_and_paginate_branch_cache(cached, search=search, limit=limit, offset=offset)
+
+        branches = cast(list[str], cached["branches"])
+        default_branch = cast(str | None, cached.get("default_branch"))
+        normalized_search = search.strip().casefold()
+        filtered_branches = (
+            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
+        )
+        result = filtered_branches[offset : offset + limit]
+        has_more = offset + limit < len(filtered_branches)
+        span.set_attribute("github.branches.returned", len(result))
+        span.set_attribute("github.branches.has_more", has_more)
+        return result, default_branch, has_more
 
     def get_access_token(self) -> str:
         """Return a valid installation access token, refreshing it past the half-life threshold."""
