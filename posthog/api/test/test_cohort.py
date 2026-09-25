@@ -195,6 +195,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 8,
                 "deleted": False,
+                "is_static": False,
+                "has_csv": False,
             },
             team=ANY,
             request=ANY,
@@ -238,6 +240,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
                 "name_length": 9,
                 "deleted": False,
+                "is_static": False,
                 "updated_by_creator": True,
             },
             team=ANY,
@@ -440,7 +443,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn(expected_detail, response.json()["detail"])
 
-    def test_static_cohort_csv_upload_end_to_end(self):
+    @patch("posthog.api.cohort.report_user_action")
+    def test_static_cohort_csv_upload_end_to_end(self, patch_capture):
         """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
@@ -472,6 +476,9 @@ email@example.org
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
+        analytics_metadata = patch_capture.call_args[0][2]
+        self.assertTrue(analytics_metadata["is_static"])
+        self.assertTrue(analytics_metadata["has_csv"])
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
         distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertEqual(distinct_ids, {"123", "0"})

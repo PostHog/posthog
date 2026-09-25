@@ -92,6 +92,24 @@ tools:
             {"name": "Viewed pricing last 7d", "is_static": true, "query": {"kind": "ActorsQuery", "source": {"kind":
             "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event":
             "$pageview"}], "dateRange": {"date_from": "-7d"}}}}}
+
+
+            Example — from a list of people the user gave you (pasted addresses, an exported list, a spreadsheet
+            column). Match the list in a HogQLQuery. This has no row limit, so use it instead of looping
+            'cohorts-add-persons-to-static-cohort-partial-update'. By email:
+
+            {"name": "Launch list", "is_static": true, "query": {"kind": "HogQLQuery", "query": "SELECT id AS person_id
+            FROM persons WHERE properties.email IN ('a@example.com', 'b@example.com')"}}
+
+
+            By distinct ID, read 'person_distinct_ids' instead:
+
+            {"name": "Launch list", "is_static": true, "query": {"kind": "HogQLQuery", "query": "SELECT person_id FROM
+            person_distinct_ids WHERE distinct_id IN ('abc', 'def')"}}
+
+
+            If the list is in a file the user has not pasted, ask them for the addresses or IDs, or point them at the
+            CSV upload in the batch audience picker of a workflow, which builds the same static cohort.
         exclude_params:
             - groups
             - deleted
