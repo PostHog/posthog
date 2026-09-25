@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                 db_constraint=False,
                 db_index=False,
                 null=True,
-                on_delete=django.db.models.deletion.CASCADE,
+                on_delete=django.db.models.deletion.DO_NOTHING,
                 to="dashboards.dashboard",
             ),
         ),
