@@ -21,6 +21,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
     filter_unsupported_effort,
     group_by_runtime,
     label_for,
+    offered_model_choices,
     runtime_adapter_for,
 )
 
@@ -38,5 +39,6 @@ __all__ = [
     "filter_unsupported_effort",
     "group_by_runtime",
     "label_for",
+    "offered_model_choices",
     "runtime_adapter_for",
 ]

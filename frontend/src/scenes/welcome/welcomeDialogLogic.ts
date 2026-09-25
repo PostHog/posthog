@@ -308,6 +308,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             {
                 loadWelcomeData: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use welcomeCurrentRetrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
                     } catch (error) {
                         const status =

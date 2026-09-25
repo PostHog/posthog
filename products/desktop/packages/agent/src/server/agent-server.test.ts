@@ -299,6 +299,12 @@ function getNextTestPort(): number {
   return port;
 }
 
+function circularData(): Record<string, unknown> {
+  const data: Record<string, unknown> = { reason: "loop" };
+  data.self = data;
+  return data;
+}
+
 function exactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
@@ -1781,6 +1787,38 @@ describe("AgentServer HTTP Mode", () => {
       };
       return testServer;
     }
+
+    it.each([
+      [
+        "ACP internal error details",
+        RequestError.internalError({ details: "Session setup timed out" }),
+        "Agent server crashed: Internal error: Session setup timed out",
+      ],
+      [
+        "ACP internal error without details",
+        RequestError.internalError({}),
+        "Agent server crashed: Internal error",
+      ],
+      [
+        "ACP internal error with circular data",
+        RequestError.internalError(circularData()),
+        "Agent server crashed: Internal error",
+      ],
+      ["plain error", new Error("boom"), "Agent server crashed: boom"],
+    ])("reports %s on a fatal crash", async (_name, error, expected) => {
+      const testServer = createFailureTestServer() as unknown as {
+        posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
+        reportFatalError(error: unknown): Promise<void>;
+      };
+
+      await testServer.reportFatalError(error);
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        expect.objectContaining({ status: "failed", error_message: expected }),
+      );
+    });
 
     const interactivePayload: JwtPayload = {
       run_id: "run-1",

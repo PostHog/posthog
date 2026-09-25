@@ -8,11 +8,17 @@ else before lookup.
 from collections.abc import Iterator, Mapping
 from functools import cache
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from posthog.schema import NativeMarketingSource
 
+from posthog.ph_client import feature_enabled_or_false
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 NativeIntegration = Literal[
+    "apple_ads",
     "google_ads",
     "meta_ads",
     "bing_ads",
@@ -27,6 +33,7 @@ NativeIntegration = Literal[
 # Mapping from NativeMarketingSource to the snake-case key used everywhere
 # downstream (URL params, scope hints, suggestion targets).
 NATIVE_TO_KEY: dict[NativeMarketingSource, NativeIntegration] = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: "apple_ads",
     NativeMarketingSource.GOOGLE_ADS: "google_ads",
     NativeMarketingSource.META_ADS: "meta_ads",
     NativeMarketingSource.BING_ADS: "bing_ads",
@@ -44,6 +51,7 @@ KEY_TO_NATIVE: dict[NativeIntegration, NativeMarketingSource] = {v: k for k, v i
 # layer uses) to NativeMarketingSource. Pinned explicitly because
 # ExternalDataSourceType has many non-marketing entries.
 EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
+    "AppleSearchAds": NativeMarketingSource.APPLE_SEARCH_ADS,
     "GoogleAds": NativeMarketingSource.GOOGLE_ADS,
     "MetaAds": NativeMarketingSource.META_ADS,
     "BingAds": NativeMarketingSource.BING_ADS,
@@ -56,6 +64,7 @@ EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
 
 # Human-facing names for surfaces that produce text (LLMs, UI, error messages).
 DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: "Apple Ads",
     NativeMarketingSource.GOOGLE_ADS: "Google Ads",
     NativeMarketingSource.META_ADS: "Meta Ads",
     NativeMarketingSource.BING_ADS: "Bing Ads",
@@ -79,6 +88,23 @@ OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.SNAPCHAT_ADS: "snapchat",
     NativeMarketingSource.TIK_TOK_ADS: "tiktok-ads",
 }
+
+
+NATIVE_SOURCE_FEATURE_FLAGS: dict[str, str] = {
+    "AppleSearchAds": "marketing-analytics-apple-ads",
+}
+
+
+def is_native_source_enabled(source_type: str, team: "Team") -> bool:
+    flag = NATIVE_SOURCE_FEATURE_FLAGS.get(source_type)
+    if flag is None:
+        return True
+    return feature_enabled_or_false(
+        flag,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
 
 
 def display_name_for_key(key: NativeIntegration) -> str:

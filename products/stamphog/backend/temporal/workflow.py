@@ -1,10 +1,10 @@
 """Stamphog review workflow.
 
-Orchestrates a single PR review: fetch context -> run the whole engine (gates, tier,
-familiarity, LLM review) offline in a sandbox -> post the verdict. Gate blocks are now
-determined inside the sandbox and surfaced through the verdict output, so there is no
-separate server-side gate step. Any unrecoverable error marks the ``ReviewRun`` FAILED.
-The workflow only ever moves ``StamphogReviewInput`` (two small fields) between activities;
+Orchestrates a single PR review: fetch context -> run the engine's gates on the worker and refuse
+right away when they alone decide the verdict -> otherwise run the whole engine (gates, tier,
+familiarity, LLM review) offline in a sandbox -> post the verdict. Both gate runs are the engine's own
+code and surface through the same verdict output. Any unrecoverable error marks the ``ReviewRun``
+FAILED. The workflow only ever moves ``StamphogReviewInput`` (two small fields) between activities;
 all bulky data lives on ``ReviewRun.output`` in Postgres.
 """
 
@@ -14,6 +14,7 @@ import asyncio
 
 import temporalio.workflow
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import describe_failure
@@ -23,6 +24,7 @@ from products.stamphog.backend.temporal.constants import (
     FETCH_CONTEXT_TIMEOUT,
     MARK_FAILED_TIMEOUT,
     POST_VERDICT_TIMEOUT,
+    PRE_GATES_TIMEOUT,
     RUN_REVIEW_TIMEOUT,
     SANDBOX_RETRY_POLICY,
     STAMPHOG_BOT_REVIEW_MAX_POLLS,
@@ -38,6 +40,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         list_in_flight_reviewer_bots,
         mark_review_failed,
         post_verdict,
+        refuse_on_pre_gates,
         run_review_in_sandbox,
         signal_review_started,
     )
@@ -80,28 +83,48 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
 
-            # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before provisioning: the
-            # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
-            # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
-            # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
-            # and returns WAIT rather than approving over an unfinished review.
-            for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
-                bots = await workflow.execute_activity(
-                    list_in_flight_reviewer_bots,
-                    input,
-                    start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-                if not bots["in_flight"]:
-                    break
-                await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
+            # A PR that fails a deterministic gate is refused whatever the reviewer says, so the
+            # engine's own gates run here first on the stored context. A final deny is persisted in
+            # the sandbox's output shape, and the run skips the bot wait and the sandbox. Gated for
+            # replay like the eyes reaction above.
+            refused_on_pre_gates = False
+            if workflow.patched("stamphog-pre-gates"):
+                try:
+                    pre_gates = await workflow.execute_activity(
+                        refuse_on_pre_gates,
+                        input,
+                        start_to_close_timeout=PRE_GATES_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                    refused_on_pre_gates = bool(pre_gates["refused"])
+                except ActivityError:
+                    # The pre-check is only a shortcut. A timeout or a lost worker falls through to
+                    # the full review rather than failing the run.
+                    workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
-            await workflow.execute_activity(
-                run_review_in_sandbox,
-                input,
-                start_to_close_timeout=RUN_REVIEW_TIMEOUT,
-                retry_policy=SANDBOX_RETRY_POLICY,
-            )
+            if not refused_on_pre_gates:
+                # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before provisioning: the
+                # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
+                # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
+                # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
+                # and returns WAIT rather than approving over an unfinished review.
+                for _ in range(STAMPHOG_BOT_REVIEW_MAX_POLLS):
+                    bots = await workflow.execute_activity(
+                        list_in_flight_reviewer_bots,
+                        input,
+                        start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                        retry_policy=ACTIVITY_RETRY_POLICY,
+                    )
+                    if not bots["in_flight"]:
+                        break
+                    await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
+
+                await workflow.execute_activity(
+                    run_review_in_sandbox,
+                    input,
+                    start_to_close_timeout=RUN_REVIEW_TIMEOUT,
+                    retry_policy=SANDBOX_RETRY_POLICY,
+                )
 
             result = await workflow.execute_activity(
                 post_verdict,

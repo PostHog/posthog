@@ -13,10 +13,11 @@ from products.engineering_analytics.backend.facade.warehouse_views import get_ex
 def get_provided_views(team: Team) -> list[ProvidedView]:
     """The engineering-analytics warehouse views, adapted for data_modeling's managed-viewset sync.
 
-    Non-materialized: the view is computed at query time so a Depot rate change propagates
-    immediately and it never joins the materialization schedule / managed DAG.
+    Each view says whether it is materialized. The per-job views are not: they are computed at query
+    time so a Depot rate change propagates immediately and they never join the materialization
+    schedule / managed DAG.
     """
     return [
-        ProvidedView(name=view.name, query=view.query, fields=view.fields, materialized=False)
+        ProvidedView(name=view.name, query=view.query, fields=view.fields, materialized=view.materialized)
         for view in get_expected_warehouse_views(team)
     ]

@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
@@ -651,6 +652,42 @@ class TestStaleFlagsDetect(BaseTest):
         assert len(results[self.team.id]) == 2
         assert len(results[team_two.id]) == 1
         assert results[team_two.id][0].payload["flag_id"] != blocked.id
+
+    def test_other_config_formats_are_skipped_without_failing_the_batch(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        unsupported = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-flag",
+            created_by=self.user,
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"version": 2, **FULL_ROLLOUT_FILTERS},
+        )
+        not_an_object = FeatureFlag.objects.create(
+            team=other_team,
+            key="list-filters",
+            created_by=self.user,
+            active=True,
+            **{**stale_by_usage(), "filters": ["version"]},
+        )
+        called = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-called",
+            created_by=self.user,
+            active=True,
+            **{**constant_and_called(), "filters": {"version": 2, **FULL_ROLLOUT_FILTERS}},
+        )
+        self._create_flag("v1-stale", **stale_by_usage())
+
+        with capture_logs() as logs:
+            results = self._detect([self.team.id, other_team.id])
+
+        assert set(results) == {self.team.id}
+        assert [result.payload["flag_key"] for result in results[self.team.id]] == ["v1-stale"]
+        skips = [log for log in logs if log["event"] == "stale_feature_flags_skipped_unsupported_config"]
+        assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
+            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id), (called.id, other_team.id)]
+        )
 
     def test_query_count_does_not_grow_with_candidates_or_teams(self) -> None:
         self._create_flag("baseline", **stale_by_usage())
