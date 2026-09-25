@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -7,7 +9,12 @@ from parameterized import parameterized
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_stale_flags
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import WATCHED_FLAG_FIELDS
-from products.feature_flags.evals.seeders import seed_stale_full_rollout_flag, seed_stale_partial_rollout_flag
+from products.feature_flags.evals.seeders import (
+    STALE_LOOKING_RECENT_UPDATE_DAYS_AGO,
+    seed_recently_updated_flag,
+    seed_stale_full_rollout_flag,
+    seed_stale_partial_rollout_flag,
+)
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 SEEDERS = [
@@ -77,3 +84,42 @@ class TestFeatureFlagEvalSeeders(BaseTest):
     def test_seeder_refuses_the_codex_runtime(self, _name, seeder) -> None:
         with self.assertRaises(RuntimeError):
             seeder(_context(self.team.id, self.user.id, runtime_adapter="codex"))
+
+
+class TestSeedRecentlyUpdatedFlag(BaseTest):
+    """The recent-update case only has teeth if the backend does not already exclude it.
+
+    ``filter_stale_flags`` classifies on ``created_at`` and ``last_called_at``, never
+    ``updated_at`` — so a flag updated two days ago still reads STALE from the backend.
+    Catching the recency exclusion is entirely the cleanup skill's job. If a future
+    change taught the backend classifier to look at ``updated_at`` too, this seeded flag
+    would stop reaching the agent as a stale candidate at all, and the eval case built on
+    it (``recent_update_excluded_without_override``) would silently start proving nothing.
+    """
+
+    def test_seeded_flag_still_reads_stale_from_the_backend(self) -> None:
+        seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
+
+        stale_keys = {flag.key for flag in filter_stale_flags(FeatureFlag.objects.filter(team_id=self.team.id))}
+
+        assert seeded["flag_key"] in stale_keys
+
+    def test_seeded_flag_updated_at_is_inside_the_30_day_window(self) -> None:
+        seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
+
+        flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
+        assert flag.updated_at is not None
+
+        assert flag.updated_at > datetime.now(UTC) - timedelta(days=30)
+        assert flag.updated_at < datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO - 1)
+
+    def test_seeded_flag_reports_a_clean_full_rollout(self) -> None:
+        # Every other signal must read clean, so a run that misses the recency check has
+        # no other exclusion to fall back on and land the right answer by accident.
+        seeded = seed_recently_updated_flag(_context(self.team.id, self.user.id))
+
+        flag = FeatureFlag.objects.get(pk=seeded["flag_id"])
+        summary = FeatureFlagStatusChecker().get_rollout_summary(flag)
+
+        assert summary.effectively_full_rollout is True
+        assert summary.has_targeting_conditions is False

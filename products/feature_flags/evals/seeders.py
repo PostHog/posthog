@@ -54,6 +54,8 @@ __all__ = [
     "STALE_FLAG_KEY",
     "STALE_FLAG_LAST_CALLED_DAYS_AGO",
     "STALE_FULL_ROLLOUT_FLAG_KEY",
+    "STALE_LOOKING_RECENT_UPDATE_DAYS_AGO",
+    "STALE_LOOKING_RECENT_UPDATE_FLAG_KEY",
     "STALE_PARTIAL_ROLLOUT_FLAG_KEY",
     "guard_claude_runtime",
     "seed_active_flag",
@@ -61,6 +63,7 @@ __all__ = [
     "seed_inactive_flag",
     "seed_metadata_flag",
     "seed_read_only_mcp_org",
+    "seed_recently_updated_flag",
     "seed_require_flag_tags",
     "seed_rollout_flag",
     "seed_stale_flag",
@@ -386,6 +389,41 @@ def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[st
         filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
     )
     _backdate_updated_at(flag)
+    return {
+        "flag_id": flag.id,
+        "flag_key": flag.key,
+        "rollout": "full",
+        "state": read_flag_state(flag.id),
+    }
+
+
+STALE_LOOKING_RECENT_UPDATE_FLAG_KEY = "checkout-express-lane"
+STALE_LOOKING_RECENT_UPDATE_DAYS_AGO = 2
+
+
+def seed_recently_updated_flag(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """A flag that reads stale on every other signal, excluded only by a recent update.
+
+    Full rollout, never called, created 90 days ago — every other exclusion in step 4
+    of the cleanup skill reads clean. Only `updated_at` inside the last 30 days must
+    block it, which a direct named-flag request has to catch on its own, not just the
+    generic "clean up our stale flags" survey a report already filters for it.
+    """
+    _require_claude_runtime(context)
+    flag = FeatureFlag.objects.create(
+        team_id=context.team_id,
+        key=STALE_LOOKING_RECENT_UPDATE_FLAG_KEY,
+        name="Express checkout lane",
+        created_by_id=context.user_id,
+        active=True,
+        created_at=datetime.now(UTC) - timedelta(days=90),
+        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+    )
+    # update() bypasses auto_now, the same technique _backdate_updated_at uses; here it
+    # moves updated_at forward to two days ago rather than back to the creation date.
+    FeatureFlag.objects.filter(pk=flag.pk).update(
+        updated_at=datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO)
+    )
     return {
         "flag_id": flag.id,
         "flag_key": flag.key,

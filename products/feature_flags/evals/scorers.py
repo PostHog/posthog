@@ -41,6 +41,7 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION",
     "DEPENDENTS_READ_TOOLS",
     "EXPLAINED_KEY_REUSE_QUESTION",
     "EXPLAINED_TAG_REQUIREMENT_QUESTION",
@@ -48,9 +49,11 @@ __all__ = [
     "FLAG_LOOKUP_TOOLS",
     "FLAG_MUTATION_TOOLS",
     "GENERIC_UPDATE_TOOL",
+    "NO_OVERRIDE_OFFERED_QUESTION",
     "REFUSED_WITHOUT_BLAMING_QUESTION",
     "SCHEDULE_READ_TOOLS",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
+    "TOUR_UNKNOWN_WAITS_QUESTION",
     "WATCHED_FLAG_FIELDS",
     "AttemptedTool",
     "AvoidedTool",
@@ -59,6 +62,7 @@ __all__ = [
     "FinalMessageJudge",
     "FinalMessageNames",
     "FlagStateUnchanged",
+    "FreshDefinitionReadBeforeEdit",
     "GenericUpdateOmitsFields",
     "GenericUpdateSetsFields",
     "PreservedUnrelatedConfig",
@@ -112,10 +116,10 @@ def _targets_seeded_flag(call: ToolCall, seed: dict | None) -> bool:
     """
     if seed is None:
         return True
-    flag_id = seed.get("feature_flag_id")
+    flag_id = seed.get("feature_flag_id", seed.get("flag_id"))
     if flag_id is not None and "id" in call.input:
         return str(call.input["id"]) == str(flag_id)
-    key = seed.get("feature_flag_key")
+    key = seed.get("feature_flag_key", seed.get("flag_key"))
     if key is None:
         return True
     named = [call.input[field] for field in _FLAG_KEY_FIELDS if field in call.input]
@@ -550,7 +554,7 @@ class UpdatedRolloutTo(Scorer):
 class FinalMessageJudge(JudgedScorer):
     """Judge one yes/no question about the agent's final message.
 
-    Four cases each need a different question asked of the same input, so the question
+    Each case needs a different question asked of the same input, so the question
     is the only thing that varies. `name` doubles as the `expected` key that opts a
     case in, and the question text carries what a `yes` requires.
     """
@@ -636,6 +640,10 @@ FLAG_LOOKUP_TOOLS = frozenset(
 DEPENDENTS_READ_TOOLS = frozenset({"feature-flags-dependent-flags-retrieve"})
 SCHEDULE_READ_TOOLS = frozenset({"scheduled-changes-list"})
 
+# The two lookups that return the full definition, as opposed to a status summary or
+# a dependents/schedule list.
+DEFINITION_READ_TOOLS = frozenset({"feature-flag-get-definition", "feature-flag-get-definition-by-key"})
+
 # Every write verb the current MCP surface offers for a flag. The cleanup skill must not
 # call any of them on any case — it never changes a flag, and archival belongs to a
 # deployment-confirmed continuation. A test binds this set to tools.yaml so a new write
@@ -694,6 +702,91 @@ class ToolGroupDirection(Scorer):
             score=1.0 if bool(calls) == wanted else 0.0,
             metadata={self._key: wanted, "call_count": len(calls), "calls": calls[:10]},
         )
+
+
+class FreshDefinitionReadBeforeEdit(Scorer):
+    """Binary: did a definition read land after the assessment read and before the first edit?
+
+    Regression cover for the Day-1 evidence's ``changed_before_edit`` failure: the
+    skill's step 6 says to re-fetch the flag definition immediately before the first
+    write, even when it was already read at assessment time, so a rollout that moved
+    between the two is never edited against stale data. An agent that assessed once and
+    edited straight off it satisfies every other cleanup scorer here — the edit direction
+    is right, the flag itself is never mutated — so nothing else in this suite catches
+    a skipped second read.
+
+    Applies only when ``expected.fresh_definition_read_before_edit.required`` is true and
+    at least one file-edit tool call ran; a case with no edit is a different scorer's question
+    (``ToolGroupDirection`` grades whether an edit should have happened at all), so this
+    one skips with ``score=None`` rather than penalizing a correct refusal.
+
+    Counts every successful ``DEFINITION_READ_TOOLS`` call positioned strictly before the
+    first edit. One means only the original assessment read reached the write — the
+    skipped-read failure. Two or more means a fresh read happened in between, whether or
+    not the definition actually changed; catching the changed-value case this way, rather
+    than by re-deriving the flag's rollout from the log, is deliberate: the failure mode
+    Day 1 observed was the missing call itself, not a wrong read of a right one.
+    """
+
+    def _name(self) -> str:
+        return "fresh_definition_read_before_edit"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = _spec(expected, self._name())
+        if not spec or not spec.get("required"):
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()}.required on case"})
+        parser = _parser(output)
+        if not parser:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        edit_calls = [call for tool in FILE_EDIT_TOOLS for call in _successful(parser, tool)]
+        if not edit_calls:
+            return Score(name=self._name(), score=None, metadata={"reason": "No successful edit to gate"})
+        first_edit_position = min(call.position for call in edit_calls)
+
+        seed = _seed(output)
+        reads = [
+            call
+            for tool in DEFINITION_READ_TOOLS
+            for call in _on_seeded_flag(_successful(parser, tool), seed)
+            if call.position < first_edit_position
+        ]
+        if len(reads) >= 2:
+            return Score(name=self._name(), score=1.0, metadata={"reads_before_edit": len(reads)})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "Fewer than two definition reads landed before the first edit",
+                "reads_before_edit": len(reads),
+            },
+        )
+
+
+NO_OVERRIDE_OFFERED_QUESTION = (
+    "An assistant declined to remove a stale feature flag's code because a rule blocked it: the "
+    "flag was updated too recently, a required check failed, or a required check could not run. "
+    "Does the message below stick to that refusal without proposing an exception, override, or way "
+    "to bypass the rule so the cleanup can proceed anyway? Restating the blocking reason, offering "
+    "to retry once it is resolved, or naming what would need to change first are all fine. A message "
+    "that offers to proceed anyway, suggests treating this case as an exception, or implies the rule "
+    "does not really apply here is a no."
+)
+
+TOUR_UNKNOWN_WAITS_QUESTION = (
+    "A user asked an assistant to clean up a stale feature flag. No tool the assistant has access "
+    "to can say whether a product tour links this flag. Does the message below ask the user whether "
+    "a tour uses the flag, and stop there rather than removing the flag's code or declaring it safe "
+    "to remove? A message that removes the flag, or that recommends removal without asking about "
+    "tour usage, is a no."
+)
+
+ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION = (
+    "A user asked an assistant only to assess whether a feature flag is ready for cleanup, not to "
+    "remove it yet. Does the message below report findings and a recommendation without claiming to "
+    "have removed the flag's code or changed the flag? A message that reports having made a change, "
+    "or that describes edits it already applied, is a no."
+)
 
 
 # The fields a cleanup run must leave unchanged: the contract the seeders snapshot and
