@@ -1,10 +1,12 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -13,20 +15,24 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.utils import hash_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.session_recording_api import (
     LISTING_RATES,
     REPLAY_TIER_CACHE_TTL_SECONDS,
     SNAPSHOT_DEFAULT_TIER,
     SNAPSHOT_RATES,
+    ClickHouseSustainedRateThrottle,
     ListingBurstRateThrottle,
+    ListingSustainedRateThrottle,
     SessionRecordingViewSet,
     SharingTokenReplayThrottle,
     SnapshotsBurstRateThrottle,
     SnapshotsSustainedRateThrottle,
     get_cached_org_tier,
     listing_rates,
+    replay_throttle_detail,
     snapshot_rates,
 )
 
@@ -463,3 +469,110 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         throttles = viewset.get_throttles()
 
         assert not any(isinstance(t, SharingTokenReplayThrottle) for t in throttles)
+
+
+class TestReplayThrottleDetail(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "snapshots_sustained_paid",
+                SnapshotsSustainedRateThrottle,
+                "paid",
+                "Rate limit exceeded. Recording snapshot requests are limited to 300 per hour on the paid plan.",
+            ),
+            (
+                "snapshots_burst_free",
+                SnapshotsBurstRateThrottle,
+                "free",
+                "Rate limit exceeded. Recording snapshot requests are limited to 12 per minute on the free plan.",
+            ),
+            (
+                "listing_sustained_enterprise",
+                ListingSustainedRateThrottle,
+                "enterprise",
+                "Rate limit exceeded. Recording list requests are limited to 400 per hour on the enterprise plan.",
+            ),
+        ]
+    )
+    def test_names_the_limit_and_the_plan_tier(self, _name: str, throttle_cls: type, tier: str, expected: str) -> None:
+        throttle = throttle_cls()
+        throttle._apply_tier_rates(tier)
+
+        assert replay_throttle_detail(throttle) == expected
+
+    def test_names_the_general_limit_when_no_tier_applies(self) -> None:
+        assert (
+            replay_throttle_detail(ClickHouseSustainedRateThrottle())
+            == "Rate limit exceeded. Session recording API requests are limited to 1200 per hour."
+        )
+
+
+class TestSessionRecordingViewSetThrottleReporting(BaseTest):
+    def _viewset(self, throttle_classes: list[type]) -> SessionRecordingViewSet:
+        viewset = SessionRecordingViewSet()
+        viewset.action = "snapshots"
+        viewset.throttle_classes = throttle_classes  # ty: ignore[invalid-assignment]
+        request = Request(APIRequestFactory().get("/"))
+        request._authenticator = PersonalAPIKeyAuthentication()  # type: ignore[attr-defined]
+        viewset.request = request  # ty: ignore[invalid-assignment]
+        return viewset
+
+    def test_reports_the_blocking_throttle_with_the_longest_wait(self) -> None:
+        class _BlockedBurst(SnapshotsBurstRateThrottle):
+            def allow_request(self, request, view) -> bool:
+                return False
+
+            def wait(self) -> float:
+                return 7
+
+        class _BlockedSustained(ListingSustainedRateThrottle):
+            def allow_request(self, request, view) -> bool:
+                return False
+
+            def wait(self) -> float:
+                return 1800
+
+        viewset = self._viewset([_BlockedBurst, _BlockedSustained])
+
+        with self.assertRaises(Throttled) as caught:
+            viewset.check_throttles(viewset.request)
+
+        assert caught.exception.wait == 1800
+        assert "Recording list requests" in str(caught.exception.detail)
+
+    def test_allows_the_request_when_no_throttle_blocks(self) -> None:
+        viewset = self._viewset([ClickHouseSustainedRateThrottle])
+
+        assert viewset.check_throttles(viewset.request) is None
+
+
+class TestSnapshotsEndpointThrottleResponse(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        cache.clear()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @override_settings(SNAPSHOT_RATE_FREE_BURST="1/minute")
+    def test_snapshots_429_names_the_snapshot_limit(self, _mock_enabled) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+        url = f"/api/projects/{self.team.pk}/session_recordings/test_session_id/snapshots"
+        headers = {"authorization": f"Bearer {key}"}
+
+        self.client.get(url, headers=headers)
+        response = self.client.get(url, headers=headers)
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"].startswith(
+            "Rate limit exceeded. Recording snapshot requests are limited to 1 per minute on the free plan."
+        )
