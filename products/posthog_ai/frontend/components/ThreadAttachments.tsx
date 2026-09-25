@@ -11,7 +11,8 @@ import { getTasksRunsArtifactsDownloadRetrieveUrl } from 'products/tasks/fronten
 import type { ThreadAttachment } from '../types/streamTypes'
 import { isImageAttachment } from '../utils/attachments'
 
-const THUMBNAIL_CLASSES = 'max-h-40 max-w-full rounded border border-primary object-contain'
+// Capped on both axes and free to shrink, so no screenshot pushes a message past its panel.
+const THUMBNAIL_CLASSES = 'max-h-48 max-w-full w-auto rounded border border-primary object-contain'
 
 /** The endpoint redirects to a presigned URL and takes the session, so an `img` and an `a` use it directly. */
 function downloadUrl(projectId: string, attachment: ThreadAttachment): string | null {
@@ -62,11 +63,17 @@ const ThreadAttachmentItem = memo(function ThreadAttachmentItem({
         return <AttachmentChip name={attachment.name} href={href} />
     }
     if (!href) {
-        return <LemonSkeleton className="h-40 w-40 rounded" />
+        return <LemonSkeleton className="h-24 w-32 rounded shrink-0" />
     }
     return (
         <Tooltip title={attachment.name}>
-            <Link to={href} target="_blank" disableClientSideRouting targetBlankIcon={false}>
+            <Link
+                to={href}
+                target="_blank"
+                disableClientSideRouting
+                targetBlankIcon={false}
+                className="min-w-0 max-w-full"
+            >
                 <img src={href} alt={attachment.name} className={THUMBNAIL_CLASSES} onError={() => setFailed(true)} />
             </Link>
         </Tooltip>
@@ -79,7 +86,7 @@ export function ThreadAttachments({ attachments }: { attachments: ThreadAttachme
         return null
     }
     return (
-        <div className="flex flex-wrap items-center gap-1 mt-1">
+        <div className="flex flex-wrap items-start gap-1 mt-1 min-w-0 max-w-full">
             {attachments.map((attachment) => (
                 <ThreadAttachmentItem
                     key={`${attachment.artifactId ?? 'pending'}-${attachment.name}`}
