@@ -27,7 +27,13 @@ export function HomeTab(): JSX.Element {
     }
 
     if (currentTeam?.home_tab_dashboard) {
-        return <Dashboard id={String(currentTeam.home_tab_dashboard)} placement={DashboardPlacement.Builtin} />
+        return (
+            <Dashboard
+                id={String(currentTeam.home_tab_dashboard)}
+                placement={DashboardPlacement.Builtin}
+                requireExplicitEditMode
+            />
+        )
     }
 
     return <HomeTabTemplatePicker />

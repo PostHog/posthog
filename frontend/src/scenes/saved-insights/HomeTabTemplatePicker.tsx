@@ -1,8 +1,13 @@
 import { useActions, useValues } from 'kea'
 
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
+
 import { homeTabLogic } from './homeTabLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 interface TemplateOption {
     label: string
@@ -23,7 +28,8 @@ export function HomeTabTemplatePicker(): JSX.Element {
     return (
         <div className="flex justify-center py-12">
             <LemonCard className="w-full max-w-140" hoverEffect={false}>
-                <div className="flex flex-col gap-1 mb-4">
+                <div className="flex flex-col items-center gap-1 mb-4 text-center">
+                    <HedgehogMagnifyingGlass className="w-24 mb-2" loading="eager" />
                     <h2 className="mb-0">What does your product do?</h2>
                     <p className="text-secondary mb-0">
                         We'll set up your Home tab with a dashboard that fits, built from events you're already sending.

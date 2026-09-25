@@ -28,8 +28,9 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
+import { DashboardEditSaveCancelButtons, DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -50,6 +51,8 @@ interface DashboardProps {
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    /** Opt out of entering layout edit mode by dragging or resizing a tile; shows an explicit edit button instead. */
+    requireExplicitEditMode?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -81,11 +84,15 @@ export function Dashboard({
     themes,
     backTo,
     showCreateAnomalyAlertButton,
+    requireExplicitEditMode,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ id: parseDashboardId(id), placement, dashboard, requireExplicitEditMode }}
+        >
             <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
         </BindLogic>
     )
@@ -106,6 +113,7 @@ function DashboardScene({
         itemsLoading,
         dashboardLoading,
         layoutEditMode,
+        requireExplicitEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         error404,
@@ -193,6 +201,13 @@ function DashboardScene({
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
+                        {requireExplicitEditMode &&
+                            canEditDashboard &&
+                            (layoutEditMode ? (
+                                <DashboardEditSaveCancelButtons withShortcuts={false} />
+                            ) : (
+                                <DashboardCustomizeButton />
+                            ))}
                         {layoutEditMode &&
                             canEditDashboard &&
                             [

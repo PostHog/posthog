@@ -86,6 +86,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         layouts,
         layoutEditMode,
         placement,
+        requireExplicitEditMode,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -247,7 +248,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     ].includes(placement)
 
     const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
+        !!dashboard &&
+        canEditDashboard &&
+        !layoutEditMode &&
+        !isMobileView &&
+        isEditablePlacement &&
+        !requireExplicitEditMode
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
