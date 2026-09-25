@@ -218,7 +218,7 @@ DRAFT_CONTENT_FIELDS = (
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -232,6 +232,24 @@ def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
         **condition,
         "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
     }
+
+
+def _without_bytecode_contracts(node: Any) -> Any:
+    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
+    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
+    # nobody changed it, so the revision comparison must not count the stamp as content. A stamp only
+    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
+    # content and still versions the flow.
+    if isinstance(node, dict):
+        derived = "bytecode" in node
+        return {
+            key: _without_bytecode_contracts(value)
+            for key, value in node.items()
+            if not (derived and key == "bytecode_contract")
+        }
+    if isinstance(node, list):
+        return [_without_bytecode_contracts(item) for item in node]
+    return node
 
 
 def _wait_condition_already_stored(action: dict, context: dict) -> bool:
@@ -4592,8 +4610,8 @@ class HogFlowViewSet(
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
         template_cache: TemplateCache = {}
-        old_content = strip_content_secrets(raw_old, template_cache)
-        new_content = strip_content_secrets(raw_new, template_cache)
+        old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
+        new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1
