@@ -142,6 +142,14 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                     data-attr="broadcast-sent-search"
                 />
             </div>
+            {/* Each day of sends expires separately. A run that sent over several days still lists its later
+                days after its first day expires, so a non-empty list can be incomplete. */}
+            {runPastRetention && !sendsFailed ? (
+                <span className="text-xs text-muted">
+                    Recipient details are kept for 30 days after sending, so this list may not include everyone this run
+                    reached.
+                </span>
+            ) : null}
             <LemonTable
                 // The loader keeps the previous rows on failure, and they no longer match the search.
                 dataSource={sendsFailed ? [] : sends}

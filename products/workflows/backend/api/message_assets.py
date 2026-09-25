@@ -192,6 +192,10 @@ def _build_asset(row: tuple) -> MessageAsset:
     )
 
 
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def fetch_message_assets(
     team_id: int,
     function_kind: str,
@@ -235,7 +239,7 @@ def fetch_message_assets(
         kwargs["distinct_id"] = distinct_id
     if search:
         where.append("(recipient ILIKE %(search)s OR subject ILIKE %(search)s)")
-        kwargs["search"] = f"%{search}%"
+        kwargs["search"] = f"%{_escape_like(search)}%"
     if after:
         where.append("sent_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
