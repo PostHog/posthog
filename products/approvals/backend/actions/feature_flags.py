@@ -468,7 +468,8 @@ class UpdateFeatureFlagAction(BaseAction):
         # Properties in a condition set are ANDed, so they are sorted to make a reorder compare equal.
         # An absent flag-level aggregation and an explicit null both mean person-level targeting.
         results: list[dict[str, Any]] = [
-            {"path": "aggregation_group_type_index", "value": filters.get("aggregation_group_type_index")}
+            {"path": "aggregation_group_type_index", "value": filters.get("aggregation_group_type_index")},
+            {"path": "early_exit", "value": filters.get("early_exit") is True},
         ]
 
         groups = filters.get("groups")

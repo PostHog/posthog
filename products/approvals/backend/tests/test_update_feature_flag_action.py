@@ -156,6 +156,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 False,
             ),
             ("variant_override_set", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], None, True, "test"),
+            ("early_exit_enabled", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], None, True, None, True),
         ]
     )
     def test_detect_release_condition_changes(
@@ -166,6 +167,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         new_aggregation: int | None,
         expected: bool,
         new_variant: str | None = None,
+        new_early_exit: bool = False,
     ):
         ApprovalPolicy.objects.create(
             organization=self.organization,
@@ -181,6 +183,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         new_filters = {
             "aggregation_group_type_index": 0 if new_aggregation is None else new_aggregation,
             "groups": [{"properties": new_properties, "rollout_percentage": 100, "variant": new_variant}],
+            "early_exit": new_early_exit,
         }
         request = self._mock_request("PATCH", {"filters": new_filters})
         view = self._mock_view(flag)
