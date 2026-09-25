@@ -12,6 +12,7 @@ import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import { buildPhotoPrompt, type PendingPhoto } from "@/lib/photos";
 import {
   createAndRunTask,
   useDefaultRepository,
@@ -42,11 +43,33 @@ export default function NewChatScreen() {
 
   // Open the chat immediately with the message in it; the task and its run
   // are created behind that screen, then the chat is re-keyed to the real id.
-  const send = async (text: string): Promise<void> => {
+  const send = async (text: string, photos: PendingPhoto[]): Promise<void> => {
     if (submitting.current) return;
     submitting.current = true;
     setSending(true);
     const identity = sessionIdentity();
+    if (photos.length > 0) {
+      try {
+        const wirePrompt = await buildPhotoPrompt(text, photos);
+        if (sessionIdentity() !== identity)
+          throw new Error("Session changed. Sign in again.");
+        const task = await createAndRunTask({
+          prompt: text || "Please look at the attached image.",
+          wirePrompt,
+          repository: repository.data ?? null,
+        });
+        if (sessionIdentity() !== identity) return;
+        invalidateTasks();
+        router.replace({
+          pathname: "/(drawer)/task/[id]",
+          params: { id: task.id },
+        });
+      } finally {
+        submitting.current = false;
+        setSending(false);
+      }
+      return;
+    }
     const tempId = `new-${Date.now()}`;
     const { startPending, adopt, failPending } = useSessions.getState();
     startPending(tempId, text, `local-${Date.now()}`);

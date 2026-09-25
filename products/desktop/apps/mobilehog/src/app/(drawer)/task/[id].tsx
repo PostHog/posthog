@@ -15,6 +15,7 @@ import {
   TranscriptRowView,
 } from "@/components/Transcript";
 import { useComposer } from "@/lib/composer";
+import type { PendingPhoto } from "@/lib/photos";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
@@ -69,9 +70,9 @@ export default function TaskScreen() {
     [session, workingLabel],
   );
 
-  const send = async (text: string): Promise<void> => {
+  const send = async (text: string, photos: PendingPhoto[]): Promise<void> => {
     followNextMessage.current = true;
-    await sendPrompt(id, text, `local-${Date.now()}`);
+    await sendPrompt(id, text, `local-${Date.now()}`, photos);
   };
 
   const scrollToLatest = (): void => {

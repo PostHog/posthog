@@ -148,6 +148,7 @@ export function useInvalidateTasks() {
 
 export async function createAndRunTask(input: {
   prompt: string;
+  wirePrompt?: string;
   repository: string | null;
 }): Promise<Task> {
   const client = getClient();
@@ -157,7 +158,7 @@ export async function createAndRunTask(input: {
     repository: input.repository ?? undefined,
   });
   return client.runTaskInCloud(task.id, undefined, {
-    pendingUserMessage: input.prompt,
+    pendingUserMessage: input.wirePrompt ?? input.prompt,
     ...currentRunConfig(),
   });
 }

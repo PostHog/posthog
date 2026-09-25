@@ -56,6 +56,11 @@ Empty lists have a centered explanation. Loading and request failures have separ
 The empty Inbox does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
+The + button in both composers selects up to three photos from the device library.
+The composer previews selected photos, lets the user remove them, and sends images with the task message.
+Image-only messages get a short prompt. Images total no more than 5 MB; unsupported iOS formats convert to JPEG.
+New tasks keep the composer open until an image message is accepted, so a failed send keeps the draft.
+This uses native image picker and file system modules, so install a fresh native build before testing attachments.
 Images can be expanded. Saved insights and SQL references render charts or tables; unsupported insight types link to PostHog.
 Mobile run requests set `X-PostHog-Client-Platform: mobile` for the PR footer.
 The backend carries that value to the agent as run state. It does not change GitHub authorship or commit signing.
@@ -99,6 +104,10 @@ Before sharing a build:
   Disconnect the network and refresh. Confirm that the screen shows a request error with Retry, rather than a successful empty state.
 - Open a task with an uploaded image, a Markdown image, and a saved insight. Expand the images and read chart values.
   Reopen the task and check that stored attachments still load. Check an unavailable image and insight, then retry.
+- Start a new task with a selected photo and text. Reply to a Desktop task with a photo but no text.
+  Confirm that the agent receives each image, both conversations render it, and the picker stays available after a canceled selection.
+  Remove a photo before sending and confirm that it is not sent. Try an image larger than 5 MB, then disconnect the network.
+  Confirm that the draft stays available with an error rather than sending text without the image.
 - In a long conversation, scroll up while the agent works. Open and close the keyboard, send a reply, and use Latest message.
   Messages must remain clear of the header and reply box, without a large blank space or forced scrolling while reading history.
 - Start a task from mobile and let it create a PR. Confirm its footer says PostHog Mobile and its GitHub author is unchanged.
