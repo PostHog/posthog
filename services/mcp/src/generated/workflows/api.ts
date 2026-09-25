@@ -95,7 +95,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.'
+            'Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest. One of: messaging, automation, loop, broadcast.'
         ),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })

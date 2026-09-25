@@ -582,10 +582,10 @@ LIST_FILTER_PARAMETERS: Final[list[OpenApiParameter]] = [
         OpenApiTypes.STR,
         description="Comma-separated user uuids. Leaves out workflows created by any of these users. Workflows with no creator stay.",
     ),
-    OpenApiParameter(
+    _comma_list_parameter(
         "type",
-        OpenApiTypes.STR,
-        description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
+        WORKFLOW_TYPES,
+        "Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
     ),
     _comma_list_parameter(
         "exclude_type", WORKFLOW_TYPES, "Comma-separated workflow types. Leaves out workflows of any of them."

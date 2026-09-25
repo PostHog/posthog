@@ -374,7 +374,11 @@ class TestHogFlowSummaries(APIBaseTest):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        # An org admin skips object-level checks, so a per-row access query only shows for a member.
+        member = User.objects.create_and_join(self.organization, "member@example.com", None)
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
+        self.client.force_login(member)
 
         def query_count(rows: int) -> int:
             HogFlow.objects.filter(team=self.team).delete()
@@ -398,13 +402,13 @@ class TestHogFlowSummaries(APIBaseTest):
                     team=self.team,
                     resource="hog_flow",
                     resource_id=str(flow.id),
-                    access_level="editor",
+                    access_level="viewer",
                     organization_member=membership,
                 )
             with CaptureQueriesContext(connection) as queries:
                 response = self._summaries()
             assert response.status_code == 200
-            assert len(response.json()["results"]) == rows
+            assert [row["user_access_level"] for row in response.json()["results"]] == ["viewer"] * rows
             (page_query,) = [
                 query["sql"]
                 for query in queries.captured_queries

@@ -1973,7 +1973,7 @@ export type HogFlowsListParams = {
      */
     trigger_type?: string
     /**
-     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest. One of: messaging, automation, loop, broadcast.
      */
     type?: string
     updated_at?: string
@@ -2361,7 +2361,7 @@ export type HogFlowsSummariesListParams = {
      */
     trigger_type?: string
     /**
-     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest. One of: messaging, automation, loop, broadcast.
      */
     type?: string
     updated_at?: string

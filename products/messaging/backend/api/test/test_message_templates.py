@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 
@@ -145,6 +146,11 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
     def test_summaries_query_count_is_constant_in_the_row_count(self):
         sender = Integration.objects.create(team=self.team, kind="email", config={"email": "news@example.com"})
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.client.force_login(User.objects.create_and_join(self.organization, "member@example.com", None))
 
         def query_count(rows: int) -> int:
             MessageTemplate.objects.filter(team=self.team).delete()
