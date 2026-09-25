@@ -231,6 +231,13 @@ class TestVercelAuthentication(SimpleTestCase):
         assert isinstance(user.claims, VercelUserClaims)
         assert user.claims.user_email_verified is None
 
+        token_with_oidc_claim_name = self._token(overrides={"email_verified": True})
+        result = self.auth.authenticate(self._make_request(token_with_oidc_claim_name))
+        assert result is not None
+        user, _ = result
+        assert isinstance(user.claims, VercelUserClaims)
+        assert user.claims.user_email_verified is True
+
     def test_none_algorithm_rejected(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
         # Create a token with "none" algorithm

@@ -1,3 +1,4 @@
+import dataclasses
 from contextlib import contextmanager
 from urllib.parse import parse_qs, urlparse
 
@@ -647,18 +648,19 @@ class TestSSOCrossRegionClaimsToken:
         from ee.api.vercel.vercel_sso import _encrypt_claims
 
         eu_installation_id = sso_setup["installation_id"]
+        sso_setup["installation"].config["user_mappings"] = {"sso_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
         claims = create_user_claims(eu_installation_id)
         token = _encrypt_claims(claims)
 
         with (
             self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
             mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
-            mock_jwt_validation(claims),
+            mock_jwt_validation(dataclasses.replace(claims, user_email_verified=None)),
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], _claims_token=token)
 
-        assert response.status_code == status.HTTP_302_FOUND
-        assert "eu.posthog.com" not in response.url
+        SSOTestHelper.assert_successful_redirect(response)
 
     def test_eu_receives_invalid_claims_token_falls_through(self, sso_setup):
         with (
