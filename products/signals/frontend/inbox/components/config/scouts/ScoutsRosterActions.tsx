@@ -20,7 +20,6 @@ export function ScoutsRosterActions(): JSX.Element {
         <>
             <AskAboutScoutsMenu />
             {suggestionsEnabled ? <ShowSuggestionsButton /> : null}
-            {/* The scene hosts the modals: this header unmounts while the onboarding verdict settles. */}
             <ScoutNewButton surface="fleet_list" size="small" hostModals={false} />
         </>
     )
