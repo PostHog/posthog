@@ -14,6 +14,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 
 from ee.api.vercel.vercel_connect import (
+    VercelImportError,
     _delete_orphaned_integration,
     _load_connect_session,
     _sign_connect_session,
@@ -613,11 +614,18 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             ("without_status", OperationResult(success=False, error="Network error"), "Network error"),
         ]
     )
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_failed_import_rolls_back_and_returns_400(
-        self, _name, import_result, expected_detail, mock_client_class, mock_vercel_integration
-    ):
+        self,
+        _name: str,
+        import_result: OperationResult,
+        expected_detail: str,
+        mock_client_class: MagicMock,
+        mock_vercel_integration: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = import_result
@@ -644,6 +652,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=Integration.IntegrationKind.VERCEL,
         ).exists()
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+        mock_capture.assert_called_once()
+        exception, properties = mock_capture.call_args[0]
+        assert isinstance(exception, VercelImportError)
+        assert properties["status_code"] == import_result.status_code
+        assert properties["installation_id"] == CACHED_SESSION_DATA["installation_id"]
+        assert properties["resource_id"].isdigit()
 
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
