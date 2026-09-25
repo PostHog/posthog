@@ -138,7 +138,11 @@ class TestPRFrictionView(_WarehouseMixin):
         self._create_table(
             "github_issue_events",
             ISSUE_EVENTS_COLUMNS,
-            [_issue_event_row(1, "ready_for_review", 37, _at(60))],
+            [
+                _issue_event_row(1, "ready_for_review", 37, _at(60)),
+                # 39 has events, just no ready event, so its ready time reads as NULL rather than missing.
+                _issue_event_row(2, "review_requested", 39, _at(30)),
+            ],
         )
         self._create_table(
             "github_reviews",

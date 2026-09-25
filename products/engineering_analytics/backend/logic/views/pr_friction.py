@@ -147,8 +147,9 @@ def build_query(
         # Without a ready event, the created time stands in only when the event scan covers the whole life
         # of the PR. An older PR may have left draft before the scan floor, and an approval given while it
         # was a draft would then read as the first approval.
+        # A PR without a ready event has a NULL ready_at, and NULL must not pass the guard as "not false".
         ready_observed_expr = (
-            f"(rd.ready_at > toDateTime('2000-01-01 00:00:00') AND rd.ready_at <= p.merged_at) "
+            f"ifNull(rd.ready_at > toDateTime('2000-01-01 00:00:00') AND rd.ready_at <= p.merged_at, false) "
             f"OR p.created_at >= now() - INTERVAL {run_days} DAY"
         )
     else:
