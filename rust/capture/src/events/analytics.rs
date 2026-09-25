@@ -1436,7 +1436,7 @@ mod tests {
     /// End-to-end: `process_events` drops the over-budget `$ai_generation` and keeps the small one.
     #[tokio::test]
     async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the enveloped small event (~672 B) fits, and the
@@ -1446,7 +1446,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1492,7 +1492,7 @@ mod tests {
             1,
             "only the under-budget AI event must reach the sink"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
             records[0].topic, ai_topic,
@@ -1794,7 +1794,7 @@ mod tests {
     /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
     async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
-        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
         // 800-byte budget: the small event fits, the large one takes the
@@ -1804,7 +1804,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -1851,7 +1851,7 @@ mod tests {
             1,
             "only the under-budget event must reach the sink under Ai mode"
         );
-        let topics = test_topics();
+        let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
             records[0].topic, ai_topic,
@@ -2450,7 +2450,7 @@ mod tests {
 
     /// End-to-end gate for the AI overflow valve: a diverted AI event
     /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
     /// configured), and keeps its AI lane either way.
     #[rstest]
     #[case::limiter_present(AiValveCase {
@@ -3241,7 +3241,7 @@ mod tests {
     // tests alone cover: stamp metadata in pipeline, ensure the real sink
     // reads the metadata and produces the expected topic, key, and headers.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -3259,7 +3259,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // test_token in reroute list -> ForceLimited stamped in pipeline.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
@@ -3315,7 +3315,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
         // burst=1 => event[1] stamped RateLimited { preserve_locality }.
         let limiter = build_limiter(1, 1, None, preserve_locality);
@@ -3703,7 +3703,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         run_pipeline(outputs, events, &context, PipelineOptions::default())
