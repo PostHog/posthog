@@ -151,6 +151,7 @@ def _scorable_report_teams(
     teams: dict[str, int] = {}
     for batch in _batches(report_ids):
         rows = (
+            # nosemgrep: idor-lookup-without-team (system sweep with no user input; report teams are checked against vector teams before scoring)
             SignalReport.objects.filter(spine_report_filter(now))
             .filter(id__in=batch, status__in=SCORABLE_STATUSES, created_at__gte=since)
             .values_list("id", "team_id")
