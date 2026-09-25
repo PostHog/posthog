@@ -20,6 +20,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
+    ExperimentMetricsRecalculationRequestTriggerEnumApi,
     ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -184,7 +185,7 @@ export interface experimentMetricsLogicValues {
     nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
-    queuedRerun: ExperimentMetricsRecalculationTriggerEnumApi | null
+    queuedRerun: ExperimentMetricsRecalculationRequestTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
@@ -248,8 +249,8 @@ export interface experimentMetricsLogicActions {
     setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => {
-        trigger: ExperimentMetricsRecalculationTriggerEnumApi | null
+    setQueuedRerun: (trigger: ExperimentMetricsRecalculationRequestTriggerEnumApi | null) => {
+        trigger: ExperimentMetricsRecalculationRequestTriggerEnumApi | null
     }
     setRecalculatingMetricUuids: (uuids: string[]) => {
         uuids: string[]
@@ -263,8 +264,8 @@ export interface experimentMetricsLogicActions {
     setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationTriggerEnumApi) => {
-        trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationRequestTriggerEnumApi) => {
+        trigger: ExperimentMetricsRecalculationRequestTriggerEnumApi
     }
 }
 
@@ -312,7 +313,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (trigger: ExperimentMetricsRecalculationRequestTriggerEnumApi = 'manual') => ({
+            trigger,
+        }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -321,7 +324,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         setRecalculationLoading: (loading: boolean) => ({ loading }),
         // The metrics still showing a stale value while a non-cold recalc refreshes them in place.
         setRecalculatingMetricUuids: (uuids: string[]) => ({ uuids }),
-        setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => ({ trigger }),
+        setQueuedRerun: (trigger: ExperimentMetricsRecalculationRequestTriggerEnumApi | null) => ({ trigger }),
     }),
     reducers({
         currentRecalculation: [
@@ -339,7 +342,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             },
         ],
         queuedRerun: [
-            null as ExperimentMetricsRecalculationTriggerEnumApi | null,
+            null as ExperimentMetricsRecalculationRequestTriggerEnumApi | null,
             {
                 /**
                  * If the state is `experiment_config_change`, it sticks.
