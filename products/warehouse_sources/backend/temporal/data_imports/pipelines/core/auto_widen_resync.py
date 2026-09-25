@@ -56,7 +56,7 @@ def is_auto_widen_resync_enabled(team_id: int, schema_id: str, source_type: str 
 
     ``schema_id`` / ``team_id`` / ``source_type`` are passed as person properties so the flag can be
     released to a single table first (release condition ``schema_id = <id>``) before ramping by team /
-    org / source. Mirrors ``is_deltalite_write_enabled``. This flag is the only control (no env
+    org / source. This flag is the only control (no env
     switch), so recovery can be ramped or killed from the flag UI without a deploy. Any evaluation
     failure returns False (fail closed): a flags-service blip must never accidentally switch it on.
     """

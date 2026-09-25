@@ -264,10 +264,14 @@ class TestNullabilityDriftGuardOrder:
         self._seed_non_nullable_table(delta_path)
         helper = make_local_table_ref(delta_path)
 
-        # deltalite is off (the flag evaluation fails closed in tests), so the write falls
-        # through to the MERGE, which would silently store the nulls under a schema that
-        # denies them -- the guard must stop it with the reset signal instead.
-        with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+        # Force the delta-rs MERGE fallback. deltalite now handles every keyed incremental
+        # merge, so this path is only reached when deltalite declines or fails -- and the
+        # MERGE would silently store the nulls under a schema that denies them, so the
+        # guard must stop it with the reset signal instead.
+        with (
+            patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=False)),
+            pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"),
+        ):
             await DeltaWriter(helper).write(
                 data=self._null_carrying_batch(),
                 write_type="incremental",
@@ -945,13 +949,8 @@ class TestNullSafeMergePredicate:
 
 
 class TestDeltaliteWritePath:
-    """Phase 2: deltalite performs the real incremental merge, gated solely by a per-schema flag, with
-    a hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
-
-    _FLAG = (
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
-        "deltalite_write.is_deltalite_write_enabled"
-    )
+    """deltalite performs every keyed incremental merge, with a hard fallback to the delta-rs MERGE
+    so a deltalite failure can never fail a sync."""
 
     @pytest.fixture(autouse=True)
     def _preload_write_metrics(self):
@@ -980,28 +979,21 @@ class TestDeltaliteWritePath:
 
     @pytest.mark.asyncio
     async def test_skips_without_primary_keys(self):
-        # No primary keys => nothing to key an upsert on; fall back without even evaluating the flag.
-        with patch(self._FLAG) as flag:
-            wrote = await DeltaWriter(self._helper())._write_via_deltalite(
-                existing_delta_table=MagicMock(),
-                data=pa.table({"id": pa.array([1], pa.int64())}),
-                normalized_primary_keys=[],
-                use_partitioning=False,
-                commit_metadata=None,
-            )
+        # No primary keys => nothing to key an upsert on; fall back to the delta-rs MERGE.
+        wrote = await DeltaWriter(self._helper())._write_via_deltalite(
+            existing_delta_table=MagicMock(),
+            data=pa.table({"id": pa.array([1], pa.int64())}),
+            normalized_primary_keys=[],
+            use_partitioning=False,
+            commit_metadata=None,
+        )
         assert wrote is False
-        flag.assert_not_called()
 
     def test_write_stats_flattens_scalar_getters_only(self):
         # Enumerates scalar attributes (so future crate fields flow through) and drops methods/non-scalars.
         stats = SimpleNamespace(version=7, rows_inserted=2, files_added=1, _private=9)
         stats.helper = lambda: None  # callable attribute must be ignored
         assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
-
-    @pytest.mark.asyncio
-    async def test_falls_back_when_flag_disabled(self):
-        with patch(self._FLAG, return_value=False):
-            assert await self._call(self._helper()) is False
 
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(self):
@@ -1017,7 +1009,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
@@ -1051,7 +1042,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
@@ -1076,7 +1066,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
