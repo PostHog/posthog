@@ -23,10 +23,12 @@ Semantics, chosen so the sync can run unattended at every app startup:
   is born inactive for an operator to vet and activate in admin. Other servers needing
   shared OAuth credentials remain inactive until an operator provisions them. Probes run
   on creation, while a catalog-managed shared client is inactive or first adopts its
-  credential source, and on an interval for an active DCR entry. A DCR probe mints a real
-  client with the provider, so ``last_probed_at`` keeps it to one probe per entry per
-  ``DCR_REPROBE_INTERVAL``. A re-probe only ever deactivates on refused registration, never
-  on an unreachable server: the entry must not flap on a timeout or a provider fault.
+  credential source, and on an interval for an active DCR entry. A row carrying a
+  hand-provisioned ``oauth_credentials`` client is a shared-client entry, not a DCR one,
+  so no interval re-probe reaches it. A DCR probe mints a real client with the provider,
+  so ``last_probed_at`` keeps it to one probe per entry per ``DCR_REPROBE_INTERVAL``. A
+  re-probe only ever deactivates on refused registration, never on an unreachable server:
+  the entry must not flap on a timeout or a provider fault.
 
   The probe is a liveness and protocol check, not a security control: it catches a dead
   url or a mis-declared auth model, but a malicious server passes it trivially. Vendor
@@ -117,6 +119,11 @@ def _probe_entry(entry: CatalogEntry) -> ProbeResult:
 
 def _dcr_reprobe_due(template: MCPServerTemplate, entry: CatalogEntry) -> bool:
     if entry.auth_type != "oauth" or entry.oauth_credentials_source or not template.is_active:
+        return False
+    if (template.oauth_credentials or {}).get("client_id"):
+        # An operator registered this client with the vendor by hand and pasted it into
+        # admin, so the row is a shared-client entry, not a DCR one. The probe cannot see
+        # that client, and a server with no registration endpoint would read as a refusal.
         return False
     return template.last_probed_at is None or timezone.now() - template.last_probed_at >= DCR_REPROBE_INTERVAL
 

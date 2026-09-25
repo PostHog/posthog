@@ -271,6 +271,8 @@ class TestSyncMCPCatalog(TestCase):
     def test_update_touches_content_fields_but_never_operational_state(self):
         # Clobbering is_active/credentials/metadata on an operator-configured row would break
         # every existing install of that server the moment a catalog PR edits its copy.
+        # last_probed_at stays null, which is what every row carries after the migration: a
+        # hand-provisioned shared client must not be re-probed as if it were a DCR entry.
         template = MCPServerTemplate.objects.create(
             name="Linear",
             url="https://mcp.linear.app/mcp",
@@ -278,12 +280,13 @@ class TestSyncMCPCatalog(TestCase):
             auth_type="oauth",
             category="productivity",
             is_active=True,
-            last_probed_at=timezone.now(),
             oauth_metadata={"authorization_endpoint": "https://auth.linear.app/authorize"},
             oauth_credentials={"client_id": "shared-client", "client_secret": "shhh"},
         )
 
-        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+        with patch(
+            "products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=_dcr_refused_probe()
+        ) as probe_mock:
             counts = sync_mcp_catalog(
                 entries=[
                     _entry(
