@@ -219,9 +219,10 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, "already_running"),
-            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, "already_ran_today"),
-            ("tasks_usage_limited", None, True, "tasks_gated"),
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, "already_ran_today"),
+            ("tasks_usage_limited", None, True, True, "tasks_gated"),
+            ("rollout_withdrawn_since_discovery", None, False, False, "tasks_gated"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -230,6 +231,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         _name: str,
         run_status: Optional[str],
         usage_limited: bool,
+        in_rollout: bool,
         expected_reason: str,
         mock_run_training: MagicMock,
     ) -> None:
@@ -237,6 +239,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         if run_status:
             AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
         self.mock_usage_limited.return_value = usage_limited
+        self.mock_access.return_value = in_rollout
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 

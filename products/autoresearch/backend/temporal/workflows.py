@@ -513,8 +513,11 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 def _tasks_gate(creator: User, organization: Organization, team_id: int) -> str | None:
     """Why the creator may not launch a paid Tasks sandbox now, or None. Mirrors the `/train` gates.
 
+    The rollout is checked again because kickoff waits for scoring, hours after discovery checked it.
     An unresolvable Desktop access decision raises, so the activity retries instead of launching.
     """
+    if not has_autoresearch_access(creator, team_id=team_id, organization_id=str(organization.id)):
+        return "Outside the autoresearch rollout"
     decision = get_desktop_access_decision(creator, organization)
     if not decision.allowed:
         return f"PostHog Desktop access: {decision.value}"
