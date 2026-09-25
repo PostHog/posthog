@@ -387,9 +387,7 @@ export function BroadcastSummary(): JSX.Element {
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
-                                            {latestBatchJobId
-                                                ? 'Performance (latest send)'
-                                                : 'Performance (last 30 days)'}
+                                            {latestBatchJobId ? 'Performance (latest send)' : 'Performance'}
                                         </h2>
                                         {latestBatchJob ? (
                                             <BroadcastPerformance
