@@ -30255,6 +30255,10 @@ class LogAttributesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attributeKeys: list[str] | None = Field(
+        default=None,
+        description=("Return only attribute keys that exactly match an entry in this list."),
+    )
     attributeType: str
     dateRange: DateRange | None = None
     filterGroup: PropertyGroupFilter | None = None

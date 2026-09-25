@@ -2581,6 +2581,8 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
             ("delete_note_with_read_only", "delete", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("delete_note_wrong_scope", "delete", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("create_note_with_write", "post", ["ticket:write"], status.HTTP_201_CREATED),
+            ("create_note_with_read_only", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_note_scopes(self, _name, method, scopes, expected_status):
@@ -2594,7 +2596,15 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         )
         self._auth_with_pak(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
-        if method == "patch":
+        if method == "post":
+            self.team.conversations_enabled = True
+            self.team.save(update_fields=["conversations_enabled"])
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/",
+                {"message": "New note"},
+                format="json",
+            )
+        elif method == "patch":
             response = self.client.patch(url, {"message": "Updated note"}, format="json")
         else:
             response = self.client.delete(url)
@@ -3053,13 +3063,14 @@ class TestTicketReplyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("public_reply_is_emailed", False, True),
-            ("private_note_is_not_emailed", True, False),
+            ("public_reply_is_emailed", "reply", {"is_private": False}, True),
+            ("private_note_is_not_emailed", "reply", {"is_private": True}, False),
+            ("note_endpoint_ignores_is_private", "notes", {"is_private": False}, False),
         ]
     )
     @patch("products.conversations.backend.signals.send_email_reply")
     def test_reply_fans_out_to_customer_only_when_public(
-        self, _name, is_private, expect_delivery, mock_send_email_reply, mock_on_commit
+        self, _name, path, extra, expect_delivery, mock_send_email_reply, mock_on_commit
     ):
         # The post_save signal only delivers over email when the ticket is an
         # email channel with email enabled and a sender address.
@@ -3068,8 +3079,10 @@ class TestTicketReplyAPI(APIBaseTest):
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save(update_fields=["conversations_settings"])
 
-        response = self.client.post(self.url, {"message": "Reply body", "is_private": is_private}, format="json")
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/{path}/"
+        response = self.client.post(url, {"message": "Reply body", **extra}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["is_private"] is not expect_delivery
 
         if expect_delivery:
             mock_send_email_reply.delay.assert_called_once()
