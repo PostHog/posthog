@@ -17,6 +17,11 @@ import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.resolver import ResolverFactory
 
 from posthog.models import Team, User
@@ -1303,6 +1308,38 @@ class TestMaterializeViewActivity:
         with pytest.raises(InvalidNodeTypeException, match="Cannot materialize a TABLE node"):
             await activity_environment.run(materialize_view_activity, inputs)
         await database_sync_to_async(table_node.delete)()
+
+    # A model query error must fail the run without reaching error tracking, and must keep the
+    # message that the customer-facing error and the unknown-table revert both read.
+    @pytest.mark.parametrize(
+        "error,non_reportable",
+        [
+            (QueryError("Unknown table `supabase.companies`."), True),
+            (HogQLSyntaxError("mismatched input 'FROM'"), True),
+            (ExposedHogQLError("Managed warehouse is unavailable."), False),
+        ],
+    )
+    async def test_marks_only_model_query_errors_non_reportable(
+        self, activity_environment, ateam, anode, ajob, adag, error, non_reportable
+    ):
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+            raise error
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(Exception) as exc_info:
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        assert isinstance(exc_info.value, NonReportableError) is non_reportable
+        assert str(exc_info.value) == str(error)
 
     async def test_materializes_view_to_delta_table(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
