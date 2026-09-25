@@ -41,6 +41,16 @@ describe("task preview messages", () => {
       kept: false,
     },
     {
+      name: "changed pins",
+      message: { type: "pins-changed", ids: ["a", "b"] },
+      kept: true,
+    },
+    {
+      name: "changed pins with an empty id",
+      message: { type: "pins-changed", ids: ["a", ""] },
+      kept: false,
+    },
+    {
       name: "an unknown type",
       message: { type: "navigate", url: "https://x.test" },
       kept: false,
@@ -55,6 +65,7 @@ describe("task preview messages", () => {
       number: 1,
       path: "/",
       selector: "#a",
+      text: "Save",
       active: false,
     };
     expect(

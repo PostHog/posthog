@@ -69,6 +69,7 @@ export function ElectronTaskPreviewFrame({
   onPicked,
   onPickCancelled,
   onActivatePin,
+  onPinsChanged,
 }: TaskPreviewFrameProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<TaskPreviewWebviewElement | null>(null);
@@ -82,6 +83,7 @@ export function ElectronTaskPreviewFrame({
     onPicked,
     onPickCancelled,
     onActivatePin,
+    onPinsChanged,
   });
 
   useEffect(() => {
@@ -90,8 +92,9 @@ export function ElectronTaskPreviewFrame({
       onPicked,
       onPickCancelled,
       onActivatePin,
+      onPinsChanged,
     };
-  }, [onLoadFailed, onPicked, onPickCancelled, onActivatePin]);
+  }, [onLoadFailed, onPicked, onPickCancelled, onActivatePin, onPinsChanged]);
 
   const send = (message: TaskPreviewHostMessage) => {
     if (readyRef.current) {
@@ -144,6 +147,8 @@ export function ElectronTaskPreviewFrame({
         });
       } else if (message.type === "pick-cancelled") {
         callbacksRef.current.onPickCancelled();
+      } else if (message.type === "pins-changed") {
+        callbacksRef.current.onPinsChanged?.(message.ids);
       } else {
         callbacksRef.current.onActivatePin(message.id);
       }

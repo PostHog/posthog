@@ -46,6 +46,27 @@ function rectOf(element: Element): TaskPreviewRect {
   };
 }
 
+function anchorPoint(element: Element): { top: number; right: number } {
+  const range = element.ownerDocument.createRange();
+  range.selectNodeContents(element);
+  const lines = [...range.getClientRects()].filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+  if (lines.length === 0) {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, right: rect.right };
+  }
+  return {
+    top: Math.min(...lines.map((rect) => rect.top)),
+    right: Math.max(...lines.map((rect) => rect.right)),
+  };
+}
+
+export function elementText(element: Element): string {
+  const text = (element as HTMLElement).innerText ?? element.textContent ?? "";
+  return truncate(text.replace(/\s+/g, " ").trim(), ELEMENT_ANCHOR_LIMITS.text);
+}
+
 export function previewPath(location: Location): string {
   const params = new URLSearchParams(location.search);
   params.delete(PREVIEW_TOKEN_PARAM);
@@ -61,7 +82,6 @@ export function describeElement(element: Element): TaskPreviewElement {
       attributes[name] = truncate(value, ELEMENT_ANCHOR_LIMITS.attributeValue);
     }
   }
-  const text = (element as HTMLElement).innerText ?? element.textContent ?? "";
   const location = element.ownerDocument.location;
   return {
     path: truncate(
@@ -70,10 +90,7 @@ export function describeElement(element: Element): TaskPreviewElement {
     ),
     selector: truncate(uniqueSelector(element), ELEMENT_ANCHOR_LIMITS.selector),
     tag: element.tagName.toLowerCase(),
-    text: truncate(
-      text.replace(/\s+/g, " ").trim(),
-      ELEMENT_ANCHOR_LIMITS.text,
-    ),
+    text: elementText(element),
     html: truncate(element.outerHTML, ELEMENT_ANCHOR_LIMITS.html),
     attributes,
   };
@@ -94,6 +111,8 @@ export function setupTaskPreviewPicker(
   let highlight: HTMLDivElement | null = null;
   let pinLayer: HTMLDivElement | null = null;
   let marker: HTMLDivElement | null = null;
+  let markedElement: Element | null = null;
+  let changedKey = "";
   let releaseTimer: ReturnType<typeof setTimeout> | null = null;
   let picking = false;
   let hovered: Element | null = null;
@@ -136,22 +155,34 @@ export function setupTaskPreviewPicker(
     highlight.style.height = `${rect.height}px`;
   };
 
+  const reportChangedPins = (changed: string[]) => {
+    const key = changed.join(",");
+    if (key === changedKey) return;
+    changedKey = key;
+    send({ type: "pins-changed", ids: changed });
+  };
+
   const renderPins = () => {
     ensureOverlay();
     if (!pinLayer) return;
     pinLayer.replaceChildren();
     const path = window.location.pathname;
+    const changed: string[] = [];
+    let markerCovered = false;
     for (const pin of pins) {
       if (pin.path !== path) continue;
       const target = resolvePin(pin.selector);
+      if (!target || elementText(target) !== pin.text) changed.push(pin.id);
       if (!target) continue;
+      if (target === markedElement) markerCovered = true;
       const rect = target.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
+      const point = anchorPoint(target);
       const badge = document.createElement("button");
       badge.type = "button";
       badge.textContent = String(pin.number);
       badge.setAttribute("aria-label", `Comment ${pin.number}`);
-      badge.style.cssText = `position:fixed;top:${Math.max(0, rect.top - 10)}px;left:${Math.max(0, rect.right - 10)}px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;border:2px solid #fff;background:${pin.active ? "#1d4aff" : ACCENT};color:#fff;font:600 11px/16px system-ui,sans-serif;cursor:pointer;pointer-events:auto;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+      badge.style.cssText = `position:fixed;top:${Math.max(0, point.top - 10)}px;left:${Math.max(0, point.right - 10)}px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;border:2px solid #fff;background:${pin.active ? "#1d4aff" : ACCENT};color:#fff;font:600 11px/16px system-ui,sans-serif;cursor:pointer;pointer-events:auto;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
       badge.addEventListener("click", (event) => {
         if (!event.isTrusted) return;
         event.preventDefault();
@@ -160,6 +191,8 @@ export function setupTaskPreviewPicker(
       });
       pinLayer.appendChild(badge);
     }
+    if (markerCovered) releaseMarker();
+    reportChangedPins(changed);
   };
 
   const syncRefreshTimer = () => {
@@ -175,10 +208,11 @@ export function setupTaskPreviewPicker(
   const showMarker = (element: Element) => {
     showHighlight(element);
     if (!marker) return;
-    const rect = element.getBoundingClientRect();
+    markedElement = element;
+    const point = anchorPoint(element);
     marker.style.display = "block";
-    marker.style.top = `${Math.max(0, rect.top - MARKER_SIZE / 2)}px`;
-    marker.style.left = `${Math.max(0, rect.right - MARKER_SIZE / 2)}px`;
+    marker.style.top = `${Math.max(0, point.top - MARKER_SIZE / 2)}px`;
+    marker.style.left = `${Math.max(0, point.right - MARKER_SIZE / 2)}px`;
     if (releaseTimer) clearTimeout(releaseTimer);
     releaseTimer = setTimeout(releaseMarker, MARKER_RELEASE_TIMEOUT_MS);
   };
@@ -186,6 +220,7 @@ export function setupTaskPreviewPicker(
   const releaseMarker = () => {
     if (releaseTimer) clearTimeout(releaseTimer);
     releaseTimer = null;
+    markedElement = null;
     if (marker) marker.style.display = "none";
     if (!picking) showHighlight(null);
   };

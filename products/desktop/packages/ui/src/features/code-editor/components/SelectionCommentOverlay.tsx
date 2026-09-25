@@ -45,6 +45,7 @@ interface SelectionCommentOverlayProps {
   members?: UserBasic[];
   onSendToAgent?: (text: string, screenshot: string | null) => void;
   captureScreenshot?: boolean;
+  submitLabel?: string;
 }
 
 /**
@@ -65,6 +66,7 @@ export function SelectionCommentOverlay({
   members,
   onSendToAgent,
   captureScreenshot = true,
+  submitLabel,
 }: SelectionCommentOverlayProps) {
   if (!open || !selection?.anchor) return null;
   // Key by the range so a fresh selection remounts the card back to the "+".
@@ -84,6 +86,7 @@ export function SelectionCommentOverlay({
       members={members}
       onSendToAgent={onSendToAgent}
       captureScreenshot={captureScreenshot}
+      submitLabel={submitLabel}
     />
   );
 }
@@ -102,6 +105,7 @@ function SelectionComposerCard({
   members,
   onSendToAgent,
   captureScreenshot,
+  submitLabel,
 }: {
   anchor: { top: number; endX: number; bottom: number };
   fromLine: number;
@@ -121,6 +125,7 @@ function SelectionComposerCard({
   members?: UserBasic[];
   onSendToAgent?: (text: string, screenshot: string | null) => void;
   captureScreenshot: boolean;
+  submitLabel?: string;
 }) {
   const screenCapture = useServiceOptional<IScreenCapture>(
     SCREEN_CAPTURE_SERVICE,
@@ -242,6 +247,7 @@ function SelectionComposerCard({
             disabled={submitting}
             autoFocus
             onSendToAgent={sendToAgent}
+            submitLabel={submitLabel}
           />
         </div>
       ) : (

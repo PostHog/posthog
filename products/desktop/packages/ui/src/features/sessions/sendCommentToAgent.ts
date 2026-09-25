@@ -21,31 +21,38 @@ async function saveScreenshot(dataUrl: string): Promise<string | undefined> {
   }
 }
 
+export function openTaskChat(taskId: string): void {
+  showTaskChat(taskId);
+  useDraftStore.getState().actions.requestFocus(taskId);
+}
+
 export async function sendCommentToAgent({
   taskId,
   comment,
   context,
   surface,
+  openChat = true,
 }: {
   taskId: string;
   comment: string;
   context: CommentAgentContext | null;
   surface: "preview" | "artifact" | "canvas" | "task";
+  openChat?: boolean;
 }): Promise<void> {
   const imagePath = context?.screenshot
     ? await saveScreenshot(context.screenshot)
     : undefined;
-  const actions = useDraftStore.getState().actions;
+  const { actions, pendingInsert } = useDraftStore.getState();
   actions.insertPendingContent(
     taskId,
     commentComposerContent({
       comment,
-      draftEmpty: isContentEmpty(actions.getDraft(taskId)),
+      draftEmpty:
+        isContentEmpty(actions.getDraft(taskId)) && !pendingInsert[taskId],
       context: context ? { ...context, imagePath } : null,
     }),
   );
-  showTaskChat(taskId);
-  actions.requestFocus(taskId);
+  if (openChat) openTaskChat(taskId);
   track(ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT, {
     surface,
     with_context: !!context,

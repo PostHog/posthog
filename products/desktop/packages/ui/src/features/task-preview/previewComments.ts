@@ -60,6 +60,7 @@ export function previewPins(
       number: thread.number,
       path: previewPathname(thread.anchor.path),
       selector: thread.anchor.selector,
+      text: thread.anchor.text,
       active: thread.id === activeThreadId,
     }));
 }

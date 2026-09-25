@@ -156,6 +156,7 @@ export function TaskPreviewPanel({
         url={url}
         title={`Preview of ${label}`}
         commenting={commenting}
+        chatVisible={!inMainPanel}
         onCommentingChange={setCommenting}
         onLoadFailed={() => setFailedAttempt(attempt)}
       />
@@ -179,7 +180,9 @@ export function TaskPreviewPanel({
               >
                 <Button
                   size="icon-sm"
-                  aria-label={commenting ? "Stop commenting" : "Comment"}
+                  aria-label={
+                    commenting ? "Stop commenting" : "Comment on the page"
+                  }
                   aria-pressed={commenting}
                   data-attr="task-preview-comment"
                   disabled={!url}

@@ -6,11 +6,16 @@ import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
   useCommentsQuery,
   useCreateComment,
 } from "@posthog/ui/features/sessions/components/useComments";
-import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
+import {
+  openTaskChat,
+  sendCommentToAgent,
+} from "@posthog/ui/features/sessions/sendCommentToAgent";
+import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { previewPins, previewThreads } from "./previewComments";
 import { previewCommentTarget } from "./previewCommentTarget";
@@ -33,6 +38,7 @@ export function AnnotatedTaskPreview({
   url,
   title,
   commenting,
+  chatVisible,
   onCommentingChange,
   onLoadFailed,
 }: {
@@ -41,6 +47,7 @@ export function AnnotatedTaskPreview({
   url: string;
   title: string;
   commenting: boolean;
+  chatVisible: boolean;
   onCommentingChange: (commenting: boolean) => void;
   onLoadFailed: () => void;
 }) {
@@ -58,6 +65,9 @@ export function AnnotatedTaskPreview({
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
+  );
+  const setCommentResolutions = useCommentNavigationStore(
+    (state) => state.setCommentResolutions,
   );
   const activeThreadId =
     focus && isSameCommentTarget(focus.target, target) ? focus.threadId : null;
@@ -111,6 +121,17 @@ export function AnnotatedTaskPreview({
 
   const dismissPending = useCallback(() => setPending(null), []);
 
+  const onPinsChanged = useCallback(
+    (ids: string[]) => {
+      const changed = new Set(ids);
+      const resolutions = new Map<string, HighlightResolution>(
+        pins.map((pin) => [pin.id, changed.has(pin.id) ? "orphaned" : "exact"]),
+      );
+      setCommentResolutions(target, resolutions);
+    },
+    [pins, setCommentResolutions, target],
+  );
+
   const submit = async (content: string, mentions: number[]) => {
     if (!pending) return;
     const anchor: ElementCommentAnchor = {
@@ -140,6 +161,15 @@ export function AnnotatedTaskPreview({
       comment: content,
       context: context && screenshot ? { ...context, screenshot } : context,
       surface: "preview",
+      openChat: false,
+    }).then(() => {
+      if (chatVisible) return;
+      toast.success("Added to your message", {
+        id: `preview-comment-queued-${taskId}`,
+        description: "Send it from the chat when you are ready.",
+        alwaysShow: true,
+        action: { label: "Open chat", onClick: () => openTaskChat(taskId) },
+      });
     });
   };
 
@@ -156,6 +186,7 @@ export function AnnotatedTaskPreview({
           onPicked={onPicked}
           onPickCancelled={() => onCommentingChange(false)}
           onActivatePin={revealThread}
+          onPinsChanged={onPinsChanged}
         />
         {commenting && (
           <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
@@ -183,6 +214,7 @@ export function AnnotatedTaskPreview({
         open={!!pending}
         filePath={title}
         placeholder="Add a comment…"
+        submitLabel="Post comment"
         initiallyExpanded
         members={members}
         onDismiss={dismissPending}

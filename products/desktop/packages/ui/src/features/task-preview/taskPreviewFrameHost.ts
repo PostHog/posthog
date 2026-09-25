@@ -17,6 +17,7 @@ export type TaskPreviewPin = {
   number: number;
   path: string;
   selector: string;
+  text: string;
   active: boolean;
 };
 
@@ -36,6 +37,7 @@ export type TaskPreviewFrameProps = {
   ) => void;
   onPickCancelled: () => void;
   onActivatePin: (id: string) => void;
+  onPinsChanged?: (ids: string[]) => void;
 };
 
 export type TaskPreviewFrameComponent = ComponentType<TaskPreviewFrameProps>;

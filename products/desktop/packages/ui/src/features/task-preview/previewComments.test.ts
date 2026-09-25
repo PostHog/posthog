@@ -56,8 +56,22 @@ describe("preview comment pins", () => {
       ["d", 3],
     ]);
     expect(previewPins(threads, "b")).toEqual([
-      { id: "a", number: 1, path: "/b", selector: "#one", active: false },
-      { id: "b", number: 2, path: "/a", selector: "#two", active: true },
+      {
+        id: "a",
+        number: 1,
+        path: "/b",
+        selector: "#one",
+        text: "",
+        active: false,
+      },
+      {
+        id: "b",
+        number: 2,
+        path: "/a",
+        selector: "#two",
+        text: "",
+        active: true,
+      },
     ]);
   });
 });
