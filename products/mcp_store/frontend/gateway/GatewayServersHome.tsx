@@ -145,7 +145,7 @@ export function GatewayServerCard({
     server: GatewayServerEntry
     onOpenServer?: (serverId: string) => void
 }): JSX.Element {
-    const { isAdmin, connectingServerId } = useValues(mcpGatewayLogic)
+    const { isAdmin, connectingServerId, unavailableServerIds } = useValues(mcpGatewayLogic)
     const { connectServer, reconnectServer } = useActions(mcpGatewayLogic)
 
     // Catalog templates without a registry row: connect-only, no detail scene.
@@ -157,13 +157,15 @@ export function GatewayServerCard({
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
     const canConnectIndividual = !connection
-    const connectionDisabledReason = server.is_revoked_for_you
-        ? 'Ask an admin to restore your access to this server.'
-        : recommended && disabled
-          ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
-          : disabled
-            ? 'This server is turned off for the team.'
-            : undefined
+    const connectionDisabledReason = unavailableServerIds.has(server.id)
+        ? 'This server is no longer in the catalog. Refresh the page for the current list.'
+        : server.is_revoked_for_you
+          ? 'Ask an admin to restore your access to this server.'
+          : recommended && disabled
+            ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
+            : disabled
+              ? 'This server is turned off for the team.'
+              : undefined
     const openServer = (): void => {
         if (onOpenServer) {
             onOpenServer(server.id)

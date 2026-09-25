@@ -672,6 +672,28 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
+    it('disables connecting a registered server whose template left the catalog', async () => {
+        const server = gatewayServer({
+            id: 'row-server',
+            template_id: 'gone-template',
+            template_auth_type: 'oauth',
+            is_team_enabled: true,
+        })
+        mockServersList.mockResolvedValue({ count: 1, results: [server] })
+        logic.actions.loadServersSuccess([server])
+        mockInstallTemplate.mockRejectedValue({
+            detail: 'This server is no longer in the catalog.',
+            data: { reason: 'template_unavailable' },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.connectServer('row-server')
+        }).toFinishAllListeners()
+
+        expect(logic.values.unavailableServerIds.has('row-server')).toBe(true)
+        expect(logic.values.connectionModalServerId).toBeNull()
+    })
+
     it('tracks preset updates by audience and uses the mutation response', async () => {
         const pendingPreset = deferred<Awaited<ReturnType<typeof mcpGatewayConfigApplyPresetCreate>>>()
         const updatedConfig = {

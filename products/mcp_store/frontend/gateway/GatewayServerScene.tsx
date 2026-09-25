@@ -63,8 +63,13 @@ export function GatewayServerScene({
 }): JSX.Element {
     const { server, serverLoading, serversLoadFailed, isAdmin, canManageAgentAccess } = useValues(gatewayServerLogic)
     const { user } = useValues(userLogic)
-    const { connectingServerId, disconnectingInstallationIds, removingServerIds, updatingInstallationIds } =
-        useValues(mcpGatewayLogic)
+    const {
+        connectingServerId,
+        disconnectingInstallationIds,
+        removingServerIds,
+        unavailableTemplateIds,
+        updatingInstallationIds,
+    } = useValues(mcpGatewayLogic)
     const { connectServer, disconnectServer, loadServers, reconnectServer, removeServer, toggleYourConnectionEnabled } =
         useActions(mcpGatewayLogic)
     const goBack = onBack ?? (() => router.actions.push(urls.mcpGateway()))
@@ -220,7 +225,11 @@ export function GatewayServerScene({
                             size="small"
                             loading={connectingServerId === server.id}
                             disabledReason={
-                                server.is_team_enabled ? undefined : 'This server is turned off for the team.'
+                                server.template_id && unavailableTemplateIds.has(server.template_id)
+                                    ? 'This server is no longer in the catalog. Refresh the page for the current list.'
+                                    : server.is_team_enabled
+                                      ? undefined
+                                      : 'This server is turned off for the team.'
                             }
                             onClick={() => connectServer(server.id)}
                         >

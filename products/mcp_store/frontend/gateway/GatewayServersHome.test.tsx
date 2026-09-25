@@ -31,12 +31,16 @@ jest.mock('@posthog/lemon-ui', () => ({
         children,
         onClick,
         stopPropagation,
+        disabledReason,
     }: {
         children: ReactNode
         onClick?: MouseEventHandler<HTMLButtonElement>
         stopPropagation?: boolean
+        disabledReason?: string | null
     }) => (
         <button
+            disabled={Boolean(disabledReason)}
+            title={disabledReason ?? undefined}
             onClick={(event) => {
                 if (stopPropagation) {
                     event.stopPropagation()
@@ -86,7 +90,11 @@ describe('GatewayServersHome', () => {
     const reconnectServer = jest.fn()
 
     beforeEach(() => {
-        jest.mocked(useValues).mockReturnValue({ isAdmin: false, connectingServerId: null })
+        jest.mocked(useValues).mockReturnValue({
+            isAdmin: false,
+            connectingServerId: null,
+            unavailableServerIds: new Set<string>(),
+        })
         jest.mocked(useActions).mockReturnValue({ connectServer, reconnectServer })
     })
 
@@ -119,6 +127,25 @@ describe('GatewayServersHome', () => {
         fireEvent.click(screen.getByText('Connect'))
         expect(connectServer).toHaveBeenCalledWith('server-id')
         expect(openServer).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not let a user connect a server whose template left the catalog', () => {
+        jest.mocked(useValues).mockReturnValue({
+            isAdmin: false,
+            connectingServerId: null,
+            unavailableServerIds: new Set(['server-id']),
+        })
+
+        render(<GatewayServerCard server={gatewayServer()} onOpenServer={jest.fn()} />)
+
+        const connect = screen.getByText('Connect')
+        expect(connect).toBeDisabled()
+        expect(connect).toHaveAttribute(
+            'title',
+            'This server is no longer in the catalog. Refresh the page for the current list.'
+        )
+        fireEvent.click(connect)
+        expect(connectServer).not.toHaveBeenCalled()
     })
 
     it('lets a user reconnect a healthy OAuth connection', () => {

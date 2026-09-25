@@ -216,7 +216,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
         shareInstallation,
         unshareInstallation,
     } = useActions(mcpStoreLogic)
-    const { installationsLoading } = useValues(mcpStoreLogic)
+    const { installationsLoading, unavailableTemplateIds } = useValues(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
@@ -238,6 +238,10 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
     const ownerOnlyReason =
         installation?.scope === 'shared' && !isOwner ? 'Only the owner can modify a shared server connection' : null
     const mutationDisabledReason = restrictedReason ?? ownerOnlyReason
+    const connectDisabledReason =
+        template && unavailableTemplateIds.has(template.id)
+            ? 'This server is no longer in the catalog. Refresh the page for the current list.'
+            : restrictedReason
     const removeDisabledReason =
         installation?.scope === 'shared' && !isOwner && !isAdmin
             ? 'Only the owner or a project admin can remove a shared server'
@@ -296,7 +300,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                         <LemonButton
                             type="primary"
                             onClick={() => installTemplate({ templateId: template.id })}
-                            disabledReason={restrictedReason}
+                            disabledReason={connectDisabledReason}
                         >
                             Connect
                         </LemonButton>

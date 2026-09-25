@@ -118,6 +118,16 @@ async function fetchGatewayServers(): Promise<MCPGatewayServerApi[]> {
     return response.results
 }
 
+// A Connect click can name a template the catalog no longer serves: the catalog
+// serves active templates only, and a registered server row outlives its template.
+function isTemplateUnavailable(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null || !('data' in error)) {
+        return false
+    }
+    const data = error.data
+    return typeof data === 'object' && data !== null && (data as { reason?: unknown }).reason === 'template_unavailable'
+}
+
 function errorDetail(error: unknown): string | null {
     if (typeof error !== 'object' || error === null || !('detail' in error)) {
         return null
@@ -236,6 +246,8 @@ export interface mcpGatewayLogicValues {
     templateOnlyServers: GatewayServerEntry[]
     templates: MCPServerTemplateApi[]
     templatesLoading: boolean
+    unavailableServerIds: Set<string>
+    unavailableTemplateIds: Set<string>
     updatingInstallationIds: Set<string>
 }
 
@@ -426,6 +438,9 @@ export interface mcpGatewayLogicActions {
     }
     removeServer: (serverId: string) => {
         serverId: string
+    }
+    markTemplateUnavailable: (templateId: string) => {
+        templateId: string
     }
     removeServerComplete: (serverId: string) => {
         serverId: string
@@ -639,6 +654,7 @@ export interface mcpGatewayLogicMeta {
         activeAgentCount: (serviceAccounts: MCPServiceAccountApi[]) => number
         agentSharedServerCounts: (serviceAccounts: MCPServiceAccountApi[]) => Record<string, number>
         enabledServerCount: (mergedServers: MCPGatewayServerApi[]) => number
+        unavailableServerIds: (mergedServers: MCPGatewayServerApi[], unavailableTemplateIds: Set<string>) => Set<string>
     }
 }
 
@@ -671,6 +687,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         toggleServerEnabled: (serverId: string, enabled: boolean) => ({ serverId, enabled }),
         toggleServerEnabledComplete: (serverId: string) => ({ serverId }),
         removeServer: (serverId: string) => ({ serverId }),
+        markTemplateUnavailable: (templateId: string) => ({ templateId }),
         removeServerSuccess: (serverId: string) => ({ serverId }),
         removeServerComplete: (serverId: string) => ({ serverId }),
         connectServer: (serverId: string) => ({ serverId }),
@@ -988,6 +1005,13 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 },
             },
         ],
+        unavailableTemplateIds: [
+            new Set<string>(),
+            {
+                markTemplateUnavailable: (state: Set<string>, { templateId }: { templateId: string }) =>
+                    new Set(state).add(templateId),
+            },
+        ],
         templateEnabledLoadingIds: [
             new Set<string>(),
             {
@@ -1157,6 +1181,15 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 ...servers,
                 ...templateOnlyServers,
             ],
+        ],
+        unavailableServerIds: [
+            (s) => [s.mergedServers, s.unavailableTemplateIds],
+            (mergedServers: GatewayServerEntry[], unavailableTemplateIds: Set<string>): Set<string> =>
+                new Set(
+                    mergedServers
+                        .filter((server) => server.template_id && unavailableTemplateIds.has(server.template_id))
+                        .map((server) => server.id)
+                ),
         ],
         connectionModalServer: [
             (s) => [s.mergedServers, s.connectionModalServerId],
@@ -1450,6 +1483,11 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 actions.loadServiceAccounts()
                 lemonToast.success(`Connected to ${server.name}`)
             } catch (error: unknown) {
+                if (server.template_id && isTemplateUnavailable(error)) {
+                    actions.markTemplateUnavailable(server.template_id)
+                    actions.loadTemplates()
+                    actions.closeConnectionModal()
+                }
                 actions.loadServers()
                 lemonToast.error(errorDetail(error) ?? `Could not connect to ${server.name}`)
             } finally {
