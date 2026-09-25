@@ -47,21 +47,36 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     )
 
 
-def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
-    InsightViewed.objects.update_or_create(
-        insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
-    )
+def record_insight_view(
+    *, insight_id: int, team_id: int | None, user_id: int | None, is_standalone: bool = True
+) -> None:
+    viewed_at = now()
+    timestamps = {"last_viewed_at": viewed_at}
+    if is_standalone:
+        timestamps["last_standalone_viewed_at"] = viewed_at
+    InsightViewed.objects.update_or_create(insight_id=insight_id, team_id=team_id, user_id=user_id, defaults=timestamps)
 
 
-def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
+def record_insight_views(
+    *, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime], is_standalone: bool = True
+) -> None:
+    update_fields = ["last_viewed_at"]
+    if is_standalone:
+        update_fields.append("last_standalone_viewed_at")
     InsightViewed.objects.bulk_create(
         [
-            InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=last_viewed_at)
+            InsightViewed(
+                team_id=team_id,
+                user_id=user_id,
+                insight_id=insight_id,
+                last_viewed_at=last_viewed_at,
+                last_standalone_viewed_at=last_viewed_at if is_standalone else None,
+            )
             for insight_id, last_viewed_at in last_viewed_at_by_insight_id.items()
         ],
         update_conflicts=True,
         unique_fields=["team", "user", "insight"],
-        update_fields=["last_viewed_at"],
+        update_fields=update_fields,
     )
 
 

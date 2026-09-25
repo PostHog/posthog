@@ -116,6 +116,7 @@ import {
     type DashboardSettingsChange,
     type DashboardFilterChange,
 } from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
+import { insightsViewedCreate } from 'products/product_analytics/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -4595,9 +4596,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insightIds = insights.map((insight: InsightModel) => insight?.id).filter((id): id is number => !!id)
 
             if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                void api.create(`api/projects/${values.currentTeamId}/insights/viewed`, {
+                void insightsViewedCreate(String(values.currentTeamId), {
                     insight_ids: insightIds,
+                    is_dashboard_view: true,
                 })
             }
         },

@@ -2586,9 +2586,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response_correct_token_list.json()["count"], 0)
 
-    @parameterized.expand([("single_id", 1), ("bulk_ids", 3)])
+    @parameterized.expand([("single_id", 1, False), ("bulk_ids", 3, False), ("dashboard", 3, True)])
     @time_machine.travel("2022-03-22T00:00:00.000Z", tick=False)
-    def test_create_insight_viewed(self, _name: str, count: int) -> None:
+    def test_create_insight_viewed(self, _name: str, count: int, dashboard: bool) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insights = [
             Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id=f"viewed{i}")
@@ -2597,7 +2597,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/viewed",
-            {"insight_ids": [insight.id for insight in insights]},
+            {"insight_ids": [insight.id for insight in insights], "is_dashboard_view": dashboard},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -2606,6 +2606,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_by_insight = {viewed.insight_id: viewed for viewed in InsightViewed.objects.all()}
         self.assertEqual(set(created_by_insight.keys()), {insight.id for insight in insights})
         for viewed in created_by_insight.values():
+            assert viewed.last_standalone_viewed_at == (None if dashboard else viewed.last_viewed_at)
             self.assertEqual(viewed.team, self.team)
             self.assertEqual(viewed.user, self.user)
             self.assertEqual(
@@ -2677,6 +2678,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("empty_list", {"insight_ids": []}),
             ("not_a_list", {"insight_ids": "abc"}),
             ("non_int_element", {"insight_ids": ["abc", 1]}),
+            ("invalid_context", {"insight_ids": [1], "is_dashboard_view": "maybe"}),
             ("over_max_length", {"insight_ids": list(range(1, 2502))}),
         ]
     )

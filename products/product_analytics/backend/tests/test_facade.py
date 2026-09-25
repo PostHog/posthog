@@ -18,6 +18,7 @@ from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
+    record_insight_views,
 )
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -66,6 +67,38 @@ class TestRecordInsightView(BaseTest):
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 1
         assert InsightViewed.objects.get(insight_id=self.insight.pk).last_viewed_at >= first.last_viewed_at
+
+    @parameterized.expand([("single", False), ("bulk", True)])
+    def test_dashboard_views_preserve_standalone_demand(self, _name: str, bulk: bool) -> None:
+        def view(standalone: bool) -> None:
+            if bulk:
+                record_insight_views(
+                    team_id=self.team.pk,
+                    user_id=self.user.pk,
+                    last_viewed_at_by_insight_id={self.insight.pk: now()},
+                    is_standalone=standalone,
+                )
+            else:
+                record_insight_view(
+                    insight_id=self.insight.pk,
+                    team_id=self.team.pk,
+                    user_id=self.user.pk,
+                    is_standalone=standalone,
+                )
+
+        view(False)
+        row = InsightViewed.objects.get(insight=self.insight)
+        assert row.last_standalone_viewed_at is None
+        with time_machine.travel(now() + timedelta(days=1), tick=False):
+            view(True)
+            row.refresh_from_db()
+            standalone_at = row.last_standalone_viewed_at
+            assert standalone_at == row.last_viewed_at
+        with time_machine.travel(now() + timedelta(days=2), tick=False):
+            view(False)
+            row.refresh_from_db()
+            assert row.last_standalone_viewed_at == standalone_at
+            assert row.last_viewed_at > standalone_at
 
     def test_an_anonymous_view_does_not_replace_a_users_view(self) -> None:
         InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())

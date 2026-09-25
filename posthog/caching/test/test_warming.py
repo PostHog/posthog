@@ -51,6 +51,47 @@ class TestWarming(APIBaseTest):
             },
         )
 
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:", "3456:7890"])
+    def test_dashboard_view_does_not_keep_standalone_candidate_alive(self, _stale, flag):
+        record_insight_views(
+            team_id=self.team.pk,
+            user_id=self.user.pk,
+            last_viewed_at_by_insight_id={self.insight3.pk: datetime.now(UTC) - timedelta(days=8)},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/viewed/",
+            {"insight_ids": [self.insight3.pk], "is_dashboard_view": True},
+        )
+        assert response.status_code == 201
+        assert list(insights_to_keep_fresh(self.team)) == [(self.insight3.pk, self.dashboard2.pk)]
+
+        flag.return_value = False
+        assert set(insights_to_keep_fresh(self.team)) == {
+            (self.insight3.pk, None),
+            (self.insight3.pk, self.dashboard2.pk),
+        }
+        flag.return_value = True
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/viewed/",
+            {"insight_ids": [self.insight3.pk]},
+        )
+        assert response.status_code == 201
+        assert set(insights_to_keep_fresh(self.team)) == {
+            (self.insight3.pk, None),
+            (self.insight3.pk, self.dashboard2.pk),
+        }
+
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:"])
+    def test_unattributed_history_does_not_imply_standalone_demand(self, _stale, _flag):
+        from products.product_analytics.backend.models.insight import InsightViewed
+
+        InsightViewed.objects.create(
+            team=self.team, user=self.user, insight=self.insight3, last_viewed_at=datetime.now(UTC)
+        )
+        assert list(insights_to_keep_fresh(self.team)) == []
+
     @patch("posthog.caching.warming.get_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []

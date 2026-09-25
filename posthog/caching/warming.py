@@ -118,9 +118,21 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
+        standalone_demand = posthoganalytics.feature_enabled(
+            "cache-warming-standalone-demand",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.pk)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.pk)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        view_field = "last_standalone_viewed_at" if standalone_demand else "last_viewed_at"
         single_insight_q_filter = Q(
             team=team,
-            insightviewed__last_viewed_at__gte=threshold,
+            **{f"insightviewed__{view_field}__gte": threshold},
             pk__in=insight_ids_single,
         )
         if shared_only:

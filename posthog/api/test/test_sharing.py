@@ -1777,6 +1777,30 @@ class TestExportRendererTokenFlow(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
+class TestSharedViewDemand(APIBaseTest):
+    @parameterized.expand([("standalone", False), ("dashboard", True)])
+    @mock_exporter_template
+    def test_shared_view_records_its_context(self, _name, dashboard_context):
+        from products.product_analytics.backend.models.insight import InsightViewed
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Shared view",
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
+        )
+        dashboard = Dashboard.objects.create(team=self.team) if dashboard_context else None
+        config = SharingConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            dashboard=dashboard,
+            enabled=True,
+        )
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        view = InsightViewed.objects.get(insight=insight)
+        assert view.last_standalone_viewed_at == (None if dashboard_context else view.last_viewed_at)
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):

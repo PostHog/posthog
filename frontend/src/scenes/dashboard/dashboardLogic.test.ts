@@ -1,6 +1,7 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
@@ -364,6 +365,21 @@ describe('dashboardLogic', () => {
         it('parses a full numeric route id', () => {
             expect(parseDashboardId('12')).toBe(12)
         })
+    })
+
+    it('reports dashboard tile views with dashboard context', async () => {
+        const viewed = jest.fn((_request: { request: Request }) => [201, null])
+        useMocks({ post: { '/api/environments/:team_id/insights/viewed/': viewed } })
+        logic = dashboardLogic({ id: 5 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        viewed.mockClear()
+        const insight = logic.values.dashboard!.tiles[0].insight!
+        logic.actions.reportInsightsViewed([insight])
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(viewed).toHaveBeenCalled())
+        const request = viewed.mock.calls[0][0].request
+        expect(await request.json()).toEqual({ insight_ids: [insight.id], is_dashboard_view: true })
     })
 
     describe('tile layouts', () => {

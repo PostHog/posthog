@@ -296,9 +296,14 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
 /**
  * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped, as are views from impersonated staff-support sessions. Returns 201 on success regardless of how many ids were retained.
  */
+export const insightsViewedCreateBodyIsDashboardViewDefault = false
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 
 export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
+    is_dashboard_view: zod
+        .boolean()
+        .default(insightsViewedCreateBodyIsDashboardViewDefault)
+        .describe('Whether these insights were viewed as dashboard tiles rather than standalone insights.'),
     insight_ids: zod
         .array(zod.number())
         .max(insightsViewedCreateBodyInsightIdsMax)

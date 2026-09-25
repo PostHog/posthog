@@ -8954,6 +8954,8 @@ export interface PaginatedTrendingInsightListApi {
 }
 
 export interface InsightViewedRequestApi {
+    /** Whether these insights were viewed as dashboard tiles rather than standalone insights. */
+    is_dashboard_view?: boolean
     /**
      * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
      * @maxItems 2500

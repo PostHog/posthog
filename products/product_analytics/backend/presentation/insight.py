@@ -783,7 +783,7 @@ class InsightSerializer(InsightBasicSerializer):
             **validated_data,
         )
 
-        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
+        record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk, is_standalone=False)
 
         if placement is not None:
             for dashboard in placement.create_tiles(insight):
@@ -1553,6 +1553,10 @@ INSIGHT_VIEWED_MAX_IDS = 2500
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
+    is_dashboard_view = serializers.BooleanField(
+        default=False,
+        help_text="Whether these insights were viewed as dashboard tiles rather than standalone insights.",
+    )
     insight_ids = serializers.ListField(
         child=serializers.IntegerField(),
         allow_empty=False,
@@ -2313,6 +2317,7 @@ When set, the specified dashboard's filters and date range override will be appl
             team_id=self.team.pk,
             user_id=cast(User, request.user).pk,
             last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
+            is_standalone=not request.validated_data["is_dashboard_view"],
         )
 
         return Response(status=status.HTTP_201_CREATED)

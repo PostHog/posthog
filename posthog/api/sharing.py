@@ -1163,7 +1163,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
             asset_description = resource.insight.description or ""
-            record_insight_view(insight_id=resource.insight.pk)
+            record_insight_view(insight_id=resource.insight.pk, is_standalone=resource.dashboard is None)
 
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
