@@ -224,7 +224,10 @@ function SessionsListPanel(): JSX.Element {
                     </div>
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">
-                        {filters.search || filters.hasErrors !== null || sharedQueryFilters.properties.length > 0
+                        {filters.search ||
+                        filters.hasErrors !== null ||
+                        sharedQueryFilters.properties.length > 0 ||
+                        sharedQueryFilters.filterTestAccounts
                             ? 'No sessions match these filters'
                             : 'No MCP sessions yet'}
                     </div>

@@ -643,16 +643,21 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 }
                 const calls: MCPToolCallApi[] = []
                 let hasNext = true
-                while (hasNext) {
-                    const page = await fetchToolCallsPage(
-                        values.currentProjectId,
-                        session.session_id,
-                        session.session_start,
-                        calls.length,
-                        errorsOnly
-                    )
-                    calls.push(...page.calls)
-                    hasNext = page.hasNext && page.calls.length > 0
+                try {
+                    while (hasNext) {
+                        const page = await fetchToolCallsPage(
+                            values.currentProjectId,
+                            session.session_id,
+                            session.session_start,
+                            calls.length,
+                            errorsOnly
+                        )
+                        calls.push(...page.calls)
+                        hasNext = page.hasNext && page.calls.length > 0
+                    }
+                } catch {
+                    lemonToast.error("Could not load this session's errors. Please try again.")
+                    return
                 }
                 await copyToClipboard(formatSessionErrorsContext(session.session_id, calls), 'session errors')
             },
