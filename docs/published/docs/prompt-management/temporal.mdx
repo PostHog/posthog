@@ -1,0 +1,162 @@
+---
+title: Use prompts in Temporal activities
+sidebar: Docs
+showTitle: true
+---
+
+This guide shows how to fetch PostHog prompts in a [Temporal](https://temporal.io) worker.
+It covers four topics:
+
+- Where to fetch the prompt.
+- How to make retries use the same prompt version.
+- How the SDK cache behaves in a worker that runs for days.
+- How to record which prompt version an activity used.
+
+The examples use the Python SDK (`posthog.ai.prompts.Prompts`).
+
+## Fetch prompts in an activity, not in workflow code
+
+Temporal replays workflow code from its event history, so workflow code must be deterministic.
+A prompt fetch is not deterministic: it makes a network request, reads the clock, and reads a process-local cache.
+Put every `prompts.get()` call in an activity.
+
+Temporal records the activity result in the workflow history.
+When Temporal replays the workflow, it uses the recorded result and does not run the activity again.
+
+Keep the `posthog` imports out of the workflow module.
+If the workflow module must import the activity module, import it inside `workflow.unsafe.imports_passed_through()`.
+
+## Pin a version so that retries use the same prompt
+
+A label such as `production` is a movable pointer.
+If someone moves the label while a workflow runs, two attempts of the same activity can get different prompt versions.
+A version number always points to the same content, because PostHog does not change a published version.
+
+Resolve the label once, in its own activity.
+Pass the resolved version to the activities that call the model:
+
+```python
+# my_app/activities.py
+from dataclasses import dataclass
+
+from posthog import Posthog
+from posthog.ai.prompts import Prompts
+from temporalio import activity
+
+posthog = Posthog("<ph_project_api_key>", host="<ph_client_api_host>", secret_key="<ph_personal_api_key>")
+prompts = Prompts(posthog)  # One instance for each worker process
+
+
+@dataclass(frozen=True)
+class PromptRef:
+    name: str
+    version: int
+
+
+@activity.defn
+def resolve_prompt(name: str) -> PromptRef:
+    result = prompts.get(name, label="production", with_metadata=True)
+    if result.version is None:
+        raise RuntimeError(f"No PostHog version for prompt {name!r} (source: {result.source})")
+    return PromptRef(name=result.name, version=result.version)
+
+
+@activity.defn
+def generate_reply(ref: PromptRef, question: str) -> str:
+    result = prompts.get(ref.name, version=ref.version, with_metadata=True)
+    ...
+```
+
+```python
+# my_app/workflows.py
+from datetime import timedelta
+
+from temporalio import workflow
+
+with workflow.unsafe.imports_passed_through():
+    from my_app.activities import generate_reply, resolve_prompt
+
+
+@workflow.defn
+class SupportWorkflow:
+    @workflow.run
+    async def run(self, question: str) -> str:
+        ref = await workflow.execute_activity(
+            resolve_prompt, "support-system-prompt", start_to_close_timeout=timedelta(seconds=30)
+        )
+        return await workflow.execute_activity(
+            generate_reply, args=[ref, question], start_to_close_timeout=timedelta(minutes=2)
+        )
+```
+
+The `PromptRef` goes into the workflow history.
+Retries of `generate_reply` and replays of the workflow use the same version.
+The history stores only the name and the version, so large prompts do not count against the Temporal payload limit.
+
+If the prompt is small, you can return the prompt text from `resolve_prompt` too.
+Then `generate_reply` does not fetch at all.
+
+## How the cache behaves in a long-lived worker
+
+Create one `Prompts` instance for each worker process and share it across activities.
+Each instance keeps its own in-memory cache.
+The cache key is the prompt name plus the `version` or `label` you pass.
+
+| Behavior                                                                                                                      | What it means for a worker                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entries stay fresh for 300 seconds by default.                                                                                | After a label moves, the worker can use the old version for up to 5 minutes. Set `default_cache_ttl_seconds` on `Prompts`, or `cache_ttl_seconds` on `get()`, to change this. |
+| A fetch that fails when a cached entry exists returns the cached entry with `source="stale_cache"`.                           | A worker keeps running during a PostHog outage. The stale entry has no maximum age, so the worker serves it until a fetch succeeds.                                           |
+| After a failed fetch, the SDK waits 60 seconds before it sends the next request for that entry.                               | If PostHog returns HTTP 429 with a `Retry-After` header, the SDK waits for that time instead, up to 1 hour.                                                                   |
+| A fetch that fails when no cached entry exists raises an exception, or returns your `fallback` with `source="code_fallback"`. | Without a `fallback`, the activity fails and Temporal retries it with its retry policy.                                                                                       |
+| The cache never removes entries.                                                                                              | Memory use grows with the number of distinct name, version, and label combinations. A pinned version adds one entry for each version the worker sees.                         |
+
+A fetch by `version` returns the same content from the cache or from the API.
+For pinned versions, the TTL affects only how often the worker sends requests.
+
+To pick up a label change at once, call `prompts.clear_cache(name)`.
+A new worker process starts with an empty cache.
+
+## Record the prompt version
+
+Record which prompt version produced each model call.
+You need it to trace a retry or a replay back to the prompt that ran.
+
+Always pass `with_metadata=True`.
+The result then carries `name`, `version`, `label`, and `source`.
+
+- Add `$ai_prompt_name` and `$ai_prompt_version` to your LLM events.
+  With the PostHog LLM analytics wrappers, pass them in `posthog_properties`.
+  Prompt experiments use the same properties to attribute generations to a variant.
+- Return the version in the activity result, as in the `PromptRef` example above.
+  The workflow history then shows which version each run used.
+- Check `source` in the activity that resolves a label.
+  A value of `stale_cache` means the label can point to a newer version now.
+  A value of `code_fallback` means the activity used your in-code text, and the result has no `version`.
+
+```python
+from posthog.ai.openai import OpenAI
+
+client = OpenAI(posthog_client=posthog)
+
+
+@activity.defn
+def generate_reply(ref: PromptRef, question: str) -> str:
+    result = prompts.get(ref.name, version=ref.version, with_metadata=True)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": result.prompt},
+            {"role": "user", "content": question},
+        ],
+        posthog_properties={
+            "$ai_prompt_name": result.name,
+            "$ai_prompt_version": result.version,
+            "temporal_workflow_id": activity.info().workflow_id,
+            "temporal_activity_attempt": activity.info().attempt,
+        },
+    )
+    return response.choices[0].message.content
+```
+
+The `temporal_workflow_id` and `temporal_activity_attempt` properties are optional.
+They let you filter LLM events by workflow run and find retried attempts.
