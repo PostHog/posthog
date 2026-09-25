@@ -127,7 +127,6 @@ registerTriggerType({
     icon: <IconServer />,
     description: 'Trigger when a new row is synced into a data warehouse table',
     group: 'Data warehouse',
-    featureFlag: 'cdp-dwh-table-source',
     matchConfig: (config) => isDataWarehouseTableTriggerConfig(config),
     buildConfig: () => ({
         type: 'data-warehouse-table',
