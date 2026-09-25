@@ -107,6 +107,12 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
         ORDER BY trace_id
     ),
 
+    PROJECTION projection_index_team_span_id
+    (
+        SELECT _part_offset
+        ORDER BY team_id, span_id
+    ) WITH SETTINGS (index_granularity = 512),
+
     PROJECTION projection_index_team_trace_id
     (
         SELECT _part_offset

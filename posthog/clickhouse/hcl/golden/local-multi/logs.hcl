@@ -3669,6 +3669,16 @@ ORDER BY span_id
 SQL
 
     }
+    projection "projection_index_team_span_id" {
+      query = <<SQL
+SELECT _part_offset
+ORDER BY team_id, span_id
+SQL
+
+      settings = {
+        index_granularity = "512"
+      }
+    }
     projection "projection_index_team_trace_id" {
       query = <<SQL
 SELECT _part_offset
