@@ -52,7 +52,6 @@ import {
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -61,12 +60,13 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
+import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'

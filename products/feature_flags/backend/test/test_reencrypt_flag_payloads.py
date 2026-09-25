@@ -1,11 +1,16 @@
+from io import StringIO
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import override_settings
 
 from cryptography.fernet import InvalidToken
+from structlog.testing import capture_logs
 
 from posthog.management.commands.reencrypt_flag_payloads import Command
+from posthog.models import Team
 
 from products.feature_flags.backend.encrypted_flag_payloads import (
     FlagPayloadCodec,
@@ -113,3 +118,54 @@ class TestReencryptFlagPayloads(BaseTest):
         assert flag.filters["groups"] == [{"properties": [{"key": "x", "value": "y"}]}]
         new_token = flag.filters["payloads"]["true"].encode("utf-8")
         assert _codec(NEW_KEY).decrypt(new_token).decode("utf-8") == PAYLOAD
+
+    def test_skips_other_config_formats_and_still_rotates_v1_rows(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        token = _codec(OLD_KEY).encrypt(PAYLOAD.encode("utf-8")).decode("utf-8")
+        unsupported = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-flag",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters={"version": 2, "rules": [], "payloads": {"true": token}},
+        )
+        not_an_object = FeatureFlag.objects.create(
+            team=other_team,
+            key="list-filters",
+            created_by=self.user,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+            filters=["version"],
+        )
+        v1_flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
+
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
+            with capture_logs() as logs:
+                call_command("reencrypt_flag_payloads", "--live-run")
+
+        unsupported.refresh_from_db()
+        assert unsupported.filters == {"version": 2, "rules": [], "payloads": {"true": token}}
+        v1_flag.refresh_from_db()
+        assert _codec(NEW_KEY).decrypt(v1_flag.filters["payloads"]["true"].encode("utf-8")).decode("utf-8") == PAYLOAD
+        skips = [log for log in logs if log["event"] == "reencrypt_flag_payloads.skip_unsupported_config"]
+        assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
+            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id)]
+        )
+
+    def test_format_change_under_lock_is_counted_as_skipped(self):
+        self._make_flag("rc-flag", encrypt_with=OLD_KEY)
+        real = Command._reencrypt
+
+        def switch_format_under_lock(command, pk, codec):
+            FeatureFlag.objects.filter(pk=pk).update(filters={"version": 2, "rules": []})
+            return real(command, pk, codec)
+
+        out = StringIO()
+        with (
+            override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]),
+            patch.object(Command, "_reencrypt", switch_format_under_lock),
+        ):
+            call_command("reencrypt_flag_payloads", "--team-id", str(self.team.id), "--live-run", stdout=out)
+
+        assert "re-encrypted=0 skipped=1" in out.getvalue()

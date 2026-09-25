@@ -7,9 +7,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import MAX_KEYWORDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
     DATAFORSEO_ENDPOINTS,
     ENDPOINTS,
+    KEYWORD_SCOPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
 
@@ -20,6 +22,7 @@ def _make_config(
     api_login: str = "login",
     api_password: str = "password",
     targets: str = "example.com, posthog.com",
+    keywords: str | None = None,
     location_name: str | None = None,
     language_name: str | None = None,
 ) -> Any:
@@ -27,6 +30,7 @@ def _make_config(
     config.api_login = api_login
     config.api_password = api_password
     config.targets = targets
+    config.keywords = keywords
     config.location_name = location_name
     config.language_name = language_name
     return config
@@ -39,6 +43,7 @@ class TestDataForSEOSource:
             "api_login",
             "api_password",
             "targets",
+            "keywords",
             "location_name",
             "language_name",
         ]
@@ -56,14 +61,16 @@ class TestDataForSEOSource:
         assert password_field.required is True
         assert input_field("api_login").required is True
         assert input_field("targets").required is True
-        # Location and language fall back to defaults in the transport when left blank.
+        # Location and language fall back to defaults in the transport when left blank, and only
+        # the keyword-scoped tables need keywords.
+        assert input_field("keywords").required is False
         assert input_field("location_name").required is False
         assert input_field("language_name").required is False
 
-    def test_connection_host_fields_includes_targets(self) -> None:
-        # targets selects which domains the stored credential runs paid requests against, so
-        # changing it must force re-entry of the secret.
-        assert DataForSEOSource().connection_host_fields == ["targets"]
+    def test_connection_host_fields_cover_every_spend_field(self) -> None:
+        # targets and keywords both select what the stored credential spends paid requests on,
+        # so changing either must force re-entry of the secret.
+        assert DataForSEOSource().connection_host_fields == ["targets", "keywords"]
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
@@ -85,13 +92,15 @@ class TestDataForSEOSource:
         assert schemas["locations_and_languages"].detected_primary_keys == ["location_code"]
         assert schemas["categories"].detected_primary_keys == ["category_code"]
 
-    def test_backlinks_tables_are_off_by_default(self) -> None:
-        # The Backlinks API is a separate paid DataForSEO subscription, so none of its tables may
-        # be part of the default selection that one-shot setup enables.
+    def test_tables_needing_extra_setup_are_off_by_default(self) -> None:
+        # A table that needs the separate paid Backlinks subscription, or keywords the source
+        # form leaves optional, cannot be part of the default selection that one-shot setup
+        # enables — it would fail the first sync.
         schemas = {s.name: s for s in DataForSEOSource().get_schemas(_make_config(), team_id=1)}
         for name, schema in schemas.items():
-            needs_backlinks_api = DATAFORSEO_ENDPOINTS[name].path.startswith("/backlinks/")
-            assert schema.should_sync_default is not needs_backlinks_api
+            endpoint = DATAFORSEO_ENDPOINTS[name]
+            needs_extra_setup = endpoint.path.startswith("/backlinks/") or endpoint.scope in KEYWORD_SCOPES
+            assert schema.should_sync_default is not needs_extra_setup
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])
@@ -117,6 +126,17 @@ class TestDataForSEOSource:
         assert ok is expected_ok
         assert message == expected_message
 
+    def test_validate_credentials_rejects_too_many_keywords(self) -> None:
+        # The SERP table spends a request per keyword per sync, so an oversized list is reported
+        # at setup rather than on the first bill.
+        config = _make_config(keywords=",".join(f"kw{i}" for i in range(MAX_KEYWORDS + 1)))
+        with patch(f"{MODULE}.validate_dataforseo_credentials", return_value=True) as probe:
+            ok, message = DataForSEOSource().validate_credentials(config, team_id=1)
+        assert ok is False
+        assert message is not None
+        assert str(MAX_KEYWORDS) in message
+        probe.assert_not_called()
+
     def test_validate_credentials_skips_probe_without_targets(self) -> None:
         with patch(f"{MODULE}.validate_dataforseo_credentials") as probe:
             ok, _ = DataForSEOSource().validate_credentials(_make_config(targets=""), team_id=1)
@@ -128,14 +148,19 @@ class TestDataForSEOSource:
         inputs.schema_name = "ranked_keywords"
         inputs.logger = MagicMock()
         manager = MagicMock()
-        config = _make_config(targets="https://www.Example.com/, posthog.com")
+        config = _make_config(
+            targets="https://www.Example.com/, posthog.com",
+            keywords="Product   Analytics, product analytics",
+        )
         with patch(f"{MODULE}.dataforseo_source") as source_fn:
             DataForSEOSource().source_for_pipeline(config, manager, inputs)
         kwargs = source_fn.call_args.kwargs
         assert kwargs["api_login"] == "login"
         assert kwargs["api_password"] == "password"
-        # Targets are normalized (scheme/www stripped, lower-cased) before handing off.
+        # Targets and keywords are normalized (scheme/www stripped, lower-cased, de-duplicated)
+        # before handing off.
         assert kwargs["targets"] == ["example.com", "posthog.com"]
+        assert kwargs["keywords"] == ["product analytics"]
         assert kwargs["endpoint"] == "ranked_keywords"
         assert kwargs["resumable_source_manager"] is manager
 
@@ -174,6 +199,27 @@ class TestDataForSEOSource:
             with pytest.raises(ValueError, match="Too many target domains"):
                 DataForSEOSource().source_for_pipeline(oversized, MagicMock(), inputs)
         source_fn.assert_not_called()
+
+    @parameterized.expand([("historical_search_volume",), ("serp_organic",)])
+    def test_source_for_pipeline_rejects_keyword_table_without_keywords(self, schema_name: str) -> None:
+        # A keyword-scoped table has nothing to request without keywords, so it must fail with a
+        # message naming the fix rather than syncing an empty table.
+        inputs = MagicMock()
+        inputs.schema_name = schema_name
+        inputs.logger = MagicMock()
+        with patch(f"{MODULE}.dataforseo_source") as source_fn:
+            with pytest.raises(ValueError, match="Add at least one keyword"):
+                DataForSEOSource().source_for_pipeline(_make_config(keywords=" , "), MagicMock(), inputs)
+        source_fn.assert_not_called()
+
+    def test_source_for_pipeline_allows_missing_keywords_for_target_tables(self) -> None:
+        # Only the keyword-scoped tables need keywords; a domain table must still sync without them.
+        inputs = MagicMock()
+        inputs.schema_name = "ranked_keywords"
+        inputs.logger = MagicMock()
+        with patch(f"{MODULE}.dataforseo_source") as source_fn:
+            DataForSEOSource().source_for_pipeline(_make_config(keywords=None), MagicMock(), inputs)
+        assert source_fn.call_args.kwargs["keywords"] == []
 
     @parameterized.expand(
         [

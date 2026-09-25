@@ -13,7 +13,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -86,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -250,6 +251,20 @@ TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
 
+# An activity that ran past its start-to-close (or schedule-to-close) budget. Those budgets are a
+# day for a full refresh and a week for an incremental run, so reaching one means the extraction
+# itself cannot finish in the window rather than that something stalled.
+SYNC_RUN_TOO_LONG_MESSAGE = (
+    "This sync ran longer than PostHog allows and stopped before it finished. Switch this table to "
+    "incremental sync, or sync less data, so the next run finishes in time."
+)
+
+# An activity that stopped heartbeating, or that no worker picked up in time. Both are PostHog-side
+# and clear on their own, so the copy asks nothing of the customer.
+SYNC_RUN_STALLED_MESSAGE = (
+    "This sync stopped making progress on PostHog's side and did not finish. The next sync runs on schedule."
+)
+
 # A retryable failure that outlives its retries keeps whatever the driver said, so `latest_error`
 # ends up holding raw connection text — a psycopg "connection to server at <host>, port <port>
 # failed: ..." line, a pymysql `(2013, ...)` tuple, a urllib3 connection-pool dump. None of it
@@ -350,6 +365,14 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # sync retries on its next schedule.
     if getattr(cause, "type", None) == "RESTClientRetryableError":
         return TRANSIENT_SOURCE_ERROR_MESSAGE
+    # A timed-out activity carries Temporal's own wording for its message ("activity StartToClose
+    # timeout"), which names our orchestration rather than anything the customer can act on. Which
+    # budget ran out decides the guidance: an exhausted run budget needs less data per run, while a
+    # stalled or unclaimed activity is ours and recovers by itself.
+    if isinstance(cause, exceptions.TimeoutError):
+        if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
+            return SYNC_RUN_TOO_LONG_MESSAGE
+        return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -664,6 +687,7 @@ class CreateSourceTemplateInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 

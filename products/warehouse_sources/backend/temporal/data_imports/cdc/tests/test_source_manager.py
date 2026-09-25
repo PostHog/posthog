@@ -19,14 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    BUFFERED_LANE_KEY,
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
     CDCLane,
     CDCSourceManager,
     ReplayFilter,
     build_output_lanes,
+    captures_to_buffer,
     consumes_buffer,
     has_batches_in_flight,
     scheduled_sync_consumes_buffer,
@@ -181,9 +182,7 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
-    # A flipped schema carries the opt-in marker; consolidated is served without it.
-    default_config = {} if schema.cdc_table_mode == "consolidated" else {BUFFERED_LANE_KEY: True}
-    schema.sync_type_config = overrides.get("sync_type_config", default_config)
+    schema.sync_type_config = overrides.get("sync_type_config", {})
     schema.source.job_inputs = overrides.get("job_inputs", {})
     schema.primary_key_columns = overrides.get("primary_key_columns", ["id"])
     schema.name = overrides.get("name", "users")
@@ -292,23 +291,48 @@ class TestServedLanes:
         assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
 
 
-class TestBufferedLaneOptIn:
+class TestSnapshotCapture:
     @parameterized.expand(
         [
-            ("consolidated", False, True),
-            ("cdc_only", False, False),
-            ("both", False, False),
-            ("cdc_only", True, True),
-            ("both", True, True),
+            ("streaming", {}, True),
+            (
+                "snapshotting_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                True,
+            ),
+            ("snapshotting_on_deferred_runs", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
+            ("not_cdc", {"is_cdc": False}, False),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
         ]
     )
-    def test_history_modes_serve_only_once_the_flip_marked_them(self, mode, marked, served):
-        # A source flipped before history modes were served left those schemas on legacy with their
-        # schedules paused. Widening by mode alone would have capture route them into the buffer on
-        # deploy, with nothing scheduled to consume it. Consolidated predates the marker.
-        schema = _schema(cdc_table_mode=mode, sync_type_config={BUFFERED_LANE_KEY: True} if marked else {})
+    def test_capture_follows_the_snapshot_lane(self, _name, overrides, captured):
+        assert captures_to_buffer(_schema(**overrides)) is captured
 
-        assert serves_buffered_lane(schema) is served
+    @parameterized.expand(
+        [
+            ("streaming_on_a_buffered_source", {}, True, True),
+            ("flag_off", {}, False, False),
+            ("legacy_source", {"job_inputs": {}}, True, False),
+            ("deferred_runs_pending", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, True, False),
+            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True, False),
+            (
+                "already_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(
+        self, _name, overrides, flag, stays
+    ):
+        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
+            return_value=flag,
+        ):
+            assert resnapshot_stays_in_buffer(schema, MagicMock()) is stays
 
 
 class TestBufferedGating:

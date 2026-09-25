@@ -4,6 +4,7 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import TokenCheck
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -63,12 +64,19 @@ class TestCloudflareSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_substring",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "was rejected"),
-            ((False, 403), False, "was rejected"),
-            ((False, None), False, "Couldn't reach Cloudflare"),
-            ((False, 500), False, "Couldn't reach Cloudflare"),
-            ((False, 429), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=True, status=200), True, None),
+            (TokenCheck(is_valid=False, status=401), False, "Cloudflare rejected your API token."),
+            (TokenCheck(is_valid=False, status=403), False, "Cloudflare rejected your API token."),
+            # Cloudflare's own reason is what tells a revoked token from one this endpoint
+            # structurally cannot verify, so it has to reach the person reading the wizard.
+            (
+                TokenCheck(is_valid=False, status=400, reason="Invalid API Token (code 1000)"),
+                False,
+                "Invalid API Token (code 1000)",
+            ),
+            (TokenCheck(is_valid=False, status=None), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=False, status=500), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=False, status=429), False, "Couldn't reach Cloudflare"),
         ],
     )
     @mock.patch(

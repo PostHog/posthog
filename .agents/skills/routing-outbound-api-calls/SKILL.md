@@ -65,6 +65,7 @@ Copy the closest reference domain for the file layout:
 
 - **Copy the layout, not the numbers.** Redo the four decisions above for the new API. A copy keeps the reference's settings defaults, lane defaults, and header names.
 - **Let the base client record.** The client sets `observability = <domain>_egress`. Do not add `record_<domain>_response` wrappers.
+- **Add a mechanism to the base, never to one domain.** Tracing, request timing, retries and recording go into the base clients in `transport/transport.py`, so every domain gets them. A reference domain is the next domain's template, so a mechanism added there spreads under new names. A true one-off stays in the domain with a `# One-off:` comment that says why, then a `# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains` line. See "Shared mechanisms" in the egress README.
 - **Keep metric names explicit and stable.** Dashboards and alerts query them by name.
 - **Keep `posthog.models` imports out of the domain package.**
 - **The limiter never blocks.** The caller catches `<Domain>EgressBudgetExhausted` and backs off, defers, or degrades. A caller that folds exceptions into "not found" must catch it first.

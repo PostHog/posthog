@@ -12,9 +12,11 @@ import { ModelCostFooter } from "./ModelCostChip";
 import { ModelRadioItem } from "./ModelRadioItem";
 
 const MODELS = [
+  // Not a catalog id, so this row shows how an unpriced model sits next to
+  // the priced ones.
   { value: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
   { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
-  { value: "claude-opus-5", name: "Claude Opus 5" },
+  { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
   { value: "claude-fable-5", name: "Claude Fable 5" },
   { value: "gpt-6-sol", name: "GPT-6 Sol" },
   { value: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
@@ -24,7 +26,7 @@ const MODELS = [
     name: "GPT-6 Astra",
     _meta: { "posthog.code/restrictedModel": true },
   },
-  { value: "glm-5.3", name: "GLM 5.3" },
+  { value: "zai-org/glm-5.3", name: "GLM 5.3" },
   {
     value: "some-custom-model",
     name: "Custom model",

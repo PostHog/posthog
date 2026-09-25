@@ -43,6 +43,8 @@ import {
   type CompletionSound,
   type CustomSound,
   NOTIFICATION_DEFAULTS,
+  NOTIFICATION_PAUSE_MS,
+  notificationsPaused,
   type SpokenFocusMode,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
@@ -87,6 +89,7 @@ export function NotificationsSettings() {
     completionVolume,
     scaleSoundWithTaskLength,
     customSounds,
+    notificationsPausedUntil,
     setDesktopNotifications,
     setDockBadgeNotifications,
     setDockBounceNotifications,
@@ -96,6 +99,7 @@ export function NotificationsSettings() {
     setScaleSoundWithTaskLength,
     removeCustomSound,
     renameCustomSound,
+    setNotificationsPausedUntil,
   } = useSettingsStore();
 
   const [addSoundOpen, setAddSoundOpen] = useState(false);
@@ -128,6 +132,32 @@ export function NotificationsSettings() {
   }, [desktopNotifications, setDesktopNotifications]);
 
   const notificationsDenied = window.Notification?.permission === "denied";
+
+  const paused = notificationsPaused(notificationsPausedUntil);
+
+  // Clear the pause when it ends, so the row does not keep showing it.
+  useEffect(() => {
+    if (!paused || notificationsPausedUntil === null) return;
+    const timeout = setTimeout(
+      () => setNotificationsPausedUntil(null),
+      notificationsPausedUntil - Date.now(),
+    );
+    return () => clearTimeout(timeout);
+  }, [paused, notificationsPausedUntil, setNotificationsPausedUntil]);
+
+  const handlePauseChange = useCallback(
+    (pause: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "notifications_paused",
+        new_value: pause,
+        old_value: paused,
+      });
+      setNotificationsPausedUntil(
+        pause ? Date.now() + NOTIFICATION_PAUSE_MS : null,
+      );
+    },
+    [paused, setNotificationsPausedUntil],
+  );
 
   const handleDesktopNotificationsChange = useCallback(
     async (checked: boolean) => {
@@ -283,6 +313,30 @@ export function NotificationsSettings() {
             </>
           )}
         </div>
+        <SettingsCard>
+          <SettingsCardRow
+            label="Pause alerts"
+            description={
+              paused && notificationsPausedUntil !== null
+                ? `Paused until ${new Date(
+                    notificationsPausedUntil,
+                  ).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}. In-app toasts still show.`
+                : "Mute sounds, voice and system notifications for 1 hour"
+            }
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handlePauseChange(!paused)}
+            >
+              {paused ? "Resume" : "Pause for 1 hour"}
+            </Button>
+          </SettingsCardRow>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection

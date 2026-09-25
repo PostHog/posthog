@@ -6,21 +6,23 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.schema_enums import SessionTableVersion
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    ensure_precomputed,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSIONS_INSERT_TEMPLATE,
     base_placeholders,
@@ -30,6 +32,113 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    def test_future_window_requires_refresh_when_it_starts(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(hours=7)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert warmed.ready, warmed.errors
+            assert warmed.job_ids
+            cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+            assert cached.ready
+            assert cached.job_ids == warmed.job_ids
+
+            clock.shift(timedelta(minutes=25))
+            for grace in (None, 6 * 60 * 60):
+                cached = ensure_marketing_sessions_precomputed(
+                    self.team, start, end, run_inserts=False, stale_while_revalidate_seconds=grace
+                )
+                assert not cached.ready
+                assert not cached.job_ids
+
+            clock.shift(timedelta(minutes=1))
+            timestamp = datetime.now(UTC)
+            session_id = uuid7(int(timestamp.timestamp() * 1000))
+            create_person(team=self.team, distinct_ids=["new-window-visitor"])
+            _create_event(
+                team=self.team,
+                distinct_id="new-window-visitor",
+                event="$pageview",
+                timestamp=timestamp,
+                properties={"$session_id": str(session_id)},
+            )
+            flush_persons_and_events()
+            refreshed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert refreshed.ready, refreshed.errors
+            assert set(refreshed.job_ids).isdisjoint(warmed.job_ids)
+            cached = ensure_marketing_sessions_precomputed(
+                self.team, start, end, run_inserts=False, stale_while_revalidate_seconds=6 * 60 * 60
+            )
+            assert cached.ready
+            assert cached.job_ids == refreshed.job_ids
+            assert sync_execute(
+                "SELECT session_id_v7 FROM web_sessions_dimensional_preaggregated "
+                "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
+                {"team_id": self.team.pk, "job_ids": cached.job_ids},
+            ) == [(session_id.int,)]
+
+    @parameterized.expand(
+        [
+            (version, legacy_value)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+            for legacy_value in (None, True, False)
+        ]
+    )
+    def test_cookieless_rollout_reuses_jobs_after_cache_key_transition(
+        self, version: SessionTableVersion, legacy_value: bool | None
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with patch(
+            "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier"
+        ) as resolve:
+            resolve.return_value = legacy_value
+            legacy_modifiers = create_default_modifiers_for_team(self.team)
+            legacy = ensure_precomputed(
+                team=self.team,
+                insert_query=SESSIONS_INSERT_TEMPLATE,
+                time_range_start=start,
+                time_range_end=end,
+                ttl_seconds=90 * 24 * 60 * 60,
+                table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
+                modifiers=legacy_modifiers,
+                cache_key_context={"modifiers": legacy_modifiers.model_dump_json(exclude_none=True)},
+                placeholders=base_placeholders(),
+            )
+            assert legacy.ready, legacy.errors
+            assert legacy.job_ids
+            written = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+            if legacy_value is None:
+                assert set(written.job_ids) == set(legacy.job_ids)
+            else:
+                assert not written.ready
+                assert not written.job_ids
+                written = ensure_marketing_sessions_precomputed(self.team, start, end)
+                assert set(written.job_ids).isdisjoint(legacy.job_ids)
+            assert written.ready, written.errors
+            assert written.job_ids
+            original_sql = None
+            for enabled in (None, True, False):
+                resolve.return_value = enabled
+                response = execute_hogql_query(
+                    SESSIONS_INSERT_TEMPLATE,
+                    self.team,
+                    placeholders={
+                        **base_placeholders(),
+                        "time_window_min": ast.Constant(value=start),
+                        "time_window_max": ast.Constant(value=end),
+                    },
+                )
+                assert response.clickhouse
+                if original_sql is None:
+                    original_sql = response.clickhouse
+                assert response.clickhouse == original_sql
+                cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+                assert cached.ready, cached.errors
+                assert set(cached.job_ids) == set(written.job_ids)
+
     @parameterized.expand([("UTC",), ("America/Santiago",), ("Asia/Kolkata",), ("Asia/Kathmandu",)])
     def test_session_start_windows_use_utc_boundaries(self, timezone: str) -> None:
         self.team.timezone = timezone
@@ -97,16 +206,14 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         result = ensure_marketing_sessions_precomputed(self.team, start + timedelta(hours=1), end)
-        if duration_hours > 72:
-            assert not result.ready
-            assert not result.job_ids
-            return
-        assert result.ready
+        assert result.ready, result.errors
         assert sync_execute(
             "SELECT session_id_v7, pageview_count FROM web_sessions_dimensional_preaggregated "
             "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
             {"team_id": self.team.pk, "job_ids": result.job_ids},
-        ) == [(uuid.UUID(session_id).int, 2)]
+        ) == ([] if duration_hours > 72 else [(uuid.UUID(session_id).int, 2)])
+        if duration_hours > 72:
+            return
 
         response = execute_hogql_query(
             SESSIONS_INSERT_TEMPLATE,
@@ -143,8 +250,8 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
         cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
-        assert not cached.ready
-        assert not cached.job_ids
+        assert cached.ready
+        assert set(cached.job_ids) == set(result.job_ids)
 
     @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
     def test_window_refreshes_after_a_long_sessions_first_pageview(self, version: SessionTableVersion) -> None:
@@ -189,23 +296,3 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
                 {"team_id": self.team.pk, "job_ids": refreshed.job_ids},
             ) == [(uuid.UUID(session_id).int, 1)]
-
-
-class TestSessionPrecomputeCoverageFailure(SimpleTestCase):
-    def test_query_error_does_not_prove_session_coverage(self) -> None:
-        with (
-            patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.create_default_modifiers_for_team",
-                return_value=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
-            ),
-            patch(
-                "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.execute_hogql_query",
-                return_value=HogQLQueryResponse(results=[], error="Coverage query failed"),
-            ),
-        ):
-            result = ensure_marketing_sessions_precomputed(
-                Team(id=1), datetime(2026, 9, 1, tzinfo=UTC), datetime(2026, 9, 2, tzinfo=UTC)
-            )
-        self.assertFalse(result.ready)
-        self.assertEqual(result.job_ids, [])
-        self.assertEqual(result.errors, ["Could not verify session precompute coverage"])

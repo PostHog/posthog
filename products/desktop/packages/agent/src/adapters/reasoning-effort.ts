@@ -1,4 +1,8 @@
-import type { Adapter } from "@posthog/shared";
+import {
+  type Adapter,
+  type CapabilityNotch,
+  getCapabilityLadder,
+} from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import {
   getContextWindowOptions as getClaudeContextWindowOptions,
@@ -59,31 +63,4 @@ export function getFastModeOptions(
   return adapter === "codex" ? null : getClaudeFastModeOptions(modelId);
 }
 
-/** One stop on the Faster/Smarter slider: a model plus effort pairing. */
-export interface CapabilityNotch {
-  model: string;
-  effort: EffortLevel;
-}
-
-const CLAUDE_CAPABILITY_LADDER: CapabilityNotch[] = [
-  { model: "claude-sonnet-5", effort: "medium" },
-  { model: "claude-sonnet-5", effort: "high" },
-  { model: "claude-opus-5", effort: "medium" },
-  { model: "claude-opus-5", effort: "xhigh" },
-  { model: "claude-fable-5-1", effort: "max" },
-];
-
-const CODEX_CAPABILITY_LADDER: CapabilityNotch[] = [
-  { model: "gpt-6-luna", effort: "low" },
-  { model: "gpt-6-sol", effort: "low" },
-  { model: "gpt-6-sol", effort: "medium" },
-  { model: "gpt-6-sol", effort: "high" },
-  { model: "gpt-6-sol", effort: "xhigh" },
-  { model: "gpt-6-astra", effort: "max" },
-];
-
-export function getCapabilityLadder(adapter: Adapter): CapabilityNotch[] {
-  return adapter === "codex"
-    ? CODEX_CAPABILITY_LADDER
-    : CLAUDE_CAPABILITY_LADDER;
-}
+export { type CapabilityNotch, getCapabilityLadder };

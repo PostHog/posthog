@@ -24,7 +24,7 @@ const harnessOption = (
 
 const ANTHROPIC_MODELS = [
   harnessOption("claude", "claude-fable-5-1", "Claude Fable 5.1"),
-  harnessOption("claude", "claude-opus-5", "Claude Opus 5"),
+  harnessOption("claude", "claude-opus-5-5", "Claude Opus 5.5"),
   harnessOption("claude", "claude-opus-4-8", "Claude Opus 4.8"),
   harnessOption("claude", "claude-sonnet-5", "Claude Sonnet 5"),
 ];
@@ -86,7 +86,7 @@ function effortOption(currentValue: string): SessionConfigOption {
         value: "high",
         _meta: { "posthog.code/defaultOption": true },
       },
-      { name: "Extra High", value: "xhigh" },
+      { name: "Extra high", value: "xhigh" },
       { name: "Max", value: "max" },
     ],
   } as unknown as SessionConfigOption;
@@ -122,7 +122,7 @@ function Harness({
   billingAdapter?: AgentAdapter;
 }): ReactElement {
   const [, setAdapter] = useState<AgentAdapter>("claude");
-  const [model, setModel] = useState("claude-opus-5");
+  const [model, setModel] = useState("claude-opus-5-5");
   const [effort, setEffort] = useState("medium");
 
   // The submenu reads the real useAdapterSubscription hook, which reads the

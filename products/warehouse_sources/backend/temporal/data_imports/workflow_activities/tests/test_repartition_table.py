@@ -568,6 +568,8 @@ class TestKilledAttemptRetry:
             mock_repartition.assert_awaited_once()
             # Recorded for the next retry, which can only judge this attempt against where it began.
             assert schema.repartition_pending["attempt_rows"] == checkpoint_rows
+            # The run's own stamp belongs to the charge, so a retry must never move it on.
+            assert schema.repartition_pending.get("run_rows") is None
         else:
             mock_repartition.assert_not_awaited()
             skipped = [
@@ -585,9 +587,10 @@ class TestKilledAttemptRetry:
 
     @parameterized.expand(
         [
-            ("checkpoint_advanced", 488925, 301744, True),
-            ("checkpoint_stood_still", 488925, 488925, False),
-            ("no_recorded_start", 488925, None, False),
+            ("checkpoint_advanced", 488925, 301744, None, True),
+            ("checkpoint_stood_still", 488925, 488925, None, False),
+            ("no_recorded_start", 488925, None, None, False),
+            ("run_advanced_though_its_last_retry_did_not", 488925, 488925, 301744, True),
         ]
     )
     @patch(f"{MODULE}.capture_exception")
@@ -604,6 +607,7 @@ class TestKilledAttemptRetry:
         _name: str,
         checkpoint_rows: int,
         started_from: int | None,
+        run_started_from: int | None,
         expect_resume: bool,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
@@ -615,17 +619,22 @@ class TestKilledAttemptRetry:
         mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
-        # A hard-killed attempt records no outcome; only its checkpoint can prove progress.
+        # A hard-killed attempt records no outcome; only its checkpoint can prove progress. The cap
+        # counts sync runs, so a run that advanced the rewrite and then spent its last retry dying
+        # on arrival still converged and must keep the table.
+        pending = {
+            **PENDING_TARGET,
+            "trigger_reason": "coarsening",
+            "attempts": MAX_REPARTITION_ATTEMPTS,
+            "charged_job_id": str(uuid.uuid4()),
+            "attempt_rows": started_from,
+        }
+        if run_started_from is not None:
+            pending["run_rows"] = run_started_from
         schema = _schema(
             name="public.deals",
             s3_folder_name="deals",
-            pending={
-                **PENDING_TARGET,
-                "trigger_reason": "coarsening",
-                "attempts": MAX_REPARTITION_ATTEMPTS,
-                "charged_job_id": str(uuid.uuid4()),
-                "attempt_rows": started_from,
-            },
+            pending=pending,
             rewrite={"rows_written": checkpoint_rows},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema

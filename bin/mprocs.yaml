@@ -355,6 +355,16 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    property-defs-ai:
+        shell: |-
+            bin/wait-for-docker && \
+            KAFKA_CONSUMER_TOPIC=clickhouse_ai_events_json KAFKA_CONSUMER_GROUP=property-defs-ai BIND_PORT=3320 bin/start-rust-service property-defs-rs
+        capability: property_definitions
+        ready_pattern: 'Subscribed to topic: *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
     property-vals-rs:
         shell: |-
             bin/wait-for-docker && \

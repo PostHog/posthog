@@ -13,14 +13,15 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 from collections.abc import Callable
+from typing import cast
 
 from django.db import models
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -38,18 +39,25 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.mixins import PydanticModelMixin
+from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
+    MAX_IDS_PER_LOOKUP,
     annotate_self_time,
+    count_session_exceptions,
+    count_span_exceptions,
+    count_trace_exceptions,
+    fetch_trace_ai_events,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -70,6 +78,9 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+
+# Matches FEATURE_FLAGS.TRACING_AI_EVENTS in the frontend.
+TRACING_AI_EVENTS_FEATURE_FLAG = "tracing-ai-events"
 
 
 def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
@@ -380,6 +391,83 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     )
 
 
+def _error_count_rows(counts: dict[str, int], key: str) -> list[dict[str, object]]:
+    return [{key: value, "exceptions": count} for value, count in counts.items()]
+
+
+class _TracingErrorCountsRequestSerializer(serializers.Serializer):
+    traceIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` "
+            f"property. Case insensitive. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    spanIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Hex span IDs to count exceptions for, matched against the exception's `$span_id` "
+            f"property. Only counted within the requested traces, so `traceIds` is required "
+            f"alongside. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    sessionIds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        max_length=MAX_IDS_PER_LOOKUP,
+        help_text=(
+            f"Session IDs to count exceptions for. The fallback for exceptions that carry no "
+            f"trace ID. At most {MAX_IDS_PER_LOOKUP} per request."
+        ),
+    )
+    dateFrom = serializers.DateTimeField(help_text="Start of the window the exceptions must fall in. ISO 8601.")
+    dateTo = serializers.DateTimeField(help_text="End of the window the exceptions must fall in. ISO 8601.")
+
+    def validate(self, attrs: dict) -> dict:
+        if not any(attrs.get(key) for key in ("traceIds", "spanIds", "sessionIds")):
+            raise serializers.ValidationError("Pass at least one of traceIds, spanIds or sessionIds.")
+        if attrs.get("spanIds") and not attrs.get("traceIds"):
+            raise serializers.ValidationError("spanIds needs traceIds, because a span ID is only unique in its trace.")
+        return attrs
+
+
+class _TracingErrorCountSerializer(serializers.Serializer):
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that error tracking linked to an issue."
+    )
+
+
+class _TracingTraceErrorCountSerializer(_TracingErrorCountSerializer):
+    trace_id = serializers.CharField(help_text="The trace the exceptions belong to, lowercase hex.")
+
+
+class _TracingSpanErrorCountSerializer(_TracingErrorCountSerializer):
+    span_id = serializers.CharField(help_text="The span the exceptions belong to, lowercase hex.")
+
+
+class _TracingSessionErrorCountSerializer(_TracingErrorCountSerializer):
+    session_id = serializers.CharField(help_text="The session the exceptions belong to.")
+
+
+class _TracingErrorCountsResponseSerializer(serializers.Serializer):
+    traceResults = _TracingTraceErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested trace that had exceptions. Traces with none are omitted.",
+    )
+    spanResults = _TracingSpanErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested span that had exceptions. Spans with none are omitted.",
+    )
+    sessionResults = _TracingSessionErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested session that had exceptions. Sessions with none are omitted.",
+    )
+
+
 class _TracingAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
     search_values = serializers.BooleanField(
@@ -678,6 +766,169 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _SpanSerializer(serializers.Serializer):
+    """One span row as the query and trace actions return it.
+
+    The runner assembles these from HogQL result columns by position, so the key set is fixed even
+    though the values come from a query. `trace_start` and `trace_duration` are the sort keys the
+    trace list orders on, carried in the row rather than recomputed by the caller.
+    """
+
+    uuid = serializers.CharField(help_text="Span's own UUID.")
+    trace_id = serializers.CharField(help_text="Trace this span belongs to.")
+    span_id = serializers.CharField(help_text="Span's ID within the trace.")
+    parent_span_id = serializers.CharField(help_text="Parent span's ID. Empty for a root span.")
+    name = serializers.CharField(help_text="Span name, which is the operation it represents.")
+    kind = serializers.IntegerField(help_text="OpenTelemetry span kind.")
+    service_name = serializers.CharField(help_text="Service that emitted the span.")
+    status_code = serializers.IntegerField(help_text="OpenTelemetry status code: 0 unset, 1 ok, 2 error.")
+    timestamp = serializers.DateTimeField(help_text="When the span started.")
+    end_time = serializers.DateTimeField(help_text="When the span ended.")
+    duration_nano = serializers.FloatField(help_text="Span duration in nanoseconds.")
+    is_root_span = serializers.BooleanField(help_text="Whether the span has no parent in the trace.")
+    matched_filter = serializers.IntegerField(
+        help_text=(
+            "1 when this span matched the request's filters, 0 when it is included as context. The query "
+            "selects it as an expression, so it arrives as a number rather than a boolean."
+        )
+    )
+    trace_start = serializers.DateTimeField(help_text="Start of the whole trace, for ordering traces by recency.")
+    trace_duration = serializers.FloatField(
+        help_text="Duration of the whole trace in nanoseconds. Falls back to this span's duration."
+    )
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Span attributes. Keys are whatever the instrumentation set.",
+    )
+    resource_attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Resource attributes of the emitting service. Keys are whatever the instrumentation set.",
+    )
+
+
+class _TraceSpanSerializer(_SpanSerializer):
+    """A span in a single trace. The trace action adds self time, which the list does not compute."""
+
+    self_time_nano = serializers.FloatField(
+        help_text="Span duration minus the time spent in its children, in nanoseconds."
+    )
+
+
+class _TracingQueryResponseSerializer(serializers.Serializer):
+    results = _SpanSerializer(many=True, help_text="Matching spans, ordered by the requested column.")
+    hasMore = serializers.BooleanField(help_text="Whether a further page exists.")
+    nextCursor = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Cursor for the next page, or null on the last page. Pass it back as the query's `after`. "
+            "Always null when ordering by duration, which pages by offset instead."
+        ),
+    )
+
+
+class _TracingTraceResponseSerializer(serializers.Serializer):
+    results = _TraceSpanSerializer(many=True, help_text="Spans in the trace, earliest first.")
+    hasMore = serializers.BooleanField(help_text="Whether a further page of spans exists.")
+    nextOffset = serializers.IntegerField(
+        allow_null=True, help_text="Offset for the next page, or null on the last page."
+    )
+
+
+class _TracingTraceAiEventSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="Event UUID.")
+    event = serializers.CharField(
+        help_text="The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`."
+    )
+    started_at = serializers.DateTimeField(
+        help_text="When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish."
+    )
+    ai_trace_id = serializers.CharField(help_text="The `$ai_trace_id` of the event, which opens it in LLM analytics.")
+    ai_span_id = serializers.CharField(allow_null=True, help_text="The `$ai_span_id` of the event.")
+    ai_parent_id = serializers.CharField(
+        allow_null=True,
+        help_text="The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.",
+    )
+    span_name = serializers.CharField(allow_null=True, help_text="The `$ai_span_name`, set on `$ai_span` events.")
+    latency_seconds = serializers.FloatField(allow_null=True, help_text="How long the call took, in seconds.")
+    model = serializers.CharField(allow_null=True, help_text="The model the call used.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider the call went to.")
+    input_tokens = serializers.IntegerField(allow_null=True, help_text="Prompt tokens.")
+    output_tokens = serializers.IntegerField(allow_null=True, help_text="Completion tokens.")
+    total_cost_usd = serializers.FloatField(allow_null=True, help_text="Total cost of the call, in USD.")
+    is_error = serializers.BooleanField(help_text="Whether the call failed.")
+
+
+class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
+    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest start first.")
+
+
+class _TracingSparklineRowSerializer(serializers.Serializer):
+    time = serializers.DateTimeField(help_text="Start of the time bucket.")
+    service = serializers.CharField(help_text="Service the count belongs to.")
+    count = serializers.IntegerField(help_text="Spans in this bucket for this service.")
+
+
+class _TracingSparklineResponseSerializer(serializers.Serializer):
+    results = _TracingSparklineRowSerializer(
+        many=True, help_text="One row per time bucket and service, ordered by time."
+    )
+
+
+class _TracingDurationHistogramRowSerializer(serializers.Serializer):
+    bucket_ns = serializers.IntegerField(help_text="Lower bound of the duration bucket in nanoseconds.")
+    service = serializers.CharField(help_text="Service the count belongs to.")
+    count = serializers.IntegerField(help_text="Spans in this bucket for this service.")
+
+
+class _TracingDurationHistogramResponseSerializer(serializers.Serializer):
+    results = _TracingDurationHistogramRowSerializer(many=True, help_text="One row per duration bucket and service.")
+
+
+class _SpanTreeNodeSerializer(serializers.Serializer):
+    """One node of the aggregated call tree. Mirrors `SpanTreeNode` in posthog.schema."""
+
+    name = serializers.CharField(help_text="Span name for this node.")
+    service_name = serializers.CharField(help_text="Service that emitted the spans.")
+    parent_name = serializers.CharField(
+        help_text="Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots."
+    )
+    parent_service = serializers.CharField(help_text="Parent node's service. Empty string at the root.")
+    count = serializers.IntegerField(help_text="Spans aggregated into this node.")
+    error_count = serializers.IntegerField(help_text="How many of them reported an error status.")
+    total_duration_nano = serializers.FloatField(help_text="Sum of durations in nanoseconds.")
+    avg_duration_nano = serializers.FloatField(help_text="Mean duration in nanoseconds.")
+    p50_duration_nano = serializers.FloatField(help_text="Median duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile duration in nanoseconds.")
+    p99_duration_nano = serializers.FloatField(help_text="99th percentile duration in nanoseconds.")
+    p999_duration_nano = serializers.FloatField(help_text="99.9th percentile duration in nanoseconds.")
+    avg_start_offset_nano = serializers.FloatField(
+        help_text="Mean nanoseconds from the parent's start to this node's start. Zero at the root."
+    )
+    calls_per_parent_invocation = serializers.FloatField(
+        allow_null=True, help_text="Mean calls per parent invocation. Null at the root."
+    )
+
+
+class _TracingTreeResponseSerializer(serializers.Serializer):
+    results = _SpanTreeNodeSerializer(many=True, help_text="Call tree nodes for the requested window.")
+    compare = _SpanTreeNodeSerializer(
+        many=True,
+        allow_null=True,
+        help_text=(
+            "Nodes for the comparison window when compareFilter.compare is true. Null when no comparison "
+            "was requested, and an empty list when one was requested and matched no spans."
+        ),
+    )
+
+
+class _TracingServiceNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Service name.")
+
+
+class _TracingServiceNamesResponseSerializer(serializers.Serializer):
+    results = _TracingServiceNameSerializer(many=True, help_text="Services that emitted spans in the window.")
+
+
 class _HasSpansResponseSerializer(serializers.Serializer):
     hasSpans = serializers.BooleanField(
         help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
@@ -932,7 +1183,57 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return None
         return self.get_model(compare_data, CompareFilter)
 
-    @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
+    @validated_request(
+        _TracingErrorCountsRequestSerializer,
+        responses={200: OpenApiResponse(response=_TracingErrorCountsResponseSerializer)},
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="error-counts",
+        required_scopes=["tracing:read", "error_tracking:read"],
+    )
+    def error_counts(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        """Count the exceptions the spans in view hit, by trace, by span and by session, for the
+        span list's error badges.
+
+        A caller asks about the id kinds it has, and each kind is a separate lookup.
+        """
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        data = request.validated_data
+        trace_ids = data.get("traceIds") or []
+        span_ids = data.get("spanIds") or []
+        session_ids = data.get("sessionIds") or []
+        window = {"date_from": data["dateFrom"], "date_to": data["dateTo"]}
+
+        # Through the response serializer, not a bare dict: `api-response-must-match-schema` keeps
+        # the wire shape tied to the declaration the generated types are built from.
+        response = _TracingErrorCountsResponseSerializer(
+            instance={
+                "traceResults": _error_count_rows(
+                    count_trace_exceptions(team=self.team, trace_ids=trace_ids, **window), "trace_id"
+                ),
+                "spanResults": _error_count_rows(
+                    count_span_exceptions(team=self.team, span_ids=span_ids, trace_ids=trace_ids, **window), "span_id"
+                ),
+                "sessionResults": _error_count_rows(
+                    count_session_exceptions(team=self.team, session_ids=session_ids, **window), "session_id"
+                ),
+            }
+        )
+        return Response(response.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_TracingServiceNamesQuerySerializer],
+        responses={200: _TracingServiceNamesResponseSerializer},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -962,7 +1263,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingQueryRequestSerializer)
+    @extend_schema(
+        request=_TracingQueryRequestSerializer,
+        responses={200: _TracingQueryResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1143,6 +1447,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return self._run_scalar_span_query(request, run_impact_query, event_name="tracing impact queried")
 
     @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])
     def symbol_stats(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1215,7 +1520,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingSparklineRequestSerializer)
+    @extend_schema(
+        request=_TracingSparklineRequestSerializer,
+        responses={200: _TracingSparklineResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1245,7 +1553,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingDurationHistogramRequestSerializer)
+    @extend_schema(
+        request=_TracingDurationHistogramRequestSerializer,
+        responses={200: _TracingDurationHistogramResponseSerializer},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="duration-histogram", required_scopes=["tracing:read"])
     def duration_histogram(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1289,6 +1601,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingLatencyHeatmapRequestSerializer,
         responses={200: _TracingLatencyHeatmapResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
     def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1383,7 +1696,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTreeRequestSerializer)
+    @extend_schema(
+        request=_TracingTreeRequestSerializer,
+        responses={200: _TracingTreeResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
     def tree(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1437,6 +1753,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingAttributeBreakdownRequestSerializer,
         responses={200: _TracingAttributeBreakdownResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1507,7 +1824,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingTraceRequestSerializer)
+    @extend_schema(
+        request=_TracingTraceRequestSerializer,
+        responses={200: _TracingTraceResponseSerializer},
+    )
     @action(
         detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)", required_scopes=["tracing:read"]
     )
@@ -1583,6 +1903,48 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(responses={200: _TracingTraceAiEventsResponseSerializer})
+    # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
+        required_scopes=["tracing:read", "llm_analytics:read"],
+    )
+    def trace_ai_events(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+        """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+        can show each model call inline with the spans.
+
+        The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+        them; this returns the events half and the caller places them by time.
+        """
+        # The same flag gates the waterfall rows in the frontend, so the endpoint stays dark for
+        # everyone the drawer would not show them to.
+        if not posthog_feature_flag_enabled(
+            TRACING_AI_EVENTS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("AI events in traces are not enabled for this user.")
+
+        if not self.user_access_control.check_access_level_for_resource("llm_analytics", "viewer"):
+            raise PermissionDenied("You do not have access to LLM analytics.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        try:
+            bytes.fromhex(trace_id)
+        except ValueError:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
+
+        self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})
+
+        response = _TracingTraceAiEventsResponseSerializer(instance={"results": events})
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         parameters=[_TracingAttributesQuerySerializer],

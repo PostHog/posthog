@@ -43,6 +43,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.facade.timeseries import merge_saved_metric_breakdowns
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -612,10 +613,12 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
 
-                    # Add fingerprint to saved metric returned from API
-                    # so that frontend knows what timeseries records to query
+                    # Add fingerprint to saved metric returned from API so that the frontend knows what
+                    # timeseries records to query. Computed on the effective config (with link-metadata
+                    # breakdowns), the same dict the daily discovery fingerprints, so the chart read finds
+                    # the rows the daily workflow wrote.
                     saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        saved_metric["query"],
+                        merge_saved_metric_breakdowns(saved_metric["query"], saved_metric.get("metadata")),
                         instance.start_date,
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
@@ -2546,7 +2549,8 @@ class ExperimentSetupTargetSurfaceSerializer(serializers.Serializer):
             "experiment-calculate-running-time, scaled by the share of traffic the experiment will include."
         )
     )
-    libs = ExperimentSetupLibReachSerializer(many=True, help_text="Up to 5 SDKs by persons reached.")
+    libs = ExperimentSetupLibReachSerializer(many=True, help_text="Up to 5 SDKs, most persons reached first.")
+    libs_truncated = serializers.BooleanField(help_text="True when more SDKs sent target events than libs lists.")
     anonymous_share = serializers.FloatField(
         allow_null=True,
         help_text=(

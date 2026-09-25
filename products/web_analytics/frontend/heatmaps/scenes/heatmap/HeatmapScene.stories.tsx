@@ -330,3 +330,55 @@ export const PageSettingsDialogNarrow: Story = {
         </Narrow>
     ),
 }
+
+const emptyHeatmapMocks = (queryResults: (query: string) => unknown[]): Mocks => ({
+    get: {
+        '/api/projects/:team_id/saved/hm_iframe/': () => [200, makeIframeSaved()],
+        '/api/projects/:team_id/heatmaps/': () => [200, { results: [], count: 0, next: null, previous: null }],
+    },
+    post: {
+        '/api/projects/:team_id/query/:query_kind/': async (info) => {
+            const body = JSON.stringify(await info.request.clone().json())
+            return [200, { results: queryResults(body) }]
+        },
+    },
+})
+
+const emptyHeatmapParameters = (waitForSelector: string): Story['parameters'] => ({
+    ...IframeExample.parameters,
+    testOptions: { ...IframeExample.parameters?.testOptions, waitForSelector },
+})
+
+export const EmptyWithDataAtAnotherWidth: Story = {
+    parameters: emptyHeatmapParameters('[data-attr="heatmap-empty-show-width"]'),
+    decorators: [
+        mswDecorator(
+            emptyHeatmapMocks((query) =>
+                query.includes('GROUP BY type, width')
+                    ? [
+                          ['click', 390, 60],
+                          ['click', 400, 30],
+                      ]
+                    : []
+            )
+        ),
+    ],
+}
+
+export const EmptyWithSimilarUrls: Story = {
+    parameters: emptyHeatmapParameters('[data-attr="heatmap-empty-similar-url"]'),
+    decorators: [
+        mswDecorator(
+            emptyHeatmapMocks((query) =>
+                query.includes('GROUP BY current_url')
+                    ? [
+                          [`${window.location.origin}/mock-page.html?utm_source=newsletter`, 42],
+                          [`${window.location.origin}/mock-page.html/pricing`, 9],
+                      ]
+                    : query.includes('countIf')
+                      ? [[0, 0]]
+                      : []
+            )
+        ),
+    ],
+}

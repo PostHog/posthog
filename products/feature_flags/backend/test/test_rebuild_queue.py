@@ -35,16 +35,17 @@ def fake_redis():
 
 
 @contextmanager
-def _rebuilds(error=None, skip_write=False, load_error=None):
+def _rebuilds(error=None, skip_write=False, load_error=None, omit=()):
     """Patch the batch DB-load + cache-write seam so rebuilds succeed (error=None) or
     fail with the given exception, without touching the DB or the real caches.
     `skip_write=True` makes the group-mapping-emptied guard veto every write.
-    `load_error` makes the batch DB load raise (simulating a DB/query failure)."""
+    `load_error` makes the batch DB load raise (simulating a DB/query failure).
+    `omit` leaves those team IDs out of the batch load, as a failed team build does."""
 
     def _load(teams):
         if load_error is not None:
             raise load_error
-        return {t.id: {} for t in teams}
+        return {t.id: {} for t in teams if t.id not in omit}
 
     with (
         patch.object(rebuild_queue, "Team") as team,
@@ -175,6 +176,17 @@ def test_batch_load_failure_counts_every_team_as_failure(fake_redis):
     assert stats["failure"] == 3
     for team_id in (11, 12, 13):
         assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=team_id)) == b"1"
+
+
+def test_team_missing_from_batch_load_fails_alone(fake_redis):
+    for team_id in (21, 22):
+        _enqueue(fake_redis, team_id)
+    with _rebuilds(omit={22}):
+        stats = drain_rebuild_requests()
+
+    assert stats["success"] == 1 and stats["failure"] == 1
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=21)) is None
+    assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=22)) == b"1"
 
 
 def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):

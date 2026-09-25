@@ -17,7 +17,7 @@ import {
 } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -225,7 +225,6 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
-import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -1931,10 +1930,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategory(categoryId: string): ApiRequest {
-        return this.messagingCategories().addPathComponent(categoryId)
-    }
-
     public messagingCategoriesImportFromCustomerIO(): ApiRequest {
         return this.messagingCategories().addPathComponent('import_from_customerio')
     }
@@ -1963,20 +1958,10 @@ export class ApiRequest {
         return this.messagingCategories().addPathComponent('remove_track_config')
     }
 
-    public messagingPreferences(): ApiRequest {
-        return this.teamProjectDetail().addPathComponent('messaging_preferences')
-    }
-
-    public messagingPreferencesLink(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('generate_link')
-    }
-
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
-    }
-
-    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
+        return this.teamProjectDetail()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
     }
 
     public hogFlows(): ApiRequest {
@@ -5163,8 +5148,15 @@ const api = {
              * across the entire resume chain). Used to bootstrap the sandbox stream before
              * opening SSE.
              */
-            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
-                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+            async getLogEntries(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal?: AbortSignal; projectId?: TeamType['id'] } = {}
+            ): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .getResponse({ signal: options.signal })
                 const text = await response.text()
                 const entries: Record<string, any>[] = []
                 for (const line of text.split('\n')) {
@@ -5194,6 +5186,7 @@ const api = {
                 runId: TaskRun['id'],
                 options: {
                     signal: AbortSignal
+                    projectId?: TeamType['id']
                     lastEventId?: string
                     startLatest?: boolean
                     /**
@@ -5223,7 +5216,7 @@ const api = {
                     headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
                     return api.getResponse(url, { signal: options.signal, headers })
                 }
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                let request = new ApiRequest().taskRun(taskId, runId, options.projectId).withAction('stream')
                 if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }
@@ -6390,45 +6383,14 @@ const api = {
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
-
-        // Messaging Categories
-        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
-            return await new ApiRequest()
-                .messagingCategories()
-                .withQueryString(toParams(params || {}))
-                .get()
-        },
-        async getCategory(categoryId: string): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).get()
-        },
-        async createCategory(data: any): Promise<any> {
-            return await new ApiRequest().messagingCategories().create({ data })
-        },
-        async updateCategory(categoryId: string, data: any): Promise<any> {
-            return await new ApiRequest().messagingCategory(categoryId).update({ data })
-        },
-        async deleteCategory(categoryId: string): Promise<void> {
-            return await new ApiRequest().messagingCategory(categoryId).delete()
-        },
-        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
-            const response = await new ApiRequest().messagingPreferencesLink().create({
-                data: {
-                    recipient,
-                },
-            })
-            return response.preferences_url || null
-        },
+        // The generated client's export function forces the response through JSON parsing (see
+        // frontend/src/lib/api-orval-mutator.ts), which breaks the CSV blob this endpoint streams back.
         async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOutsCsv()
                 .withQueryString({ category_key: categoryKey })
                 .getResponse()
             return await response.blob()
-        },
-        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
-            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
-                data: { opt_outs: optOuts, category_key: categoryKey },
-            })
         },
     },
     hogFlows: {
@@ -7348,6 +7310,15 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
     })
 }
 
+async function isStaleSessionResponse(response: Response): Promise<boolean> {
+    try {
+        const data = await response.clone().json()
+        return data?.code === 'sensitive_action_required_reauth'
+    } catch {
+        return false
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7403,6 +7374,12 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
+            return await handleFetch(url, method, fetcher, true)
+        }
+    }
+
+    if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
+        if (await awaitReauthentication()) {
             return await handleFetch(url, method, fetcher, true)
         }
     }

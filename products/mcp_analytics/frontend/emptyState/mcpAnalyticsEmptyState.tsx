@@ -3,7 +3,6 @@ import { IconMCP } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -16,8 +15,6 @@ const HedgehogPuzzle = pngHoggie(puzzlePng)
 
 export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
     statusLogic: mcpAnalyticsOnboardingLogic,
-    // The whole product is behind this flag; its scene-level preview gate handles the flag-off case.
-    featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     config: {
         productKey: ProductKey.MCP_ANALYTICS,
         productName: 'MCP analytics',

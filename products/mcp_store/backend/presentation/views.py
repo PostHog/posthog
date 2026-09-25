@@ -1064,7 +1064,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not _is_https(auth_endpoint):
             raise OAuthAuthorizeURLError("Authorization endpoint must use HTTPS")
 
-        return f"{auth_endpoint}?{urlencode(query_params)}"
+        # Some authorization servers (e.g. Railway) advertise authorization_endpoint
+        # with an existing query string. Appending another "?" would bury params like
+        # client_id inside the prior value, so merge instead.
+        parts = urlsplit(auth_endpoint)
+        existing = parse_qsl(parts.query, keep_blank_values=True)
+        merged = [(key, value) for key, value in existing if key not in query_params]
+        merged.extend(query_params.items())
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), parts.fragment))
 
     @validated_request(
         MCPServerInstallationUpdateSerializer,

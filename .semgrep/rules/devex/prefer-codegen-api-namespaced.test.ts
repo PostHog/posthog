@@ -24,13 +24,16 @@ const e = await api.signalSourceConfigs.runs.list({ limit: 10 })
 // ruleid: prefer-codegen-api-namespaced-error_tracking
 const f = await api.errorTracking.symbolSets.bulkDelete(ids)
 
-// A namespace no generated client covers stays allowed.
+// A core namespace is no product's to enforce.
 // ok: prefer-codegen-api-namespaced-signals
-const g = await api.signalTeamConfig.get()
+const g = await api.tags.list(projectId)
 
 // A namespace whose routes the generated clients gained is enforced from then on.
 // ruleid: prefer-codegen-api-namespaced-posthog_ai
 const h = await api.coreMemory.get()
+
+// ruleid: prefer-codegen-api-namespaced-shared-activity
+const l = await api.activity.list(id)
 
 // The bare verbs are the other rule's job.
 // ok: prefer-codegen-api-namespaced-signals
