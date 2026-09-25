@@ -48,13 +48,19 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 ## Connect a repository
 
 1. Install the Stamphog GitHub App on your GitHub organization.
-2. Open Stamphog in the PostHog app and select **Connect a repository**. The install callback syncs the repositories the installation can reach.
-3. Turn on **Enabled** for each repository you want reviewed. A connected repository reviews nothing until you do.
-4. Pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
-5. Turn on **Digest enabled** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
+2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+4. Expand the repository's row and pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
+5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
-Connecting a repository and the digest toggle need the `editor` level on the `stamphog` resource.
-The gating fields, which are enabled, review mode and trigger label, need `manager`, because they decide whether a pull request is reviewed at all.
+The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
+Each member who connects adds the repositories they can reach, and connecting again refreshes the list.
+Repositories removed from the installation on GitHub leave the list on their own.
+A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
+
+Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
+Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
+So an editor can turn reviews back on for a repository a manager paused.
 
 ## Customize the review for your repository
 

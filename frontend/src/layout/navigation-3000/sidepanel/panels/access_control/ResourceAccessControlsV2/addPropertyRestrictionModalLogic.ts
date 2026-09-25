@@ -158,6 +158,7 @@ export const addPropertyRestrictionModalLogic = kea<addPropertyRestrictionModalL
             {
                 loadPropertyOptions: async (_, breakpoint) => {
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use propertyDefinitionsList() from '~/generated/core/api' instead.
                     const response = await api.get<{ results: { id: string; name: string }[] }>(
                         `api/projects/${props.projectId}/property_definitions/?type=${values.propertyType}&limit=20&search=${encodeURIComponent(
                             values.search

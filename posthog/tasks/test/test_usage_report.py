@@ -2737,7 +2737,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             batch_exports_testing.create_batch_export(
                 team_id,
                 name="A batch export",
-                destination_type=DestinationType.S3,
+                destination_type=DestinationType.AWS_S3,
                 destination_config={"bucket_name": "my_production_s3_bucket"},
             )
 
@@ -2770,7 +2770,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test export",
-            destination_type=DestinationType.S3,
+            destination_type=DestinationType.AWS_S3,
             destination_config={"bucket_name": "test_bucket"},
             model=BatchExportModel.EVENTS,
         )
@@ -2797,7 +2797,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         hogql_batch_export_id = batch_exports_testing.create_batch_export(
             3,
             name="Test HogQL export",
-            destination_type=DestinationType.S3,
+            destination_type=DestinationType.AWS_S3,
             destination_config={"bucket_name": "test_bucket"},
             model=BatchExportModel.HOGQL,
         )

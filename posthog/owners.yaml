@@ -7,6 +7,10 @@ rules:
       owners: team-workflows
     - match: '/clickhouse/hcl/'
       owners: clickhouse
+    - match:
+          - '/csp_middleware.py'
+          - '/test/test_csp_middleware.py'
+      owners: team-security
     - match: '/data_freshness.py'
       owners: team-platform-features
     - match: '/egress/'
@@ -23,6 +27,8 @@ rules:
       owners: team-analytics-platform
     - match: '/rbac/'
       owners: team-platform-features
+    - match: '/slack/'
+      owners: team-devex
     - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'

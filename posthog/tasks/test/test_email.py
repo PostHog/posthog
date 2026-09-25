@@ -71,7 +71,7 @@ def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]
     batch_export_id = batch_exports_testing.create_batch_export(
         team_id,
         name="A batch export",
-        destination_type=DestinationType.S3,
+        destination_type=DestinationType.AWS_S3,
         destination_config={"bucket_name": "my_production_s3_bucket"},
     )
     now = dt.datetime.now()
@@ -640,7 +640,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         on_demand_id = batch_exports_testing.create_batch_export_on_demand(
             self.team.pk,
-            destination_type=DestinationType.S3,
+            destination_type=DestinationType.AWS_S3,
             destination_config={"bucket_name": "my_production_s3_bucket"},
         )
         now = dt.datetime.now()
