@@ -52,7 +52,7 @@ export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX
                     emptyState={
                         friction?.has_membership_data === false
                             ? 'Team membership is not synced for this source, so the team has no members to show.'
-                            : `No member of this team has 3 merged pull requests in the last ${friction?.window_days ?? 30} days yet.`
+                            : `No scored members found for this team in the last ${friction?.window_days ?? 30} days. A score needs 3 merged pull requests, and members come from the GitHub team with this name.`
                     }
                     dataAttr="engineering-analytics-team-friction-table"
                 />
