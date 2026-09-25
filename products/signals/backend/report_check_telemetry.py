@@ -86,7 +86,14 @@ def capture_report_check_created(team: Team, check: SignalReportCheck) -> None:
         logger.exception("signals.report_check.created_capture_failed", check_id=str(check.id), team_id=check.team_id)
 
 
-def capture_report_check_evaluated(team: Team, check: SignalReportCheck, *, run_id: str | None = None) -> None:
+def capture_report_check_evaluated(
+    team: Team,
+    check: SignalReportCheck,
+    *,
+    run_id: str | None = None,
+    skill_name: str | None = None,
+    reason: str | None = None,
+) -> None:
     """`signals_report_check_evaluated`: a run recorded a verdict on a check.
 
     Emitted per verdict rather than per check, so a recurring check that keeps holding reports one
@@ -95,7 +102,9 @@ def capture_report_check_evaluated(team: Team, check: SignalReportCheck, *, run_
     (`active`).
 
     `run_id` names the scout run that decided an `agent` check. The deterministic lane has none,
-    which is what tells the two lanes apart in the data. Requires `team.organization` to be loaded.
+    which is what tells the two lanes apart in the data. `reason` and `skill_name` are set when the
+    fleet refused to run an `agent` check, so an errored verdict can be traced to the gate that
+    refused it. Requires `team.organization` to be loaded.
     """
     try:
         posthoganalytics.capture(
@@ -109,6 +118,8 @@ def capture_report_check_evaluated(team: Team, check: SignalReportCheck, *, run_
                 "consecutive_errors": check.consecutive_errors,
                 "hours_since_created": (timezone.now() - check.created_at).total_seconds() / 3600,
                 "run_id": run_id,
+                "skill_name": skill_name,
+                "reason": reason,
             },
             groups=groups(team.organization, team),
         )

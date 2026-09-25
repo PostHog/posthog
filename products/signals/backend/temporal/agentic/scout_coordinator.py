@@ -23,7 +23,13 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.report_check_execution import run_due_report_checks
-from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
+from products.signals.backend.scout_harness.config_registry import (
+    canonical_operational_skill_names,
+    live_scout_skill_names,
+    operational_configs_needing_reconcile,
+    reconcile_operational_configs,
+    register_missing_configs,
+)
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
@@ -52,6 +58,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
+    resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 from products.signals.backend.temporal.metrics import (
@@ -341,7 +348,8 @@ def _collect_planned_runs(
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
     paused_by_team = _breaker_paused_configs_by_team()
-    for team, needs_seed in _participating_teams(enrollment):
+    reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
+    for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
         # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
@@ -381,6 +389,16 @@ def _collect_planned_runs(
             # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
             # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
+            # The one part of the reconcile the wildcard path still runs: an operational scout
+            # that stays off stops the checks and validation that run on it. Only teams with a
+            # row that needs it pay for the call, and a withheld scout is never a reason to call.
+            if reconcile_by_team.get(team.id, set()) - withheld_for_team:
+                _reconcile_wildcard_operational_configs(
+                    team.id,
+                    live_skills,
+                    withheld_for_team,
+                    [team_configs.get(team.id) or {}, default_team_config],
+                )
         # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
@@ -516,7 +534,26 @@ def _canonicalize_team_ids(ids: set[int]) -> set[int]:
     }
 
 
-def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
+def _reconcile_wildcard_operational_configs(
+    team_id: int, live_skills: set[str], withheld_skill_names: frozenset[str] | set[str], seed_config_layers: list[dict]
+) -> None:
+    """Run `reconcile_operational_configs` for one wildcard team. A failure does not abort the tick."""
+    try:
+        reconcile_operational_configs(
+            team_id,
+            canonical_operational_skill_names(team_id) & live_skills,
+            withheld_skill_names,
+            # Resolved here, because the reconcile holds row locks and must not read the flag.
+            max_enabled_scouts=resolve_max_enabled_scouts(seed_config_layers),
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout coordinator: operational reconcile failed for team; continuing",
+            team_id=team_id,
+        )
+
+
+def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | None = None) -> list[tuple[Team, bool]]:
     """Resolve enrollment to canonical `Team`s to run scouts on, each tagged `needs_seed`.
 
     Two ways a team participates:
@@ -528,6 +565,8 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
       (`needs_seed=False`): it self-enrolled through the product-autonomy-gated UI, so it already
       has configs and the tick skips the expensive seed/reconcile for it. If a team is in both, the
       explicit tag wins (it gets the seed pass).
+      `reconcile_team_ids` joins the wildcard set too: a team whose only scouts are operational
+      ones the harness left off has no enabled config, and it must still reach the reconcile.
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
     Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
     and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
@@ -553,6 +592,7 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
             .values_list("team_id", flat=True)
             .distinct()
         )
+        wildcard_ids |= reconcile_team_ids or set()
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below
 

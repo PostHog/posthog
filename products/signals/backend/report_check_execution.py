@@ -267,6 +267,8 @@ def record_check_verdict(
     now: datetime | None = None,
     attribution: ArtefactAttribution | None = None,
     run_id: str | None = None,
+    skill_name: str | None = None,
+    refusal_reason: str | None = None,
 ) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
@@ -274,7 +276,8 @@ def record_check_verdict(
     records nothing.
 
     `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
-    has neither, so it keeps the `system()` attribution the executor writes under.
+    has neither, so it keeps the `system()` attribution the executor writes under. `skill_name` and
+    `refusal_reason` name the scout and the gate when the fleet refused to run an `agent` check.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -345,7 +348,16 @@ def record_check_verdict(
         # the caller's row, where both call paths already select it with its organization; the
         # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
         # on `Team`.
-        transaction.on_commit(partial(capture_report_check_evaluated, check.team, current, run_id=run_id))
+        transaction.on_commit(
+            partial(
+                capture_report_check_evaluated,
+                check.team,
+                current,
+                run_id=run_id,
+                skill_name=skill_name,
+                reason=refusal_reason,
+            )
+        )
 
 
 def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
