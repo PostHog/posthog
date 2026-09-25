@@ -218,22 +218,45 @@ def _transcript_from_case(raw: dict[str, Any]) -> TurnTranscript:
     )
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A safe loader that rejects a repeated key, where plain YAML keeps the last value without a word."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        keys = [self.construct_object(key_node, deep=deep) for key_node, _ in node.value]
+        repeated = sorted({str(key) for key in keys if keys.count(key) > 1})
+        if repeated:
+            raise ValueError(f"Duplicate benchmark case keys: {', '.join(repeated)}")
+        return super().construct_mapping(node, deep=deep)
+
+
+def _load_yaml(text: str) -> Any:
+    loader = _UniqueKeyLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
+
+
 def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
     cases = []
     names: set[str] = set()
-    for raw in yaml.safe_load(path.read_text()):
+    for raw in _load_yaml(path.read_text()):
         # Results are matched across judges by case name, so a repeated name would mix two cases.
         if raw["name"] in names:
             raise ValueError(f"Duplicate benchmark case name: {raw['name']}")
         names.add(raw["name"])
         transcript = _transcript_from_case(raw)
+        available = available_offers(transcript, scouts_available=raw.get("scouts_available", True))
+        # Production never asks the judge about a turn with nothing to offer.
+        if not available:
+            raise ValueError(f"Benchmark case {raw['name']} has no offer its turn can make")
         cases.append(
             BenchmarkCase(
                 name=raw["name"],
                 category=raw["category"],
                 acceptable=frozenset(OfferKind(kind) for kind in raw["acceptable"]),
                 transcript=transcript,
-                available=available_offers(transcript, scouts_available=raw.get("scouts_available", True)),
+                available=available,
             )
         )
     return cases
