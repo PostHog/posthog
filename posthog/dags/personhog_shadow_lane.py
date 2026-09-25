@@ -166,8 +166,11 @@ def _reset_shadow_state(context: dagster.OpExecutionContext, config: ShadowLaneS
             cursor.execute("SET application_name = 'dagster_personhog_shadow_lane'")
             cursor.execute("SET statement_timeout = '10min'")
             # One statement so the reset is atomic; CASCADE covers the FKs
-            # between the person and distinct id tables on both sides.
-            cursor.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
+            # between the person and distinct id tables on both sides. No
+            # RESTART IDENTITY: it needs sequence privileges the scoped
+            # dagster user does not hold, and id continuity is irrelevant
+            # because the drift comparison joins on uuid and distinct_id.
+            cursor.execute(f"TRUNCATE {', '.join(tables)} CASCADE")
     context.log.info("Shadow persons database reset complete")
 
 
