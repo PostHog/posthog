@@ -813,11 +813,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         not yet produced an active-state signal counts as in flight too, which is why the
         follow-up task is checked alongside the agent's own state.
 
-        The reason is what tells a rollout whether rotation is idle-gated out of the runs that
+        The reason is what tells us whether rotation is idle-gated out of the runs that
         need it most, so it is a metric label rather than a log line.
         """
-        if self._context is None or not self._context.sandbox_rotation_enabled:
-            return "flag_disabled"
+        if self._context is None:
+            return "no_context"
         if self._agent_active:
             return "agent_active"
         if self._active_followup_task is not None and not self._active_followup_task.done():

@@ -515,10 +515,9 @@ class TestSandboxRotation:
     Anything that goes wrong has to leave the run on its current sandbox, which still has the
     lead time left on its clock."""
 
-    def _workflow(self, monkeypatch, *, rotation_enabled: bool = True) -> ProcessTaskWorkflow:
+    def _workflow(self, monkeypatch) -> ProcessTaskWorkflow:
         wf = ProcessTaskWorkflow()
         wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
-        wf._context.sandbox_rotation_enabled = rotation_enabled
         wf._sandbox_url = "https://old.example"
         wf._sandbox_connect_token = "old-token"
         wf._sandbox_jwt_kid = "kid-old"
@@ -545,18 +544,16 @@ class TestSandboxRotation:
 
     @parameterized.expand(
         [
-            ("idle_with_flag_on", {}, True),
-            ("flag_off", {"rotation_enabled": False}, False),
+            ("idle", {}, True),
             ("agent_mid_turn", {"agent_active": True}, False),
             ("run_finishing", {"task_completed": True}, False),
             ("followup_in_flight", {"followup_running": True}, False),
             ("followup_finished", {"followup_running": False, "followup_present": True}, True),
         ]
     )
-    def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
+    def test_only_an_idle_run_may_rotate(self, _name, overrides, expected):
         wf = ProcessTaskWorkflow()
         wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
-        wf._context.sandbox_rotation_enabled = overrides.get("rotation_enabled", True)
         wf._agent_active = overrides.get("agent_active", False)
         wf._task_completed = overrides.get("task_completed", False)
         if overrides.get("followup_running") or overrides.get("followup_present"):
