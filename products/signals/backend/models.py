@@ -200,9 +200,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
     # Label every self-driving pull request, so GitHub search, saved searches, and notification
     # rules can separate them from the rest of the shared bot identity's pull requests (see
-    # pull_request_label.py). Off by default, because the label lands on a repository the team
-    # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
-    pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
+    # pull_request_label.py). On by default, because a team that never opens these settings is the
+    # one that most needs the label. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
+    pull_request_label_enabled = models.BooleanField(default=True, db_default=True)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

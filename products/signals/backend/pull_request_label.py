@@ -5,9 +5,9 @@ pushes under, and its `posthog-self-driving/` head branch is not something GitHu
 on. So a team that wants a saved search, a notification rule, or an exclusion has nothing to build
 one from. One label solves all three at once.
 
-Opt-in through `SignalTeamConfig.pull_request_label_enabled`, because the label lands on a
-repository the team shares with everybody. Best effort throughout: a GitHub failure must never
-break the pull request link or the report write that triggered it.
+On by default, and off through `SignalTeamConfig.pull_request_label_enabled`, because a team
+that never opens the settings page is the one that most needs the label. Best effort throughout:
+a GitHub failure must never break the pull request link or the report write that triggered it.
 """
 
 from __future__ import annotations
@@ -68,13 +68,20 @@ def schedule_pull_request_label(
 
 
 def configured_pull_request_label(team_id: int) -> str | None:
-    """The label this team wants on its self-driving pull requests, or None when it wants none."""
+    """The label this team wants on its self-driving pull requests, or None when it wants none.
+
+    A team with no config row at all gets the default label, the same as a team whose row still
+    holds the default. The row is created lazily, so many teams reach this code without one, and a
+    model default alone would leave them unlabelled.
+    """
     config = (
         SignalTeamConfig.objects.filter(team_id=team_id)
         .values("pull_request_label_enabled", "pull_request_label")
         .first()
     )
-    if config is None or not config["pull_request_label_enabled"]:
+    if config is None:
+        return DEFAULT_PULL_REQUEST_LABEL
+    if not config["pull_request_label_enabled"]:
         return None
     return (config["pull_request_label"] or "").strip() or DEFAULT_PULL_REQUEST_LABEL
 
@@ -82,12 +89,12 @@ def configured_pull_request_label(team_id: int) -> str | None:
 def apply_pull_request_label(*, team_id: int, report_id: str, pr_url: str) -> str | None:
     """Put the team's label on the report's pull request. Returns the label GitHub applied.
 
-    Returns None when there was nothing to do, which covers a team that never turned the label on
-    and a repository with no GitHub integration. A failed call also returns None, and this raises
+    Returns None when there was nothing to do, which covers a team that turned the label off and a
+    repository with no GitHub integration. A failed call also returns None, and this raises
     nothing.
     """
-    # The team's setting first: a team that never turned the label on is the common case, so it
-    # answers in one query rather than two.
+    # The team's setting first, so a team that turned the label off costs one query rather than
+    # two.
     label = configured_pull_request_label(team_id)
     if label is None:
         return None

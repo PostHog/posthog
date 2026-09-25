@@ -1,7 +1,9 @@
+import importlib
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from django.apps import apps
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -182,10 +184,19 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"
 
+    def test_get_config_reports_the_pull_request_label_on_by_default(self):
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["pull_request_label_enabled"] is True
+        # Null still means the default label name, so a team gets one without naming it.
+        assert data["pull_request_label"] is None
+
     @parameterized.expand(
         [
-            ("enable", {"pull_request_label_enabled": True, "pull_request_label": "ours"}, True, "ours"),
-            ("clear_name", {"pull_request_label": ""}, False, None),
+            ("disable", {"pull_request_label_enabled": False}, False, None),
+            ("rename", {"pull_request_label": "ours"}, True, "ours"),
+            ("clear_name", {"pull_request_label": ""}, True, None),
         ]
     )
     def test_update_pull_request_label(self, _name, sent, expected_enabled, expected_label):
@@ -197,6 +208,51 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.pull_request_label_enabled is expected_enabled
         assert self.config.pull_request_label == expected_label
+
+    def _start_from_the_old_default(self) -> None:
+        # A queryset update rather than save(), so the starting point carries no audit entry.
+        SignalTeamConfig.objects.filter(pk=self.config.pk).update(pull_request_label_enabled=False)
+
+    def _run_label_backfill(self) -> None:
+        migration = importlib.import_module("products.signals.backend.migrations.0156_enable_pull_request_label")
+        migration.enable_pull_request_label(apps, None)
+
+    def _label_enabled(self) -> bool:
+        self.config.refresh_from_db()
+        return self.config.pull_request_label_enabled
+
+    def test_backfill_turns_the_label_on_for_a_team_that_never_touched_the_switch(self):
+        self._start_from_the_old_default()
+
+        self._run_label_backfill()
+
+        assert self._label_enabled() is True
+
+    def test_backfill_leaves_a_team_that_turned_the_label_off_alone(self):
+        # The switch shipped opt-in, so a team could turn it on and back off before the default
+        # flipped. That false is a refusal, and the audit trail is the only record of it. Going
+        # through the endpoint is the point: a hand-written ActivityLog row would prove the
+        # backfill's filter matches itself, not that it matches what the settings page stores.
+        self._start_from_the_old_default()
+        for enabled in (True, False):
+            response = self.client.post(self._url(), data={"pull_request_label_enabled": enabled}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        self._run_label_backfill()
+
+        assert self._label_enabled() is False
+
+    def test_backfill_turns_the_label_on_after_an_unrelated_setting_changed(self):
+        # Guards the other side: matching the whole scope rather than this one field would read
+        # any inbox settings edit as a refusal and leave those teams unlabelled.
+        self._start_from_the_old_default()
+        response = self.client.post(self._url(), data={"max_reports_per_day": 5}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._activity() != []
+
+        self._run_label_backfill()
+
+        assert self._label_enabled() is True
 
     def test_reports_generated_today_is_zero_without_a_limit(self):
         # No limit set: the count is never shown, so the serializer reports 0 without counting even

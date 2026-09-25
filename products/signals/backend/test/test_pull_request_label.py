@@ -65,11 +65,13 @@ class TestConfiguredPullRequestLabel:
         assert configured_pull_request_label(team.id) == expected
 
     @pytest.mark.django_db
-    def test_a_team_that_never_touched_the_setting_wants_no_label(self, org_and_team):
+    def test_a_team_with_no_config_row_gets_the_default_label(self, org_and_team):
+        # The row is created lazily, so this is the path a team reaches before it ever opens the
+        # settings page. The model default alone would leave it unlabelled.
         _, team = org_and_team
         SignalTeamConfig.objects.filter(team=team).delete()
 
-        assert configured_pull_request_label(team.id) is None
+        assert configured_pull_request_label(team.id) == DEFAULT_PULL_REQUEST_LABEL
 
 
 class TestApplyPullRequestLabel:
@@ -91,8 +93,9 @@ class TestApplyPullRequestLabel:
         github.add_pull_request_labels.assert_called_once_with("PostHog/posthog", 123, ["ours"])
 
     @pytest.mark.django_db
-    def test_a_team_that_did_not_opt_in_skips_github_entirely(self, org_and_team):
+    def test_a_team_that_turned_the_label_off_skips_github_entirely(self, org_and_team):
         _, team = org_and_team
+        SignalTeamConfig.objects.update_or_create(team=team, defaults={"pull_request_label_enabled": False})
         report = _make_report(team)
 
         with patch(
