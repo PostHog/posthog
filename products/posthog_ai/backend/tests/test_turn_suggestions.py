@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-import yaml
 import httpx
 import requests
 from openai.resources.chat.completions import Completions
@@ -715,10 +714,27 @@ class TestBenchmark(SimpleTestCase):
         silent = score(results, 0.95)
         assert (silent.precision, silent.recall, silent.f1) == (None, 0.0, 0.0)
 
-    def test_a_case_file_with_a_repeated_name_is_rejected(self):
-        case = {"name": "same", "category": "c", "acceptable": ["none"], "question": "q", "answer": "a"}
+    @parameterized.expand(
+        [
+            (
+                "repeated_name",
+                "- {name: same, category: c, acceptable: [none], question: q, answer: a, tools: [query-trends]}\n"
+                "- {name: same, category: c, acceptable: [none], question: q, answer: a, tools: [query-trends]}\n",
+            ),
+            (
+                "repeated_key",
+                "- name: one\n  category: c\n  acceptable: [none]\n  acceptable: [scout]\n"
+                "  question: q\n  answer: a\n  tools: [query-trends]\n",
+            ),
+            (
+                "no_offer_available",
+                "- {name: one, category: c, acceptable: [none], question: q, answer: a, scouts_available: false}\n",
+            ),
+        ]
+    )
+    def test_a_case_file_that_would_mislabel_or_crash_is_rejected(self, _name: str, content: str):
         with tempfile.NamedTemporaryFile("w", suffix=".yaml") as cases_file:
-            yaml.safe_dump([case, case], cases_file)
+            cases_file.write(content)
             cases_file.flush()
 
             with self.assertRaises(ValueError):
