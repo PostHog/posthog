@@ -18,7 +18,9 @@ describe('getBroadcastStatus', () => {
         // telling the sender another send was pending when nothing was coming.
         ['a run that failed', flow('active'), withJob('failed'), 'failed'],
         ['a run that was cancelled', flow('active'), withJob('cancelled'), 'failed'],
-        ['no run yet', flow('active'), undefined, 'scheduled'],
+        ['no run yet', flow('active'), { latestBatchJob: null, totals: {} }, 'scheduled'],
+        // Runs not loaded yet, or failed to load, used to read as "scheduled" for a broadcast that already sent.
+        ['a live broadcast whose runs have not loaded', flow('active'), undefined, 'unknown'],
     ])('reads %s as %s', (_name, broadcast, details, expected) => {
         expect(getBroadcastStatus(broadcast, details)).toBe(expected)
     })
