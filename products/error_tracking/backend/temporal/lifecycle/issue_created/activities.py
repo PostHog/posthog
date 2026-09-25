@@ -14,11 +14,18 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.embedding_worker import generate_embedding
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.error_tracking.backend.logic.issue_mutations import apply_inferred_severity
+from products.error_tracking.backend.logic.severity_inference import (
+    build_severity_state,
+    infer_severity,
+    severity_inference_enabled,
+)
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import merge_similar_fingerprints
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
@@ -27,9 +34,11 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+    SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedWorkflowInputs,
     IssueEmbeddingPreparationResult,
+    IssueSeverityInferenceResult,
 )
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
@@ -38,6 +47,11 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.ml_inference.backend.facade.contracts import (
+    DecisionGatewayError,
+    DecisionGatewayUnreachableError,
+    DecisionsDisabledError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +59,7 @@ EMBEDDING_MODEL = "text-embedding-3-large-3072"
 EMBEDDING_RENDERING = "type_message_and_stack"
 EMBEDDING_MAX_TOKENS = 7000
 EMBEDDING_DISABLED_LIBRARIES = {"posthog-elixir"}
+SEVERITY_INFERENCE_MAX_TOKENS = 2000
 
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
@@ -153,6 +168,77 @@ def generate_issue_created_embedding_activity(
         raise
 
 
+def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+    if not severity_inference_enabled(inputs.team_id):
+        return IssueSeverityInferenceResult(skipped_reason="disabled")
+    try:
+        team = Team.objects.select_related("organization").get(id=inputs.team_id)
+    except Team.DoesNotExist:
+        return IssueSeverityInferenceResult(skipped_reason="team_missing")
+    if not team.organization.is_ai_data_processing_approved:
+        return IssueSeverityInferenceResult(skipped_reason="ai_data_processing_not_approved")
+
+    event_properties = fetch_event_properties(team, inputs)
+    stacktrace = render_stacktrace(event_properties, SEVERITY_INFERENCE_MAX_TOKENS)
+    if not stacktrace:
+        return IssueSeverityInferenceResult(skipped_reason="no_exception")
+
+    try:
+        answer = infer_severity(inputs.team_id, build_severity_state(stacktrace, event_properties))
+    except (DecisionsDisabledError, GatewayNotConfiguredError):
+        return IssueSeverityInferenceResult(skipped_reason="decisions_unavailable")
+    except DecisionGatewayUnreachableError as error:
+        raise ApplicationError(
+            "Severity model is unreachable", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
+        ) from error
+    except DecisionGatewayError as error:
+        if error.status_code == 429 or error.status_code >= 500:
+            raise ApplicationError(
+                f"Severity model returned status {error.status_code}", type=SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        logger.warning(
+            "error_tracking_severity_inference_rejected",
+            team_id=inputs.team_id,
+            issue_id=inputs.issue_id,
+            status_code=error.status_code,
+            detail=error.detail,
+        )
+        return IssueSeverityInferenceResult(skipped_reason="gateway_rejected")
+    if answer is None:
+        return IssueSeverityInferenceResult(skipped_reason="unexpected_answer")
+
+    logger.info(
+        "error_tracking_severity_inferred",
+        team_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        severity=answer.choice,
+        confidence=answer.confidence,
+        ingestion_severity=inputs.issue.severity,
+        ingestion_severity_source=inputs.severity_source,
+    )
+    if answer.choice == inputs.issue.severity:
+        return IssueSeverityInferenceResult(severity=answer.choice)
+    if not apply_inferred_severity(
+        inputs.team_id, inputs.issue_id, expected=inputs.issue.severity, inferred=answer.choice
+    ):
+        return IssueSeverityInferenceResult(skipped_reason="severity_changed")
+    return IssueSeverityInferenceResult(severity=answer.choice)
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+    try:
+        return _infer_issue_created_severity(inputs)
+    except Exception as error:
+        if not is_expected_activity_failure(error) and not (
+            isinstance(error, ApplicationError) and error.type == SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE
+        ):
+            posthoganalytics.capture_exception(error)
+        raise
+
+
 # The three activities below add no properties of their own, so the shared activity interceptor
 # is the better reporter: it knows which failures are expected.
 @activity.defn
@@ -239,6 +325,7 @@ ACTIVITIES = [
     generate_issue_created_embedding_activity,
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,
+    infer_issue_created_severity_activity,
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
 ]

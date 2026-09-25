@@ -169,6 +169,44 @@ def update_issue(
     return issue
 
 
+def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> bool:
+    """Set a model-inferred severity. Returns False when the severity changed after ingestion set `expected`."""
+    try:
+        issue = _get_issue(team_id, issue_id, select_related=("team",))
+    except ErrorTrackingIssueNotFoundError:
+        return False
+    if issue.severity != expected or expected == inferred:
+        return False
+
+    with transaction.atomic():
+        # The conditional update keeps a severity that a person or a rule set while the model ran.
+        updated = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue.id, severity=expected).update(
+            severity=inferred, state_updated_at=timezone.now()
+        )
+        if not updated:
+            return False
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(
+                        type="ErrorTrackingIssue", field="severity", before=expected, after=inferred, action="changed"
+                    )
+                ],
+            ),
+        )
+
+    sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+    return True
+
+
 def merge_issues(
     team_id: int, issue_id: UUID, source_ids: list[str], *, user: User, was_impersonated: bool
 ) -> ErrorTrackingIssueMergeResult:

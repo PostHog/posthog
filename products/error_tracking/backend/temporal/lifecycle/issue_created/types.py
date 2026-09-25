@@ -4,6 +4,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
 
 EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE = "EmbeddingServiceUnavailable"
+SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE = "SeverityInferenceUnavailable"
 
 
 IssueCreatedSnapshot = LifecycleIssueSnapshot
@@ -19,6 +20,18 @@ class IssueCreatedWorkflowInputs:
     event_uuid: str
     event_timestamp: str
     assignee: str | None = None
+    # "event", "rule" or "heuristic": how cymbal chose `issue.severity`.
+    severity_source: str | None = None
+
+    def severity_is_overridable(self) -> bool:
+        """A model may only replace a severity that no person chose: the level/handled heuristic, or none.
+
+        A notification without a source can come from a cymbal that predates the field, where
+        the severity can be an explicit event value or a rule. Only an empty severity is safe then.
+        """
+        if self.severity_source is None:
+            return self.issue.severity is None
+        return self.severity_source == "heuristic"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -31,6 +44,12 @@ class GeneratedIssueEmbedding:
 class IssueEmbeddingPreparationResult:
     team_exists: bool
     embedding: GeneratedIssueEmbedding | None = None
+    skipped_reason: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class IssueSeverityInferenceResult:
+    severity: str | None = None
     skipped_reason: str | None = None
 
 

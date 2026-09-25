@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from products.access_control.backend.models.role import Role
+from products.error_tracking.backend.logic.issue_mutations import apply_inferred_severity
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 
@@ -94,6 +97,25 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
         assert rows[0][6] == "high"
+
+    @parameterized.expand(
+        [
+            ("ingestion_severity_unchanged", "medium", "medium", True, "critical"),
+            ("severity_changed_while_inferring", "medium", "low", False, "low"),
+            ("no_ingestion_severity", None, None, True, "critical"),
+        ]
+    )
+    def test_inferred_severity_only_replaces_the_ingestion_severity(
+        self, _name, expected, current, applied, final_severity
+    ):
+        issue = self._create_issue(fingerprints=["fp_1"], severity=current)
+
+        assert apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical") is applied
+
+        issue.refresh_from_db()
+        assert issue.severity == final_severity
+        rows = self._get_issue_state_rows()
+        assert [row[6] for row in rows] == (["critical"] if applied else [])
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])

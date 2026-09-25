@@ -34,6 +34,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowInputs,
     IssueCreatedWorkflowResult,
     IssueEmbeddingPreparationResult,
+    IssueSeverityInferenceResult,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
@@ -197,8 +198,10 @@ def test_falls_back_to_clickhouse_when_valkey_payload_expired(
 async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     alert_issue_ids: list[str] = []
     event_issue_ids: list[str] = []
+    event_severities: dict[str, str | None] = {}
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
+    inferred_issue_ids: list[str] = []
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
@@ -231,6 +234,13 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
         return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
 
+    @activity.defn(name="infer_issue_created_severity_activity")
+    async def infer_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+        inferred_issue_ids.append(inputs.issue_id)
+        if inputs.fingerprint == "inference-unavailable":
+            raise ApplicationError("model unavailable", non_retryable=True)
+        return IssueSeverityInferenceResult(severity="critical")
+
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
         alert_issue_ids.append(inputs.issue_id)
@@ -238,6 +248,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="emit_issue_created_internal_event_activity")
     async def emit_event(inputs: IssueCreatedWorkflowInputs) -> None:
         event_issue_ids.append(inputs.issue_id)
+        event_severities[inputs.issue_id] = inputs.issue.severity
 
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -252,12 +263,24 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, persist, merge, dispatch_alert, emit_event, emit_signal],
+            activities=[generate, persist, merge, infer_severity, dispatch_alert, emit_event, emit_signal],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
             embedding_unavailable_inputs = _inputs("embedding-unavailable")
+            heuristic_inputs = dataclasses.replace(_inputs("heuristic"), severity_source="heuristic")
+            rule_inputs = dataclasses.replace(_inputs("rule"), severity_source="rule")
+            inference_unavailable_inputs = dataclasses.replace(
+                _inputs("inference-unavailable"), severity_source="heuristic"
+            )
+            for severity_inputs in (heuristic_inputs, rule_inputs, inference_unavailable_inputs):
+                await environment.client.execute_workflow(
+                    ErrorTrackingIssueCreatedWorkflow.run,
+                    severity_inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 merged_inputs,
@@ -283,10 +306,13 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
     )
-    assert alert_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert event_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert signal_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert signal_attempts == {
-        unmerged_inputs.issue_id: 2,
-        embedding_unavailable_inputs.issue_id: 2,
-    }
+    severity_issue_ids = [heuristic_inputs.issue_id, rule_inputs.issue_id, inference_unavailable_inputs.issue_id]
+    notified_issue_ids = [*severity_issue_ids, unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
+    assert alert_issue_ids == notified_issue_ids
+    assert event_issue_ids == notified_issue_ids
+    assert signal_issue_ids == notified_issue_ids
+    assert signal_attempts == dict.fromkeys(notified_issue_ids, 2)
+    assert inferred_issue_ids == [heuristic_inputs.issue_id, inference_unavailable_inputs.issue_id]
+    assert event_severities[heuristic_inputs.issue_id] == "critical"
+    assert event_severities[rule_inputs.issue_id] == "high"
+    assert event_severities[inference_unavailable_inputs.issue_id] == "high"
