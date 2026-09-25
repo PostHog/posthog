@@ -123,6 +123,7 @@ export interface integrationsLogicValues {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
         )[]
     ) => IntegrationType[]
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
@@ -234,6 +235,7 @@ export interface integrationsLogicActions {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
         searchParams: any
     }
     invalidateGithubSuggestions: () => {
@@ -369,6 +371,7 @@ export interface integrationsLogicActions {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -432,6 +435,7 @@ export interface integrationsLogicActions {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -489,6 +493,7 @@ export interface integrationsLogicActions {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
     }
     openSetupModal: (
         integration?: IntegrationType,
@@ -552,7 +557,8 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
-            | 'youtube-analytics',
+            | 'youtube-analytics'
+            | 'zendesk',
         payload?: {
             kind: IntegrationKind
         }
@@ -602,6 +608,7 @@ export interface integrationsLogicActions {
             | 'twilio'
             | 'vercel'
             | 'youtube-analytics'
+            | 'zendesk'
         payload?: {
             kind: IntegrationKind
         }
@@ -697,6 +704,7 @@ export interface integrationsLogicMeta {
                 | 'twilio'
                 | 'vercel'
                 | 'youtube-analytics'
+                | 'zendesk'
             )[]
         ) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined

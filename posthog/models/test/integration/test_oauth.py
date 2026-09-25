@@ -27,6 +27,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
     OauthIntegration,
+    normalize_zendesk_subdomain,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
@@ -1645,3 +1646,91 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(ZENDESK_APP_CLIENT_ID="zendesk-client-id", ZENDESK_APP_CLIENT_SECRET="zendesk-client-secret")
+class TestZendeskIntegrationModel(BaseTest):
+    @parameterized.expand(
+        [
+            ("bare", "acme", "acme"),
+            ("host", "Acme.zendesk.com", "acme"),
+            ("url", "https://acme.zendesk.com/agent/", "acme"),
+            ("other_host", "attacker.example#", None),
+            ("dotted", "acme.evil", None),
+            ("empty", "", None),
+        ]
+    )
+    def test_normalize_subdomain(self, _name, value, expected):
+        assert normalize_zendesk_subdomain(value) == expected
+
+    def test_oauth_config_points_at_the_account_host(self):
+        config = OauthIntegration.oauth_config_for_kind("zendesk", subdomain="acme")
+
+        assert config.authorize_url == "https://acme.zendesk.com/oauth/authorizations/new"
+        assert config.token_url == "https://acme.zendesk.com/oauth/tokens"
+        assert config.pkce is True
+
+    def test_oauth_config_without_subdomain_raises(self):
+        with pytest.raises(NotImplementedError, match="valid subdomain"):
+            OauthIntegration.oauth_config_for_kind("zendesk", subdomain="evil.example")
+
+    def test_authorize_url_carries_subdomain_in_state(self):
+        url = OauthIntegration.authorize_url("zendesk", token="state_token", next="/x", subdomain="acme")
+        base, _, query = url.partition("?")
+        params = {k: v[0] for k, v in parse_qs(query).items()}
+
+        assert base == "https://acme.zendesk.com/oauth/authorizations/new"
+        assert parse_qs(params["state"])["subdomain"] == ["acme"]
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_exchanges_at_the_state_subdomain(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 172800,
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "zendesk",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": urlencode({"token": "state_token", "subdomain": "acme"})},
+        )
+
+        assert mock_post.call_args.args[0] == "https://acme.zendesk.com/oauth/tokens"
+        sent = mock_post.call_args.kwargs["json"]
+        assert sent["grant_type"] == "authorization_code"
+        assert sent["refresh_token_expires_in"] > 0
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+        assert integration.integration_id == "acme"
+        assert integration.display_name == "acme"
+        assert integration.config["subdomain"] == "acme"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    def test_integration_from_oauth_response_without_subdomain_raises(self):
+        with pytest.raises(ValidationError, match="missing subdomain"):
+            OauthIntegration.integration_from_oauth_response(
+                "zendesk", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+            )
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_access_token_uses_the_stored_subdomain(self, mock_post, _mock_reload):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="zendesk",
+            integration_id="acme",
+            config={"subdomain": "acme", "expires_in": 172800, "refreshed_at": 0},
+            sensitive_config={"access_token": "at_old", "refresh_token": "rt_old"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_new", "refresh_token": "rt_new"}
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert mock_post.call_args.args[0] == "https://acme.zendesk.com/oauth/tokens"
+        assert mock_post.call_args.kwargs["json"]["refresh_token"] == "rt_old"
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "at_new"
+        assert integration.sensitive_config["refresh_token"] == "rt_new"

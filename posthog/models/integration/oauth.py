@@ -1,5 +1,6 @@
 """Generic OAuth connect/refresh dispatcher shared by every generic-OAuth integration kind."""
 
+import re
 import json
 import time
 import base64
@@ -248,6 +249,28 @@ def posthog_connect_base_url(region: str | None) -> str:
     return base_url
 
 
+# Zendesk runs an OAuth server on each account's own host, so every URL depends on the subdomain the
+# user enters at connect time. A subdomain is one DNS label. Pinning it to that shape stops a crafted
+# value (e.g. "attacker.example#") from sending the client secret to a host outside zendesk.com.
+_ZENDESK_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+# The longest lifetimes Zendesk accepts (2 days and 90 days). Setting them gets a grant with a refresh
+# token, and the refresh sweep renews the pair well before either expires.
+ZENDESK_TOKEN_LIFETIMES = {"expires_in": 172800, "refresh_token_expires_in": 7776000}
+
+
+def normalize_zendesk_subdomain(value: str | None) -> str | None:
+    """Reduce a subdomain, host, or URL to the bare Zendesk subdomain label.
+
+    Returns None when the result is not a valid label.
+    """
+    subdomain = (value or "").strip().lower()
+    if "://" in subdomain:
+        subdomain = subdomain.split("://", 1)[1]
+    subdomain = subdomain.split("/", 1)[0].removesuffix(".zendesk.com")
+    return subdomain if _ZENDESK_SUBDOMAIN_RE.match(subdomain) else None
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -276,6 +299,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        "zendesk",
     ]
     integration: model.Integration
 
@@ -287,11 +311,14 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str, region: str | None = None) -> OauthConfig:
+    def oauth_config_for_kind(
+        cls, kind: str, region: str | None = None, *, subdomain: str | None = None
+    ) -> OauthConfig:
         # `region` only applies to the `posthog` remote kind, whose endpoints depend on the
-        # target cell. cache_for keys on all args, so each (kind, region) pair caches separately;
-        # every other kind is called without region and keeps its single cached entry.
-        config = cls._build_oauth_config(kind, region)
+        # target cell. `subdomain` only applies to `zendesk`, whose endpoints depend on the account.
+        # cache_for keys on all args, so each (kind, region, subdomain) caches separately;
+        # every other kind is called without them and keeps its single cached entry.
+        config = cls._build_oauth_config(kind, region, subdomain)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
             config = replace(
@@ -302,7 +329,16 @@ class OauthIntegration:
         return config
 
     @classmethod
-    def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
+    def oauth_config_for_integration(cls, integration: model.Integration) -> OauthConfig:
+        """Resolve the config for an existing row, including the per-row endpoint scope it stored."""
+        if integration.kind == "posthog":
+            return cls.oauth_config_for_kind(integration.kind, integration.config.get("region"))
+        if integration.kind == "zendesk":
+            return cls.oauth_config_for_kind(integration.kind, subdomain=integration.config.get("subdomain"))
+        return cls.oauth_config_for_kind(integration.kind)
+
+    @classmethod
+    def _build_oauth_config(cls, kind: str, region: str | None = None, subdomain: str | None = None) -> OauthConfig:
         if kind == "posthog":
             base_url, client_id, client_secret = _posthog_connect_target(region)
             return OauthConfig(
@@ -785,6 +821,27 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind == "zendesk":
+            if not settings.ZENDESK_APP_CLIENT_ID or not settings.ZENDESK_APP_CLIENT_SECRET:
+                raise NotImplementedError("Zendesk app not configured")
+            normalized_subdomain = normalize_zendesk_subdomain(subdomain)
+            if not normalized_subdomain:
+                raise NotImplementedError("Zendesk OAuth needs a valid subdomain")
+
+            base_url = f"https://{normalized_subdomain}.zendesk.com"
+            # The client must be a global OAuth client, because a regular client only works for the
+            # Zendesk account that created it. Zendesk has no RFC 7009 revoke endpoint.
+            return OauthConfig(
+                authorize_url=f"{base_url}/oauth/authorizations/new",
+                token_url=f"{base_url}/oauth/tokens",
+                client_id=settings.ZENDESK_APP_CLIENT_ID,
+                client_secret=settings.ZENDESK_APP_CLIENT_SECRET,
+                # `write` is for the destination, which creates and updates Zendesk users.
+                scope="read write",
+                id_path="subdomain",
+                name_path="subdomain",
+                pkce=True,
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -806,8 +863,9 @@ class OauthIntegration:
         region: str | None = None,
         scopes: list[str] | None = None,
         team_id: int | None = None,
+        subdomain: str | None = None,
     ) -> str:
-        oauth_config = cls.oauth_config_for_kind(kind, region)
+        oauth_config = cls.oauth_config_for_kind(kind, region, subdomain=subdomain)
 
         # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
         # project-scoped, so without this the SPA re-resolves to the user's default team on
@@ -828,6 +886,10 @@ class OauthIntegration:
             state_payload["region"] = (region or "").upper()
             requested = list(scopes) if scopes else list(POSTHOG_CONNECT_DEFAULT_SCOPES)
             scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CONNECT_IDENTITY_SCOPES]))
+
+        if kind == "zendesk":
+            # The token exchange must go to the same account that authorized the grant.
+            state_payload["subdomain"] = normalize_zendesk_subdomain(subdomain) or ""
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -868,8 +930,14 @@ class OauthIntegration:
             # The target region was stashed in state at authorize time; the token exchange must hit
             # that same cell. Missing/invalid region fails closed via _posthog_connect_target.
             region = (parse_qs(params.get("state", "")).get("region", [""])[0] or "").upper()
+        subdomain: str | None = None
+        if kind == "zendesk":
+            # An invalid or missing subdomain fails closed in _build_oauth_config.
+            subdomain = normalize_zendesk_subdomain(parse_qs(params.get("state", "")).get("subdomain", [""])[0])
+            if not subdomain:
+                raise ValidationError("Zendesk authorization failed: missing subdomain. Please retry.")
 
-        oauth_config = cls.oauth_config_for_kind(kind, region)
+        oauth_config = cls.oauth_config_for_kind(kind, region, subdomain=subdomain)
 
         code_verifier: str | None = None
         if oauth_config.pkce:
@@ -936,6 +1004,23 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 timeout=10,
+            )
+        elif kind == "zendesk":
+            # Zendesk reads the token request as JSON and needs the scope again.
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                    "scope": oauth_config.scope,
+                    **ZENDESK_TOKEN_LIFETIMES,
+                    **({"code_verifier": code_verifier} if code_verifier else {}),
+                },
+                timeout=10,
+                allow_redirects=False,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -1079,6 +1164,10 @@ class OauthIntegration:
                     status_code=token_info_res.status_code,
                     response=token_info_res.text[:500],
                 )
+
+        if kind == "zendesk":
+            # One connection per Zendesk account. The subdomain also drives refresh for the row's lifetime.
+            config["subdomain"] = subdomain
 
         integration_id = common.dot_get(config, oauth_config.id_path)
 
@@ -1290,8 +1379,7 @@ class OauthIntegration:
         after a disconnect. Callers treat this as best-effort — the local deletion proceeds
         regardless.
         """
-        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
-        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
+        oauth_config = self.oauth_config_for_integration(self.integration)
         if not oauth_config.token_revoke_url:
             return
 
@@ -1423,6 +1511,20 @@ class OauthIntegration:
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 timeout=10,
             )
+        elif kind == "zendesk":
+            return requests.post(
+                oauth_config.token_url,
+                json={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                    **ZENDESK_TOKEN_LIFETIMES,
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
         else:
             token_url = oauth_config.token_url
             # Salesforce sandbox integrations are stored under the production kind (the sandbox
@@ -1485,8 +1587,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
-        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
+        oauth_config = self.oauth_config_for_integration(self.integration)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""

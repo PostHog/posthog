@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.zendesk.template_zendesk import template as template_zendesk
 
@@ -56,3 +58,20 @@ class TestTemplateZendesk(BaseHogFunctionTemplateTest):
 
         assert not self.get_mock_fetch_calls()
         assert self.get_mock_print_calls() == [("`email` or `name` input is empty. Not creating a contact.",)]
+
+    def test_function_uses_the_connected_account(self):
+        self.run_function(
+            inputs=create_inputs(
+                subdomain="", admin_email="", token="", oauth={"subdomain": "acme", "access_token": "at_1"}
+            ),
+        )
+
+        url, request = self.get_mock_fetch_calls()[0]
+        assert url == "https://acme.zendesk.com/api/v2/users/create_or_update"
+        assert request["headers"]["Authorization"] == "Bearer at_1"
+
+    def test_function_without_credentials_raises(self):
+        with pytest.raises(Exception, match="Connect a Zendesk account"):
+            self.run_function(inputs=create_inputs(token=""))
+
+        assert not self.get_mock_fetch_calls()

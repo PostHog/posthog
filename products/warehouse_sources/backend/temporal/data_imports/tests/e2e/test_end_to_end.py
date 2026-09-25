@@ -841,9 +841,12 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
 
 
 _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
-    "subdomain": "test",
-    "api_key": "test_api_key",
-    "email_address": "test@posthog.com",
+    "auth_method": {
+        "selection": "api_key",
+        "subdomain": "test",
+        "api_key": "test_api_key",
+        "email_address": "test@posthog.com",
+    },
 }
 
 

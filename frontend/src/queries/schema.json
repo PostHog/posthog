@@ -30385,7 +30385,8 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "zendesk"
             ],
             "type": "string"
         },

@@ -1743,6 +1743,7 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    ZENDESK = "zendesk"
 
 
 class IntervalType(StrEnum):

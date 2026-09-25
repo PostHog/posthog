@@ -176,6 +176,7 @@ class Integration(models.Model):
         TWILIO = "twilio"
         VERCEL = "vercel"
         YOUTUBE_ANALYTICS = "youtube-analytics"
+        ZENDESK = "zendesk"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -225,8 +226,7 @@ class Integration(models.Model):
         from . import google_cloud, oauth  # noqa: PLC0415 — breaks a circular import
 
         if self.kind in oauth.OauthIntegration.supported_kinds:
-            region = self.config.get("region") if self.kind == "posthog" else None
-            oauth_config = oauth.OauthIntegration.oauth_config_for_kind(self.kind, region)
+            oauth_config = oauth.OauthIntegration.oauth_config_for_integration(self)
             return common.dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in google_cloud.GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
