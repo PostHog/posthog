@@ -19,6 +19,12 @@ export const Default: Story = {}
 
 export const Loading: Story = {
     args: { loading: true },
+    parameters: {
+        testOptions: {
+            // The spinner never stops in this story, so the default wait for loaders would time out.
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 
 export const Disabled: Story = {
