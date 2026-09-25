@@ -18,7 +18,7 @@ describe('screenshot access settings', () => {
                 has_secret: true,
                 cookie_delivery_enabled: false,
             })
-        ).toContain('cookie delivery is disabled')
+        ).toContain('delivery is turned off for this PostHog installation')
     })
 
     it('suggests exact toolbar hostnames without expanding wildcards or shared hosting domains', () => {

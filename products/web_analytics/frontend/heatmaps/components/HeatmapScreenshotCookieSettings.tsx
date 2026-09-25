@@ -41,19 +41,33 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
         return <LemonSkeleton />
     }
 
+    const deliveryDisabled = !settings.cookie_delivery_enabled
+    const deliveryDisabledReason = deliveryDisabled
+        ? 'Screenshot cookie delivery is turned off for this installation.'
+        : undefined
+    const rotateDisabledReason =
+        deliveryDisabledReason ??
+        (!settings.allowed_hostnames.length
+            ? 'Save at least one approved hostname first.'
+            : settingsLoading || hasChanges
+              ? 'Save your hostname changes first.'
+              : undefined)
+
     return (
         <div className="flex flex-col gap-3 max-w-160">
-            {!settings.cookie_delivery_enabled && (
-                <LemonBanner type="info">
-                    Screenshot cookie delivery is disabled on this installation. You can save your settings, but
-                    screenshots will run without the cookie. Contact your PostHog administrator to enable delivery.
+            {deliveryDisabled && (
+                <LemonBanner type="warning">
+                    Screenshot cookie delivery is turned off for this PostHog installation, so these settings would have
+                    no effect. Screenshots still run, without the cookie. On PostHog Cloud, contact support to turn
+                    delivery on. On a self-hosted installation, ask whoever runs it to set
+                    HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED to true.
                 </LemonBanner>
             )}
             <p className="mb-0">
                 Allow screenshots of public pages behind bot protection. Approve the hostnames that may receive this
                 project's screenshot cookie, then add a matching exception in your bot protection settings.
             </p>
-            {!settings.allowed_hostnames.length && (
+            {!deliveryDisabled && !settings.allowed_hostnames.length && (
                 <LemonBanner type="info">
                     No hostnames are approved, so screenshots run without a bypass cookie. Ask a project admin to
                     approve each hostname that needs one, including redirect destinations.
@@ -74,7 +88,7 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                     options={suggestions.map((hostname) => ({ key: hostname, label: hostname }))}
                     onChange={setHostnames}
                     placeholder="www.example.com"
-                    disabled={!!restrictedReason || settingsLoading || rotatedSecretLoading}
+                    disabled={!!restrictedReason || deliveryDisabled || settingsLoading || rotatedSecretLoading}
                     data-attr="heatmap-screenshot-hostnames"
                 />
                 <p className="text-secondary mb-0">
@@ -94,6 +108,7 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                         onClick={saveSettings}
                         loading={settingsLoading}
                         disabled={!hasChanges || rotatedSecretLoading}
+                        disabledReason={deliveryDisabledReason}
                     >
                         Save approved hostnames
                     </LemonButton>
@@ -119,13 +134,7 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             loading={rotatedSecretLoading}
-                            disabledReason={
-                                !settings.allowed_hostnames.length
-                                    ? 'Save at least one approved hostname first.'
-                                    : settingsLoading || hasChanges
-                                      ? 'Save your hostname changes first.'
-                                      : undefined
-                            }
+                            disabledReason={rotateDisabledReason}
                             onClick={() => {
                                 if (!settings.has_secret) {
                                     rotateSecret()
