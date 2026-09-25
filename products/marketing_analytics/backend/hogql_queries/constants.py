@@ -26,12 +26,14 @@ from posthog.schema import (
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
     MarketingIntegrationConfig9,
+    MarketingIntegrationConfig10,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     NativeMarketingSource,
     NodeKind,
+    OpenAIAdsDefaultSources,
     PinterestAdsDefaultSources,
     RedditAdsDefaultSources,
     SnapchatAdsConversionFields,
@@ -503,6 +505,7 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 # Map generated config models to NativeMarketingSource using sourceType field
 _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
+    MarketingIntegrationConfig10,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -541,6 +544,7 @@ def _get_enum_values(enum_class) -> list[str]:
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
+    NativeMarketingSource.OPEN_AI_ADS: OpenAIAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,

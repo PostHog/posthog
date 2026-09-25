@@ -207,6 +207,7 @@ from posthog.schema_enums import (
     NativeMarketingSource as NativeMarketingSource,
     NeighborDirection as NeighborDirection,
     NodeKind as NodeKind,
+    OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
@@ -2121,6 +2122,19 @@ class MarketingIntegrationConfig9(BaseModel):
     statsTableName: Literal["campaign_report"] = "campaign_report"
 
 
+class MarketingIntegrationConfig10(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=3, min_length=3)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["openai"] = "openai"
+    sourceType: Literal["OpenAIAds"] = "OpenAIAds"
+    statsTableName: Literal["campaign_insights"] = "campaign_insights"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2132,6 +2146,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
     ]
 ):
     root: (
@@ -2144,6 +2159,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
+        | MarketingIntegrationConfig10
     )
 
 
