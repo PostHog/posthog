@@ -49,7 +49,6 @@ export interface navAppsTabLogicValues {
     pendingAppStars: Record<string, boolean>
     rankedConfigurableApps: FileSystemImport[]
     search: string
-    selectAllMatchingAppsDisabledReason: string | null
     selectedAppStars: Record<string, boolean>
     starSaveError: string | null
     starSaveResult: null
@@ -122,9 +121,6 @@ export interface navAppsTabLogicActions {
         starSaveResult: null
         payload?: any
     }
-    selectAllMatchingApps: () => {
-        value: true
-    }
     setAppRankingError: (error: string | null) => {
         error: string | null
     }
@@ -169,12 +165,6 @@ export interface navAppsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        selectAllMatchingAppsDisabledReason: (
-            appMatchGroups: AppMatchGroups | null,
-            appRankingsLoading: boolean,
-            pendingAppStars: Record<string, boolean>,
-            selectedAppStars: Record<string, boolean>
-        ) => string | null
         selectedAppStars: (
             starredAppIds: Record<string, string>,
             pendingAppStars: Record<string, boolean>
@@ -212,7 +202,6 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
         logic: [projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })],
     })),
     actions({
-        selectAllMatchingApps: true,
         setSearch: (search: string) => ({ search }),
         setAppRecommendationQuery: (query: string) => ({ query }),
         queueAppStar: (appPath: string, starred: boolean) => ({ appPath, starred }),
@@ -389,26 +378,6 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                       }
                     : null,
         ],
-        selectAllMatchingAppsDisabledReason: [
-            (s) => [s.appMatchGroups, s.appRankingsLoading, s.pendingAppStars, s.selectedAppStars],
-            (
-                groups: AppMatchGroups | null,
-                loading: boolean,
-                pending: Record<string, boolean>,
-                selected: Record<string, boolean>
-            ): string | null => {
-                if (!groups || loading) {
-                    return 'Waiting for suggestions'
-                }
-                if (Object.keys(pending).length > 0) {
-                    return 'Saving changes'
-                }
-                if (groups.matching.length === 0) {
-                    return 'No matching apps'
-                }
-                return groups.matching.every((item) => selected[item.path]) ? 'All matching apps are selected' : null
-            },
-        ],
         selectedAppStars: [
             (s) => [s.starredAppIds, s.pendingAppStars],
             (ids: Record<string, string>, pending: Record<string, boolean>): Record<string, boolean> => ({
@@ -483,16 +452,6 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        selectAllMatchingApps: () => {
-            if (values.selectAllMatchingAppsDisabledReason || !values.appMatchGroups) {
-                return
-            }
-            for (const item of values.appMatchGroups.matching) {
-                if (!values.selectedAppStars[item.path]) {
-                    actions.queueAppStar(item.path, true)
-                }
-            }
-        },
         setAppRecommendationQuery: ({ query }) => actions.rankApps({ query }),
         setAppStarred: ({ appPath, starred }) => {
             if (!values.configurableApps.some((app) => app.path === appPath)) {

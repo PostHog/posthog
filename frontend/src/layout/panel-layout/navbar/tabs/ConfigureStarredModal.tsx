@@ -16,8 +16,6 @@ export function ConfigureStarredModal(): JSX.Element {
         configureStarredOpen,
         rankedConfigurableApps,
         appMatchGroups,
-        selectAllMatchingAppsDisabledReason,
-        starSaveResultLoading,
         selectedAppStars,
         pendingAppStars,
         starSaveError,
@@ -26,8 +24,7 @@ export function ConfigureStarredModal(): JSX.Element {
         appRankingsLoading,
         appRankingError,
     } = useValues(navAppsTabLogic)
-    const { setConfigureStarredOpen, setAppStarred, setAppRecommendationQuery, selectAllMatchingApps } =
-        useActions(navAppsTabLogic)
+    const { setConfigureStarredOpen, setAppStarred, setAppRecommendationQuery } = useActions(navAppsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
 
     return (
@@ -129,19 +126,7 @@ export function ConfigureStarredModal(): JSX.Element {
                             >
                                 {appMatchGroups &&
                                     (group.matching ? (
-                                        <div className="flex items-center justify-between gap-2">
-                                            <h3 className="text-sm font-semibold mb-0">Matching apps</h3>
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                data-attr="configure-starred-select-all"
-                                                disabledReason={selectAllMatchingAppsDisabledReason}
-                                                loading={starSaveResultLoading}
-                                                onClick={selectAllMatchingApps}
-                                            >
-                                                Select all
-                                            </LemonButton>
-                                        </div>
+                                        <h3 className="text-sm font-semibold mb-0">Matching apps</h3>
                                     ) : (
                                         <div>
                                             <h3 className="text-sm font-semibold mb-1">Other apps</h3>

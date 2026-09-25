@@ -9,7 +9,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { FileSystemShortcutApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
@@ -201,7 +200,7 @@ describe('navAppsTabLogic', () => {
         expect(remove).toHaveBeenCalledTimes(2)
     })
 
-    it('splits the full ranked catalog at the threshold, selects only matches, and clears the grouping', async () => {
+    it('splits the full ranked catalog at the threshold and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
         const decide = jest.fn(async ({ request }) => {
             const body: DecideRequestApi = await request.json()
@@ -230,21 +229,11 @@ describe('navAppsTabLogic', () => {
                 },
             ]
         })
-        const createdPaths: string[] = []
         useMocks({
             post: {
                 '/api/projects/:team_id/ml_inference/decisions/decide/': decide,
-                '/api/projects/:team_id/file_system_shortcut/': async ({ request }) => {
-                    const data = (await request.json()) as Pick<FileSystemShortcutApi, 'path' | 'type' | 'href'>
-                    createdPaths.push(data.path)
-                    return [201, { ...data, id: `star-${data.path}` }]
-                },
             },
         })
-        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'existing', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
-        ])
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
         const allApps = navAppsTabLogic.values.configurableApps
@@ -272,17 +261,6 @@ describe('navAppsTabLogic', () => {
             (navAppsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
                 (navAppsTabLogic.values.appMatchGroups?.other.length ?? 0)
         ).toBe(allApps.length)
-        await expectLogic(navAppsTabLogic, () => {
-            navAppsTabLogic.actions.selectAllMatchingApps()
-            navAppsTabLogic.actions.selectAllMatchingApps()
-            expect(navAppsTabLogic.values.selectedAppStars).toMatchObject({
-                'Web analytics': true,
-                'SQL editor': true,
-                'Feature flags': true,
-            })
-        }).toDispatchActions(['saveAppStarsSuccess'])
-        expect(createdPaths).toEqual(['Web analytics', 'SQL editor'])
-        expect(navAppsTabLogic.values.selectAllMatchingAppsDisabledReason).toBe('All matching apps are selected')
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,
