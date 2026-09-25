@@ -166,8 +166,11 @@ export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues
         // one. Keying on name alone then returns 'new' for that template, the same key the blank
         // create form uses, so their persisted drafts share one slot and each overwrites the other.
         // Key a name-less prefill by a stable hash of its content instead, so every opening context
-        // keeps its own draft. Hash the two fields apart so a description/body split cannot collide.
-        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}`
+        // keeps its own draft. Hash the fields apart so a description/body split cannot collide, and
+        // include the config so a cadence the catalog has since changed opens fresh rather than
+        // restoring the draft taken from the old one.
+        const config = hashCodeForString(JSON.stringify(initialValues?.config ?? {}))
+        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}-${config}`
     }
     return 'new'
 }
