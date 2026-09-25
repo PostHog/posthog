@@ -29,6 +29,7 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.models.role import Role
+from products.error_tracking.backend.logic import symbol_sets as symbol_sets_logic
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -1404,6 +1405,83 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert "fallback_presigned_url" not in symbol_set_upload_response
         assert symbol_set.last_used is not None
+
+    def test_bulk_start_upload_survives_a_concurrent_upload_of_the_same_chunk(self) -> None:
+        raced_chunk_id = str(uuid7())
+        other_chunk_id = str(uuid7())
+        real_generate = symbol_sets_logic.generate_symbol_set_upload_presigned_urls
+
+        def create_the_row_first(file_key: str) -> dict:
+            # Stands in for the other request committing between our read and our insert.
+            ErrorTrackingSymbolSet.objects.get_or_create(
+                team=self.team, ref=raced_chunk_id, defaults={"storage_ptr": "uploaded-by-the-other-request"}
+            )
+            return real_generate(file_key)
+
+        with patch.object(
+            symbol_sets_logic, "generate_symbol_set_upload_presigned_urls", side_effect=create_the_row_first
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": [raced_chunk_id, other_chunk_id]},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        id_map = response.json()["id_map"]
+        assert set(id_map.keys()) == {raced_chunk_id, other_chunk_id}
+
+        for chunk_id in (raced_chunk_id, other_chunk_id):
+            symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+            assert id_map[chunk_id]["symbol_set_id"] == str(symbol_set.id)
+            assert id_map[chunk_id]["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    def test_bulk_start_upload_omits_a_chunk_the_concurrent_upload_already_finished(self) -> None:
+        raced_chunk_id = str(uuid7())
+        shared_content_hash = "hash-both-requests-carry"
+        real_generate = symbol_sets_logic.generate_symbol_set_upload_presigned_urls
+
+        def finish_the_row_first(file_key: str) -> dict:
+            # Stands in for the other request committing its row and confirming its upload
+            # between our read and our insert, so the hash we carry is already stored.
+            ErrorTrackingSymbolSet.objects.get_or_create(
+                team=self.team,
+                ref=raced_chunk_id,
+                defaults={
+                    "storage_ptr": "uploaded-by-the-other-request",
+                    "content_hash": shared_content_hash,
+                },
+            )
+            return real_generate(file_key)
+
+        with patch.object(
+            symbol_sets_logic, "generate_symbol_set_upload_presigned_urls", side_effect=finish_the_row_first
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"symbol_sets": [{"chunk_id": raced_chunk_id, "content_hash": shared_content_hash}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["id_map"] == {}
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=raced_chunk_id)
+        assert symbol_set.content_hash == shared_content_hash
+
+    def test_bulk_start_upload_inserts_chunk_ids_in_a_fixed_order(self) -> None:
+        chunk_ids = [str(uuid7()) for _ in range(3)]
+
+        with CaptureQueriesContext(connection) as queries:
+            self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": list(reversed(chunk_ids))},
+            )
+
+        inserts = [
+            q["sql"] for q in queries.captured_queries if 'INSERT INTO "posthog_errortrackingsymbolset"' in q["sql"]
+        ]
+        assert len(inserts) == 1
+        assert sorted(chunk_ids, key=inserts[0].index) == sorted(chunk_ids)
 
     def test_bulk_start_upload_includes_fallback_presigned_url_when_accelerated(self) -> None:
         chunk_id = str(uuid7())
