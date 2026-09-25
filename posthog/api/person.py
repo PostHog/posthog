@@ -1356,7 +1356,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 moves_creator = main_distinct_id != creator_distinct_id
             if moves_creator:
                 raise ValidationError(
-                    f"Distinct ID {creator_distinct_id} created this person and must stay with them. "
+                    "The distinct ID that created this person must stay with them. "
                     "Keep it on the person, or split the other IDs instead."
                 )
 

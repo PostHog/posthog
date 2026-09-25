@@ -1388,11 +1388,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("specific", ["creator", "other"], {"distinct_ids_to_split": ["creator"]}, 400, None),
-            ("keep_other", ["creator", "other"], {"main_distinct_id": "other"}, 400, None),
-            ("default_other_first", ["other", "creator"], {}, 201, "creator"),
-            ("keep_creator", ["creator", "other"], {"main_distinct_id": "creator"}, 201, "creator"),
-            ("default_creator_first", ["creator", "other"], {}, 201, "creator"),
+            ("specific", ["creator-id", "other"], {"distinct_ids_to_split": ["creator-id"]}, 400, None),
+            ("keep_other", ["creator-id", "other"], {"main_distinct_id": "other"}, 400, None),
+            ("default_other_first", ["other", "creator-id"], {}, 201, "creator-id"),
+            ("keep_creator", ["creator-id", "other"], {"main_distinct_id": "creator-id"}, 201, "creator-id"),
+            ("default_creator_first", ["creator-id", "other"], {}, 201, "creator-id"),
         ]
     )
     def test_split_people_preserves_creator_distinct_id(
@@ -1401,7 +1401,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         person = _create_person(
             team=self.team,
             distinct_ids=distinct_ids,
-            uuid=uuidFromDistinctId(self.team.id, "creator"),
+            uuid=uuidFromDistinctId(self.team.id, "creator-id"),
             immediate=True,
         )
 
@@ -1411,6 +1411,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == 400:
             self.assertIn("created this person", response.content.decode())
+            # A person:write caller must not learn a distinct ID it did not send.
+            self.assertNotIn("creator-id", response.content.decode())
             enqueue.assert_not_called()
         else:
             enqueue.assert_called_once()
