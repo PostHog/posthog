@@ -1373,7 +1373,7 @@ export const signalsScoutConfigSync = async (
 }
 
 export const getSignalsScoutConfigToolCatalogueUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/configs/tool-catalogue/`
+    return `/api/projects/${projectId}/signals/scout/configs/tool_catalogue/`
 }
 
 /**

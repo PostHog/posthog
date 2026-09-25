@@ -4124,7 +4124,7 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
     """The read-only MCP tool catalogue a per-scout tool picker is built on."""
 
     def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/configs/tool-catalogue/"
+        return f"/api/projects/{self.team.id}/signals/scout/configs/tool_catalogue/"
 
     def _tools(self) -> dict[str, dict]:
         response = self.client.get(self._url())

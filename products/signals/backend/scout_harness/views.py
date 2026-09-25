@@ -3551,7 +3551,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         detail=False,
         methods=["get"],
-        url_path="tool-catalogue",
+        url_path="tool_catalogue",
         url_name="tool-catalogue",
         pagination_class=None,
         # Custom actions need explicit scopes, as the `sync` action above notes. This one reads
