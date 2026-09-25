@@ -206,6 +206,8 @@ export class ImageBatcher {
      * a batch that throws discards what it staged. Sizing is a throughput question, not a correctness one.
      */
     private readonly seenRefs: RefDedupCache
+    /** Only the copy that set a ref's seen mark may clear it, so a dropped later copy cannot unmark a ref that an earlier copy stored. */
+    private readonly seenMarkOwners = new WeakSet<ScrubbedRef>()
     /**
      * The batch currently in flight, so shutdown can interrupt it.
      *
@@ -481,7 +483,10 @@ export class ImageBatcher {
                     // Marked here rather than on completion: a staged image is a local that a thrown
                     // batch discards, so a ref marked before retirement could be skipped on replay
                     // without ever having been persisted.
-                    this.seenRefs.add(ready.ref)
+                    if (!this.seenRefs.has(ready.ref)) {
+                        this.seenRefs.add(ready.ref)
+                        this.seenMarkOwners.add(ready)
+                    }
                     staged[retired] = null
                     stagedCount -= 1
                     stagedBytes -= ready.image.bytes.length
@@ -677,8 +682,10 @@ export class ImageBatcher {
 
     /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
     private forgetUnwritten(images: ScrubbedRef[]): void {
-        for (const { ref } of images) {
-            this.seenRefs.delete(ref)
+        for (const image of images) {
+            if (this.seenMarkOwners.has(image)) {
+                this.seenRefs.delete(image.ref)
+            }
         }
     }
 

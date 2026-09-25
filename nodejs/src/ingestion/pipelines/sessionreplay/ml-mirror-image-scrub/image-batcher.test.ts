@@ -399,6 +399,46 @@ describe('ImageBatcher', () => {
         expect(store.urlWrites.map((image) => image.sourceOffset)).toEqual([11])
     })
 
+    it('keeps a URL ref seen when a later copy of it is dropped after an earlier copy was stored', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const ref = `imageurl:v3:7:2026-09:${'a'.repeat(22)}`
+        const monthKey = tableKeyString(imageKeyId(7, '2026-09'))
+        const readKeys = jest
+            .fn()
+            .mockResolvedValueOnce(new Map([[monthKey, { identity: { teamId: 7, sessionMonth: '2026-09' } }]]))
+            .mockResolvedValue(new Map())
+        const keyManager = {
+            kafka: {
+                read: (messages: Message[]) =>
+                    Promise.resolve(messages.map((message) => ({ message, original: message, version: 2 }))),
+            },
+            reader: { read: readKeys },
+        } as unknown as MlKeyManager
+        const store = new FakeStore()
+        let scrubs = 0
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            {
+                scrub: (bytes: Buffer) => {
+                    scrubs += 1
+                    return Promise.resolve(bytes)
+                },
+            } as unknown as ScrubClient,
+            { ...options, maxImages: 1, scrubConcurrency: 1 },
+            null,
+            keyManager
+        )
+        const copy = (offset: number): Message =>
+            msg(0, offset, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }])
+
+        await handleAndWrite(batcher, [copy(10), copy(11)])
+        await handleAndWrite(batcher, [copy(12)])
+
+        expect(store.urlWrites.map((image) => image.sourceOffset)).toEqual([10])
+        expect(scrubs).toBe(2)
+    })
+
     it('bounds concurrent URL-image writes by the write concurrency, not the scrub slots', async () => {
         // The writes run behind the next batch's scrub, so sharing the scrub slots would let a write
         // burst take the sidecar's work away from it. The bound is the write lane's own.
