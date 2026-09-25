@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.api.uploaded_media import sniff_image_content_type
 from posthog.models import Team, UploadedMedia, User
@@ -208,8 +209,42 @@ def submit_desktop_feedback(
     properties.update({key: value for key, value in optional_properties.items() if value})
 
     try:
+        if _use_feedback_tickets(user):
+            from products.conversations.backend.facade.api import create_desktop_feedback_ticket
+
+            context = {
+                "feedback_source": data["source"],
+                "feedback_view": data["feedback_view"],
+                **{key: value for key, value in optional_properties.items() if value and key != "feedback_app_logs"},
+            }
+            if data.get("feedback_type"):
+                context["feedback_type"] = data["feedback_type"]
+            return create_desktop_feedback_ticket(
+                team_id=_feedback_media_team().id,
+                user_id=user.id,
+                content=data["response"],
+                context=context,
+                image_urls=list(media_properties.values()),
+                app_logs=data.get("feedback_app_logs"),
+            )
         return _capture_feedback_event(user=user, properties=properties)
     except Exception:
         for media in uploaded_media:
             _discard_media(media)
         raise
+
+
+def _use_feedback_tickets(user: User) -> bool:
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                "desktop-feedback-conversations",
+                str(user.uuid),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception:
+        logger.warning("desktop_feedback.flag_evaluation_failed", exc_info=True)
+        return False
