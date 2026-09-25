@@ -332,6 +332,8 @@ describe('hogvm execute', () => {
             expect(execSync(compare('', operation), {})).toBe(false)
             expect(execSync(compare('nonsense', operation), {})).toBe(false)
         }
+        // The shape people actually write, and the one the guard does not save.
+        expect(execSync(['_h', op.FALSE, ...compare('', op.GT_EQ).slice(1), op.AND, 2], {})).toBe(false)
     })
 
     test('async limits', async () => {
