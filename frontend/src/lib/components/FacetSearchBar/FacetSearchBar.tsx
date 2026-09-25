@@ -5,7 +5,15 @@ import { useEffect } from 'react'
 import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSnack, Popover } from '@posthog/lemon-ui'
 
-import { FacetDefinition, FacetFilter, FacetSearchValue, MatchesText, findFacet, formatFacetValue } from './facetQuery'
+import {
+    FacetDefinition,
+    FacetFilter,
+    FacetSearchValue,
+    MatchesText,
+    facetFilterKey,
+    findFacet,
+    formatFacetValue,
+} from './facetQuery'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
 
 export interface FacetSearchBarProps<TItem> {
@@ -36,7 +44,8 @@ export function FacetSearchBar<TItem>({
     dataAttr,
 }: FacetSearchBarProps<TItem>): JSX.Element {
     const logic = facetSearchBarLogic({ id: dataAttr, facets, items, value, onChange, matchesText })
-    const { input, open, suggestions, highlightedIndex, tabTarget, title, hints } = useValues(logic)
+    const { input, open, suggestions, highlightedIndex, highlightedSuggestion, tabTarget, title, hints } =
+        useValues(logic)
     const {
         setInput,
         setOpen,
@@ -50,7 +59,7 @@ export function FacetSearchBar<TItem>({
 
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
-    const activeOptionId = open && suggestions.length ? optionId(highlightedIndex) : undefined
+    const activeOptionId = open && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
     useEffect(() => {
         if (activeOptionId) {
@@ -59,6 +68,10 @@ export function FacetSearchBar<TItem>({
     }, [activeOptionId])
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+        // Keys during IME composition belong to the input method, not to the suggestions.
+        if (event.nativeEvent.isComposing) {
+            return
+        }
         const caretAtEnd =
             event.currentTarget.selectionStart === input.length && event.currentTarget.selectionEnd === input.length
         if (event.key === 'ArrowDown') {
@@ -76,7 +89,11 @@ export function FacetSearchBar<TItem>({
             if (open) {
                 applyHighlighted()
             }
-        } else if ((event.key === 'Tab' || (event.key === 'ArrowRight' && caretAtEnd)) && open && tabTarget) {
+        } else if (
+            ((event.key === 'Tab' && !event.shiftKey) || (event.key === 'ArrowRight' && caretAtEnd)) &&
+            open &&
+            tabTarget
+        ) {
             event.preventDefault()
             applyTabTarget()
         } else if (event.key === 'Escape') {
@@ -88,44 +105,43 @@ export function FacetSearchBar<TItem>({
     }
 
     const overlay = open ? (
-        <div className="w-96 max-w-full">
+        // Pressing anywhere in the popover (scrollbar, title, hint row) keeps the focus, and so the popover, in the input.
+        <div className="w-96 max-w-full" onMouseDown={(event) => event.preventDefault()}>
             <div className="px-2 py-1 text-xs font-semibold text-secondary">{title}</div>
             <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
-                {suggestions.map((suggestion, index) => (
-                    <LemonButton
-                        key={suggestion.id}
-                        id={optionId(index)}
-                        role="option"
-                        aria-selected={index === highlightedIndex}
-                        active={index === highlightedIndex}
-                        tabIndex={-1}
-                        fullWidth
-                        size="small"
-                        // Keeps focus in the input, so the combobox stays the one focused element.
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => applySuggestion(suggestion)}
-                    >
-                        <span className="flex items-center gap-2 w-full min-w-0">
-                            <span
-                                className={clsx(
-                                    'shrink-0',
-                                    suggestion.kind === 'facet' && 'font-mono',
-                                    suggestion.kind === 'none' && 'text-secondary font-normal'
-                                )}
-                            >
-                                {suggestion.label}
-                            </span>
-                            {suggestion.detail && (
-                                <span className="text-secondary font-normal truncate">{suggestion.detail}</span>
-                            )}
-                            {suggestion.count !== undefined && (
-                                <span className="ml-auto text-secondary font-normal tabular-nums" translate="no">
-                                    {suggestion.count}
+                {suggestions.map((suggestion, index) =>
+                    suggestion.kind === 'none' ? (
+                        <div key={suggestion.id} className="px-2 py-1 text-secondary">
+                            {suggestion.label}
+                        </div>
+                    ) : (
+                        <LemonButton
+                            key={suggestion.id}
+                            id={optionId(index)}
+                            role="option"
+                            aria-selected={index === highlightedIndex}
+                            active={index === highlightedIndex}
+                            tabIndex={-1}
+                            fullWidth
+                            size="small"
+                            onClick={() => applySuggestion(suggestion)}
+                        >
+                            <span className="flex items-center gap-2 w-full min-w-0">
+                                <span className={clsx('shrink-0', suggestion.kind === 'facet' && 'font-mono')}>
+                                    {suggestion.label}
                                 </span>
-                            )}
-                        </span>
-                    </LemonButton>
-                ))}
+                                {suggestion.detail && (
+                                    <span className="text-secondary font-normal truncate">{suggestion.detail}</span>
+                                )}
+                                {suggestion.count !== undefined && (
+                                    <span className="ml-auto text-secondary font-normal tabular-nums" translate="no">
+                                        {suggestion.count}
+                                    </span>
+                                )}
+                            </span>
+                        </LemonButton>
+                    )
+                )}
             </div>
             <div
                 data-attr="facet-search-bar-hints"
@@ -139,8 +155,9 @@ export function FacetSearchBar<TItem>({
     ) : null
 
     return (
-        <Popover visible={open} overlay={overlay} placement="bottom-start" onClickOutside={() => setOpen(false)}>
-            <div className="@container w-full min-w-0">
+        // The input's blur is the one close path: pressing outside moves the focus away.
+        <Popover visible={open} overlay={overlay} placement="bottom-start">
+            <div className="w-full min-w-0">
                 <LemonInput
                     type="text"
                     fullWidth
@@ -165,7 +182,7 @@ export function FacetSearchBar<TItem>({
                                 const label = pillLabel(facets, filter)
                                 return (
                                     <LemonSnack
-                                        key={`${filter.negated ? '-' : ''}${filter.facet}:${filter.value}`}
+                                        key={facetFilterKey(filter)}
                                         closeLabel={`Remove filter ${label}`}
                                         onClose={() => removeFilter(filter)}
                                         className="max-w-80"

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
@@ -12,6 +12,7 @@ import { FacetSearchBar } from './FacetSearchBar'
 interface Item {
     name: string
     status: string
+    subjects: string[]
 }
 
 const FACETS: FacetDefinition<Item>[] = [
@@ -23,18 +24,22 @@ const FACETS: FacetDefinition<Item>[] = [
         getValues: (item) => [item.status],
         formatValue: (value) => value[0].toUpperCase() + value.slice(1),
     },
+    { key: 'sends', label: 'Sends', description: 'Email subject', getValues: (item) => item.subjects },
 ]
 
 const ITEMS: Item[] = [
-    { name: 'Welcome', status: 'active' },
-    { name: 'Renewal', status: 'draft' },
-    { name: 'Promo', status: 'archived' },
+    { name: 'Welcome', status: 'active', subjects: ['Your trial ends'] },
+    { name: 'Renewal', status: 'draft', subjects: [] },
+    { name: 'Promo', status: 'archived', subjects: [] },
 ]
 
 function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
         <div>
+            <button type="button" data-attr="before">
+                Before
+            </button>
             <FacetSearchBar
                 facets={FACETS}
                 items={ITEMS}
@@ -121,6 +126,61 @@ describe('FacetSearchBar', () => {
         await user.click(input())
         await user.keyboard('{Tab}')
         expect(document.querySelector('[data-attr="after"]')).toHaveFocus()
+    })
+
+    it.each([
+        ['a typed facet value followed by a space', 'status:active ', 'status:active', ''],
+        ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ''],
+        ['text around a typed facet value', 'wel status:active ren', 'status:active', 'wel ren'],
+    ])('turns %s into a pill', async (_, typed, query, text) => {
+        const user = setup()
+        await user.click(input())
+        await user.keyboard(typed)
+        expect(shown('query')).toEqual(query)
+        expect(shown('text')).toEqual(text)
+    })
+
+    it('turns a pasted query into pills', async () => {
+        const user = setup()
+        await user.click(input())
+        await user.paste('status:draft -status:archived ')
+        expect(shown('query')).toEqual('status:draft -status:archived')
+        expect(input()).toHaveValue('')
+    })
+
+    it('Shift+Tab moves focus back instead of applying a filter', async () => {
+        const user = setup()
+        await user.click(input())
+        await user.keyboard('sta')
+        await user.keyboard('{Shift>}{Tab}{/Shift}')
+        expect(document.querySelector('[data-attr="before"]')).toHaveFocus()
+        expect(shown('query')).toEqual('')
+    })
+
+    it('Enter while an IME is composing does not apply the highlighted row', async () => {
+        const user = setup()
+        await user.click(input())
+        await user.keyboard('status:')
+        fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+        expect(shown('query')).toEqual('')
+        expect(input()).toHaveValue('status:')
+    })
+
+    it('keeps focus in the input when the popover chrome is pressed', async () => {
+        const user = setup()
+        await user.click(input())
+        const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
+        // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
+        expect(fireEvent.mouseDown(hints)).toBe(false)
+    })
+
+    it('shows the no-values message as text, not as an option', async () => {
+        const user = setup()
+        await user.click(input())
+        await user.keyboard('status:zzz')
+        expect(document.querySelectorAll('[role="option"]')).toHaveLength(0)
+        expect(listbox()).toHaveTextContent('No values match your other filters')
+        expect(input()).not.toHaveAttribute('aria-activedescendant')
     })
 
     it('exposes the combobox and labels each pill remove button', async () => {

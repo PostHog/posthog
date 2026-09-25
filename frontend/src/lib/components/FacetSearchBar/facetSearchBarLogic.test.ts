@@ -126,6 +126,23 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.input).toEqual('wel ')
     })
 
+    it('matches the text once per item for a suggestion build, not once per facet', () => {
+        const countingMatch = jest.fn(matchesText)
+        logic = facetSearchBarLogic({
+            id: 'test',
+            facets: FACETS,
+            items: ITEMS,
+            value: { filters: [], text: 'e' },
+            onChange,
+            matchesText: countingMatch,
+        })
+        logic.mount()
+        logic.actions.setInput('e st')
+        countingMatch.mockClear()
+        expect(logic.values.suggestions.length).toBeGreaterThan(0)
+        expect(countingMatch.mock.calls.length).toBeLessThanOrEqual(ITEMS.length)
+    })
+
     it.each([
         ['status:zzz', 0, ['↑↓ to move', 'Esc to close']],
         ['', 0, ['Enter to pick status:', '↑↓ to move', 'Esc to close']],

@@ -87,7 +87,7 @@ export function parseFacetQuery<TItem>(query: string, facets: FacetDefinition<TI
     return filters
 }
 
-export function serializeFacetValue(value: string): string {
+function serializeFacetValue(value: string): string {
     return /[\s"]/.test(value) ? `"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"` : value
 }
 
@@ -97,22 +97,37 @@ export function serializeFacetQuery(filters: FacetFilter[]): string {
         .join(' ')
 }
 
-function passesFilters<TItem>(item: TItem, filters: FacetFilter[], facets: FacetDefinition<TItem>[]): boolean {
-    const byFacet = new Map<string, FacetFilter[]>()
+interface FacetFilterGroup<TItem> {
+    facet: FacetDefinition<TItem>
+    positive: Set<string>
+    negative: Set<string>
+}
+
+/** Groups the pills by facet once, so matching many items doesn't regroup them per item. */
+function groupFilters<TItem>(filters: FacetFilter[], facets: FacetDefinition<TItem>[]): FacetFilterGroup<TItem>[] {
+    const groups = new Map<string, FacetFilterGroup<TItem>>()
     for (const filter of filters) {
-        byFacet.set(filter.facet, [...(byFacet.get(filter.facet) ?? []), filter])
-    }
-    for (const [key, facetFilters] of byFacet) {
-        const facet = findFacet(facets, key)
+        const facet = findFacet(facets, filter.facet)
         if (!facet) {
             continue
         }
-        const values = new Set(facet.getValues(item).map((value) => value.toLowerCase()))
-        const positive = facetFilters.filter((filter) => !filter.negated)
-        if (positive.length && !positive.some((filter) => values.has(filter.value.toLowerCase()))) {
+        const group = groups.get(facet.key) ?? { facet, positive: new Set(), negative: new Set() }
+        ;(filter.negated ? group.negative : group.positive).add(filter.value.toLowerCase())
+        groups.set(facet.key, group)
+    }
+    return [...groups.values()]
+}
+
+function passesGroups<TItem>(item: TItem, groups: FacetFilterGroup<TItem>[], skipFacet?: string): boolean {
+    for (const { facet, positive, negative } of groups) {
+        if (facet.key === skipFacet) {
+            continue
+        }
+        const values = facet.getValues(item).map((value) => value.toLowerCase())
+        if (positive.size && !values.some((value) => positive.has(value))) {
             return false
         }
-        if (facetFilters.some((filter) => filter.negated && values.has(filter.value.toLowerCase()))) {
+        if (values.some((value) => negative.has(value))) {
             return false
         }
     }
@@ -120,20 +135,63 @@ function passesFilters<TItem>(item: TItem, filters: FacetFilter[], facets: Facet
 }
 
 /** Pills on one facet are OR, pills on different facets are AND, and the text is AND with the pills. */
+export function createFacetMatcher<TItem>(
+    value: FacetSearchValue,
+    facets: FacetDefinition<TItem>[],
+    matchesText: MatchesText<TItem>
+): (item: TItem) => boolean {
+    const groups = groupFilters(value.filters, facets)
+    const text = value.text.trim()
+    return (item) => passesGroups(item, groups) && (!text || matchesText(item, text))
+}
+
 export function matchesFacetQuery<TItem>(
     item: TItem,
     value: FacetSearchValue,
     facets: FacetDefinition<TItem>[],
     matchesText: MatchesText<TItem>
 ): boolean {
-    const text = value.text.trim()
-    return passesFilters(item, value.filters, facets) && (!text || matchesText(item, text))
+    return createFacetMatcher(value, facets, matchesText)(item)
 }
 
 /**
- * Counts each value of one facet over the items the other pills and the text let through.
- * The facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
+ * Returns a counter of each facet's values over the items the other pills and the text let through.
+ * A facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
+ * The text is matched once per item, however many facets get counted.
  */
+export function createFacetCounter<TItem>(
+    items: TItem[],
+    value: FacetSearchValue,
+    facets: FacetDefinition<TItem>[],
+    matchesText: MatchesText<TItem>
+): (facetKey: string) => FacetValueCount[] {
+    const text = value.text.trim()
+    const textMatches = text ? items.filter((item) => matchesText(item, text)) : items
+    const groups = groupFilters(value.filters, facets)
+    return (facetKey) => {
+        const facet = findFacet(facets, facetKey)
+        if (!facet) {
+            return []
+        }
+        const counts = new Map<string, FacetValueCount>()
+        for (const item of textMatches) {
+            if (!passesGroups(item, groups, facet.key)) {
+                continue
+            }
+            const itemValues = new Map(facet.getValues(item).map((itemValue) => [itemValue.toLowerCase(), itemValue]))
+            for (const [lowered, itemValue] of itemValues) {
+                const entry = counts.get(lowered)
+                if (entry) {
+                    entry.count++
+                } else {
+                    counts.set(lowered, { value: itemValue, count: 1 })
+                }
+            }
+        }
+        return [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+    }
+}
+
 export function countFacetValues<TItem>(
     items: TItem[],
     facetKey: string,
@@ -141,28 +199,5 @@ export function countFacetValues<TItem>(
     facets: FacetDefinition<TItem>[],
     matchesText: MatchesText<TItem>
 ): FacetValueCount[] {
-    const facet = findFacet(facets, facetKey)
-    if (!facet) {
-        return []
-    }
-    const others: FacetSearchValue = {
-        filters: value.filters.filter((filter) => filter.facet !== facet.key),
-        text: value.text,
-    }
-    const counts = new Map<string, FacetValueCount>()
-    for (const item of items) {
-        if (!matchesFacetQuery(item, others, facets, matchesText)) {
-            continue
-        }
-        const itemValues = new Map(facet.getValues(item).map((itemValue) => [itemValue.toLowerCase(), itemValue]))
-        for (const [lowered, itemValue] of itemValues) {
-            const entry = counts.get(lowered)
-            if (entry) {
-                entry.count++
-            } else {
-                counts.set(lowered, { value: itemValue, count: 1 })
-            }
-        }
-    }
-    return [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+    return createFacetCounter(items, value, facets, matchesText)(facetKey)
 }
