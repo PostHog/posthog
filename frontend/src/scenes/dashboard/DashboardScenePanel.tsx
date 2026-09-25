@@ -9,7 +9,6 @@ import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneFullscreen } from 'lib/components/Scenes/SceneFullscreen'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -46,13 +45,12 @@ export function DashboardScenePanel(): JSX.Element | null {
         dashboardMode,
         canEditDashboard,
         isSavingTags,
-        isPinned,
         asDashboardTemplate,
         currentDashboardVariables,
         apiUrl,
         tiles,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -99,7 +97,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                                 Copy to another project
                             </ButtonPrimitive>
                         )}
-                        <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
                         <SceneFullscreen
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => {
