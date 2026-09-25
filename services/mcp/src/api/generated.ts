@@ -47661,6 +47661,18 @@ export namespace Schemas {
       size_bytes: number;
     }
 
+    /**
+     * * `review` - review
+     * * `observe` - observe
+     */
+    export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+
+
+    export const PurposeEnum = {
+      Review: 'review',
+      Observe: 'observe',
+    } as const;
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -47675,6 +47687,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+       *
+       * * `review` - review
+       * * `observe` - observe */
+      readonly purpose: PurposeEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
        *
        * * `exact` - exact
