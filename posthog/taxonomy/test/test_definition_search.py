@@ -42,12 +42,6 @@ class TestIsLargeProject(BaseTest):
         with self.assertNumQueries(1):
             is_large_project("posthog_eventdefinition", self.team.pk + 1, DEFAULT_DB_ALIAS)
 
-    def test_reads_a_plan_name_cached_by_an_earlier_release(self) -> None:
-        cache.set(f"taxonomy_search_plan:posthog_eventdefinition:{self.team.pk}", "trigram")
-
-        with self.assertNumQueries(0):
-            assert is_large_project("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) is True
-
     @parameterized.expand([("cache_read_fails", "get"), ("cache_write_fails", "set")])
     def test_survives_a_cache_outage(self, _name: str, failing_method: str) -> None:
         with patch.object(cache, failing_method, side_effect=ConnectionError("redis down")):

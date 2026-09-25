@@ -8,7 +8,6 @@ from posthog.dataclasses import frozen
 from posthog.utils import get_safe_cache, safe_cache_set
 
 DefinitionTable = Literal["posthog_eventdefinition", "posthog_propertydefinition"]
-SearchPlan = Literal["project_scan", "trigram"]
 
 # Above this many definitions, walking the project's rows costs more than the global trigram index.
 # Measured on production: at ~140k rows the project scan still wins by 40x; at ~600k rows the two

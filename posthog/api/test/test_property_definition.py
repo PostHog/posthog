@@ -256,24 +256,65 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             assert len(db_results) == (100 if i < 2 else 10)
             assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
 
-    def test_large_project_caps_the_count(self):
+    def _large_project_with_five_properties(self) -> Team:
+        team = Team.objects.create(organization=self.organization, name="Large project")
         PropertyDefinition.objects.bulk_create(
-            [PropertyDefinition(team=self.team, name=f"zz_prop_{i}", property_type="String") for i in range(5)]
+            [PropertyDefinition(team=team, name=f"prop_{i}", property_type="String") for i in range(5)]
         )
+        EventProperty.objects.create(team=team, event="$pageview", property="prop_1")
+        EventProperty.objects.create(team=team, event="$pageview", property="prop_3")
         # The large-project flag is cached per project, so an earlier request in this class must not decide it.
         cache.clear()
+        return team
+
+    def test_large_project_caps_the_count_and_lists_virtual_properties_once(self):
+        team = self._large_project_with_five_properties()
         with (
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
             patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
         ):
-            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event&search=zz_prop")
+            pages = [
+                self.client.get(f"/api/projects/{team.pk}/property_definitions/?type=event&limit=2&offset={offset}")
+                for offset in (0, 2, 4)
+            ]
+
+        assert all(page.status_code == status.HTTP_200_OK for page in pages)
+        # A capped count is a lower bound, so the virtual properties do not add to it.
+        assert [(page.json()["count"], page.json()["count_is_capped"]) for page in pages] == [(3, True)] * 3
+        results = [result for page in pages for result in page.json()["results"]]
+        assert [r["name"] for r in exclude_virtual_properties(results)] == [f"prop_{i}" for i in range(5)]
+        virtual_names = [r["name"] for r in results if r["name"].startswith("$virt_")]
+        assert virtual_names and len(virtual_names) == len(set(virtual_names))
+        assert all(r["name"].startswith("$virt_") for r in pages[-1].json()["results"][1:])
+
+    @parameterized.expand(
+        [
+            ("search", "&search=prop_", ["prop_0", "prop_1", "prop_2", "prop_3", "prop_4"], 5),
+            (
+                "filtered_by_event",
+                "&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true",
+                ["prop_1", "prop_3"],
+                2,
+            ),
+        ]
+    )
+    def test_large_project_keeps_the_exact_count_for_sparse_requests(
+        self, _name: str, query_string: str, expected_names: list[str], expected_db_count: int
+    ):
+        team = self._large_project_with_five_properties()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            response = self.client.get(f"/api/projects/{team.pk}/property_definitions/?type=event{query_string}")
 
         assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert [r["name"] for r in exclude_virtual_properties(results)] == [f"zz_prop_{i}" for i in range(5)]
-        # The virtual event properties still ride on the last page, but a capped count stays at the cap:
-        # it is a lower bound already, so adding to it would report a total that no page reaches.
-        assert response.json()["count"] == 3
+        body = response.json()
+        assert [r["name"] for r in exclude_virtual_properties(body["results"])] == expected_names
+        assert body["count_is_capped"] is False
+        assert body["count"] - (len(body["results"]) - len(exclude_virtual_properties(body["results"]))) == (
+            expected_db_count
+        )
 
     def test_cant_see_property_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
@@ -1168,12 +1209,39 @@ class TestQueryContextLargeProjectSql(SimpleTestCase):
     def test_single_statement_otherwise(self, _name: str, large_project: bool, order_by_verified: bool) -> None:
         assert "UNION ALL" not in self._context(large_project).as_sql(order_by_verified=order_by_verified)
 
-    def test_large_project_count_is_bounded(self) -> None:
-        assert (
-            "ORDER BY posthog_propertydefinition.name LIMIT %(count_cap)s) bounded"
-            in self._context(True).as_count_sql()
+    @parameterized.expand(
+        [
+            ("large_project", True, None, False, True),
+            ("small_project", False, None, False, False),
+            ("large_project_search", True, "abc", False, False),
+            ("large_project_filtered_by_event", True, None, True, False),
+        ]
+    )
+    def test_count_is_bounded_only_where_matches_are_dense(
+        self, _name: str, large_project: bool, search: Optional[str], filter_by_event_names: bool, bounded: bool
+    ) -> None:
+        context = self._context(large_project)
+        if search:
+            context = context.with_search("AND name ILIKE %(search)s", {"search": f"%{search}%"}, True)
+        if filter_by_event_names:
+            context = context.with_event_property_filter(event_names=["$pageview"], filter_by_event_names=True)
+
+        count_sql = context.as_count_sql()
+
+        assert ("ORDER BY posthog_propertydefinition.name LIMIT %(count_cap)s) bounded" in count_sql) is bounded
+        # The event filter limits rows, so the count has to carry the join too.
+        assert ("INNER JOIN (" in count_sql) is filter_by_event_names
+
+    def test_filtered_by_event_pages_in_one_statement_led_by_the_seen_flag(self) -> None:
+        sql = (
+            self._context(True)
+            .with_event_property_filter(event_names=["$pageview"], filter_by_event_names=True)
+            .as_sql(order_by_verified=True)
         )
-        assert "bounded" not in self._context(False).as_count_sql()
+
+        assert "UNION ALL" not in sql
+        assert "INNER JOIN (" in sql
+        assert "ORDER BY is_seen_on_filtered_events DESC," in " ".join(sql.split())
 
 
 class TestPropertyDefinitionQuerySerializer(SimpleTestCase):

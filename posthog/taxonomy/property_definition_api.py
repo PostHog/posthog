@@ -225,8 +225,8 @@ class QueryContext:
     name_filter: str = ""
     numerical_filter: str = ""
     search_query: str = ""
-    seen_on_events_filter: str = ""
     seen_on_events_join: str = ""
+    seen_on_events_join_limits_rows: bool = False
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
@@ -328,27 +328,29 @@ class QueryContext:
     ) -> Self:
         parsed_event_names = list(event_names or [])
 
-        seen_on_events_filter = ""
         seen_on_events_join = ""
+        seen_on_events_join_limits_rows = False
         event_property_field = "NULL"
         order_by_seen_on_events = False
 
         if self.should_join_event_property:
             if filter_by_event_names:
-                seen_property_names = self._seen_property_names(bool(parsed_event_names))
-                seen_on_events_filter = f"AND {self.property_definition_table}.name IN ({seen_property_names})"
-                if parsed_event_names:
-                    # With the filter above applied, every returned row is seen on the events.
-                    event_property_field = "true"
-            elif parsed_event_names:
-                seen_on_events_join = self._seen_on_events_join()
-                event_property_field = f"{self.seen_on_events_join_alias}.property IS NOT NULL"
+                # An INNER JOIN lets Postgres start from the few properties seen on the events. With
+                # `name IN (subquery)` and the large-project `ORDER BY name LIMIT`, it walks the project's
+                # rows in name order instead and probes posthog_eventproperty once per row.
+                seen_on_events_join = self._seen_on_events_join("INNER JOIN", bool(parsed_event_names))
+                seen_on_events_join_limits_rows = True
                 order_by_seen_on_events = True
+            elif parsed_event_names:
+                seen_on_events_join = self._seen_on_events_join("LEFT JOIN", True)
+                order_by_seen_on_events = True
+            if parsed_event_names:
+                event_property_field = f"{self.seen_on_events_join_alias}.property IS NOT NULL"
 
         return dataclasses.replace(
             self,
-            seen_on_events_filter=seen_on_events_filter,
             seen_on_events_join=seen_on_events_join,
+            seen_on_events_join_limits_rows=seen_on_events_join_limits_rows,
             event_property_field=event_property_field,
             order_by_seen_on_events=order_by_seen_on_events,
             params={**self.params, "event_names": parsed_event_names},
@@ -515,9 +517,17 @@ class QueryContext:
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
+    @property
+    def bounds_the_count(self) -> bool:
+        # A search or a join on the events matches few rows, so a bounded count in name order would walk
+        # most of the project before it reached the cap.
+        return self.large_project and not self.order_by_search_relevance and not self.seen_on_events_join_limits_rows
+
     def as_count_sql(self):
-        source_sql = f"FROM {self.table}\n            {self._where_sql()}"
-        if self.large_project:
+        # A LEFT JOIN cannot change the count, so only a join that limits rows belongs in it.
+        join = self.seen_on_events_join if self.seen_on_events_join_limits_rows else ""
+        source_sql = f"FROM {self.table}\n            {join}\n            {self._where_sql()}"
+        if self.bounds_the_count:
             return bounded_count_sql(source_sql, f"{self.property_definition_table}.name")
         return f"SELECT count(*) as full_count {source_sql}"
 
@@ -527,29 +537,20 @@ class QueryContext:
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
-             {self.name_filter} {self.numerical_filter} {self.search_query} {self.seen_on_events_filter} {self.is_feature_flag_filter}
+             {self.name_filter} {self.numerical_filter} {self.search_query} {self.is_feature_flag_filter}
         """
 
-    def _seen_property_names(self, scoped_to_event_names: bool) -> str:
-        # Only for the WHERE clause, where Postgres pulls the subquery up into a semi-join. It
-        # removes the duplicate property names itself and reads posthog_eventproperty once.
-        event_filter = "AND event = ANY(%(event_names)s)" if scoped_to_event_names else ""
-        return f"""
-                SELECT property
-                FROM posthog_eventproperty
-                WHERE coalesce(project_id, team_id) = %(project_id)s {event_filter}
-            """
-
-    def _seen_on_events_join(self) -> str:
+    def _seen_on_events_join(self, join_type: str, scoped_to_event_names: bool) -> str:
         # A join, because the flag is read in the SELECT list. Postgres runs a SELECT-list IN as a
         # SubPlan that hashes the event properties and cannot spill that hash, so it scans them
         # again for each definition row as soon as the hash is too large for memory. A join can
         # spill. DISTINCT keeps the join from repeating a definition seen on several events.
+        event_filter = "AND event = ANY(%(event_names)s)" if scoped_to_event_names else ""
         return f"""
-            LEFT JOIN (
+            {join_type} (
                 SELECT DISTINCT property
                 FROM posthog_eventproperty
-                WHERE coalesce(project_id, team_id) = %(project_id)s AND event = ANY(%(event_names)s)
+                WHERE coalesce(project_id, team_id) = %(project_id)s {event_filter}
             ) {self.seen_on_events_join_alias}
             ON {self.seen_on_events_join_alias}.property = {self.property_definition_table}.name
             """
@@ -814,7 +815,7 @@ class PropertyDefinitionViewSet(
                 count_span.set_attribute("full_count", full_count)
 
             # A capped count is a lower bound already, so `list()` must not add the virtual rows to it.
-            self._count_is_lower_bound = large_project and full_count >= LARGE_PROJECT_COUNT_CAP
+            self._count_is_lower_bound = query_context.bounds_the_count and full_count >= LARGE_PROJECT_COUNT_CAP
             self.paginator.set_count(full_count, is_capped=self._count_is_lower_bound)
             span.set_attribute("full_count", full_count)
 
@@ -882,9 +883,9 @@ class PropertyDefinitionViewSet(
         description=(
             "List the property definitions of a project. On projects with more than "
             f"{PROJECT_SCAN_MAX_DEFINITIONS} property definitions, `count` stops at "
-            f"{LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true. `count` is a lower bound there, "
-            "not a total, and `next` keeps paging past it. The default sort on those projects is "
-            "verified definitions first, then name."
+            f"{LARGE_PROJECT_COUNT_CAP} and `count_is_capped` is true, unless the request sets `search` or "
+            "`filter_by_event_names`. `count` is a lower bound there, not a total, and `next` keeps paging "
+            "past it. The default sort on those projects is verified definitions first, then name."
         ),
         parameters=[PropertyDefinitionQuerySerializer],
     )
@@ -927,8 +928,8 @@ class PropertyDefinitionViewSet(
             ]
 
             db_count = response.data["count"]
-            page_end_index = (paginator.offset or 0) + len(response.data["results"])
-            is_last_page = page_end_index >= db_count
+            # Past a capped count, `count` is only a lower bound, so the page with no next link is the last one.
+            is_last_page = paginator.get_next_link() is None
 
             # Add virtual properties to the end of the results
             # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable
