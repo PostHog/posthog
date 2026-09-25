@@ -693,6 +693,9 @@ class SandboxBase(ABC):
     @abstractmethod
     def is_running(self) -> bool: ...
 
+    def exit_reason(self) -> str | None:
+        return None
+
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 

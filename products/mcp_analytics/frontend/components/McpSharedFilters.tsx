@@ -15,6 +15,7 @@ import { McpInternalUsersFilter } from './McpInternalUsersFilter'
 const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.MCPProperties,
     TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 
