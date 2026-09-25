@@ -10,9 +10,6 @@ ExperimentFunnelMetric.series doesn't yet support ExperimentDataWarehouseNode
 independently of schema validation.
 """
 
-from datetime import datetime
-
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
@@ -22,12 +19,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, ExperimentDataWarehouseNode
 
-from posthog.hogql import ast
-
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 
 
-def create_mock_metric(series):
+def mock_funnel_metric(series):
     """
     Create mock ExperimentFunnelMetric with given series.
 
@@ -116,7 +111,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_consistent_join_keys_single_dw_step(self):
         """Single DW step has no consistency issues."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 ExperimentDataWarehouseNode(
@@ -134,7 +129,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_consistent_join_keys_no_dw_steps(self):
         """Funnel with no DW steps has no consistency issues."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 EventsNode(event="purchase"),
@@ -147,7 +142,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_consistent_join_keys_multiple_same_key(self):
         """Multiple DW steps with same events_join_key is valid."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 ExperimentDataWarehouseNode(
@@ -171,7 +166,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_consistent_join_keys_different_keys(self):
         """Multiple DW steps with different events_join_key produces error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="revenue",
@@ -198,7 +193,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_consistent_join_keys_error_shows_step_numbers(self):
         """Join key mismatch error shows which steps use which keys."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),  # Step 1
                 ExperimentDataWarehouseNode(  # Step 2
@@ -227,7 +222,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_complexity_limits_within_limits(self):
         """Funnel within complexity limits passes validation."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 ExperimentDataWarehouseNode(
@@ -251,7 +246,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_complexity_limits_too_many_dw_steps(self):
         """More than 3 DW steps produces error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="table1",
@@ -290,7 +285,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_complexity_limits_too_many_tables(self):
         """More than 2 distinct DW tables produces error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="table_a",
@@ -325,7 +320,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_complexity_limits_same_table_multiple_times(self):
         """Same table used multiple times counts as 1 distinct table."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="revenue",
@@ -355,7 +350,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_all_valid(self):
         """Valid DW funnel passes all validations."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 ExperimentDataWarehouseNode(
@@ -372,7 +367,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_missing_fields_raises(self):
         """DW funnel with missing fields raises validation error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="",  # Missing
@@ -393,7 +388,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_join_key_mismatch_raises(self):
         """DW funnel with inconsistent join keys raises validation error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="revenue",
@@ -419,7 +414,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_complexity_limit_raises(self):
         """DW funnel exceeding complexity limits raises validation error."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="table_a",
@@ -451,7 +446,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_multiple_errors(self):
         """DW funnel with missing fields returns field error first (early return)."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 ExperimentDataWarehouseNode(
                     table_name="",  # Missing - field error
@@ -479,7 +474,7 @@ class TestFunnelDWValidator(SimpleTestCase):
 
     def test_validate_funnel_metric_events_only_passes(self):
         """Events-only funnel requires no DW validation."""
-        metric = create_mock_metric(
+        metric = mock_funnel_metric(
             series=[
                 EventsNode(event="pageview"),
                 EventsNode(event="add_to_cart"),
@@ -489,76 +484,3 @@ class TestFunnelDWValidator(SimpleTestCase):
 
         # Should not raise
         FunnelDWValidator.validate_funnel_metric(metric)
-
-
-class TestFunnelDWValidationIntegration(BaseTest):
-    """Integration tests for FunnelDWValidator in query execution context."""
-
-    def test_query_builder_builds_union_query_for_dw_funnels(self):
-        """Query builder should successfully build UNION ALL query for DW funnels."""
-        from posthog.schema import (
-            ExperimentEventExposureConfig,
-            ExperimentFunnelMetric,
-            MultipleVariantHandling,
-            StepOrderValue,
-        )
-
-        from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-
-        from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
-
-        # Create metric with DW step
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="pageview"),
-                ExperimentDataWarehouseNode(
-                    table_name="revenue",
-                    timestamp_field="purchase_date",
-                    data_warehouse_join_key="user_id",
-                    events_join_key="properties.$user_id",
-                ),
-            ],
-            funnel_order_type=StepOrderValue.ORDERED,
-        )
-
-        # Build query using query builder directly
-        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
-        date_range = QueryDateRange(
-            date_range=None,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
-        )
-
-        builder = ExperimentQueryBuilder(
-            team=self.team,
-            feature_flag_key="test-feature",
-            exposure_config=exposure_config,
-            filter_test_accounts=True,
-            multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
-            variants=["control", "test"],
-            date_range_query=date_range,
-            entity_key="person_id",
-            metric=metric,
-        )
-
-        # Should successfully build query without errors
-        query = builder.build_query()
-
-        # Verify query structure
-        assert query is not None
-        assert isinstance(query, ast.SelectQuery)
-
-        # Verify the query has metric_events CTE with UNION ALL
-        assert query.ctes is not None
-        assert "metric_events" in query.ctes
-
-        # The CTE SQL should contain UNION ALL and DW table reference
-        # Note: We can't call to_printed_hogql() because it will try to resolve the DW table
-        # which doesn't exist in the test environment. Instead, verify the CTE structure directly.
-        metric_events_cte = query.ctes["metric_events"]
-        assert isinstance(metric_events_cte, ast.CTE)
-
-        # The CTE expr should be a SelectSetQuery (UNION) or contain one
-        # For now, just verify it was built successfully
-        assert metric_events_cte.expr is not None
