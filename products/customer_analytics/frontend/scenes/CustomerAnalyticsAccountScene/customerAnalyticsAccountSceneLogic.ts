@@ -27,7 +27,6 @@ import { Breadcrumb } from '~/types'
 
 import {
     AccountExpansionTab,
-    DEFAULT_ACCOUNT_TAB,
     getVisibleAccountExpansionTab,
 } from 'products/customer_analytics/frontend/components/Accounts/accountsExpansionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
@@ -54,6 +53,17 @@ function accountDetailUrl(props: CustomerAnalyticsAccountSceneLogicProps, tab?: 
     return props.externalId
         ? urls.customerAnalyticsAccountByExternalId(props.externalId, tab)
         : urls.customerAnalyticsAccount(props.accountId ?? '', tab)
+}
+
+function parseAccountTabRoute(tab: string | undefined): string | undefined {
+    if (!tab) {
+        return undefined
+    }
+    try {
+        return decodeURIComponent(tab)
+    } catch {
+        return tab
+    }
 }
 
 function isAccountNotFound(error: unknown): boolean {
@@ -106,8 +116,8 @@ export interface customerAnalyticsAccountSceneLogicActions {
     restoreActiveTab: (tab: string | undefined) => {
         tab: string
     }
-    setActiveTab: (tab: AccountExpansionTab) => {
-        tab: AccountExpansionTab
+    setActiveTab: (tab: string) => {
+        tab: string
     }
     startAccountPresencePolling: (accountId: string) => {
         accountId: string
@@ -169,8 +179,8 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         loadAccountPresenceSuccess: (viewers: AccountPresenceViewerApi[]) => ({ viewers }),
         startAccountPresencePolling: (accountId: string) => ({ accountId }),
         loadAccountPresenceFailure: (error: unknown) => ({ error }),
-        setActiveTab: (tab: AccountExpansionTab) => ({ tab }),
-        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? DEFAULT_ACCOUNT_TAB }),
+        setActiveTab: (tab: string) => ({ tab }),
+        restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? '' }),
         updateTags: (tags: string[]) => ({ tags }),
         updateTagsDone: (account: AccountApi | null) => ({ account }),
     }),
@@ -215,7 +225,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             },
         ],
         requestedTab: [
-            DEFAULT_ACCOUNT_TAB as string,
+            '',
             {
                 setActiveTab: (_, { tab }) => tab,
                 restoreActiveTab: (_, { tab }) => tab,
@@ -383,7 +393,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     })),
     actionToUrl(({ props }) => ({
         setActiveTab: ({ tab }) => [
-            accountDetailUrl(props, tab === DEFAULT_ACCOUNT_TAB ? undefined : tab),
+            accountDetailUrl(props, tab),
             router.values.currentLocation.searchParams,
             router.values.currentLocation.hashParams,
         ],
@@ -398,10 +408,10 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         }
         return {
             [`${accountDetailUrl(props)}/:tab`]: ({ tab }) => {
-                actions.restoreActiveTab(tab)
+                actions.restoreActiveTab(parseAccountTabRoute(tab))
             },
             [accountDetailUrl(props)]: () => {
-                actions.restoreActiveTab(DEFAULT_ACCOUNT_TAB)
+                actions.restoreActiveTab(undefined)
             },
         }
     }),

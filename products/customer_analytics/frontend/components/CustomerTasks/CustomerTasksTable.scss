@@ -7,6 +7,10 @@
     display: none;
 }
 
+.CustomerTasksTable__narrow-controls {
+    display: none;
+}
+
 @container (max-width: 720px) {
     .CustomerTasksTable__updated,
     .CustomerTasksTable__assignee {
@@ -15,5 +19,31 @@
 
     .CustomerTasksTable__narrow-assignee {
         display: block;
+    }
+
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(3),
+    .CustomerTasksTable--account .LemonTable colgroup col:nth-child(5),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(4),
+    .CustomerTasksTable--inbox .LemonTable colgroup col:nth-child(6) {
+        display: none;
+    }
+}
+
+@container (max-width: 560px) {
+    .CustomerTasksTable--account {
+        .CustomerTasksTable__status,
+        .CustomerTasksTable__due,
+        .LemonTable colgroup col:nth-child(2),
+        .LemonTable colgroup col:nth-child(4) {
+            display: none;
+        }
+
+        .CustomerTasksTable__narrow-controls {
+            display: flex;
+        }
+
+        .LemonTable colgroup col:first-child {
+            width: auto !important;
+        }
     }
 }
