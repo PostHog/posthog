@@ -177,7 +177,6 @@
 1 products/signals/eval/capture.py
 1 products/signals/eval/common.py
 1 products/skills/backend/marketplace/git_smart_http.py
-1 products/slack_app/backend/slack_thread.py
 1 products/slack_app/backend/tests/services/test_run_preferences.py
 1 products/slack_app/backend/tests/services/test_slack_app_home.py
 1 products/stamphog/backend/tests/conftest.py
@@ -202,7 +201,6 @@
 1 products/tasks/backend/temporal/process_task/activities/enforce_self_driving_quota.py
 1 products/tasks/backend/temporal/process_task/activities/feature_flags.py
 1 products/tasks/backend/temporal/process_task/activities/get_task_processing_context.py
-1 products/tasks/backend/temporal/process_task/activities/post_slack_update.py
 1 products/tasks/backend/temporal/process_task/activities/read_sandbox_logs.py
 1 products/tasks/backend/temporal/process_task/activities/relay_sandbox_events.py
 1 products/tasks/backend/temporal/process_task/activities/run_wizard.py
