@@ -139,6 +139,7 @@ Capture converts that state before every read (`cdc/legacy_conversion.py`), so n
   Each syncing table's schedule is rebuilt unpaused, because it is now the table's consumer.
   The source is then marked `cdc_ingest_mode: buffered`, last, so a failure repeats the whole conversion on the next run.
   Legacy batches still in the load queue land first, because the consumer stands down while any are in flight.
+  Until then, a scheduled run of one of its tables, such as one a sync frequency change unpaused, no-ops the tick (`cdc_buffered_waiting_for_legacy_conversion`), because reading those copies would load them a second time.
 - **A table with deferred runs** snapshots again in the buffer.
   Nothing merges deferred runs anymore, so its schedule is paused and its running sync cancelled.
   A cancel only asks the workflow to stop, and the loader can still apply batches the sync queued, so the reset waits for a later capture run while either is in progress (`cdc_legacy_snapshot_restart_waiting`).

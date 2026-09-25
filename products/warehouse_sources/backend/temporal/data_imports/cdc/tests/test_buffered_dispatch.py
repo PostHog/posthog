@@ -78,10 +78,8 @@ def _dispatch(
 
 
 class TestBufferedDispatch:
-    # A source capture has not converted yet still reads "legacy"; its streaming tables consume the buffer too.
-    @pytest.mark.parametrize("ingest_mode", ["buffered", "legacy"])
-    def test_a_streaming_schema_is_consumed_from_the_buffer(self, ingest_mode):
-        response = _dispatch(_schema(ingest_mode), _inputs())
+    def test_a_streaming_schema_is_consumed_from_the_buffer(self):
+        response = _dispatch(_schema(), _inputs())
 
         assert response.name == "users"
         assert response.cdc_write_mode == "incremental_merge"
@@ -127,10 +125,9 @@ class TestBufferedDispatch:
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
-    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
-        # Reading now would stage rows alongside batches that are still landing. An empty response
-        # keeps the schedule alive and declares no lanes, so nothing is listed, read or deleted.
-        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
+    @pytest.mark.parametrize("ingest_mode, in_flight", [("buffered", True), ("legacy", False)])
+    def test_a_delivery_still_in_flight_or_an_unconverted_source_no_ops_the_tick(self, ingest_mode, in_flight):
+        response = _dispatch(_schema(ingest_mode, cdc_table_mode="both"), _inputs(), in_flight=in_flight)
 
         assert list(response.items()) == []
         assert response.lanes is None

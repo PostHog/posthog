@@ -1769,12 +1769,35 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             has_batches_in_flight,
             served_lanes,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
         if not served_lanes(schema):
             raise ValueError(
                 f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
+
+        def no_op_tick() -> SourceResponse:
+            # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
+            # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
+            # the workflow completes the job on this response — so the stamp comes off, or a batch
+            # of that attempt failing later would leave a Completed job proving a listing nothing
+            # drained.
+            clear_listing(inputs.job_id, inputs.team_id)
+            first_lane = served_lanes(schema)[0]
+            return SourceResponse(
+                name=first_lane.resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=first_lane.write_mode,
+            )
+
+        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
+            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
+            # lane already delivered, which a read would load a second time. Conversion empties the
+            # buffer before it marks the source buffered.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
+            return no_op_tick()
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
         # before its table started streaming, or a worker one deploy behind, would consume this
@@ -1802,21 +1825,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Reading now would stage rows alongside a delivery that is still landing: a previous
             # attempt of this job holds staged batches that are still claimable, which the append
             # lane would then write twice.
-            #
-            # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
-            # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
-            # the workflow completes the job on this response — so the stamp comes off, or a batch
-            # of that attempt failing later would leave a Completed job proving a listing nothing
-            # drained.
             inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
-            clear_listing(inputs.job_id, inputs.team_id)
-            first_lane = served_lanes(schema)[0]
-            return SourceResponse(
-                name=first_lane.resource_name,
-                items=lambda: iter(()),
-                primary_keys=schema.primary_key_columns,
-                cdc_write_mode=first_lane.write_mode,
-            )
+            return no_op_tick()
 
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
