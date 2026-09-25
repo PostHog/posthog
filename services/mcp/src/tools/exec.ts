@@ -7,6 +7,7 @@ import {
     ExecCommandError,
     type ExecCommandErrorReason,
     findRecoverableApiError,
+    handleToolError,
     PostHogApiError,
     ToolInputValidationError,
 } from '@/lib/errors'
@@ -160,6 +161,11 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    /** How many commands one request held. Absent for a single command. */
+    exec_batch_size?: number
+    /** How many of those failed. A batch renders each failure in place and still
+     *  returns, so without this the errors would never be counted. */
+    exec_batch_error_count?: number
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
@@ -183,6 +189,14 @@ export interface ExecToolOptions {
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
+    /**
+     * Reports a command failure the batch rendered in place, and returns the person
+     * and session a captured exception belongs to. The handler returns normally for
+     * such a failure, so without this the canonical event records the whole request
+     * as a success and no error counter moves — the same channel a recovered inner
+     * call uses to stay visible.
+     */
+    reportCommandFailure?: (error: unknown) => Promise<{ distinctId?: string; sessionUuid?: string }>
     /**
      * Tools a feature flag removed from this connection's catalog. Lets a call to
      * a retired name name its successor instead of reading as an unknown tool.
@@ -228,18 +242,43 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-/** A later line opening with one of these is what separates a batched request
+/** A command opening with one of these is what separates a batched request
  *  from a legitimately multi-line argument. */
 const EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
+
+/** Catalog reads: no API context, no side effects, and a bounded string result.
+ *  Batching those is safe. `call` and `learn` are not — a call carries
+ *  confirmation, a skills gate, and its own per-tool telemetry. */
+const BATCHABLE_VERBS = new Set([...EXEC_VERBS].filter((verb) => verb !== 'call' && verb !== 'learn'))
+
+/** How far past a separator to look for the next verb. Bounded so a long SQL or
+ *  JSON body is not copied once per separator it happens to contain. */
+const VERB_LOOKAHEAD_CHARS = 64
 
 /** Bounds on the rejection message, so a long batch or a large JSON body does
  *  not come back as a wall of text. */
 const MAX_LISTED_BATCH_COMMANDS = 5
 const MAX_LISTED_BATCH_COMMAND_LENGTH = 200
 
+/** Ceilings on a batch. One command already returns up to TOKEN_CHAR_LIMIT, so
+ *  an unbounded batch could return many times what any single request does. The
+ *  character ceiling covers every result the reply carries, joiners included. Two
+ *  things still land on top of it: the first result, however large, and the short
+ *  notice naming what was left out. */
+const MAX_BATCH_COMMANDS = 10
+const MAX_BATCH_RESPONSE_CHARS = TOKEN_CHAR_LIMIT * 2
+const BATCH_SECTION_JOINER = '\n\n'
+
+/** Recorded in place of a verb, so a batch is never filed under whichever
+ *  command happened to run last. */
+const BATCH_VERB = 'batch'
+
+/** The verb a command opens with. A separator flush against the word ends it too,
+ *  because shell style writes `tools; info x` rather than `tools ; info x`, and
+ *  `tools` is the one batchable verb with no argument to absorb the separator. */
 function firstToken(line: string): string {
     const trimmed = line.trim()
-    const idx = trimmed.search(/\s/)
+    const idx = trimmed.search(/\s|&&|;/)
     return idx === -1 ? trimmed : trimmed.slice(0, idx)
 }
 
@@ -262,49 +301,207 @@ function isCompleteCommand(command: string): boolean {
     }
 }
 
-/** Returns undefined for a single command, so only a genuine batch is rejected. */
+/** Cuts a request into its commands, or returns undefined when it holds only
+ *  one. A separator cuts only when a verb follows it and the text before it is
+ *  a complete command, so a regex or a JSON body may still contain one. */
 function splitBatchedCommands(command: string): string[] | undefined {
-    const lines = command.split('\n')
-    if (lines.length < 2 || !EXEC_VERBS.has(firstToken(lines[0] ?? ''))) {
+    const trimmed = command.trim()
+    if (!EXEC_VERBS.has(firstToken(trimmed))) {
         return undefined
     }
 
+    // Local, so the cursor this walk advances is never shared between calls.
+    const separators = /\n|&&|;/g
     const commands: string[] = []
-    let current = lines[0] ?? ''
-    for (const line of lines.slice(1)) {
-        if (EXEC_VERBS.has(firstToken(line)) && isCompleteCommand(current)) {
-            commands.push(current.trim())
-            current = line
+    let start = 0
+    // Only a `call` carries a JSON body, and a separator nested inside one is data.
+    // This walk reads each character once and never goes back. Asking
+    // `isCompleteCommand` instead re-reads the whole body per separator, which a
+    // body holding one on every line turns into quadratic work.
+    let insideCall = firstToken(trimmed) === 'call'
+    let walked = 0
+    let inString = false
+    let depth = 0
+    const isNested = (index: number): boolean => {
+        for (; walked < index; walked++) {
+            const char = trimmed[walked]
+            if (inString) {
+                if (char === '\\') {
+                    walked++
+                } else if (char === '"') {
+                    inString = false
+                }
+            } else if (char === '"') {
+                inString = true
+            } else if (char === '{' || char === '[') {
+                depth++
+            } else if ((char === '}' || char === ']') && depth > 0) {
+                depth--
+            }
+        }
+        return inString || depth > 0
+    }
+    for (let match = separators.exec(trimmed); match !== null; match = separators.exec(trimmed)) {
+        const next = match.index + match[0].length
+        const nextVerb = firstToken(trimmed.slice(next, next + VERB_LOOKAHEAD_CHARS))
+        if (!EXEC_VERBS.has(nextVerb)) {
             continue
         }
-        current = `${current}\n${line}`
+        if (insideCall && isNested(match.index)) {
+            continue
+        }
+        const head = trimmed.slice(start, match.index).trim()
+        // `search` takes the rest of its line as the pattern, so `search (a; b)`
+        // is one command. Only a newline ends one.
+        if (match[0] !== '\n' && firstToken(head) === 'search') {
+            continue
+        }
+        if (!isCompleteCommand(head)) {
+            // The head sits outside the body's strings and brackets, so no longer
+            // head completes it: each one holds this separator, and a JSON value
+            // carries none at the top level. No later separator can cut either.
+            break
+        }
+        // A blank line leaves nothing between two separators.
+        if (head) {
+            commands.push(head)
+        }
+        start = next
+        insideCall = nextVerb === 'call'
+        walked = next
+        inString = false
+        depth = 0
     }
     if (commands.length === 0) {
         return undefined
     }
-    commands.push(current.trim())
+    const tail = trimmed.slice(start).trim()
+    if (tail) {
+        commands.push(tail)
+    }
     return commands
 }
 
-function batchedCommandMessage(commands: string[]): string {
+function summarizeCommand(command: string): string {
+    const flattened = command.replace(/\s+/g, ' ')
+    return flattened.length > MAX_LISTED_BATCH_COMMAND_LENGTH
+        ? `${flattened.slice(0, MAX_LISTED_BATCH_COMMAND_LENGTH)}...`
+        : flattened
+}
+
+function listCommands(commands: string[]): string[] {
     const listed = commands.slice(0, MAX_LISTED_BATCH_COMMANDS)
+    const lines = listed.map((entry) => `- ${summarizeCommand(entry)}`)
     const more = commands.length - listed.length
-    const lines = listed.map((entry) => {
-        const flattened = entry.replace(/\s+/g, ' ')
-        const shown =
-            flattened.length > MAX_LISTED_BATCH_COMMAND_LENGTH
-                ? `${flattened.slice(0, MAX_LISTED_BATCH_COMMAND_LENGTH)}...`
-                : flattened
-        return `- ${shown}`
-    })
     if (more > 0) {
         lines.push(`- ...and ${more} more`)
     }
-    return [
-        `exec runs one command per request, and this request held ${commands.length}.`,
-        'Send each one as its own exec call. You can issue them in parallel. Commands found:',
-        ...lines,
-    ].join('\n')
+    return lines
+}
+
+/** One message for every batch exec will not run, so the agent never has to
+ *  guess which half of the rule it broke. */
+function unsupportedBatchMessage(commands: string[]): string | undefined {
+    const unbatchable = commands.filter((entry) => !BATCHABLE_VERBS.has(firstToken(entry)))
+    if (unbatchable.length > 0) {
+        return [
+            `exec batches read-only commands only (${[...BATCHABLE_VERBS].join(', ')}), and this request held ${unbatchable.length} that ${unbatchable.length === 1 ? 'is' : 'are'} not:`,
+            ...listCommands(unbatchable),
+            'Send each of those as its own exec call. You can issue them in parallel.',
+        ].join('\n')
+    }
+    if (commands.length > MAX_BATCH_COMMANDS) {
+        return [
+            `exec batches at most ${MAX_BATCH_COMMANDS} commands per request, and this request held ${commands.length}.`,
+            'Split them across several exec calls. You can issue them in parallel.',
+        ].join('\n')
+    }
+    return undefined
+}
+
+/** A command that fails renders its error in place: the commands that succeeded
+ *  are still worth returning. */
+async function runBatchedCommands(
+    commands: string[],
+    runCommand: (command: string) => Promise<unknown>,
+    reportFailure: ExecToolOptions['reportCommandFailure']
+): Promise<{ output: string; errorCount: number }> {
+    const sections: string[] = []
+    let used = 0
+    let errorCount = 0
+    for (const [index, command] of commands.entries()) {
+        let body: string
+        try {
+            body = formatResponse(await runCommand(command))
+        } catch (error) {
+            errorCount += 1
+            // Handed to the host first, because the handler returns normally from
+            // here and nothing downstream would otherwise classify or count this
+            // failure. Then the same formatter the single-command path reaches
+            // through the executor's catch, with the identity it attributes a
+            // capture to, so a batched failure keeps its recovery hints and lands
+            // in error tracking the same way.
+            const identity = await reportFailure?.(error)
+            body = handleToolError(error, 'exec', identity?.distinctId, identity?.sessionUuid)
+                .content.map((part) => (part.type === 'text' ? part.text : ''))
+                .join('')
+        }
+        const section = `$ ${summarizeCommand(command)}\n${body}`
+        const cost = sections.length > 0 ? BATCH_SECTION_JOINER.length + section.length : section.length
+        // Charged once the section exists, because its size is unknown until the
+        // command has run. A result that does not fit is dropped rather than
+        // returned, so the ceiling bounds the reply instead of trailing it.
+        if (sections.length > 0 && used + cost > MAX_BATCH_RESPONSE_CHARS) {
+            const notRun = commands.slice(index + 1)
+            sections.push(
+                [
+                    `Stopped after ${index} of ${commands.length} commands — the reply reached its size limit.`,
+                    // This one ran, and only its result is missing. Listing it as
+                    // not run would send the agent back for work already done.
+                    `Ran, result too large to include: ${summarizeCommand(command)}`,
+                    ...(notRun.length > 0 ? ['Not run:', ...listCommands(notRun)] : []),
+                    'Re-send what you still need as its own exec call.',
+                ].join('\n')
+            )
+            break
+        }
+        used += cost
+        sections.push(section)
+    }
+    return { output: sections.join(BATCH_SECTION_JOINER), errorCount }
+}
+
+/** Batching wraps the single-command dispatcher rather than living inside it, so
+ *  the verb switch stays the one place a command is interpreted. */
+function withCommandBatching(tool: Tool<ExecSchema>, options: ExecToolOptions): Tool<ExecSchema> {
+    return {
+        ...tool,
+        handler: async (context, params) => {
+            const batched = splitBatchedCommands(params.command)
+            if (!batched) {
+                return tool.handler(context, params)
+            }
+            const unsupported = unsupportedBatchMessage(batched)
+            if (unsupported) {
+                options.trackCommand?.({ exec_verb: BATCH_VERB })
+                throw new ExecCommandError(unsupported, 'batched_command')
+            }
+            const { output, errorCount } = await runBatchedCommands(
+                batched,
+                (command) => tool.handler(context, { command }),
+                options.reportCommandFailure
+            )
+            // The executor merges these last-write-wins, so this has to land after
+            // the per-command reports — otherwise the whole batch is filed under
+            // whichever command happened to run last.
+            options.trackCommand?.({
+                exec_verb: BATCH_VERB,
+                exec_batch_size: batched.length,
+                exec_batch_error_count: errorCount,
+            })
+            return output
+        },
+    }
 }
 
 function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
@@ -420,6 +617,22 @@ export interface ExecCommandShape {
  * `UNRECOGNIZED_EXEC_TOKEN`.
  */
 export function describeExecCommand(command: string, isKnownToolName: (name: string) => boolean): ExecCommandShape {
+    const batched = splitBatchedCommands(command)
+    if (batched) {
+        // Describing the raw string would read the trailing commands as part of
+        // the first one's tool name, and file every batch under `unrecognized`.
+        const described = batched.map((entry) => describeExecCommand(entry, isKnownToolName))
+        const join = (values: (string | undefined)[]): string | undefined => {
+            const distinct = [...new Set(values.filter((value): value is string => value !== undefined))].sort()
+            return distinct.length > 0 ? distinct.join('+') : undefined
+        }
+        const verb = join(described.map((shape) => shape.verb))
+        const targetTool = join(described.map((shape) => shape.targetTool))
+        return {
+            ...(verb !== undefined ? { verb } : {}),
+            ...(targetTool !== undefined ? { targetTool } : {}),
+        }
+    }
     const { verb: rawVerb, rest } = parseCommand(command)
     if (!rawVerb) {
         return {}
@@ -1510,7 +1723,7 @@ export function createExecTool(
     const ExecSchema = makeExecSchema(commandReference)
     const flagGatedTools = options.flagGatedTools ?? []
 
-    return {
+    const singleCommand: Tool<ExecSchema> = {
         name: 'exec',
         title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
@@ -1523,25 +1736,19 @@ export function createExecTool(
             // records what was attempted — those are the failures worth counting.
             options.trackCommand?.({ exec_verb: verb })
 
-            // Without this the trailing commands ride along as part of the first one's
-            // argument and come back as an unknown tool name, which explains nothing.
-            const batched = splitBatchedCommands(params.command)
-            if (batched) {
-                throw new ExecCommandError(batchedCommandMessage(batched), 'batched_command')
-            }
-
-            let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            let gatewayTools: Promise<Tool<ZodObjectAny>[]> | undefined
             /** PostHog's tools plus any third-party tools the caller has connected.
              *  Resolved at most once per command, and only for commands that need a
-             *  roster — `learn` never touches the gateway. */
+             *  roster — `learn` never touches the gateway. Holding the promise rather
+             *  than the value keeps concurrent commands to one gateway fetch. */
             const resolveTools = async (): Promise<Tool<ZodObjectAny>[]> => {
-                if (!options.gatewayToolsProvider) {
+                const provider = options.gatewayToolsProvider
+                if (!provider) {
                     return allTools
                 }
-                if (gatewayTools === undefined) {
-                    gatewayTools = await options.gatewayToolsProvider()
-                }
-                return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
+                gatewayTools ??= provider()
+                const resolved = await gatewayTools
+                return resolved.length > 0 ? [...allTools, ...resolved] : allTools
             }
 
             switch (verb) {
@@ -2005,4 +2212,6 @@ export function createExecTool(
             }
         },
     }
+
+    return withCommandBatching(singleCommand, options)
 }
