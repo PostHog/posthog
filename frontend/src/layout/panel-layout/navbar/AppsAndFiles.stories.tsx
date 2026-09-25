@@ -204,6 +204,36 @@ export const ConfigureStarredRanked: Story = {
         })
     },
 }
+export const ConfigureStarredNoMatches: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
+                    const { questions } = (await request.json()) as DecideRequestApi
+                    return [
+                        200,
+                        {
+                            model: 'storybook',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.keys(questions).map((key) => [key, { type: 'noul', probability: 0.1 }])
+                            ),
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    play: async (context) => {
+        await ConfigureStarred.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.type(body.getByLabelText('Filter by jev'), 'Plan a hiking trip')
+        await body.findByText(
+            'No apps meet the match threshold. Try another description or choose from the apps below.'
+        )
+    },
+}
 export const ConfigureStarredUnavailable: Story = {
     decorators: [
         mswDecorator({

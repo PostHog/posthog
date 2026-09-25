@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonModal, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 
 import { iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
@@ -14,6 +15,9 @@ export function ConfigureStarredModal(): JSX.Element {
     const {
         configureStarredOpen,
         rankedConfigurableApps,
+        appMatchGroups,
+        selectAllMatchingAppsDisabledReason,
+        starSaveResultLoading,
         selectedAppStars,
         pendingAppStars,
         starSaveError,
@@ -22,7 +26,8 @@ export function ConfigureStarredModal(): JSX.Element {
         appRankingsLoading,
         appRankingError,
     } = useValues(navAppsTabLogic)
-    const { setConfigureStarredOpen, setAppStarred, setAppRecommendationQuery } = useActions(navAppsTabLogic)
+    const { setConfigureStarredOpen, setAppStarred, setAppRecommendationQuery, selectAllMatchingApps } =
+        useActions(navAppsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
 
     return (
@@ -63,24 +68,20 @@ export function ConfigureStarredModal(): JSX.Element {
                     />
                     <div className="flex flex-wrap items-center gap-1">
                         <span className="text-xs text-secondary mr-1">For example</span>
-                        {[
-                            'Track website visitors',
-                            'Query databases',
-                            'Debug errors',
-                            'Watch user sessions',
-                            'Run A/B tests',
-                        ].map((example) => (
-                            <LemonButton
-                                key={example}
-                                size="xsmall"
-                                type="secondary"
-                                data-attr="configure-starred-jev-example"
-                                loading={appRankingsLoading && appRecommendationQuery === example}
-                                onClick={() => setAppRecommendationQuery(example)}
-                            >
-                                {example}
-                            </LemonButton>
-                        ))}
+                        {['Track website visitors', 'Query databases', 'Debug errors', 'Run A/B tests'].map(
+                            (example) => (
+                                <LemonButton
+                                    key={example}
+                                    size="xsmall"
+                                    type="secondary"
+                                    data-attr="configure-starred-jev-example"
+                                    loading={appRankingsLoading && appRecommendationQuery === example}
+                                    onClick={() => setAppRecommendationQuery(example)}
+                                >
+                                    {example}
+                                </LemonButton>
+                            )
+                        )}
                     </div>
                     <div className="text-xs text-secondary flex items-center gap-2" role="status">
                         {appRankingsLoading && appRecommendationQuery.trim() ? (
@@ -113,49 +114,97 @@ export function ConfigureStarredModal(): JSX.Element {
                 {!shortcutDataHasLoaded ? (
                     <Spinner />
                 ) : (
-                    rankedConfigurableApps.map((item) => {
-                        const { description, docsHref } = sidebarToolMeta(item)
-                        const label = appsItemName(item)
-                        return (
-                            <LemonSwitch
-                                key={item.path}
-                                className="py-2"
-                                checked={!!selectedAppStars[item.path]}
-                                onChange={(starred) => setAppStarred(item.path, starred)}
-                                data-attr="configure-starred-app-toggle"
-                                aria-label={label}
-                                bordered
-                                fullWidth
-                                label={
-                                    <span className="flex items-center gap-2">
-                                        <span className="text-lg shrink-0 flex items-center">
-                                            {iconForType(item.iconType, item.iconColor)}
-                                        </span>
-                                        <span className="flex flex-col">
-                                            <span className="flex items-center gap-2">
-                                                {label}
-                                                {docsHref && (
-                                                    <Link
-                                                        to={docsHref}
-                                                        target="_blank"
-                                                        className="text-xs font-normal"
-                                                        onClick={(event) => event.stopPropagation()}
-                                                    >
-                                                        Docs
-                                                    </Link>
-                                                )}
-                                            </span>
-                                            {description && (
-                                                <span className="text-xs font-normal text-secondary">
-                                                    {description}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </span>
+                    [
+                        { matching: true, items: appMatchGroups?.matching ?? rankedConfigurableApps },
+                        { matching: false, items: appMatchGroups?.other ?? [] },
+                    ]
+                        .filter((group) => group.matching || group.items.length > 0)
+                        .map((group) => (
+                            <section
+                                key={String(group.matching)}
+                                aria-label={
+                                    appMatchGroups ? (group.matching ? 'Matching apps' : 'Other apps') : 'All apps'
                                 }
-                            />
-                        )
-                    })
+                                className={cn('flex flex-col gap-2', !group.matching && 'mt-8 border-t pt-4')}
+                            >
+                                {appMatchGroups &&
+                                    (group.matching ? (
+                                        <div className="flex items-center justify-between gap-2">
+                                            <h3 className="text-sm font-semibold mb-0">Matching apps</h3>
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                data-attr="configure-starred-select-all"
+                                                disabledReason={selectAllMatchingAppsDisabledReason}
+                                                loading={starSaveResultLoading}
+                                                onClick={selectAllMatchingApps}
+                                            >
+                                                Select all
+                                            </LemonButton>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <h3 className="text-sm font-semibold mb-1">Other apps</h3>
+                                            <p className="text-xs text-secondary mb-2">
+                                                These apps are below the match threshold. You can still star them.
+                                            </p>
+                                        </div>
+                                    ))}
+                                {appMatchGroups && group.matching && group.items.length === 0 && (
+                                    <p className="text-sm text-secondary mb-0">
+                                        No apps meet the match threshold. Try another description or choose from the
+                                        apps below.
+                                    </p>
+                                )}
+                                {group.items.map((item) => {
+                                    const { description, docsHref } = sidebarToolMeta(item)
+                                    const label = appsItemName(item)
+                                    return (
+                                        <LemonSwitch
+                                            key={item.path}
+                                            className={cn(
+                                                'py-2',
+                                                !group.matching &&
+                                                    'opacity-60 hover:opacity-100 focus-within:opacity-100'
+                                            )}
+                                            checked={!!selectedAppStars[item.path]}
+                                            onChange={(starred) => setAppStarred(item.path, starred)}
+                                            data-attr="configure-starred-app-toggle"
+                                            aria-label={label}
+                                            bordered
+                                            fullWidth
+                                            label={
+                                                <span className="flex items-center gap-2">
+                                                    <span className="text-lg shrink-0 flex items-center">
+                                                        {iconForType(item.iconType, item.iconColor)}
+                                                    </span>
+                                                    <span className="flex flex-col">
+                                                        <span className="flex items-center gap-2">
+                                                            {label}
+                                                            {docsHref && (
+                                                                <Link
+                                                                    to={docsHref}
+                                                                    target="_blank"
+                                                                    className="text-xs font-normal"
+                                                                    onClick={(event) => event.stopPropagation()}
+                                                                >
+                                                                    Docs
+                                                                </Link>
+                                                            )}
+                                                        </span>
+                                                        {description && (
+                                                            <span className="text-xs font-normal text-secondary">
+                                                                {description}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                </span>
+                                            }
+                                        />
+                                    )
+                                })}
+                            </section>
+                        ))
                 )}
             </div>
         </LemonModal>

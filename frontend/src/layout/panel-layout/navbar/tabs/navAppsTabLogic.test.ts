@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { FileSystemShortcutApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
@@ -196,7 +197,7 @@ describe('navAppsTabLogic', () => {
         expect(remove).toHaveBeenCalledTimes(2)
     })
 
-    it('ranks the complete catalog with descriptions and examples, and clears back to alphabetical order', async () => {
+    it('splits the full ranked catalog at the threshold, selects only matches, and clears the grouping', async () => {
         const requests: DecideRequestApi[] = []
         const decide = jest.fn(async ({ request }) => {
             const body: DecideRequestApi = await request.json()
@@ -212,14 +213,35 @@ describe('navAppsTabLogic', () => {
                             key,
                             {
                                 type: 'noul',
-                                probability: question.instructions.includes('App: Web analytics.') ? 0.99 : 0,
+                                probability: question.instructions.includes('App: Web analytics.')
+                                    ? 0.99
+                                    : question.instructions.includes('App: SQL editor.')
+                                      ? 0.5
+                                      : question.instructions.includes('App: Feature flags.')
+                                        ? 0.499
+                                        : 0,
                             },
                         ])
                     ),
                 },
             ]
         })
-        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        const createdPaths: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': decide,
+                '/api/projects/:team_id/file_system_shortcut/': async ({ request }) => {
+                    const data = (await request.json()) as Pick<FileSystemShortcutApi, 'path' | 'type' | 'href'>
+                    createdPaths.push(data.path)
+                    return [201, { ...data, id: `star-${data.path}` }]
+                },
+            },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'existing', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+        ])
+
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
         const allApps = navAppsTabLogic.values.configurableApps
         await expectLogic(navAppsTabLogic, () =>
@@ -237,8 +259,29 @@ describe('navAppsTabLogic', () => {
                 }),
             ])
         )
+        expect(navAppsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
+            'Web analytics',
+            'SQL editor',
+        ])
+        expect(navAppsTabLogic.values.appMatchGroups?.other.map((item) => item.path)).toContain('Feature flags')
+        expect(
+            (navAppsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
+                (navAppsTabLogic.values.appMatchGroups?.other.length ?? 0)
+        ).toBe(allApps.length)
+        await expectLogic(navAppsTabLogic, () => {
+            navAppsTabLogic.actions.selectAllMatchingApps()
+            navAppsTabLogic.actions.selectAllMatchingApps()
+            expect(navAppsTabLogic.values.selectedAppStars).toMatchObject({
+                'Web analytics': true,
+                'SQL editor': true,
+                'Feature flags': true,
+            })
+        }).toDispatchActions(['saveAppStarsSuccess'])
+        expect(createdPaths).toEqual(['Web analytics', 'SQL editor'])
+        expect(navAppsTabLogic.values.selectAllMatchingAppsDisabledReason).toBe('All matching apps are selected')
         navAppsTabLogic.actions.setAppRecommendationQuery('')
         expect(navAppsTabLogic.values.rankedConfigurableApps).toEqual(allApps)
+        expect(navAppsTabLogic.values.appMatchGroups).toBeNull()
     })
 
     it('leaves every app available when ranking fails and does not call Jev without enrollment', async () => {
@@ -256,6 +299,7 @@ describe('navAppsTabLogic', () => {
         expect(decide).toHaveBeenCalled()
         expect(navAppsTabLogic.values.appRankingError).toEqual(expect.any(String))
         expect(navAppsTabLogic.values.rankedConfigurableApps).toEqual(navAppsTabLogic.values.configurableApps)
+        expect(navAppsTabLogic.values.appMatchGroups).toBeNull()
     })
 
     it('discards ranking responses after the query is cleared', async () => {
