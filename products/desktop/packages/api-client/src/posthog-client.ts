@@ -882,6 +882,9 @@ export interface SourceFieldSelectConfig {
   label: string;
   required: boolean;
   defaultValue?: string;
+  /** Allow selecting several values; the field's payload value becomes `string[]`. */
+  multiple?: boolean;
+  caption?: string;
   options: SourceFieldSelectConfigOption[];
 }
 

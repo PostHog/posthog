@@ -1,28 +1,42 @@
 import type {
   IntegrationAccount,
-  SourceConfig,
   SourceFieldConfig,
-  SourceFieldInputConfig,
   SourceFieldOauthAccountSelectConfig,
   SourceFieldOauthConfig,
 } from "@posthog/api-client/posthog-client";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  Checkbox,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@posthog/quill";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  buildPayload,
+  type FieldValue,
+  type FieldValues,
+  isInputField,
+  isUnsupportedField,
+  missingRequiredFields,
+  selectValue,
+} from "@posthog/ui/features/inbox/components/dynamicSourceFields";
 import { useSourceConfig } from "@posthog/ui/features/inbox/hooks/useSourceConfig";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  Box,
-  Flex,
-  Select,
-  Switch,
-  Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+import { Box, Flex, Switch, Text, TextArea, TextField } from "@radix-ui/themes";
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface SchemaPayload {
   name: string;
@@ -40,124 +54,9 @@ interface DynamicSourceSetupProps {
   onCancel: () => void;
 }
 
-type FieldValue = string | number | boolean;
-type FieldValues = Record<string, FieldValue>;
-
 /** Poll cadence/ceiling for discovering the integration created by an OAuth grant. */
 const POLL_INTERVAL_MS = 3_000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-
-const INPUT_TYPES = new Set([
-  "text",
-  "email",
-  "search",
-  "url",
-  "password",
-  "time",
-  "number",
-  "textarea",
-]);
-
-/** Whether a field is a plain text-like input the generic renderer handles. */
-function isInputField(
-  field: SourceFieldConfig,
-): field is SourceFieldInputConfig {
-  return INPUT_TYPES.has(field.type);
-}
-
-/**
- * A field type the generic renderer cannot handle inline (SSH tunnels, file
- * uploads). Sources requiring these still need a bespoke form.
- */
-function isUnsupportedField(field: SourceFieldConfig): boolean {
-  return field.type === "ssh-tunnel" || field.type === "file-upload";
-}
-
-/**
- * Walk the currently active fields and collect the names of required inputs and
- * selects that are not yet satisfied, so we can gate the submit button and
- * validate before posting. A select with a `defaultValue` is always satisfied,
- * because the control renders that value pre-selected.
- */
-function missingRequiredFields(
-  config: SourceConfig,
-  values: FieldValues,
-): string[] {
-  const missing: string[] = [];
-  const walk = (fields: SourceFieldConfig[]) => {
-    for (const field of fields) {
-      if (field.type === "switch-group") {
-        if (values[field.name]) walk(field.fields);
-      } else if (field.type === "select") {
-        const selected =
-          (values[field.name] as string) ?? field.defaultValue ?? "";
-        if (field.required && selected.trim().length === 0) {
-          missing.push(field.name);
-        }
-        const option = field.options.find((o) => o.value === selected);
-        if (option?.fields) walk(option.fields);
-      } else if (field.type === "oauth") {
-        if (field.required && !values[field.name]) {
-          missing.push(field.name);
-        }
-      } else if (field.type === "oauth-account-select") {
-        const value = values[field.name];
-        if (
-          field.required &&
-          (typeof value !== "string" || value.trim().length === 0)
-        ) {
-          missing.push(field.name);
-        }
-      } else if (isInputField(field) && field.required) {
-        const value = values[field.name];
-        if (typeof value !== "string" || value.trim().length === 0) {
-          missing.push(field.name);
-        }
-      }
-    }
-  };
-  walk(config.fields);
-  return missing;
-}
-
-/**
- * Build the `createExternalDataSource` payload from the collected field values,
- * mirroring how PostHog Cloud nests switch-group and select fields.
- */
-function buildPayload(
-  config: SourceConfig,
-  values: FieldValues,
-): Record<string, unknown> {
-  const collect = (fields: SourceFieldConfig[]): Record<string, unknown> => {
-    const out: Record<string, unknown> = {};
-    for (const field of fields) {
-      if (field.type === "switch-group") {
-        const enabled = !!values[field.name];
-        out[field.name] = { enabled, ...collect(field.fields) };
-      } else if (field.type === "select") {
-        const selected = (values[field.name] as string) ?? field.defaultValue;
-        const option = field.options.find((o) => o.value === selected);
-        out[field.name] = {
-          selection: selected,
-          ...(option?.fields ? collect(option.fields) : {}),
-        };
-      } else if (field.type === "oauth") {
-        const value = values[field.name];
-        if (value !== undefined && value !== "") out[field.name] = value;
-      } else if (field.type === "oauth-account-select") {
-        const value = values[field.name];
-        if (typeof value === "string" && value.trim() !== "") {
-          out[field.name] = value.trim();
-        }
-      } else if (isInputField(field)) {
-        const value = values[field.name];
-        if (typeof value === "string") out[field.name] = value.trim();
-      }
-    }
-    return out;
-  };
-  return collect(config.fields);
-}
 
 export function DynamicSourceSetup({
   sourceType,
@@ -281,6 +180,7 @@ function SourceField({
   providerName: string;
   sourceType: string;
 }) {
+  const fieldId = useId();
   if (field.type === "switch-group") {
     const enabled = !!values[field.name];
     return (
@@ -334,24 +234,76 @@ function SourceField({
   }
 
   if (field.type === "select") {
-    const selected = (values[field.name] as string) ?? field.defaultValue ?? "";
+    const selected = selectValue(field, values);
+    if (Array.isArray(selected)) {
+      return (
+        <div className="flex flex-col gap-2">
+          <span className="text-foreground text-sm">{field.label}</span>
+          <div className="flex flex-col gap-1">
+            {field.options.map((o) => (
+              <label
+                key={o.value}
+                htmlFor={`${fieldId}-${o.value}`}
+                className="flex w-fit cursor-pointer items-center gap-2"
+              >
+                <Checkbox
+                  id={`${fieldId}-${o.value}`}
+                  checked={selected.includes(o.value)}
+                  onCheckedChange={(checked) => {
+                    const picked = new Set(selected);
+                    if (checked === true) {
+                      picked.add(o.value);
+                    } else {
+                      picked.delete(o.value);
+                    }
+                    // Submit in the order the source declares them, so the payload does not
+                    // depend on the order the boxes were ticked.
+                    setValue(
+                      field.name,
+                      field.options
+                        .filter((opt) => picked.has(opt.value))
+                        .map((opt) => opt.value),
+                    );
+                  }}
+                />
+                <span className="text-foreground text-sm">{o.label}</span>
+              </label>
+            ))}
+          </div>
+          {field.caption && (
+            <span className="text-muted-foreground text-xs">
+              {field.caption}
+            </span>
+          )}
+        </div>
+      );
+    }
     const option = field.options.find((o) => o.value === selected);
     return (
-      <Flex direction="column" gap="2">
-        <Text className="text-gray-12 text-sm">{field.label}</Text>
-        <Select.Root
-          value={selected}
-          onValueChange={(value) => setValue(field.name, value)}
+      <div className="flex flex-col gap-2">
+        <span className="text-foreground text-sm">{field.label}</span>
+        <Select
+          // Base UI shows the placeholder for a null value; "" would render an empty trigger.
+          value={selected === "" ? null : selected}
+          onValueChange={(value: string | null) => {
+            if (value !== null) setValue(field.name, value);
+          }}
+          items={field.options.map((o) => ({ value: o.value, label: o.label }))}
         >
-          <Select.Trigger placeholder={field.label} />
-          <Select.Content>
+          <SelectTrigger aria-label={field.label} className="w-full">
+            <SelectValue placeholder={field.label} />
+          </SelectTrigger>
+          <SelectContent align="start" side="bottom" sideOffset={6}>
             {field.options.map((o) => (
-              <Select.Item key={o.value} value={o.value}>
+              <SelectItem key={o.value} value={o.value}>
                 {o.label}
-              </Select.Item>
+              </SelectItem>
             ))}
-          </Select.Content>
-        </Select.Root>
+          </SelectContent>
+        </Select>
+        {field.caption && (
+          <span className="text-muted-foreground text-xs">{field.caption}</span>
+        )}
         {option?.fields?.map((nested) => (
           <SourceField
             key={nested.name}
@@ -362,7 +314,7 @@ function SourceField({
             sourceType={sourceType}
           />
         ))}
-      </Flex>
+      </div>
     );
   }
 
