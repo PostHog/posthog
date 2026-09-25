@@ -1,4 +1,10 @@
 import { ApiClient } from '@/api/client'
+import {
+    EDGE_CLIENT_IP_HEADERS,
+    MCP_CLIENT_IP_HEADERS,
+    parseSigningKeys,
+    signedClientIpHeaders,
+} from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
 import type { CloudRegion } from '@/tools/types'
 
@@ -77,7 +83,28 @@ export async function resolveProxyRegion(
     return 'us'
 }
 
-export function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
+export async function honoRequestHeaders(incoming: Headers, region: CloudRegion): Promise<Headers> {
+    const headers = new Headers(incoming)
+    for (const name of [...Object.values(EDGE_CLIENT_IP_HEADERS), ...Object.values(MCP_CLIENT_IP_HEADERS)]) {
+        headers.delete(name)
+    }
+    // Cloudflare sets CF-Connecting-IP on every request that reaches the Worker, and replaces any
+    // value the client sent.
+    const clientIp = incoming.get('cf-connecting-ip')
+    const keys = parseSigningKeys(
+        region === 'eu' ? env.MCP_EDGE_CLIENT_IP_SIGNING_KEYS_EU : env.MCP_EDGE_CLIENT_IP_SIGNING_KEYS_US
+    )
+    if (clientIp) {
+        for (const [name, value] of Object.entries(
+            await signedClientIpHeaders(EDGE_CLIENT_IP_HEADERS, keys, clientIp)
+        )) {
+            headers.set(name, value)
+        }
+    }
+    return headers
+}
+
+export async function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
     const targetBase = getHonoTargetUrl(region)
     const targetUrl = new URL(request.url)
     const target = new URL(targetBase)
@@ -87,7 +114,7 @@ export function proxyToHono(request: Request, region: CloudRegion): Promise<Resp
 
     return fetch(targetUrl.toString(), {
         method: request.method,
-        headers: request.headers,
+        headers: await honoRequestHeaders(request.headers, region),
         body: request.body,
     })
 }

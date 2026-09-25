@@ -25,10 +25,14 @@ export function useScoutCreateDisabledReason(): string | null {
 export interface ScoutCreateModalHostProps {
     /** The scout to prefill, or null to render nothing. Doubles as the open state. */
     initialValues: ScoutCreateInitialValues | null
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
+    /** Offers the chat instead, with the description typed so far. */
+    onSwitchToChat?: (description: string) => void
 }
 
 /**
@@ -40,9 +44,11 @@ export interface ScoutCreateModalHostProps {
  */
 export function ScoutCreateModalHost({
     initialValues,
+    descriptionOverride,
     onClose,
     onCreated,
     onEnabled,
+    onSwitchToChat,
 }: ScoutCreateModalHostProps): JSX.Element | null {
     const isOpen = initialValues !== null
     // Open is the top of the create funnel. Without it only a successful create was captured, so an
@@ -62,6 +68,7 @@ export function ScoutCreateModalHost({
             <LazyScoutCreateModal
                 isOpen
                 initialValues={initialValues}
+                descriptionOverride={descriptionOverride}
                 onCreated={(scout) => {
                     captureScoutAction({
                         actionType: 'create_scout',
@@ -71,6 +78,7 @@ export function ScoutCreateModalHost({
                     onCreated?.(scout)
                 }}
                 onEnabled={onEnabled}
+                onSwitchToChat={onSwitchToChat}
                 onClose={onClose}
             />
         </React.Suspense>
