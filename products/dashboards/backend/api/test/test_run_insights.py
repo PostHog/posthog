@@ -93,14 +93,20 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertEqual(tile["insight"]["result_status"], "ok")
         self.assertIsNotNone(tile["last_refresh"])
 
-    def test_uncached_tile_reports_a_cache_miss(self) -> None:
+    @parameterized.expand(
+        [
+            ("force_cache", "cache_miss"),
+            ("force_async", "query_pending"),
+        ]
+    )
+    def test_tile_without_a_result_says_why(self, refresh: str, expected_status: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
 
-        tile = self._run(dashboard_id, output_format="json", refresh="force_cache")["results"][0]
+        tile = self._run(dashboard_id, output_format="json", refresh=refresh)["results"][0]
 
         self.assertIsNone(tile["insight"]["result"])
-        self.assertEqual(tile["insight"]["result_status"], "cache_miss")
+        self.assertEqual(tile["insight"]["result_status"], expected_status)
         self.assertIsNone(tile["last_refresh"])
 
     def test_optimized_format_returns_formatted_string(self) -> None:
