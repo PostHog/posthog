@@ -477,7 +477,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="cost",
             legacy_repository="PostHog/posthog",
             repos={
@@ -494,11 +494,13 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
             JobSourceTables(
                 workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
         }
 
