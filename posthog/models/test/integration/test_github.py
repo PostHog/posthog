@@ -874,6 +874,39 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_looks_past_an_exhausted_installation(self, _name, error):
+        # The search is ordered by id, so an exhausted first installation would otherwise hide a
+        # healthy later one that covers the repository.
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        covering = self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, True]):
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        assert result.integration.id == covering.id
+
+    @parameterized.expand(
+        [
+            ("our_budget", GitHubEgressBudgetExhausted("shed")),
+            ("githubs_limit", GitHubRateLimitError("429")),
+        ]
+    )
+    def test_first_for_team_repository_raises_when_only_an_exhausted_installation_could_have_covered(
+        self, _name, error
+    ):
+        # No other installation answered, so the caller has to hear why rather than read it as
+        # "this team has no integration for the repository".
+        self.create_integration(sensitive_config={"access_token": "FIRST"})
+        self.create_integration(sensitive_config={"access_token": "SECOND"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", side_effect=[error, False]):
+            with pytest.raises(type(error)):
+                GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+
+    @parameterized.expand(
+        [
             ("owner_repo", "PostHog/posthog", "https://api.github.com/repos/PostHog/posthog/pulls/123"),
             ("bare_repo", "posthog", "https://api.github.com/repos/PostHog/posthog/pulls/123"),
         ]

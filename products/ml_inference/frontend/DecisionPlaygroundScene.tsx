@@ -26,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DecisionAnswerCell } from './DecisionAnswerCell'
 import {
+    MAX_OPTIONS_PER_QUESTION,
     PlaygroundOption,
     PlaygroundQuestion,
     PlaygroundQuestionType,
@@ -273,6 +274,11 @@ function QuestionRow({
                             size="small"
                             icon={<IconPlus />}
                             onClick={onAddOption}
+                            disabledReason={
+                                question.options.length >= MAX_OPTIONS_PER_QUESTION
+                                    ? `A question takes at most ${MAX_OPTIONS_PER_QUESTION} options.`
+                                    : undefined
+                            }
                             data-attr="decision-playground-add-option"
                         >
                             {question.type === 'choice' ? 'Add option' : 'Add label'}

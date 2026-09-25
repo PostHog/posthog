@@ -5,10 +5,11 @@ import time
 from collections.abc import Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.cache import cache, caches
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -31,7 +32,7 @@ from rest_framework.views import APIView
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
-from posthog.api.github_callback.personal_state import user_has_personal_github_integration
+from posthog.api.github_callback.personal_state import PersonalGitHubDiscovery, user_has_personal_github_integration
 from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
@@ -102,6 +103,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -1144,6 +1146,9 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
 
 
 class GitHubLinkExistingRequestSerializer(serializers.Serializer):
+    discovery_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Discovery response ID for diagnostics only; grants no authority."
+    )
     source_team_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -1152,6 +1157,7 @@ class GitHubLinkExistingRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
         allow_blank=True,
+        allow_null=True,
         help_text="GitHub installation ID to link; resolved within the organization when source_team_id is omitted.",
     )
 
@@ -1174,9 +1180,29 @@ class GitHubAvailableInstallationSerializer(serializers.Serializer):
         "Null when the installation isn't linked to any project yet — it was found via the user's "
         "personal GitHub link and can be adopted by linking it here.",
     )
+    source_team_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the project in source_team_id, so the picker can say where the "
+        "installation comes from. Null for an installation no project has linked yet.",
+    )
+
+
+class GitHubPersonalDiscoveryStatus(models.TextChoices):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    UNAVAILABLE = "unavailable"
 
 
 class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
+    discovery_id = serializers.UUIDField(help_text="Correlation ID for this discovery response.")
+    discovered_at = serializers.DateTimeField(help_text="Time this discovery completed.")
+    personal_github_login = serializers.CharField(
+        allow_null=True, help_text="GitHub identity of the credential used for personal discovery."
+    )
+    personal_discovery_status = serializers.ChoiceField(
+        choices=GitHubPersonalDiscoveryStatus.choices,
+        help_text="Whether personal discovery succeeded, has no connection, or is unavailable.",
+    )
     installations = GitHubAvailableInstallationSerializer(
         many=True,
         help_text="GitHub installations available to link to this project: the organization's "
@@ -1403,6 +1429,9 @@ class IntegrationViewSet(
                 pass  # kind not configured on this instance
             except Exception as e:
                 capture_exception(e)
+        github_audit = (
+            GitHubAudit.project(instance, cast(User, self.request.user)) if instance.kind == "github" else None
+        )
         if instance.kind == "github" and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:
@@ -1413,18 +1442,42 @@ class IntegrationViewSet(
                 .exclude(id=instance.id)
                 .exists()
             )
+            assert github_audit is not None
+            github_audit.record("disconnect_started", last_reference=is_last_team_reference)
+            if not is_last_team_reference:
+                github_audit.record("uninstall_completed", outcome="skipped", reason="other_project_references")
             if is_last_team_reference:
                 try:
-                    GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                    outcome = GitHubIntegration.uninstall_app_installation_status(instance.integration_id)
+                    github_audit.record("uninstall_completed", outcome=outcome)
                 except Exception as e:
                     capture_exception(e)
+                    github_audit.record("uninstall_completed", outcome="failed", failure_type=type(e).__name__)
                 # Separate try so a DB error deleting personal rows isn't masked by the GitHub call.
                 try:
-                    UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
+                    personal_rows = list(
+                        UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id)
+                    )
+                    personal_audits = [
+                        GitHubAudit.personal(row, cast(User, self.request.user)) for row in personal_rows
+                    ]
+                    UserIntegration.objects.filter(pk__in=[row.pk for row in personal_rows]).delete()
+                    for personal_audit in personal_audits:
+                        personal_audit.record(
+                            "credential_deleted", after_commit=True, reason="last_project_disconnected"
+                        )
                 except Exception as e:
                     capture_exception(e)
+                    github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
-        super().perform_destroy(instance)
+        try:
+            super().perform_destroy(instance)
+        except Exception as exc:
+            if github_audit:
+                github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
+            raise
+        if github_audit:
+            github_audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -2110,17 +2163,26 @@ class IntegrationViewSet(
         PostHog's callback, which ``github/link_existing`` can adopt.
         """
         user = cast(User, request.user)
+        discovery = PersonalGitHubDiscovery(
+            audit=GitHubAudit(organization_id=self.organization.id, team_id=self.team_id, user=user),
+            discovery_id=str(uuid4()),
+        )
         installations = list_org_github_installations(
             user=user,
             organization=self.organization,
             exclude_team_id=self.team_id,
+            discovery=discovery,
         )
-        return Response(
-            {
-                "installations": GitHubAvailableInstallationSerializer(installations, many=True).data,
-                "personal_github_connected": user_has_personal_github_integration(user),
-            }
-        )
+        payload = {
+            "installations": GitHubAvailableInstallationSerializer(installations, many=True).data,
+            "personal_github_connected": user_has_personal_github_integration(user),
+            "personal_github_login": discovery.login,
+            "personal_discovery_status": discovery.status,
+            "discovery_id": discovery.discovery_id,
+            "discovered_at": timezone.now().isoformat(),
+        }
+        discovery.audit.record("discovery_completed", discovery_id=discovery.discovery_id, response=payload)
+        return Response(payload, headers={"Cache-Control": "private, no-store"})
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,
@@ -2129,12 +2191,41 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reuse a GitHub installation already linked to a sibling team in the same organization."""
-        instance = link_existing_team_github_integration(
-            user=cast(User, request.user),
-            organization=self.organization,
-            team_id=self.team_id,
-            source_team_id=request.data.get("source_team_id"),
-            installation_id_param=request.data.get("installation_id"),
+        serializer = GitHubLinkExistingRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        discovery_id = str(serializer.validated_data.get("discovery_id") or "")
+        audit = GitHubAudit(organization_id=self.organization.id, team_id=self.team_id, user=cast(User, request.user))
+        selected_id = serializer.validated_data.get("installation_id")
+        selected_id = selected_id if is_valid_github_installation_id(selected_id) else None
+        audit.record("link_started", discovery_id=discovery_id, installation_id=selected_id)
+        try:
+            instance = link_existing_team_github_integration(
+                user=cast(User, request.user),
+                organization=self.organization,
+                team_id=self.team_id,
+                source_team_id=serializer.validated_data.get("source_team_id"),
+                installation_id_param=serializer.validated_data.get("installation_id"),
+                discovery_id=discovery_id,
+            )
+        except ValidationError as exc:
+            audit.record(
+                "link_rejected",
+                discovery_id=discovery_id,
+                installation_id=selected_id,
+                rejection_reason=exc.get_codes(),
+            )
+            raise
+        except Exception as exc:
+            audit.record(
+                "link_failed", discovery_id=discovery_id, installation_id=selected_id, failure_type=type(exc).__name__
+            )
+            raise
+        audit.record(
+            "link_completed",
+            discovery_id=discovery_id,
+            installation_id=instance.integration_id,
+            linked_integration_id=instance.pk,
+            after_commit=True,
         )
         return Response(self.get_serializer(instance).data)
 

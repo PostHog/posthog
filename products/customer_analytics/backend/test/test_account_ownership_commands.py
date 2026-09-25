@@ -183,12 +183,14 @@ class TestAdoptAccountOwnershipCommand(BaseTest):
         self.manifest_path = Path(directory) / "manifest.json"
 
     def _assign(self, account: Account, user: User) -> None:
+        # A person's edit would enroll the linked account, so the state a manifest reviews comes
+        # from an autonomous writer.
         relationships.assign(
             team_id=self.team.id,
             account=account,
             definition=self.ae_definition,
             user=user,
-            actor=relationships.Actor.human(self.user),
+            actor=relationships.Actor(source=AccountRelationshipSource.WORKFLOW),
         )
 
     def _fingerprints(self) -> dict[str, str]:

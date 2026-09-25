@@ -359,16 +359,22 @@ class GitHubIntegrationBase:
 
     @classmethod
     def uninstall_app_installation(cls, installation_id: str) -> bool:
+        return cls.uninstall_app_installation_status(installation_id) in ("uninstalled", "already_absent")
+
+    @classmethod
+    def uninstall_app_installation_status(
+        cls, installation_id: str
+    ) -> Literal["uninstalled", "already_absent", "skipped", "failed"]:
         """Tell GitHub to uninstall the App via ``DELETE /app/installations/{id}``.
 
         Best-effort: never raises. Treats 204 (removed) and 404 (already gone) as
-        success. Returns ``False`` on any other outcome or when the App is not configured.
+        success. The result distinguishes removal, absence, skipped requests, and failures.
         """
         if not installation_id:
-            return False
+            return "skipped"
         if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
             logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
-            return False
+            return "skipped"
 
         try:
             response = cls.client_request(f"installations/{installation_id}", method="DELETE", timeout=10)
@@ -378,7 +384,7 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 exc_info=True,
             )
-            return False
+            return "failed"
 
         if response.status_code in (204, 404):
             logger.info(
@@ -386,14 +392,14 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 status_code=response.status_code,
             )
-            return True
+            return "uninstalled" if response.status_code == 204 else "already_absent"
 
         logger.warning(
             "GitHubIntegration: uninstall_app_installation unexpected status",
             installation_id=installation_id,
             status_code=response.status_code,
         )
-        return False
+        return "failed"
 
     @classmethod
     def uninstall_if_last_reference(
