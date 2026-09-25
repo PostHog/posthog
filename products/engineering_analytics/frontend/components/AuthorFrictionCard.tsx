@@ -91,6 +91,11 @@ export function AuthorFrictionCard({
                     </ComparisonBarRow>
                 ))}
             </div>
+            {!detail.has_membership_data && (
+                <div className="text-xs text-secondary">
+                    Team baselines need the team membership table synced for this source.
+                </div>
+            )}
             <div className="text-xs text-tertiary">
                 <FrictionGroupLegend />
             </div>
