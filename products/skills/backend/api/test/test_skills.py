@@ -1766,6 +1766,52 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["path"] == "scripts/setup.sh"
         assert data["content"] == "#!/bin/bash\necho hello"
         assert data["content_type"] == "text/x-shellscript"
+        assert data["body_total_length"] == 22
+        # A file under the default page cap fits in the first page, so nothing is left to fetch.
+        assert data["body_next_offset"] is None
+
+    def test_get_file_caps_first_page_and_reports_next_offset_without_paging(self):
+        # A reference file larger than the default page cap would be truncated in transit; the
+        # un-paged response must hand back a valid continuation offset rather than claiming
+        # completeness, or an agent reads a cut-off reference as the whole file.
+        skill = self.create_skill(name="huge-file-skill")
+        content = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
+        LLMSkillFile.objects.create(skill=skill, path="references/limits.md", content=content)
+
+        data = self.client.get(self._url("name/huge-file-skill/files/references/limits.md")).json()
+
+        assert data["content"] == content[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
+        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
+
+    @parameterized.expand(
+        [
+            # label, query, expected_content, expected_next_offset
+            ("first_page_has_more", "?body_offset=0&body_length=4", "0123", 4),
+            ("middle_page_has_more", "?body_offset=4&body_length=3", "456", 7),
+            ("last_page_exact_end", "?body_offset=8&body_length=2", "89", None),
+            ("length_past_end", "?body_offset=8&body_length=50", "89", None),
+            ("offset_only_returns_remainder", "?body_offset=7", "789", None),
+        ]
+    )
+    def test_get_file_pages_through_content(self, _label, query, expected_content, expected_next_offset):
+        skill = self.create_skill(name="paged-file-skill")
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="0123456789")
+
+        data = self.client.get(self._url(f"name/paged-file-skill/files/references/guide.md{query}")).json()
+
+        assert data["content"] == expected_content
+        # Total always reflects the full file, so a client can detect a truncated response.
+        assert data["body_total_length"] == 10
+        assert data["body_next_offset"] == expected_next_offset
+
+    def test_get_file_rejects_negative_body_offset(self):
+        skill = self.create_skill(name="bad-file-offset")
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="hello")
+
+        response = self.client.get(self._url("name/bad-file-offset/files/references/guide.md?body_offset=-1"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_get_nonexistent_file_returns_404(self):
         self.create_skill(name="no-files")

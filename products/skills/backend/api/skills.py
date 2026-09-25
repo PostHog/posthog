@@ -1858,7 +1858,7 @@ class LLMSkillViewSet(
         return Response(result, status=status.HTTP_201_CREATED)
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillBodyFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
     )
     # NOTE: `required_scopes` is intentionally not set on @action here. delete_file is registered
@@ -1874,7 +1874,7 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_get_file")
     @monitor(feature=None, endpoint="llma_skills_get_file", method="GET")
     def get_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
-        version_params = self._get_requested_version_params(request)
+        version_params = self._get_body_fetch_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
@@ -1894,7 +1894,17 @@ class LLMSkillViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        return Response(LLMSkillFileSerializer(skill_file).data)
+        # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
+        # valid continuation offset even when the full content would be truncated in transit.
+        body_length = cast(int | None, version_params.get("body_length"))
+        if body_length is None:
+            body_length = DEFAULT_BODY_PAGE_LENGTH
+        context = {
+            **self.get_serializer_context(),
+            "body_offset": cast(int | None, version_params.get("body_offset")),
+            "body_length": body_length,
+        }
+        return Response(LLMSkillFileSerializer(skill_file, context=context).data)
 
     @extend_schema(request=LLMSkillFileCreateSerializer, responses={201: LLMSkillSerializer})
     @action(

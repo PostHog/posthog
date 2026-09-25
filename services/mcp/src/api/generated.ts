@@ -54784,12 +54784,22 @@ export namespace Schemas {
       new: string;
     }
 
+    /**
+     * A bundled file's content, paged with the same body_offset/body_length params as the skill body.
+     */
     export interface LLMSkillFile {
       /** @maxLength 500 */
       path: string;
-      content: string;
       /** @maxLength 100 */
       content_type?: string;
+      /** Total length of the full file content in characters, independent of any body_offset/body_length paging. Compare against the length of the returned content to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When paging stops before the end of the file content, the character offset to request next (pass as body_offset). Null when the returned content reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
+      content: string;
     }
 
     export interface LLMSkillFileCreate {
@@ -112175,12 +112185,12 @@ export namespace Schemas {
 
     export type LlmSkillsNameRetrieveParams = {
     /**
-     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * Maximum number of characters to return starting at body_offset. Omit to return the whole skill body or bundled file from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
      * @minimum 1
      */
     body_length?: number;
     /**
-     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * Zero-based character offset to start the returned text from. Use with body_length to page through a large skill body or bundled file that a client would otherwise truncate. Compare the returned length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of text).
      * @minimum 0
      */
     body_offset?: number;
@@ -112200,6 +112210,16 @@ export namespace Schemas {
     };
 
     export type LlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Maximum number of characters to return starting at body_offset. Omit to return the whole skill body or bundled file from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned text from. Use with body_length to page through a large skill body or bundled file that a client would otherwise truncate. Compare the returned length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of text).
+     * @minimum 0
+     */
+    body_offset?: number;
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
