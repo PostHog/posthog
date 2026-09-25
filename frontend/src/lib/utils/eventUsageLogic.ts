@@ -1509,6 +1509,7 @@ export interface eventUsageLogicActions {
             metric_index: number
             metric_kind: string
             refresh_id: string
+            auto_retry_attempts?: number
         }
     ) => {
         context:
@@ -1521,6 +1522,7 @@ export interface eventUsageLogicActions {
                   metric_index: number
                   metric_kind: string
                   refresh_id: string
+                  auto_retry_attempts?: number
               }
             | undefined
         experimentId: ExperimentIdType
@@ -3049,6 +3051,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_id: string
                 metric_kind: string
                 execution_mode: 'sync' | 'async'
+                auto_retry_attempts?: number
             }
         ) => ({
             experimentId,

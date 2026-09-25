@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 import structlog
 from clickhouse_driver.errors import ServerException
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
@@ -40,6 +40,26 @@ if TYPE_CHECKING:
 ERROR_TYPE_TO_CODE: dict[type, str] = {
     ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
 }
+
+# Keep in sync with METRIC_RATE_LIMITED_ERROR_CODE in frontend/src/scenes/experiments/metricQueryErrors.ts.
+METRIC_RATE_LIMITED_CODE = "experiment_metric_rate_limited"
+
+
+class ExperimentMetricAtCapacity(APIException):
+    """Capacity pressure rather than a fault in the metric: the cluster is busy, the concurrency
+    limiter refused the query, or ClickHouse answered with a rate-limit code.
+
+    Every producer classifies as `rate_limited`, but each reaches the browser with a different
+    status and message, so the results page cannot tell them apart. This gives them one code the
+    page matches on to retry the metric by itself.
+    """
+
+    status_code = 503
+    default_code = METRIC_RATE_LIMITED_CODE
+    default_detail = (
+        "Queries are busy right now. This metric did not get through after a few tries, so try again in a moment."
+    )
+
 
 _MAX_ERROR_EVENT_MESSAGE_LENGTH = 500
 
@@ -187,14 +207,20 @@ def _emit_runner_terminal_error_event(runner: Any, error: Exception) -> None:
 
     Gated on the runner's `error_event_context` ("ui"/"agent"; None = silent) AND `user_facing`
     (internal callers — recalc, canary, warming — own their retries, so a runner-level emit there
-    would count non-terminal attempts). One runner execution is terminal on every direct path:
-    the frontend has no automatic retry loop and the async Celery task swallows failures
-    (no retry passes back through the runner).
+    would count non-terminal attempts).
+
+    One runner execution is terminal on every direct path, with one exception: a `rate_limited`
+    failure on the results page ("ui"), which the frontend now retries in place. So that one is not
+    terminal and is skipped here; its outcome is read off the frontend `experiment metric finished`
+    event, which carries `auto_retry_attempts`. The agent path ("agent") has no retry loop, so its
+    rate-limited failure stays terminal and is still counted.
     """
     if runner is None:
         return
     context = getattr(runner, "error_event_context", None)
     if not context or not getattr(runner, "user_facing", True):
+        return
+    if context == "ui" and classify_experiment_query_error(error) == "rate_limited":
         return
     team = getattr(runner, "team", None)
     if team is None:
@@ -307,13 +333,20 @@ def experiment_error_handler(method: F) -> F:
                 # Preserve original exception for internal callers
                 raise
 
+            # Chain the original explicitly on every raise below: the query SLO classifier reads
+            # __cause__ to keep converted technical errors counted as failures.
+
+            # Capacity pressure carries no friendly-message mapping, so convert it before the
+            # unmapped re-raise below — the results page needs one code to retry the metric on.
+            if classify_experiment_query_error(e) == "rate_limited":
+                raise ExperimentMetricAtCapacity() from e
+
             # Convert to user-friendly error if we have a mapping, otherwise re-raise as-is
             user_message = get_user_friendly_message(e)
             if user_message is None:
                 raise
 
-            # Get error code if available. Chain the original explicitly: the query SLO
-            # classifier reads __cause__ to keep converted technical errors counted as failures.
+            # Get error code if available.
             error_code = ERROR_TYPE_TO_CODE.get(type(e))
             raise ValidationError(user_message, code=error_code) from e
 

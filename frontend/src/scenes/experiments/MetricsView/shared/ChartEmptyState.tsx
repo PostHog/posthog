@@ -1,6 +1,7 @@
 import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { isNoExposuresError } from 'scenes/experiments/metricQueryErrors'
 import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
 
 import { LegacyErrorChecklist } from 'products/experiments/frontend/legacy'
@@ -29,15 +30,22 @@ export function ChartEmptyState({
     retryDisabledReason,
 }: ChartEmptyStateProps): JSX.Element | null {
     /**
-     * early return if experiment has not started
+     * two neutral waits rather than failures: the experiment has not started, or it has but
+     * nobody has been exposed to the baseline variant yet, which is how every experiment starts
      */
-    if (!experimentStarted) {
+    const waitingFor = !experimentStarted
+        ? 'Waiting for experiment to start'
+        : isNoExposuresError(error)
+          ? 'Waiting for exposures'
+          : null
+
+    if (waitingFor) {
         return (
             <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
                 <LemonTag size="small" className="mr-2">
                     <IconClock fontSize="1em" />
                 </LemonTag>
-                <span>Waiting for experiment to start&hellip;</span>
+                <span>{waitingFor}&hellip;</span>
             </div>
         )
     }

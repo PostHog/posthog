@@ -24,6 +24,12 @@ import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
+// Make the rate-limit retry backoff instant so the recovery test does not wait on real timers.
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    delay: () => Promise.resolve(),
+}))
+
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
@@ -183,6 +189,42 @@ describe('experimentLogic', () => {
                     ],
                 })
         })
+    })
+
+    it('retries a rate-limited metric in place instead of surfacing an error', async () => {
+        logic.actions.setExperiment(experiment)
+
+        // First query POST is refused for capacity; every later attempt succeeds. The retry must
+        // recover the metric so no terminal error reaches the results page.
+        let postCallCount = 0
+        useMocks({
+            post: {
+                '/api/environments/:team/query/:kind': () => {
+                    postCallCount++
+                    if (postCallCount === 1) {
+                        return [429, { detail: 'Too many queries', code: 'throttled' }]
+                    }
+                    return [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: experimentMetricResultsSuccessJson.query_status,
+                        },
+                    ]
+                },
+            },
+            get: {
+                '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+            },
+        })
+
+        await logic.asyncActions.loadPrimaryMetricsResults(true)
+
+        await expectLogic(logic).toMatchValues({ primaryMetricsResultsLoading: false })
+        // The refused attempt plus its successful retry both hit the endpoint.
+        expect(postCallCount).toBeGreaterThan(1)
+        // Without the retry the refused attempt would surface here; recovery leaves it null.
+        expect(logic.values.primaryMetricsResultsErrors.every((error: unknown) => error == null)).toBe(true)
     })
 
     describe('loadSecondaryMetricsResults', () => {

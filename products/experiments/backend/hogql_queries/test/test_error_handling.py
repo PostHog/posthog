@@ -18,6 +18,8 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 
 from products.experiments.backend.hogql_queries.error_handling import (
     ERROR_TYPE_TO_CODE,
+    METRIC_RATE_LIMITED_CODE,
+    ExperimentMetricAtCapacity,
     classify_experiment_query_error,
     experiment_error_handler,
     get_user_friendly_message,
@@ -265,6 +267,30 @@ class TestTerminalErrorEventEmission(BaseTest):
         assert props["experiment_id"] == 42
         assert props["team_id"] == self.team.id
         assert captured[0]["distinct_id"] == f"team_{self.team.id}"
+
+    def test_rate_limited_on_ui_converts_to_capacity_and_stays_silent(self):
+        # The results page retries a capacity failure in place, so it is no longer terminal there:
+        # the boundary must not count it, and must hand the page a single code it can match on.
+        runner = _FakeRunner(self.team, error=ConcurrencyLimitExceeded("app:query:per-org"))
+
+        with _record_captures() as captured, self.assertRaises(ExperimentMetricAtCapacity) as ctx:
+            runner._calculate()
+
+        assert captured == []
+        assert ctx.exception.get_codes() == METRIC_RATE_LIMITED_CODE
+
+    def test_rate_limited_on_agent_still_emits(self):
+        # The agent path has no retry loop, so a capacity failure there is terminal and must count.
+        runner = _FakeRunner(
+            self.team, error=ConcurrencyLimitExceeded("app:query:per-org"), error_event_context="agent"
+        )
+
+        with _record_captures() as captured, self.assertRaises(ExperimentMetricAtCapacity):
+            runner._calculate()
+
+        assert len(captured) == 1
+        assert captured[0]["properties"]["error_type"] == "rate_limited"
+        assert captured[0]["properties"]["context"] == "agent"
 
     def test_user_facing_validation_errors_still_emit(self):
         # ValidationError/ExposedHogQLError pass through the boundary unconverted, but a misconfigured
