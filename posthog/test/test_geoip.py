@@ -1,5 +1,7 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -26,11 +28,14 @@ class TestGeoipLocation(BaseTest):
                 ("rfc1918_192", "192.168.1.1"),
                 ("ipv6_loopback", "::1"),
                 ("link_local", "169.254.0.1"),
+                ("malformed", "not-an-ip"),
             ]
         ]
     )
     @patch("posthog.geoip.geoip")
-    def test_returns_empty_for_non_public_ip(self, _name, lookup, ip, mock_geoip):
+    def test_returns_empty_for_non_public_ip(
+        self, _name: str, lookup: Callable[[str], object], ip: str, mock_geoip: MagicMock
+    ) -> None:
         # geoip is mocked truthy, so an empty result can only come from the private/reserved guard,
         # not a missing DB — and city() must never be reached for these ranges.
         self.assertEqual(lookup(ip), {})
