@@ -308,4 +308,7 @@ database "posthog" {
       version_column = "timestamp"
     }
   }
+  view "metrics4_view" {
+    query = file("sql/metrics4_view.sql")
+  }
 }

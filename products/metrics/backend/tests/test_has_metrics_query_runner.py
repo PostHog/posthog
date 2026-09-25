@@ -15,7 +15,7 @@ def _insert_metric_row(*, team_id: int) -> None:
     seed_metric(
         team_id=team_id,
         metric_name="test.metric",
-        points=[(dt.datetime(2026, 5, 27, tzinfo=dt.UTC), 1.0)],
+        points=[(dt.datetime(2026, 9, 18, tzinfo=dt.UTC), 1.0)],
     )
 
 
