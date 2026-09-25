@@ -207,20 +207,13 @@ def detector_rows_from_history(
         return None
 
     cached = _load_cached(ctx)
-    if len(cached) < ctx.min_samples:
-        return _reseed(ctx, SeedReason.SHORT_CACHE)
     state = _load_state(ctx)
-    if state is None:
-        return _reseed(ctx, SeedReason.NO_WATERMARK)
-    staleness = _state_staleness(ctx, state)
-    if staleness is not None:
-        return _reseed(ctx, staleness)
+    probed = _changed_buckets(ctx, state.watermark) if state is not None else None
+    plan = _plan(ctx, cached=cached, state=state, probed=probed)
+    if isinstance(plan, SeedReason):
+        return _reseed(ctx, plan)
 
-    probed = _changed_buckets(ctx, state.watermark)
-    scan = _scan_buckets(ctx, newest_cached=cached.newest(), probed=probed)
-    if len(scan) >= ctx.window_hours:
-        return _reseed(ctx, SeedReason.WIDE_SCAN)
-
+    scan = set(plan.buckets)
     scanned_rows, _ = ctx.run_query(
         query_override=ctx.matched.narrowed_to_buckets(sorted(scan), at=ctx.now, tz=ctx.team.timezone)
     )
@@ -233,7 +226,7 @@ def detector_rows_from_history(
         scanned=scanned,
         authoritative=scan,
         # A failed probe holds the watermark, so the next check re-detects the same interval.
-        watermark=None if probed is None else ctx.now - timedelta(hours=_CLOCK_SKEW_HOURS),
+        watermark=None if plan.probe_failed else ctx.now - timedelta(hours=_CLOCK_SKEW_HOURS),
     )
 
     rows = cached.replaced_by(scanned, within=scan).window_rows(ctx.anchor, ctx.window_hours)
@@ -247,8 +240,8 @@ def detector_rows_from_history(
         ctx.alert,
         CacheOutcome.CACHE_HIT,
         scanned_buckets=len(scan),
-        probed_buckets=0 if probed is None else len(probed),
-        probe_failed=probed is None,
+        probed_buckets=plan.probed_count,
+        probe_failed=plan.probe_failed,
         window_hours=ctx.window_hours,
         **shadow,
     )
@@ -289,24 +282,52 @@ def _admitted(
     )
 
 
-def _state_staleness(ctx: _CheckContext, state: AlertSeriesState) -> SeedReason | None:
+@frozen
+class _ScanPlan:
+    """A serveable check's plan: which buckets to re-read, and what the probe contributed."""
+
+    buckets: frozenset[datetime]
+    probed_count: int
+    probe_failed: bool
+
+
+def _plan(
+    ctx: _CheckContext,
+    *,
+    cached: _BucketSeries,
+    state: AlertSeriesState | None,
+    probed: list[datetime] | None,
+) -> "SeedReason | _ScanPlan":
+    """The check's whole pre-scan decision, as a pure function of what the shell loaded.
+
+    Everything the cache *cares about* is decided here, with no IO: whether the cached series
+    and its bookkeeping can be trusted at all, and if so, exactly which buckets this check must
+    re-read. The caller performs the loads before and the scans after.
+    """
+    if len(cached) < ctx.min_samples:
+        return SeedReason.SHORT_CACHE
+    if state is None:
+        return SeedReason.NO_WATERMARK
     if ctx.now - state.seeded_at >= timedelta(hours=RESEED_INTERVAL_HOURS):
         return SeedReason.SCHEDULED_RESEED
     if ctx.now - state.watermark >= timedelta(hours=_PROBE_HORIZON_HOURS):
         return SeedReason.STALE_WATERMARK
-    return None
 
-
-def _scan_buckets(ctx: _CheckContext, *, newest_cached: datetime, probed: list[datetime] | None) -> set[datetime]:
-    """The buckets this check must re-read: the margin, any coverage gap, and what the probe found."""
     scan = {ctx.anchor - timedelta(hours=back) for back in range(1, DEFAULT_MARGIN_HOURS + 1)}
-    hour = newest_cached - timedelta(hours=_CLOCK_SKEW_HOURS)
+    hour = cached.newest() - timedelta(hours=_CLOCK_SKEW_HOURS)
     while hour < ctx.anchor:
         scan.add(hour)
         hour += timedelta(hours=1)
     if probed:
         scan.update(probed)
-    return {bucket for bucket in scan if ctx.window_start <= bucket < ctx.anchor}
+    scan = {bucket for bucket in scan if ctx.window_start <= bucket < ctx.anchor}
+    if len(scan) >= ctx.window_hours:
+        return SeedReason.WIDE_SCAN
+    return _ScanPlan(
+        buckets=frozenset(scan),
+        probed_count=0 if probed is None else len(probed),
+        probe_failed=probed is None,
+    )
 
 
 def _assembly_reached_query_limit(ctx: _CheckContext, rows: list[_Row]) -> bool:

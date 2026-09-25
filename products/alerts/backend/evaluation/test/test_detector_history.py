@@ -3,12 +3,16 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
-from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from hypothesis import (
+    HealthCheck,
+    given,
+    settings,
+    strategies as st,
+)
+from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 from parameterized import parameterized
 
 from posthog.schema import HogQLAlertConfig

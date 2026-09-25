@@ -10,7 +10,6 @@ dev sandbox.
 """
 
 [sandbox_workspace_write]
-# Flox and dependency managers keep mutable caches outside the worktree.
 writable_roots = [
     "~/.cache/flox",
     "~/.cache/node",
@@ -22,8 +21,22 @@ writable_roots = [
 network_access = false
 
 [shell_environment_policy]
-# Keep another checkout's Flox, virtualenv, and compiler paths out of commands.
 inherit = "core"
-# xdist opens a loopback socket even without parallel workers, which the
-# Codex sandbox blocks.
-set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
+
+[shell_environment_policy.set]
+PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+PYTEST_ADDOPTS = "-p no:xdist"
+
+[mcp_servers.phrocs]
+command = "uv"
+args = [
+    "run",
+    "python",
+    "tools/phrocs/mcp_server.py",
+]
+
+[mcp_servers.posthog-local]
+url = "http://localhost:8787/mcp"
+
+[mcp_servers.trunk]
+url = "https://mcp.trunk.io/mcp"
