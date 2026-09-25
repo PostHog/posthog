@@ -40,7 +40,11 @@ from products.mcp_store.backend.models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
+from products.mcp_store.backend.oauth import (
+    DcrClientRegistration,
+    DCRRegistrationRejectedError,
+    OAuthDiscoveryUnsupportedError,
+)
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -3479,6 +3483,37 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         state_token = parse_qs(urlparse(resp.json()["redirect_url"]).query)["state"][0]
         row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
         assert row.created_by_id == self.user.id
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_surfaces_unsupported_issuer_reason(self, mock_discover, _allow):
+        mock_discover.side_effect = OAuthDiscoveryUnsupportedError(
+            "This server's OAuth issuer host 'localhost' is not a public domain name."
+        )
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "srv", "url": "https://mcp.example.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert "localhost" in resp.json()["detail"]
+        assert not MCPServerInstallation.objects.filter(team=self.team, url="https://mcp.example.com/mcp").exists()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_keeps_generic_detail_for_unknown_discovery_failure(self, mock_discover, _allow):
+        mock_discover.side_effect = ValueError("OAuth metadata is missing issuer")
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "srv", "url": "https://mcp.example.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert resp.json()["detail"] == "OAuth discovery failed."
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")

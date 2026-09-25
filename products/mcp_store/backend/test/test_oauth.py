@@ -15,6 +15,7 @@ from products.mcp_store.backend.oauth import (
     TIMEOUT,
     DcrClientRegistration,
     DCRRegistrationRejectedError,
+    OAuthDiscoveryUnsupportedError,
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
@@ -920,6 +921,22 @@ class TestValidateEndpointsBoundToIssuer(TestCase):
     def test_rejects_invalid_issuer(self, _name, metadata):
         with self.assertRaises(ValueError):
             _validate_endpoints_bound_to_issuer(metadata)
+
+    @parameterized.expand(
+        [
+            ("localhost", "https://localhost:8080"),
+            ("single_label_internal_hostname", "https://mcp-auth:8080"),
+            ("cluster_internal_hostname", "https://mcp.default.svc.cluster.local"),
+            ("raw_ipv4_address", "https://192.0.2.10:8080"),
+        ]
+    )
+    def test_issuer_without_registrable_domain_reports_the_host(self, _name, issuer):
+        metadata = {"issuer": issuer, "token_endpoint": f"{issuer}/token"}
+
+        with self.assertRaises(OAuthDiscoveryUnsupportedError) as ctx:
+            _validate_endpoints_bound_to_issuer(metadata)
+
+        self.assertIn(urlparse(issuer).hostname or "", ctx.exception.user_message)
 
 
 class TestRegisterDCRClient(SimpleTestCase):

@@ -45,6 +45,19 @@ class OAuthAuthorizeURLError(Exception):
     pass
 
 
+class OAuthDiscoveryUnsupportedError(ValueError):
+    """Discovery rejected the server's OAuth setup for a reason the user can correct.
+
+    The message is safe to show the user. Callers that collapse discovery
+    failures into a generic reply must surface it, because a generic reply
+    leaves the user with no next step.
+    """
+
+    def __init__(self, user_message: str) -> None:
+        super().__init__(user_message)
+        self.user_message = user_message
+
+
 class DCRRegistrationRejectedError(Exception):
     """The authorization server rejected the Dynamic Client Registration request.
 
@@ -262,9 +275,14 @@ def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
     if not parsed_issuer.scheme or not parsed_issuer.netloc:
         raise ValueError("OAuth metadata issuer is not an absolute URL")
 
-    issuer_domain = _registrable_domain(parsed_issuer.hostname or "")
+    issuer_hostname = parsed_issuer.hostname or ""
+    issuer_domain = _registrable_domain(issuer_hostname)
     if issuer_domain is None:
-        raise ValueError("OAuth metadata issuer has no registrable domain")
+        raise OAuthDiscoveryUnsupportedError(
+            f"This server's OAuth issuer host '{issuer_hostname}' is not a public domain name. "
+            "PostHog can only connect to servers whose OAuth issuer uses a public domain, "
+            "not a private hostname or an IP address."
+        )
 
     for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
         url = metadata.get(field)
