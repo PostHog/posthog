@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -14,6 +15,7 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 import {
     BROADCASTS_PAGE_SIZE,
     BroadcastStatus,
+    BroadcastsStatusFilter,
     broadcastsLogic,
     getBroadcastStatus,
     isEligibleWorkflow,
@@ -37,8 +39,10 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, page } = useValues(broadcastsLogic)
-    const { setPage } = useActions(broadcastsLogic)
+    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters } = useValues(broadcastsLogic)
+    const { setFilters } = useActions(broadcastsLogic)
+    const { page } = filters
+    const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
     const columns: LemonTableColumns<HogFlowMinimalApi> = [
         {
@@ -90,7 +94,7 @@ export function BroadcastsTable(): JSX.Element {
         createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
     ]
 
-    const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && broadcasts.results.length === 0
+    const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && !isFiltered && broadcasts.results.length === 0
 
     if (isEmpty) {
         return (
@@ -108,22 +112,56 @@ export function BroadcastsTable(): JSX.Element {
     }
 
     return (
-        <LemonTable
-            dataSource={broadcasts.results}
-            pagination={{
-                controlled: true,
-                pageSize: BROADCASTS_PAGE_SIZE,
-                currentPage: page,
-                entryCount: broadcasts.count,
-                onForward: broadcasts.next ? () => setPage(page + 1) : undefined,
-                onBackward: page > 1 ? () => setPage(page - 1) : undefined,
-            }}
-            loading={broadcastsLoading}
-            rowKey="id"
-            columns={columns}
-            nouns={['broadcast', 'broadcasts']}
-            emptyState="No broadcasts"
-            data-attr="broadcasts-table"
-        />
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search broadcasts"
+                    onChange={(search) => setFilters({ search })}
+                    value={filters.search}
+                    // The API rejects longer search terms.
+                    maxLength={200}
+                    data-attr="broadcasts-search"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                    <b>Status</b>
+                    <LemonSelect
+                        dropdownMatchSelectWidth={false}
+                        size="small"
+                        onChange={(status) => setFilters({ status: status as BroadcastsStatusFilter })}
+                        options={[
+                            { label: 'All', value: 'all' },
+                            { label: 'Active', value: 'active' },
+                            { label: 'Draft', value: 'draft' },
+                            { label: 'Archived', value: 'archived' },
+                        ]}
+                        value={filters.status}
+                        data-attr="broadcasts-status-filter"
+                    />
+                    <b className="ml-1">Created by</b>
+                    <MemberSelect
+                        value={filters.createdBy}
+                        onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                    />
+                </div>
+            </div>
+            <LemonTable
+                dataSource={broadcasts.results}
+                pagination={{
+                    controlled: true,
+                    pageSize: BROADCASTS_PAGE_SIZE,
+                    currentPage: page,
+                    entryCount: broadcasts.count,
+                    onForward: broadcasts.next ? () => setFilters({ page: page + 1 }) : undefined,
+                    onBackward: page > 1 ? () => setFilters({ page: page - 1 }) : undefined,
+                }}
+                loading={broadcastsLoading}
+                rowKey="id"
+                columns={columns}
+                nouns={['broadcast', 'broadcasts']}
+                emptyState={isFiltered ? 'No broadcasts match these filters' : 'No broadcasts'}
+                data-attr="broadcasts-table"
+            />
+        </div>
     )
 }

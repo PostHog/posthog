@@ -1,12 +1,15 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { TeamPublicType, TeamType } from '~/types'
 
@@ -24,9 +27,20 @@ export interface BroadcastRowDetails {
     totals: Record<string, number>
 }
 
-/** An ordinary workflow shaped like a broadcast. It opens in the workflow editor, since the wizard would rewrite its graph. */
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
-export const BROADCASTS_PAGE_SIZE = 100
+export const BROADCASTS_PAGE_SIZE = 30
+
+export type BroadcastsStatusFilter = 'all' | 'draft' | 'active' | 'archived'
+const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = ['all', 'draft', 'active', 'archived']
+
+export interface BroadcastsFilters {
+    search: string
+    status: BroadcastsStatusFilter
+    createdBy: string | null
+    page: number
+}
+
+const DEFAULT_FILTERS: BroadcastsFilters = { search: '', status: 'all', createdBy: null, page: 1 }
 
 /** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
 export function isBroadcastShaped(
@@ -125,8 +139,8 @@ export interface broadcastsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     broadcasts: PaginatedHogFlowMinimalListApi
     broadcastsLoading: boolean
+    filters: BroadcastsFilters
     hasLoadedBroadcasts: boolean
-    page: number
     rowDetailsById: Record<string, BroadcastRowDetails>
 }
 
@@ -153,8 +167,11 @@ export interface broadcastsLogicActions {
             value: true
         }
     }
-    setPage: (page: number) => {
-        page: number
+    setFilters: (filters: Partial<BroadcastsFilters>) => {
+        filters: Partial<BroadcastsFilters>
+    }
+    setFiltersFromUrl: (filters: BroadcastsFilters) => {
+        filters: BroadcastsFilters
     }
     setRowDetails: (
         id: string,
@@ -174,24 +191,30 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
     })),
     actions({
         loadBroadcasts: true,
-        setPage: (page: number) => ({ page }),
+        setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
+        setFiltersFromUrl: (filters: BroadcastsFilters) => ({ filters }),
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
     }),
     loaders(({ values }) => ({
         broadcasts: [
             { results: [], count: 0 } as PaginatedHogFlowMinimalListApi,
             {
-                loadBroadcasts: async () => {
+                loadBroadcasts: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return values.broadcasts
                     }
-                    return await hogFlowsList(String(values.currentProjectId), {
+                    const response = await hogFlowsList(String(values.currentProjectId), {
                         // Broadcasts plus the ordinary workflows already shaped like one (a batch
                         // trigger and a single email), so existing sends show up here too.
                         broadcast_eligible: true,
+                        search: values.filters.search || undefined,
+                        status: values.filters.status !== 'all' ? values.filters.status : undefined,
+                        created_by: values.filters.createdBy || undefined,
                         limit: BROADCASTS_PAGE_SIZE,
-                        offset: (values.page - 1) * BROADCASTS_PAGE_SIZE,
+                        offset: (values.filters.page - 1) * BROADCASTS_PAGE_SIZE,
                     })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -209,10 +232,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 loadBroadcastsSuccess: () => true,
             },
         ],
-        page: [
-            1,
+        filters: [
+            DEFAULT_FILTERS,
             {
-                setPage: (_, { page }) => page,
+                // Any change other than the page itself starts the list over from the first page.
+                setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
+                setFiltersFromUrl: (_, { filters }) => filters,
             },
         ],
     }),
@@ -244,11 +269,43 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 })()
             }
         },
-        setPage: () => {
+        setFilters: async (_, breakpoint) => {
+            // Debounce so typing in the search box doesn't fire a request per keystroke.
+            await breakpoint(300)
+            actions.loadBroadcasts()
+        },
+        setFiltersFromUrl: () => {
             actions.loadBroadcasts()
         },
         loadBroadcastsFailure: () => {
             lemonToast.error("Couldn't load broadcasts. Refresh the page to try again.")
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setFilters: () => {
+            const { search, status, createdBy, page } = values.filters
+            const searchParams = {
+                ...router.values.searchParams,
+                search: search || undefined,
+                status: status !== 'all' ? status : undefined,
+                created_by: createdBy || undefined,
+                page: page > 1 ? page : undefined,
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.broadcasts()]: (_, searchParams) => {
+            const status = searchParams['status']
+            const parsed: BroadcastsFilters = {
+                search: searchParams['search'] ? String(searchParams['search']) : '',
+                status: BROADCASTS_STATUS_FILTERS.includes(status) ? status : 'all',
+                createdBy: searchParams['created_by'] ? String(searchParams['created_by']) : null,
+                page: Math.max(1, parseInt(String(searchParams['page'])) || 1),
+            }
+            if (!objectsEqual(parsed, values.filters)) {
+                actions.setFiltersFromUrl(parsed)
+            }
         },
     })),
     afterMount(({ actions }) => {
