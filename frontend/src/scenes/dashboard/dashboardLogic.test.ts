@@ -2769,8 +2769,8 @@ describe('dashboardLogic', () => {
                             query_async: true,
                             complete: false,
                             error: true,
-                            error_code: null,
-                            error_message: 'concurrency_limit_exceeded',
+                            error_code: 'rate_limited',
+                            error_message: 'Queries are a little too busy right now.',
                         },
                     }))
 

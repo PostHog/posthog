@@ -22,6 +22,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 
@@ -52,8 +53,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.errors import wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -4191,6 +4194,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
 
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
+    def _query_status_of_a_failed_refresh(self) -> dict:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
+
+        # The failure must ride on query_status so a dashboard tile renders its own error state
+        # while the response as a whole succeeds.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()["query_status"]
+
     @parameterized.expand(
         [
             ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
@@ -4215,23 +4234,31 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         }
         mock_calculate.side_effect = error_classes[_name](error_message)
 
-        insight = Insight.objects.create(
-            team=self.team,
-            query={
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-            },
-        )
+        query_status = self._query_status_of_a_failed_refresh()
 
-        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
-
-        # The failure must ride on query_status so a dashboard tile renders its own error state
-        # while the response as a whole succeeds.
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        query_status = response.json()["query_status"]
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity()),
+            ("org_concurrency_limit", ConcurrencyLimitExceeded("too many queries")),
+            ("no_free_clickhouse_connection", wrap_clickhouse_query_error(ServerException("no free connection", 203))),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_labels_every_capacity_failure_as_rate_limited(
+        self, _name: str, error: Exception, mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        # The dashboard retries on this code, so every transient capacity failure has to carry it.
+        self.assertTrue(query_status["error"])
+        self.assertEqual(query_status["error_code"], "rate_limited")
+        self.assertEqual(query_status["error_message"], ClickHouseAtCapacity.default_detail)
 
 
 class TestInsightQueryScan(APIBaseTest):

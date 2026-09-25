@@ -8,6 +8,7 @@ import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -180,7 +181,9 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
-const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
@@ -295,6 +298,7 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
 
     while (attempt < maxAttempts) {
         try {
@@ -312,8 +316,9 @@ export async function getInsightWithRetry(
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
@@ -381,6 +386,14 @@ export async function getInsightWithRetry(
                 const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
                 await wait(delay)
                 continue // Retry
+            }
+
+            if (rateLimitedAttempts > 0) {
+                posthog.capture('dashboard tile recovered from capacity error', {
+                    insight_short_id: insight.short_id,
+                    dashboard_id: dashboardId,
+                    attempts: rateLimitedAttempts,
+                })
             }
 
             return result
