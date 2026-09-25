@@ -37,10 +37,14 @@ from rest_framework.response import Response
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import (
+    BulkUpdateTagsAction,
     BulkUpdateTagsUUIDRequestSerializer,
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
+    add_tags_to_object,
+    cleanup_orphan_tags,
+    remove_tags_from_object,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -541,7 +545,17 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Tag names to set on the ticket.",
+        help_text="Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode.",
+    )
+    tags_mode = serializers.ChoiceField(
+        choices=BulkUpdateTagsAction.choices,
+        required=False,
+        default=BulkUpdateTagsAction.SET,
+        write_only=True,
+        help_text=(
+            "How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, "
+            "'remove' deletes only these. Defaults to 'set'."
+        ),
     )
 
     class Meta:
@@ -556,6 +570,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
+            "tags_mode",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
@@ -569,7 +584,23 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
+        validated_data.pop("tags_mode", None)
         return super().update(instance, validated_data)
+
+    def _attempt_set_tags(self, tags: list[str] | None, obj: Ticket) -> None:
+        if tags is None:
+            return
+        # add and remove only touch the named tags. Resolving a full set from the tags
+        # loaded with the ticket and writing it back would race a concurrent update
+        # and delete its tag.
+        tags_mode = self.validated_data.get("tags_mode", BulkUpdateTagsAction.SET)
+        if tags_mode == BulkUpdateTagsAction.ADD:
+            obj.prefetched_tags = add_tags_to_object(tags, obj)
+        elif tags_mode == BulkUpdateTagsAction.REMOVE:
+            obj.prefetched_tags = remove_tags_from_object(tags, obj)
+            cleanup_orphan_tags(obj.team_id)
+        else:
+            super()._attempt_set_tags(tags, obj)
 
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):

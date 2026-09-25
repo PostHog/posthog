@@ -307,6 +307,19 @@ export interface RoleTicketAssigneeRequestApi {
 export type TicketAssigneeRequestApi = UserTicketAssigneeRequestApi | RoleTicketAssigneeRequestApi
 
 /**
+ * * `add` - add
+ * * `remove` - remove
+ * * `set` - set
+ */
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
+
+export const BulkUpdateTagsActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+/**
  * Fields accepted when updating a ticket.
  */
 export interface TicketUpdateRequestApi {
@@ -346,8 +359,14 @@ export interface TicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode. */
     tags?: string[]
+    /** How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    tags_mode?: BulkUpdateTagsActionEnumApi
 }
 
 /**
@@ -390,8 +409,14 @@ export interface PatchedTicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode. */
     tags?: string[]
+    /** How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
+    tags_mode?: BulkUpdateTagsActionEnumApi
 }
 
 /**
@@ -552,19 +577,6 @@ export interface BulkUpdateStatusResponseApi {
     /** UUIDs of the tickets whose status changed. */
     ids: string[]
 }
-
-/**
- * * `add` - add
- * * `remove` - remove
- * * `set` - set
- */
-export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
-
-export const BulkUpdateTagsActionEnumApi = {
-    Add: 'add',
-    Remove: 'remove',
-    Set: 'set',
-} as const
 
 /**
  * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
