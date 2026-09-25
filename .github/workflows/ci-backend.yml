@@ -12,7 +12,11 @@ on:
         # longer run the test matrices per commit — the merge queue's trunk-merge/**
         # run already gated every commit before it landed — so this is where master's
         # matrix coverage, flaky-test baseline, and per-test timing data come from.
-        - cron: '23 * * * *'
+        # Only the every-third-hour cron runs the events_json leg. The merge queue
+        # already runs that leg before every commit lands, and this cadence still gives
+        # Trunk's master monitors enough runs. build_django_matrix matches this string.
+        - cron: '23 */3 * * *'
+        - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -36,8 +40,8 @@ on:
         # so every unrelated label re-ran these matrices against a commit CI had
         # already covered. A label here takes effect from the next push, or from
         # ready_for_review.
-        # The events_json leg runs wherever the legacy tests run, the hourly master run
-        # included: the paths in .github/new-events-schema-targets.txt rerun against the
+        # The events_json leg runs wherever the legacy tests run, and on every third
+        # hourly master run: the paths in .github/new-events-schema-targets.txt rerun against the
         # native-JSON events table, all of them on full runs and the reached ones on
         # narrowed runs. The `test-new-events-schema` label opts a PR into the doubled
         # matrices that run the whole suite in both events schemas, in place of that leg.
@@ -2651,6 +2655,8 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  # Must match the events_json cron in on.schedule.
+                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -2958,6 +2964,11 @@ jobs:
                       # The doubled matrices exclude some curated paths, such as Dagster tests.
                       # Discovery keeps only those paths so the other tests do not run a third time.
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
+                  fi
+
+                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
+                      echo "Skipping the events_json rows on this hourly run"
+                      json_targets_count=0
                   fi
 
                   # The events_json rows: Core jobs over the listed paths with the
