@@ -415,6 +415,17 @@
             ],
             "description": "Enables heatmap recording on pages that host posthog-js."
         },
+        "home_tab_dashboard": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the dashboard shown on the product analytics Home tab."
+        },
         "human_friendly_comparison_periods": {
             "anyOf": [
                 {
