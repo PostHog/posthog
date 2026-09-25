@@ -705,6 +705,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (isSharedView()) {
                 return
             }
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
             api.update('api/user_home_settings/@me/', {
                 homepage: tab ? tabToPersistableSnapshot(tab) : null,
             }).catch((error) => {
