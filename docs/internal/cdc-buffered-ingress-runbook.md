@@ -38,7 +38,8 @@ all, so a single-table run finalizes exactly as before.
 A table taking its snapshot has its changes captured to the buffer too, and the consumer reads them once the snapshot completes.
 A marker on the schema, `cdc_snapshot_lane: "buffer"` in `sync_type_config`, records that the buffer carries the current snapshot.
 Capture sets it, after emptying the table's buffer, the first time it sees the snapshotting table, before it reads the WAL, which drops files left from before a gap in capture such as a re-enable.
-A reset of a table the buffer already serves (a resync, a table-mode switch, an admin re-snapshot, a TRUNCATE) sets it directly, because that buffer already holds an unbroken run of the table's changes.
+A request that resets a table the buffer already serves (a resync, a table-mode switch, an admin re-snapshot) sets it directly, because that buffer already holds an unbroken run of the table's changes.
+A reset in capture (a TRUNCATE, or slot-invalidation recovery) empties the table's buffer first, because a file from before the reset would bring back rows, and then sets the marker, so the changes captured after the reset carry through the hand-over.
 The flip to streaming clears it.
 
 While the marker holds, the hand-over deletes no buffer file.
