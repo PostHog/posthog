@@ -1,14 +1,15 @@
 from dataclasses import asdict
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ErrorDetail, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.monitoring import monitor
@@ -81,6 +82,14 @@ class UploadReceiptSerializer(serializers.Serializer):
     results = ResultReceiptSerializer(many=True, help_text="Acknowledgments in the submitted result order.")
 
 
+class OfflineEvaluationValidationErrorSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Stable validation error code.")
+    detail = serializers.CharField(help_text="Explanation of the invalid value.")
+    attr = serializers.CharField(
+        allow_null=True, help_text="Invalid field path, with dot-separated fields and zero-based batch indexes."
+    )
+
+
 class OfflineEvaluationErrorSerializer(serializers.Serializer):
     type = serializers.CharField(required=False, help_text="Error category for standard API errors.")
     code = serializers.CharField(help_text="Stable error code.")
@@ -95,12 +104,44 @@ class OfflineEvaluationErrorSerializer(serializers.Serializer):
     accepted_item_count = serializers.IntegerField(required=False, help_text="Accepted items at failed completion.")
     accepted_result_count = serializers.IntegerField(required=False, help_text="Accepted results at failed completion.")
 
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["errors"] = OfflineEvaluationValidationErrorSerializer(
+            many=True, required=False, help_text="All validation errors found in the request."
+        )
+        return fields
+
 
 class EmptyOfflineExperimentSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         if self.initial_data:
             raise serializers.ValidationError("This operation does not accept fields.")
         return attrs
+
+
+class ValidationErrorEntry(TypedDict):
+    code: str
+    detail: str
+    attr: str | None
+
+
+def _validation_errors(detail: object, path: tuple[str, ...] = ()) -> list[ValidationErrorEntry]:
+    if isinstance(detail, dict):
+        errors: list[ValidationErrorEntry] = []
+        for field, value in cast(dict[str | int, object], detail).items():
+            field_path = path if field in (api_settings.NON_FIELD_ERRORS_KEY, "__all__") else (*path, str(field))
+            errors.extend(_validation_errors(value, field_path))
+        return errors
+    if isinstance(detail, list):
+        errors = []
+        for index, value in enumerate(cast(list[object], detail)):
+            item_path = (*path, str(index)) if isinstance(value, dict | list) else path
+            errors.extend(_validation_errors(value, item_path))
+        return errors
+    code = (detail.code or "invalid") if isinstance(detail, ErrorDetail) else "invalid"
+    return [
+        {"code": "invalid_input" if code == "invalid" else code, "detail": str(detail), "attr": ".".join(path) or None}
+    ]
 
 
 def _experiment_response(receipt: ExperimentReceipt, *, status: int = 200) -> Response:
@@ -164,10 +205,14 @@ class OfflineExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=409,
             )
         if isinstance(exc, OfflineEvaluationValidationError):
-            exc = ValidationError({exc.field: exc.detail})
+            exc = ValidationError(exc.errors)
         elif isinstance(exc, OfflineEvaluationNotFound):
             exc = NotFound("Experiment not found.")
         response = super().handle_exception(exc)
+        if isinstance(exc, ValidationError):
+            errors = _validation_errors(exc.detail)
+            if errors:
+                response.data.update(errors[0], errors=errors)
         OFFLINE_UPLOAD_ERRORS.labels(outcome="rejected" if response.status_code < 500 else "server_error").inc()
         return response
 

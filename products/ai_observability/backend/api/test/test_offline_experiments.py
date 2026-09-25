@@ -10,6 +10,7 @@ from django.utils import timezone
 from drf_spectacular.generators import SchemaGenerator
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.routers import SimpleRouter
 
 from posthog.constants import AvailableFeature
@@ -351,6 +352,101 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         response = self.client.post(self._endpoint(), body, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(OfflineExperiment.objects.for_team(self.team.id).exists())
+
+    def test_upload_reports_all_invalid_scores_without_accepting_any_entries(self) -> None:
+        definition = ScoreDefinition.objects.create(team=self.team, name="Accuracy", kind="numeric")
+        version = definition.create_new_version(config={"min": 0, "max": 1}, created_by=self.user)
+        body = self._experiment_body()
+        created = self.client.post(self._endpoint(), body, format="json")
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
+        items = [{"id": str(uuid4()), "payload": {"input": "What is 2 + 2?"}} for _ in range(3)]
+        response = self.client.post(
+            self._endpoint(str(body["id"]), "upload"),
+            {
+                "items": items,
+                "results": [
+                    {"item_id": item["id"], "scorer_version_id": str(version.id), "status": "ok", "value": value}
+                    for item, value in zip(items, [0.5, -0.1, 1.1])
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(
+            response.data["errors"],
+            [
+                {
+                    "code": "invalid_input",
+                    "detail": "Ensure this value is greater than or equal to 0.",
+                    "attr": "results.1.value",
+                },
+                {
+                    "code": "invalid_input",
+                    "detail": "Ensure this value is less than or equal to 1.",
+                    "attr": "results.2.value",
+                },
+            ],
+        )
+        self.assertEqual(response.data["attr"], "results.1.value")
+        self.assertFalse(OfflineExperimentItem.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+
+
+class TestOfflineExperimentValidationErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "nested_batch_fields",
+                ValidationError(
+                    {
+                        "results": [
+                            {},
+                            {"value": [ErrorDetail("A score is required.", code="required")]},
+                            {
+                                "scorer_version_id": [
+                                    ErrorDetail("Provide a UUID.", code="invalid"),
+                                    ErrorDetail("Identifier is too short.", code="min_length"),
+                                ]
+                            },
+                        ]
+                    }
+                ),
+                [
+                    {"code": "required", "detail": "A score is required.", "attr": "results.1.value"},
+                    {"code": "invalid_input", "detail": "Provide a UUID.", "attr": "results.2.scorer_version_id"},
+                    {
+                        "code": "min_length",
+                        "detail": "Identifier is too short.",
+                        "attr": "results.2.scorer_version_id",
+                    },
+                ],
+            ),
+            (
+                "scalar",
+                ValidationError("Provide an object."),
+                [{"code": "invalid_input", "detail": "Provide an object.", "attr": None}],
+            ),
+            (
+                "non_field_errors",
+                ValidationError({"non_field_errors": ["Provide an item or result.", "The request is empty."]}),
+                [
+                    {"code": "invalid_input", "detail": "Provide an item or result.", "attr": None},
+                    {"code": "invalid_input", "detail": "The request is empty.", "attr": None},
+                ],
+            ),
+            (
+                "nested_non_field_errors",
+                ValidationError({"items": [{}, {}, {"non_field_errors": ["Provide an item object."]}]}),
+                [{"code": "invalid_input", "detail": "Provide an item object.", "attr": "items.2"}],
+            ),
+        ]
+    )
+    def test_validation_errors_preserve_every_message_and_field_path(
+        self, _name: str, exception: ValidationError, expected: list[dict[str, str | None]]
+    ) -> None:
+        response = OfflineExperimentViewSet().handle_exception(exception)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {"type": "validation_error", **expected[0], "errors": expected})
 
 
 class TestOfflineExperimentActionSchemas(SimpleTestCase):

@@ -78,7 +78,17 @@ Missing payload properties and explicitly supplied JSON nulls remain distinct.
 Responses acknowledge committed writes and return stable item/result IDs, original acceptance times, and `created` flags.
 Retries with the same identities and content return the original records.
 Changed content returns HTTP 409; an invalid entry rejects the entire request with HTTP 400.
+Validation responses include an `errors` array with a `code`, `detail`, and `attr` for each detected failure.
+Field paths use zero-based request positions, such as `results.99.value` for the 100th result's score.
+The top-level `code`, `detail`, and `attr` describe the first error for compatibility.
+Request shape and field validation run before dataset and scorer validation; correct the reported errors and resend the batch to reach the next stage.
+Within dataset and scorer validation, all entries are checked before rejecting the batch, and no new items, results, or payloads are stored.
 Do not generate replacement item UUIDs when retrying a request.
+
+Numeric scores allow a small floating-point rounding tolerance at minimum and maximum boundaries, so `7 * 0.1` is accepted with `max=0.7`.
+The tolerance is capped at four floating-point units, `1e-12` absolute, `1e-12` relative to a nonzero boundary, and one millionth of the configured step when present.
+Zero boundaries use a unit scale to allow small residues from subtraction.
+Values outside that tolerance remain invalid, and accepted values are stored as submitted.
 
 Optional `expected_item_count` and `expected_result_count` declarations are fixed at experiment creation.
 Completion compares them with accepted unique counts, including error, skipped, and not-applicable outcomes.

@@ -32,6 +32,17 @@ def _is_float_on_step(value: float, base: Decimal, step: Decimal) -> bool:
     return distance <= tolerance
 
 
+def _is_float_at_boundary(value: float, boundary: Decimal, step: Decimal | None) -> bool:
+    # Zero has no relative scale, but SDK subtraction can leave a small residue.
+    scale = abs(Fraction(boundary)) if boundary else Fraction(1)
+    ulp = math.ulp(value) if boundary else math.ulp(1.0)
+    # The caps keep large and subnormal floats from meaningfully extending the range.
+    tolerance = min(Fraction(ulp) * 4, scale / 1_000_000_000_000, Fraction(1, 1_000_000_000_000))
+    if step is not None:
+        tolerance = min(tolerance, Fraction(step) / 1_000_000)
+    return abs(Fraction(Decimal(str(value))) - Fraction(boundary)) <= tolerance
+
+
 def _validate_categorical_score(config: dict[str, object], categorical_values: list[str] | None) -> dict[str, str]:
     if categorical_values is None:
         return {"categorical_values": "This scorer requires `categorical_values`."}
@@ -81,10 +92,22 @@ def _validate_numeric_score(config: dict[str, object], numeric_value: Decimal | 
         return {"numeric_value": "This scorer has an invalid numeric configuration."}
 
     decimal_value = Decimal(str(numeric_value)) if isinstance(numeric_value, float) else numeric_value
-    if numeric_minimum is not None and decimal_value < numeric_minimum:
+    if (
+        numeric_minimum is not None
+        and decimal_value < numeric_minimum
+        and not (
+            isinstance(numeric_value, float) and _is_float_at_boundary(numeric_value, numeric_minimum, numeric_step)
+        )
+    ):
         return {"numeric_value": f"Ensure this value is greater than or equal to {numeric_minimum}."}
 
-    if numeric_maximum is not None and decimal_value > numeric_maximum:
+    if (
+        numeric_maximum is not None
+        and decimal_value > numeric_maximum
+        and not (
+            isinstance(numeric_value, float) and _is_float_at_boundary(numeric_value, numeric_maximum, numeric_step)
+        )
+    ):
         return {"numeric_value": f"Ensure this value is less than or equal to {numeric_maximum}."}
 
     if numeric_step is not None:

@@ -101,21 +101,32 @@ class TestOfflineExperimentSubmissionSerializers(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ({"status": "error", "value": 0}, "value"),
-            ({"status": "skipped", "value": False}, "value"),
-            ({"status": "not_applicable", "value": ["a"]}, "value"),
-            ({"error_code": "timeout"}, "error_code"),
-            ({"payload": {"error_message": "Timed out"}}, "payload"),
-            ({"id": str(uuid4())}, "id"),
-            ({"scorer_definition_id": str(uuid4())}, "scorer_definition_id"),
-            ({"accepted_at": "2026-09-24T10:00:00Z"}, "accepted_at"),
-            ({"payload_state": "available"}, "payload_state"),
+            ({"status": "error", "value": 0}, {"value"}),
+            ({"status": "skipped", "value": False}, {"value"}),
+            ({"status": "not_applicable", "value": ["a"]}, {"value"}),
+            ({"error_code": "timeout"}, {"error_code"}),
+            ({"payload": {"error_message": "Timed out"}}, {"payload"}),
+            ({"id": str(uuid4())}, {"id"}),
+            ({"scorer_definition_id": str(uuid4())}, {"scorer_definition_id"}),
+            ({"accepted_at": "2026-09-24T10:00:00Z"}, {"accepted_at"}),
+            ({"payload_state": "available"}, {"payload_state"}),
+            (
+                {
+                    "status": "skipped",
+                    "value": False,
+                    "error_code": "timeout",
+                    "payload": {"error_message": "Timed out"},
+                },
+                {"value", "error_code", "payload"},
+            ),
         ]
     )
-    def test_result_status_invariants_and_server_owned_fields(self, overrides: dict[str, object], field: str) -> None:
+    def test_result_status_invariants_and_server_owned_fields(
+        self, overrides: dict[str, object], fields: set[str]
+    ) -> None:
         serializer = ResultSubmissionSerializer(data=self.result_data(**overrides))
         self.assertFalse(serializer.is_valid())
-        self.assertIn(field, serializer.errors)
+        self.assertEqual(set(serializer.errors), fields)
 
     def test_error_without_score_accepts_error_details(self) -> None:
         data = self.result_data(status="error", error_code="timeout", payload={"error_message": "Timed out"})

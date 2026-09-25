@@ -85,10 +85,16 @@ class UploadReceipt:
 
 
 class OfflineEvaluationValidationError(Exception):
-    def __init__(self, field: str, detail: str) -> None:
+    def __init__(self, field: str, detail: str, *, errors: dict[str, str] | None = None) -> None:
         super().__init__(detail)
         self.field = field
         self.detail = detail
+        self.errors = errors if errors is not None else {field: detail}
+
+    @classmethod
+    def from_errors(cls, errors: dict[str, str]) -> OfflineEvaluationValidationError:
+        field = next(iter(errors))
+        return cls(field, errors[field], errors=errors)
 
 
 class OfflineEvaluationNotFound(Exception):
@@ -191,12 +197,18 @@ class OfflineExperimentService(_OfflineEvaluationService):
         revision = self._dataset_revisions().filter(id=submission.dataset_revision_id).first()
         if revision is None:
             raise OfflineEvaluationValidationError("dataset_revision_id", "Select an existing dataset revision.")
+        errors: dict[str, str] = {}
         for field, derived in {
             "dataset_source": "posthog",
             "dataset_identifier": str(revision.dataset_id),
             "dataset_revision_identifier": str(revision.id),
         }.items():
-            fields[field] = _provenance_identifier(getattr(submission, field), derived, field=field)
+            try:
+                fields[field] = _provenance_identifier(getattr(submission, field), derived, field=field)
+            except OfflineEvaluationValidationError as error:
+                errors.update(error.errors)
+        if errors:
+            raise OfflineEvaluationValidationError.from_errors(errors)
         return fields
 
     def create(self, submission: ExperimentSubmission) -> ExperimentReceipt:
@@ -319,13 +331,19 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     f"items.{index}.dataset_item_version_id",
                     "Select an active item version in the experiment's dataset revision.",
                 )
+            errors: dict[str, str] = {}
             for field, derived in {
                 "dataset_item_identifier": str(version.dataset_item_id),
                 "dataset_item_version_identifier": str(version.id),
             }.items():
-                fields[field] = _provenance_identifier(
-                    getattr(submission, field), derived, field=f"items.{index}.{field}"
-                )
+                try:
+                    fields[field] = _provenance_identifier(
+                        getattr(submission, field), derived, field=f"items.{index}.{field}"
+                    )
+                except OfflineEvaluationValidationError as error:
+                    errors.update(error.errors)
+            if errors:
+                raise OfflineEvaluationValidationError.from_errors(errors)
         return OfflineExperimentItem(
             **fields,
             team_id=self.team_id,
@@ -420,7 +438,12 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
-        dataset_versions = self._dataset_versions(experiment, new_item_submissions)
+        errors: dict[str, str] = {}
+        try:
+            dataset_versions = self._dataset_versions(experiment, new_item_submissions)
+        except OfflineEvaluationValidationError as error:
+            errors.update(error.errors)
+            dataset_versions = None
         versions = {
             version.id: version
             for version in self._scorer_versions()
@@ -428,35 +451,45 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             .select_related("definition")
         }
         accepted_at = timezone.now()
-        new_items = [
-            self._new_item(
-                item,
-                experiment=experiment,
-                dataset_versions=dataset_versions,
-                fingerprint=item_hashes[item.id],
-                accepted_at=accepted_at,
-                index=index,
-            )
-            for index, item in enumerate(submission.items)
-            if item.id not in items
-        ]
+        new_items: list[OfflineExperimentItem] = []
+        if dataset_versions is not None:
+            for index, item in enumerate(submission.items):
+                if item.id in items:
+                    continue
+                try:
+                    new_items.append(
+                        self._new_item(
+                            item,
+                            experiment=experiment,
+                            dataset_versions=dataset_versions,
+                            fingerprint=item_hashes[item.id],
+                            accepted_at=accepted_at,
+                            index=index,
+                        )
+                    )
+                except OfflineEvaluationValidationError as error:
+                    errors.update(error.errors)
+        declared_item_ids = {item.id for item in submission.items}
         items.update({item.id: item for item in new_items})
         new_result_rows: list[OfflineEvaluationResult] = []
         for index, result in new_results:
-            if result.item_id not in items:
-                raise OfflineEvaluationValidationError(
-                    f"results.{index}.item_id", "Declare the item or select an existing item in this experiment."
-                )
+            if result.item_id not in items and result.item_id not in declared_item_ids:
+                errors[f"results.{index}.item_id"] = "Declare the item or select an existing item in this experiment."
             version = versions.get(result.scorer_version_id)
             if version is None:
-                raise OfflineEvaluationValidationError(
-                    f"results.{index}.scorer_version_id", "Select an existing scorer version in this project."
+                errors[f"results.{index}.scorer_version_id"] = "Select an existing scorer version in this project."
+                continue
+            try:
+                row = self._new_result(
+                    result, version=version, fingerprint=result_hashes[index], accepted_at=accepted_at, index=index
                 )
-            row = self._new_result(
-                result, version=version, fingerprint=result_hashes[index], accepted_at=accepted_at, index=index
-            )
+            except OfflineEvaluationValidationError as error:
+                errors.update(error.errors)
+                continue
             new_result_rows.append(row)
             results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)] = row
+        if errors:
+            raise OfflineEvaluationValidationError.from_errors(errors)
         OfflineExperimentItem.objects.for_team(self.team_id, canonical=True).bulk_create(new_items)
         new_item_ids = {item.id for item in new_items}
         OfflineExperimentItemPayload.objects.for_team(self.team_id, canonical=True).bulk_create(

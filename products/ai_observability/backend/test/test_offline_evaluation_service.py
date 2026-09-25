@@ -118,23 +118,35 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(error.exception.code, "content_conflict")
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).get().numeric_value, 0.8)
 
-    @parameterized.expand([("missing_scorer",), ("foreign_scorer",), ("invalid_score",)])
+    @parameterized.expand([("missing_scorer",), ("foreign_scorer",), ("invalid_score",), ("missing_item_and_scorer",)])
     def test_invalid_batch_does_not_persist_any_rows(self, failure: str) -> None:
         second_item = replace(self.item, id=uuid4())
         second_result = replace(self.result, item_id=second_item.id)
+        third_item = replace(self.item, id=uuid4())
+        third_result = replace(self.result, item_id=third_item.id, value=-1.0)
+        expected_fields = {"results.2.value"}
         if failure == "missing_scorer":
             second_result = replace(second_result, scorer_version_id=uuid4())
+            expected_fields.add("results.1.scorer_version_id")
         elif failure == "foreign_scorer":
             second_result = replace(second_result, scorer_version_id=self.other_version.id)
+            expected_fields.add("results.1.scorer_version_id")
+        elif failure == "missing_item_and_scorer":
+            second_result = replace(second_result, item_id=uuid4(), scorer_version_id=uuid4())
+            expected_fields.update({"results.1.item_id", "results.1.scorer_version_id"})
         else:
             second_result = replace(second_result, value=2.0)
+            expected_fields.add("results.1.value")
 
         with self.assertRaises(OfflineEvaluationValidationError) as error:
             self.ingestion.upload(
                 self.experiment.id,
-                UploadSubmission(items=[self.item, second_item], results=[self.result, second_result]),
+                UploadSubmission(
+                    items=[self.item, second_item, third_item], results=[self.result, second_result, third_result]
+                ),
             )
         self.assertTrue(error.exception.field.startswith("results.1."))
+        self.assertEqual(set(error.exception.errors), expected_fields)
         self.assertFalse(OfflineExperimentItem.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
@@ -342,10 +354,33 @@ class TestOfflineEvaluationService(TestCase):
         experiment_submission = replace(self.experiment_submission, id=uuid4(), dataset_revision_id=first_revision.id)
         experiment = self.lifecycle.create(experiment_submission).experiment
         submission = replace(self.submission, items=[replace(self.item, dataset_item_version_id=old_version.id)])
-        with self.assertRaises(OfflineEvaluationValidationError):
+        second_item = replace(
+            self.item,
+            id=uuid4(),
+            dataset_item_version_id=old_version.id,
+            dataset_item_identifier="wrong-item",
+            dataset_item_version_identifier="wrong-version",
+        )
+        with self.assertRaises(OfflineEvaluationValidationError) as error:
             self.ingestion.upload(
-                experiment.id, replace(submission, items=[replace(self.item, dataset_item_version_id=new_version.id)])
+                experiment.id,
+                replace(
+                    submission,
+                    items=[replace(self.item, dataset_item_version_id=new_version.id), second_item],
+                    results=[self.result, replace(self.result, item_id=second_item.id, value=2.0)],
+                ),
             )
+        self.assertEqual(
+            set(error.exception.errors),
+            {
+                "items.0.dataset_item_version_id",
+                "items.1.dataset_item_identifier",
+                "items.1.dataset_item_version_identifier",
+                "results.1.value",
+            },
+        )
+        self.assertFalse(OfflineExperimentItem.objects.for_team(self.team.id).exists())
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
         receipt = self.ingestion.upload(experiment.id, submission)
         self.assertEqual(experiment.dataset_source, "posthog")
         self.assertEqual(experiment.dataset_identifier, str(dataset.id))

@@ -293,16 +293,17 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
         dataclass = ResultSubmission
 
     def validate(self, attrs: ResultSubmission) -> ResultSubmission:
+        errors: dict[str, list[str] | dict[str, list[str]]] = {}
         if attrs.status == "ok" and attrs.value is None:
-            raise serializers.ValidationError({"value": ["A score is required for an ok result."]})
+            errors["value"] = ["A score is required for an ok result."]
         if attrs.status != "ok" and attrs.value is not None:
-            raise serializers.ValidationError({"value": ["Only an ok result may contain a score."]})
+            errors["value"] = ["Only an ok result may contain a score."]
         if attrs.status != "error" and attrs.error_code is not None:
-            raise serializers.ValidationError({"error_code": ["Only an error result may contain an error code."]})
+            errors["error_code"] = ["Only an error result may contain an error code."]
         if attrs.status != "error" and attrs.payload and attrs.payload.get("error_message") is not None:
-            raise serializers.ValidationError(
-                {"payload": {"error_message": ["Only an error result may contain an error message."]}}
-            )
+            errors["payload"] = {"error_message": ["Only an error result may contain an error message."]}
+        if errors:
+            raise serializers.ValidationError(errors)
         return attrs
 
 

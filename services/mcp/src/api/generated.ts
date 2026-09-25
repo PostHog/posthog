@@ -61236,6 +61236,18 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    export interface OfflineEvaluationValidationError {
+      /** Stable validation error code. */
+      code: string;
+      /** Explanation of the invalid value. */
+      detail: string;
+      /**
+         * Invalid field path, with dot-separated fields and zero-based batch indexes.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
     export interface OfflineEvaluationError {
       /** Error category for standard API errors. */
       type?: string;
@@ -61262,6 +61274,8 @@ export namespace Schemas {
       accepted_item_count?: number;
       /** Accepted results at failed completion. */
       accepted_result_count?: number;
+      /** All validation errors found in the request. */
+      errors?: OfflineEvaluationValidationError[];
     }
 
     /**
