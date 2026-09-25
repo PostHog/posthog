@@ -25,6 +25,8 @@ from uuid import uuid4
 
 from django.conf import settings
 
+import structlog
+
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.config_validation import (
@@ -36,6 +38,8 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
+
+logger = structlog.get_logger(__name__)
 
 _SEEDED_RULE_TYPE = "percentage_rollout"
 
@@ -56,6 +60,7 @@ def _flag_enabled(key: str, team_id: int) -> bool:
             send_feature_flag_events=False,
         )
     except Exception:
+        logger.warning("feature_flag_rules_v2_flag_evaluation_failed", flag=key, team_id=team_id, exc_info=True)
         return False
 
 
@@ -67,8 +72,8 @@ def v2_write_limits(team_id: int) -> ValidationLimits | None:
 
     ``max_config_bytes`` is the deployment filter-size limit the v1 write path and the Rust
     reader both enforce. ``max_metadata_bytes`` is pilot scope: its default is sized for the
-    known pilot documents and is revisited at the shared-project gate, before users author
-    documents through the editor or broader API use.
+    known pilot documents; revisit it before users can author v2 documents through the editor
+    or the wider API.
     """
     if not _flag_enabled(V2_WRITES_FLAG, team_id):
         return None

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connection, transaction
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -74,6 +74,27 @@ def rollout(rule_id: str | None = RULE_B, seed: str | None = SEED_B, **extra: An
 
 def config(*rules: dict, **extra: Any) -> dict:
     return {"version": 2, "return_type": "boolean", "default_value": False, "rules": list(rules), **extra}
+
+
+class TestWriterAdmission(SimpleTestCase):
+    def test_the_gate_evaluates_locally_for_the_project_and_captures_nothing(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            assert config_writes.v2_write_limits(42) is not None
+        kwargs = feature_enabled.call_args.kwargs
+        assert kwargs["only_evaluate_locally"] is True
+        assert kwargs["send_feature_flag_events"] is False
+        assert kwargs["groups"] == {"project": "42"}
+        assert kwargs["group_properties"] == {"project": {"id": "42"}}
+
+    def test_a_broken_client_reads_closed_and_is_logged(self) -> None:
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=RuntimeError("boom")),
+            patch.object(config_writes, "logger") as logger,
+        ):
+            assert config_writes.v2_write_limits(42) is None
+            assert config_writes.v2_creation_enabled(42) is False
+        assert logger.warning.call_args.args[0] == "feature_flag_rules_v2_flag_evaluation_failed"
+        assert logger.warning.call_args.kwargs["team_id"] == 42
 
 
 class V2UpdateTestCase(APIBaseTest):

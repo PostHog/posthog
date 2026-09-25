@@ -96,7 +96,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
-from products.approvals.backend.policies import PolicyEngine, lock_approval_policies
+from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.policies import lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -313,6 +314,8 @@ V2_SAFETY_FIELDS = frozenset({"version", "active", "deleted"})
 V2_UPDATE_FIELDS = V2_SAFETY_FIELDS | {"filters", "name", "key", "tags"}
 V2_CREATE_FIELDS = V2_UPDATE_FIELDS - {"deleted"}
 V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+
+_MISSING: Any = object()
 
 
 def parse_created_by_ids(value: Any) -> list[int]:
@@ -1452,7 +1455,10 @@ class FeatureFlagSerializer(
             if self.instance is None:
                 self._validate_v2_create(attrs)
             else:
-                self._reject_unsupported_v2_operations(attrs)
+                echoed = self._drop_echoed_v2_fields(attrs)
+                self._reject_unsupported_v2_operations(attrs, echoed)
+                if attrs.get("deleted") is True:
+                    attrs["active"] = False  # soft-deleting disables in the same write; no second step to forget
 
         # Run universal validations before any early returns so they always apply,
         # regardless of creation_context (surveys, etc.) or evaluation contexts.
@@ -1561,7 +1567,6 @@ class FeatureFlagSerializer(
         # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
         # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
         # and validate against the stale instance value.
-        _MISSING: Any = object()
         bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
         ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
 
@@ -1715,7 +1720,7 @@ class FeatureFlagSerializer(
 
         Every stored v2 row in the admitted family takes it (no encrypted payloads, no remote
         config), whatever its team: disabling and soft-deleting are the pilot's incident controls
-        and must not depend on a setting. A create takes it only when its team is admitted with
+        and must not depend on a writer flag. A create takes it only when its team is admitted with
         creation enabled and the request document says version 2, so a request that merely
         contains numeric 2 cannot reach it elsewhere. Which operations the path then accepts
         is decided by `_v2_limits`.
@@ -1803,21 +1808,29 @@ class FeatureFlagSerializer(
         attrs["active"] = False
         attrs["get_filters"] = self._resolve_v2_document(attrs["get_filters"], stored={}, flag_id=None)
 
-    def _reject_unsupported_v2_operations(self, attrs: dict) -> None:
+    def _drop_echoed_v2_fields(self, attrs: dict) -> set[str]:
+        """Remove every submitted value equal to the stored one and return their names.
+
+        An echo is neither judged nor written: PUT must repeat `key`, and a bulk delete does not
+        bump `version`, so a written `deleted: false` could undo one.
+        """
+        assert isinstance(self.instance, FeatureFlag)
+        echoed = {
+            field
+            for field in attrs
+            if field != "get_filters" and attrs[field] == getattr(self.instance, field, _MISSING)
+        }
+        for field in echoed:
+            del attrs[field]
+        return echoed
+
+    def _reject_unsupported_v2_operations(self, attrs: dict, echoed: set[str]) -> None:
         """Deny everything about a v2 update that this milestone does not own.
 
         Disabling and soft-deleting need no admission; every other change needs the project's writes flag.
         Restoring a deleted row stays closed until a later task owns it.
         """
         admitted = self._v2_limits is not None
-        assert isinstance(self.instance, FeatureFlag)
-        # An echo (a value equal to the stored one) is neither judged nor written: PUT must repeat `key`,
-        # and a bulk delete does not bump `version`, so a written `deleted: false` could undo one.
-        echoed = {
-            field for field in attrs if field != "get_filters" and attrs[field] == getattr(self.instance, field, attrs)
-        }
-        for field in echoed:
-            del attrs[field]
         unsupported = self._unsupported_v2_fields(attrs, V2_UPDATE_FIELDS if admitted else V2_SAFETY_FIELDS) - echoed
         if attrs.get("deleted") is False:
             unsupported.add("deleted")
@@ -1828,8 +1841,6 @@ class FeatureFlagSerializer(
                 f"These fields cannot be updated on this flag: {', '.join(sorted(unsupported))}.",
                 code="unsupported_config_version",
             )
-        if attrs.get("deleted") is True:
-            attrs["active"] = False  # soft-deleting disables in the same write; no second step to forget
         self._reject_v2_approval_operations()
 
     def _reject_v2_approval_operations(self) -> None:
@@ -1843,15 +1854,17 @@ class FeatureFlagSerializer(
         self._reject_v2_approval_policy(self._write_team)
 
     def _reject_v2_approval_policy(self, team: Team) -> None:
-        engine = PolicyEngine()
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
-        # this team denies the write, because a v2 change that needs approval has nowhere to go.
-        if any(
-            engine.get_policy(action_key=action, team=team, organization=team.organization) is not None
-            for action in V2_APPROVAL_ACTIONS
+        # this team or its organization denies the write, because a v2 change that needs
+        # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
+        if (
+            ApprovalPolicy.objects.enabled()
+            .filter(organization_id=team.organization_id, action_key__in=V2_APPROVAL_ACTIONS)
+            .filter(Q(team=team) | Q(team__isnull=True))
+            .exists()
         ):
             raise serializers.ValidationError(
-                "This flag cannot be updated while an approval policy is enabled.",
+                "This flag cannot be written while an approval policy is enabled.",
                 code="unsupported_config_version",
             )
 

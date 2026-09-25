@@ -7,11 +7,13 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
 from posthog.models import Team
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
     AdmittedV2TestCase,
@@ -28,7 +30,7 @@ from products.feature_flags.backend.models import FeatureFlag
 
 
 class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
-    """Disabling and archiving are the pilot's incident controls: they work with both settings closed."""
+    """Disabling and soft-deleting are the pilot's incident controls: they work with both writer flags off."""
 
     @parameterized.expand(["patch", "put"])
     def test_disabling_needs_only_the_row_version(self, method: str) -> None:
@@ -50,7 +52,7 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         )
         assert (updated.deleted, updated.active, updated.version) == (True, False, 4)
 
-    def test_archiving_disables_an_enabled_row_in_the_same_write(self) -> None:
+    def test_soft_deleting_disables_an_enabled_row_in_the_same_write(self) -> None:
         flag = self.flag(active=True)
         response = self.patch_flag(flag, {"version": 3, "deleted": True})
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -63,7 +65,7 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         [
             ("missing_token", {"active": False}, status.HTTP_400_BAD_REQUEST),
             ("stale_token", {"version": 2, "active": False}, status.HTTP_409_CONFLICT),
-            ("stale_archive", {"version": 2, "deleted": True}, status.HTTP_409_CONFLICT),
+            ("stale_delete", {"version": 2, "deleted": True}, status.HTTP_409_CONFLICT),
             ("restore", {"version": 3, "deleted": False}, status.HTTP_400_BAD_REQUEST),
             ("archived_flag_field", {"version": 3, "archived": True, "active": False}, status.HTTP_400_BAD_REQUEST),
             ("rename", {"version": 3, "active": False, "name": "Renamed"}, status.HTTP_400_BAD_REQUEST),
@@ -127,19 +129,20 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("client_id", {"filters": config(targeted())}),
-            ("fragment", {"filters": {"version": 2, "rules": []}}),
-            ("remote_config", {"filters": config(), "is_remote_configuration": True}),
-            ("encrypted", {"filters": config(), "has_encrypted_payloads": True}),
-            ("archived", {"filters": config(), "archived": True}),
-            ("deleted", {"filters": config(), "deleted": True}),
-            ("continuity", {"filters": config(), "ensure_experience_continuity": True}),
-            ("unknown", {"filters": config(), "naem": "x"}),
+            ("client_id", {"filters": config(targeted())}, "invalid_input"),
+            ("fragment", {"filters": {"version": 2, "rules": []}}, "required"),
+            ("remote_config", {"filters": config(), "is_remote_configuration": True}, "unsupported_config_version"),
+            ("encrypted", {"filters": config(), "has_encrypted_payloads": True}, "unsupported_config_version"),
+            ("archived", {"filters": config(), "archived": True}, "unsupported_config_version"),
+            ("deleted", {"filters": config(), "deleted": True}, "unsupported_config_version"),
+            ("continuity", {"filters": config(), "ensure_experience_continuity": True}, "unsupported_config_version"),
+            ("unknown", {"filters": config(), "naem": "x"}, "unsupported_config_version"),
         ]
     )
-    def test_invalid_documents_and_unsupported_fields_are_rejected(self, _name: str, data: dict) -> None:
+    def test_invalid_documents_and_unsupported_fields_are_rejected(self, _name: str, data: dict, code: str) -> None:
         response = self.post_flag({"key": "new-v2", **data})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == code, response.json()
         assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
 
     def test_v1_creates_and_version_1_stay_as_before(self) -> None:
@@ -173,6 +176,31 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         assert response.json()["code"] == "unsupported_config_version"
         assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
         assert not ChangeRequest.objects.filter(organization=self.organization).exists()
+
+    def test_a_policy_enabled_after_validation_denies_the_create(self) -> None:
+        tombstone = self.flag(key="new-v2", deleted=True)
+        serializer = FeatureFlagSerializer(
+            data={"key": "new-v2", "filters": config()},
+            context={
+                "request": ServiceRequest(self.user),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        policy = ApprovalPolicySerializer(
+            data={"action_key": "feature_flag.update", "approver_config": {"quorum": 1}, "enabled": True}
+        )
+        policy.is_valid(raise_exception=True)
+        policy.save(organization=self.organization, team=self.team)
+
+        with self.assertRaises(ValidationError) as error:
+            serializer.save()
+
+        assert error.exception.get_codes() == ["unsupported_config_version"]
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+        tombstone.refresh_from_db()
+        assert (tombstone.key, tombstone.deleted) == ("new-v2", True)
 
     def test_approval_replay_cannot_create(self) -> None:
         serializer = FeatureFlagSerializer(
@@ -259,8 +287,10 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         assert not ChangeRequest.objects.filter(organization=self.organization).exists()
 
 
-class TestM1PilotScenario(AdmittedV2TestCase):
-    """The final-plan M1 sequence through the public API, one activity entry and one version step per write."""
+class TestV2PilotLifecycle(AdmittedV2TestCase):
+    """Create, read, enable, replace, stale write, disable, re-enable, delete through the public API:
+    one activity entry and one version step per write.
+    """
 
     def check(self, response, flag_id: int, *, version: int, entries: int, expected: int = status.HTTP_200_OK):
         assert response.status_code == expected, response.json()
@@ -269,7 +299,7 @@ class TestM1PilotScenario(AdmittedV2TestCase):
         assert len(self.activity(flag)) == entries
         return flag
 
-    def test_create_read_enable_update_close_disable_recover_archive(self) -> None:
+    def test_create_read_enable_update_close_disable_recover_delete(self) -> None:
         initial = config(targeted(rule_id=None), rollout(rule_id=None, seed=None))
         with admit_v2(self.team.id, creation=True):
             response = self.post_flag({"key": "pilot-flag", "filters": initial})
