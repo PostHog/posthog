@@ -5,6 +5,9 @@
  *
  *   tsx dev/code-bench.ts [--limit N] [--label name] [--shard k/n]
  *
+ * --limit keeps the first N frame, code, size and degradation combinations. --shard k/n renders and
+ * checks every nth of those, starting at k, so n processes together cover the whole set once.
+ *
  * zxing reads the full frame today. A code only leaks if a reader can decode it from the stored
  * image, and the stored image is several times smaller than the frame, so zxing may not need the
  * whole frame to find every code that could leak. Each generated image is checked twice: zxing on the
@@ -193,6 +196,7 @@ function arg(name: string): string | undefined {
 
 async function main(): Promise<void> {
     const limit = Number(arg('limit') ?? 1e9)
+    const [shard, shards] = (arg('shard') ?? '0/1').split('/').map(Number)
     const limits = limitsFromEnv()
     const combinations = FRAMES.flatMap((frame) =>
         CODES.flatMap((code) =>
@@ -200,11 +204,11 @@ async function main(): Promise<void> {
                 DEGRADATIONS.map((degradation) => ({ frame, code, fraction, degradation }))
             )
         )
-    )
+    ).slice(0, limit)
     const samples: Sample[] = []
     for (const [seed, { frame, code, fraction, degradation }] of combinations.entries()) {
-        if (samples.length >= limit) {
-            break
+        if (seed % shards !== shard) {
+            continue
         }
         const s = await makeSample(frame, code, fraction, degradation, seed)
         if (s) {
@@ -213,12 +217,8 @@ async function main(): Promise<void> {
     }
     console.log(`${samples.length} images`)
 
-    const [shard, shards] = (arg('shard') ?? '0/1').split('/').map(Number)
     const results: Result[] = []
     for (const [i, s] of samples.entries()) {
-        if (i % shards !== shard) {
-            continue
-        }
         const source = { width: s.frame.width, height: s.frame.height }
         const plan = planScales(source, limits)
         const src = await decodeSrc(s.png, plan.frame)
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
             })
         }
         if ((i + 1) % 50 === 0) {
-            console.error(`  ${i + 1}/${Math.min(limit, samples.length)}`)
+            console.error(`  ${i + 1}/${samples.length}`)
         }
     }
 
