@@ -10,9 +10,7 @@
  *
  * The rules it encodes, in full:
  *
- *  1. Never upscale. Enlarging pixels adds nothing and softens the edges detection depends on. The
- *     one exception is a detector whose input size is fixed by its model, which is a property of the
- *     model rather than a choice, and is marked as such.
+ *  1. Never upscale. Enlarging pixels adds nothing and softens the edges detection depends on.
  *  2. Bound the work by the tensor, not by the frame. A budget on frame area does not bound the
  *     tensor once a collapsed axis is padded up to the encoder's stride.
  *  3. Store small. The final consumer identifies what kind of site a session is on, so it needs
@@ -34,7 +32,7 @@ export interface ScalePlan {
     frame: Dims
     /** What DBNet sees: content, and the stride-padded canvas that is actually allocated. */
     text: { content: Dims; canvas: Dims }
-    /** What YuNet sees. Its input is a fixed square, so this is how much of the frame reaches it. */
+    /** What YuNet sees, as a fraction of the frame. */
     face: { scale: number }
     /** What zxing sees, as a fraction of the frame. */
     code: { scale: number }
@@ -43,9 +41,9 @@ export interface ScalePlan {
 }
 
 export interface PlanLimits {
-    /** Aspect past which the face detector tiles rather than letterboxing the whole frame, and the
-     *  aspect of each tile. The planner has to know these: modelling the detector as a single
-     *  letterbox understates how much of a long frame it really sees. */
+    /** Aspect past which the face detector tiles rather than reading the whole frame in one pass, and
+     *  the aspect of each tile. The planner has to know these: modelling the detector as one pass over
+     *  the whole frame understates how much of a long frame it really sees. */
     faceTileAbove: number
     faceTileAspect: number
     /** Area budget for the decoded frame. */
@@ -54,7 +52,7 @@ export interface PlanLimits {
     textCanvasPixels: number
     /** Upper bound on the stored image; the ratio may make it smaller still. */
     storedPixels: number
-    /** The fixed square YuNet's build requires. */
+    /** The longest side YuNet reads a frame or tile at. */
     faceInputSide: number
     /** Stride the text encoder needs its input to be a multiple of. */
     stride: number
@@ -68,8 +66,9 @@ const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
  *  disagree, which is how a legal stored size produced an illegal frame size. */
 const MIN_FRAME_PIXELS = 96 * 96
 
-/** The face detector's tiling rule, owned here because the plan has to model it. yunet.ts imports
- *  these rather than declaring its own, so the model and the plan cannot disagree. */
+/** The face detector's input size and tiling rule, owned here because the plan has to model them.
+ *  yunet.ts imports these rather than declaring its own, so the model and the plan cannot disagree. */
+export const FACE_INPUT_SIDE = 640
 export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
 
@@ -158,15 +157,10 @@ export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): {
 /**
  * How much of the frame the face detector sees.
  *
- * Scaling the long side to fill the square maximises the subject at the model, which is what recall
- * wants, so enlarging a frame smaller than the square is deliberate and allowed by rule 1: the size
- * is the model's, not ours. What matters here is only the reduction, since that is what narrows the
- * ratio.
- *
- * It tiles rather than letterboxing once a frame is longer than `tileAbove`, so the scale is set by
- * the TILE and not by the whole frame. Modelling it as a single letterbox understated the scale on
- * every long frame, and because the stored size is derived from the weakest detector that understating
- * crushed the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
+ * It tiles once a frame is longer than `tileAbove`, so the scale is set by the TILE and not by the
+ * whole frame. Modelling it as one pass over the whole frame understated the scale on every long
+ * frame, and because the stored size is derived from the weakest detector that understating crushed
+ * the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
  * nineteen, for a guarantee that never asked for it.
  */
 export function faceInputScale(dims: Dims, side: number, tileAbove: number, tileAspect: number): number {
@@ -261,7 +255,7 @@ export function limitsFromEnv(): PlanLimits {
         ),
         textCanvasPixels: numFromEnv('DET_CANVAS_PIXELS', 736 * 736, 256 * 256, 4096 * 4096),
         storedPixels,
-        faceInputSide: 640,
+        faceInputSide: FACE_INPUT_SIDE,
         faceTileAbove: FACE_TILE_ABOVE,
         faceTileAspect: FACE_TILE_ASPECT,
         stride: 32,

@@ -98,7 +98,7 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 1. **Apply the image policy**: reject an image when its XMP `plus:DataMining` value prohibits AI training.
 2. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
-   Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
+   Faces are detected at up to 640 px on the long side, never enlarged or squashed; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).

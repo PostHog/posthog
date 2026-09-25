@@ -97,9 +97,8 @@ describe('scale-plan', () => {
         expect(tight.stored.width * tight.stored.height).toBeLessThanOrEqual(2_000)
     })
 
-    it('lets a fixed-input detector enlarge a frame smaller than its square', () => {
-        // The one allowed upscale: the size belongs to the model, and filling the square is what
-        // maximises the subject at it. Only the reduction matters for the ratio, hence the cap at 1.
+    it('reads a frame smaller than the face input at its own size', () => {
+        // YuNet never enlarges a frame, so a scale above 1 would credit it with detail it never saw.
         expect(faceInputScale({ width: 200, height: 100 }, 640, 3, 6)).toBe(1)
         expect(faceInputScale({ width: 1280, height: 720 }, 640, 3, 6)).toBeCloseTo(0.5, 5)
     })
