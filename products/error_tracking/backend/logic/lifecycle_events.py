@@ -144,8 +144,8 @@ def prepare_issue_lifecycle_event(
 
     status_property = properties.get("status")
     assignee_property_value = properties.get("assignee")
-    delivery_extra: dict[str, str] = current_assignee.display_properties() if current_assignee is not None else {}
     # Notifications only need counts; the id lists stay on the internal event.
+    delivery_extra: dict[str, str] = {}
     for id_list_key, count_key in (("merged_issue_ids", "merged_count"), ("split_issue_ids", "split_count")):
         id_list = properties.get(id_list_key)
         if isinstance(id_list, list):

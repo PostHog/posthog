@@ -690,7 +690,6 @@ class TestErrorTracking(APIBaseTest):
         assert notification["event"] == "$error_tracking_issue_assigned"
         assert notification["issue_id"] == str(issues[0].id)
         assert notification["opener_allowed"] is False
-        assert notification["extra"] == {"assignee_name": self.user.email, "assignee_email": self.user.email}
 
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
@@ -775,11 +774,12 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == "Resolved"
         assert event.properties["previous_status"] == "Active"
 
-    @parameterized.expand([("user",), ("role",)])
-    def test_issue_assign_produces_lifecycle_internal_event(self, assignee_type):
+    @parameterized.expand([("user", "Jane"), ("user_without_name", ""), ("role", "Jane")])
+    def test_issue_assign_produces_lifecycle_internal_event(self, case, first_name):
+        assignee_type = "role" if case == "role" else "user"
         issue = self.create_issue()
-        self.user.first_name = "Jane"
-        self.user.last_name = "Doe"
+        self.user.first_name = first_name
+        self.user.last_name = "Doe" if first_name else ""
         self.user.save()
         role = Role.objects.create(name="Backend", organization=self.organization)
         assignee_id = self.user.id if assignee_type == "user" else str(role.id)
@@ -799,14 +799,16 @@ class TestErrorTracking(APIBaseTest):
         assert event.event == "$error_tracking_issue_assigned"
         assert event.distinct_id == str(issue.id)
         # Byte-identical to cymbal's compact serde output so exact-match filters work.
+        user_assignee = f'{{"type":"user","id":{self.user.id}}}'
         expected_properties = {
-            "user": {
-                "assignee": f'{{"type":"user","id":{self.user.id}}}',
-                "assignee_name": "Jane Doe",
+            "user": {"assignee": user_assignee, "assignee_name": "Jane Doe", "assignee_email": self.user.email},
+            "user_without_name": {
+                "assignee": user_assignee,
+                "assignee_name": self.user.email,
                 "assignee_email": self.user.email,
             },
             "role": {"assignee": f'{{"type":"role","id":"{role.id}"}}', "assignee_name": "Backend"},
-        }[assignee_type]
+        }[case]
         assert {key: value for key, value in event.properties.items() if key.startswith("assignee")} == (
             expected_properties
         )

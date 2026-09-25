@@ -6,9 +6,6 @@ MAX_ISSUE_NAME_LENGTH = 500
 MAX_ISSUE_DESCRIPTION_LENGTH = 5000
 
 
-NUMERIC_EXTRA_KEYS = frozenset({"computed_baseline", "current_bucket_value", "merged_count", "split_count"})
-
-
 def _truncate(value: str | None, limit: int) -> str | None:
     if value is None or len(value) <= limit:
         return value
@@ -39,8 +36,7 @@ class AlertDeliveryWorkflowInputs:
     # time there while event_timestamp stays the exception's own time (the fetch anchor);
     # filters must see the same value on both delivery paths.
     lifecycle_timestamp: str | None = None
-    # Small extras (spike baseline values, assignee name and email); never exception payloads.
-    # Filters compare only the keys in NUMERIC_EXTRA_KEYS as numbers.
+    # Small event-specific extras (e.g. spike baseline values); never exception payloads.
     extra: dict[str, str] | None = None
     # Bulk mutations set this off: they only reply into threads that already exist,
     # so one action over many issues cannot open a thread per issue.

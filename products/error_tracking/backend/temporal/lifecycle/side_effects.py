@@ -125,7 +125,6 @@ def alert_delivery_inputs(
         for key, value in (extra_properties or {}).items()
         if key in ("computed_baseline", "current_bucket_value") and value is not None
     }
-    extra.update(_assignee_display_properties(inputs))
     return AlertDeliveryWorkflowInputs.build(
         notification_id=inputs.notification_id,
         team_id=inputs.team_id,

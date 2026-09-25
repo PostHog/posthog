@@ -265,28 +265,51 @@ def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own
 
 
 @pytest.mark.parametrize(
-    "resolved, expected_extra",
+    "resolved, expected_names",
     [
         (
             ResolvedAssignee(property_value=ASSIGNEE, name="Jane Doe", email="jane@example.com"),
             {"assignee_name": "Jane Doe", "assignee_email": "jane@example.com"},
         ),
-        (ResolvedAssignee(property_value='{"type":"role","id":"r1"}', name="Backend", email=None), None),
-        (None, None),
+        (ResolvedAssignee(property_value='{"type":"role","id":"r1"}', name="Backend", email=None), {}),
+        (None, {}),
     ],
     ids=["same_assignee", "reassigned_since_ingestion", "unassigned_since_ingestion"],
 )
-def test_alert_inputs_name_the_assignee_only_while_it_matches_the_snapshot(
-    resolve_assignee: MagicMock, resolved: ResolvedAssignee | None, expected_extra: dict[str, str] | None
+def test_internal_event_names_the_assignee_only_while_it_matches_the_snapshot(
+    resolve_assignee: MagicMock, resolved: ResolvedAssignee | None, expected_names: dict[str, str]
 ) -> None:
     resolve_assignee.return_value = resolved
+    sent_events: list[InternalEventEvent] = []
 
-    alert = alert_delivery_inputs(
-        _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+    def capture_event(_team_id: int, event: InternalEventEvent) -> MagicMock:
+        sent_events.append(copy.deepcopy(event))
+        return MagicMock()
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.get",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value={},
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.produce_internal_event",
+            side_effect=capture_event,
+        ),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+    ):
+        produce_issue_lifecycle_internal_event(
+            _inputs(), event="$error_tracking_issue_reopened", exception_timestamp=_inputs().event_timestamp
+        )
+
+    properties = sent_events[0].properties
+    assert properties["assignee"] == ASSIGNEE
+    assert {key: value for key, value in properties.items() if key in ("assignee_name", "assignee_email")} == (
+        expected_names
     )
-
-    assert alert.assignee == ASSIGNEE
-    assert alert.extra == expected_extra
 
 
 def test_dispatch_raises_so_the_activity_retries() -> None:

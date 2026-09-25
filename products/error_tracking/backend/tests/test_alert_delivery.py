@@ -268,14 +268,6 @@ class TestAlertMessages(SimpleTestCase):
     def test_spiking_reply_without_measurements_stays_short(self):
         assert build_reply_text(self._inputs()) == "📈 Spiking again"
 
-    def test_assigned_reply_names_the_assignee(self):
-        inputs = dataclasses.replace(
-            self._inputs(assignee_name="Jane Doe"),
-            event="$error_tracking_issue_assigned",
-            actor_email="dev@example.com",
-        )
-        assert build_reply_text(inputs) == "👤 Assigned to Jane Doe by dev@example.com"
-
     def test_issue_link_follows_the_fingerprint_when_known(self):
         # A merge deletes the source issue; the fingerprint route redirects to the survivor.
         inputs = AlertDeliveryWorkflowInputs(
@@ -888,17 +880,6 @@ class TestAlertFilterEvaluation(AlertTestMixin):
                 "absent_lifecycle_key",
                 {"properties": [{"key": "assignee", "operator": "is_not_set", "type": "event"}]},
                 {"assignee": None},
-            ),
-            (
-                "absent_assignee_name",
-                {"properties": [{"key": "assignee_name", "operator": "is_not_set", "type": "event"}]},
-                {"assignee": None},
-            ),
-            # A name Python parses as a number ("Nan" becomes float nan) must stay a string.
-            (
-                "numeric_looking_assignee_name",
-                {"properties": [{"key": "assignee_name", "value": "Nan", "type": "event"}]},
-                {"extra": {"assignee_name": "Nan"}},
             ),
             # Event branches are OR'd: another branch's exception-property leaf is irrelevant.
             (
