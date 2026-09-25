@@ -58,6 +58,10 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
+from products.alerts.backend.evaluation.contract import (
+    EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
+    EVALUATION_TEMPORARILY_UNAVAILABLE_MESSAGE,
+)
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
@@ -595,7 +599,7 @@ class _PermanentEvaluationError(Exception):
             True,
             SloOutcome.FAILURE,
             False,
-            None,
+            EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
             id="transient_retried_to_exhaustion",
         ),
         pytest.param(
@@ -640,10 +644,11 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     edit_on_final_attempt: bool,
     expected_error_code: str | None,
 ) -> None:
-    # However evaluation fails, the workflow must leave an errored check, notify the owner, and push
-    # next_check_at into the future so the one-minute sweep doesn't restart the chain forever.
+    # However evaluation fails, the workflow must leave an errored check and push next_check_at into
+    # the future so the one-minute sweep doesn't restart the chain forever.
     # Transient cluster pressure re-raises and exhausts the retry policy before the workflow records
     # the failure and fails; a user's query error is recorded inline on the first attempt.
+    # Only a transient cluster failure keeps the alert state and skips the owner's email.
     failure_ctx = pytest.raises(WorkflowFailureError) if expect_workflow_failure else nullcontext()
     attempts = 0
     edited_due_at = None
@@ -694,13 +699,21 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
         if expected_error_code is None:
             assert check.error is not None and "code" not in check.error
         else:
-            # A check the judge could not complete is not the owner's configuration, so the check
-            # carries its own code and never the raw transport error.
+            # A failure that is not the owner's configuration carries its own code and never the
+            # raw transport error.
             assert check.error == {
-                "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-                "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+                "code": expected_error_code,
+                "message": {
+                    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE: LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+                    EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE: EVALUATION_TEMPORARILY_UNAVAILABLE_MESSAGE,
+                }[expected_error_code],
             }
-        mock_send_errors.assert_called_once()
+        if expected_error_code == EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE:
+            assert refreshed.state == alert_with_subscriber.state
+            mock_send_errors.assert_not_called()
+        else:
+            assert refreshed.state == AlertState.ERRORED
+            mock_send_errors.assert_called_once()
         assert refreshed.next_check_at is not None
         assert refreshed.next_check_at > datetime.now(UTC)
 
