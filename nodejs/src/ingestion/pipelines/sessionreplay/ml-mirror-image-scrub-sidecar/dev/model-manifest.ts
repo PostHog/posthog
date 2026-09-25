@@ -19,10 +19,18 @@ export function readModelManifest(): ModelManifest {
     return JSON.parse(readFileSync(new URL('../models.json', import.meta.url), 'utf8')) as ModelManifest
 }
 
+function sha256Hex(bytes: Uint8Array): string {
+    return createHash('sha256').update(bytes).digest('hex')
+}
+
+export function matchesPinnedSha256(model: ManifestModel, bytes: Uint8Array): boolean {
+    return sha256Hex(bytes) === model.sha256
+}
+
 // The models decide what gets redacted, so a file that differs from its pinned digest is never used. An upstream
 // change or a compromise could otherwise swap the anonymization control silently.
 export function assertPinnedSha256(model: ManifestModel, bytes: Uint8Array, source: string): void {
-    const actualSha256 = createHash('sha256').update(bytes).digest('hex')
+    const actualSha256 = sha256Hex(bytes)
     if (actualSha256 !== model.sha256) {
         throw new Error(
             `${model.path} from ${source}: sha256 ${actualSha256} does not match models.json (${model.sha256}), refusing to use it`

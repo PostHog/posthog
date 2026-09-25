@@ -10,11 +10,11 @@ import { existsSync } from 'node:fs'
  * /splits discovers a valid config+split, /rows returns rows whose image cells carry a `src` URL.
  * The dataset list below is just defaults — swap in whatever faces/text sources you want.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import sharp from 'sharp'
 
-import { assertPinnedSha256, readModelManifest } from './model-manifest.ts'
+import { assertPinnedSha256, matchesPinnedSha256, readModelManifest } from './model-manifest.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 
@@ -92,7 +92,10 @@ async function downloadModels(): Promise<void> {
     for (const model of manifest.models) {
         const dest = ROOT + model.path
         if (existsSync(dest)) {
-            continue
+            if (matchesPinnedSha256(model, await readFile(dest))) {
+                continue
+            }
+            console.warn(`  ${model.path} does not match models.json, replacing it`)
         }
         const s3Url = `s3://${manifest.bucket}/${model.s3Key}`
         const fromS3Mirror = readFromS3Mirror(s3Url, manifest.region)
