@@ -63,6 +63,8 @@ MAX_TAGS = 3 * MAX_QUESTIONS_PER_REQUEST
 MAX_TEXT_CANDIDATES = MAX_OPTIONS_PER_QUESTION
 # Insight.name holds at most this many characters, so a longer picked title would fail to save.
 MAX_TITLE_CHARS = 400
+# A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_CHARS.
+MAX_TAG_NAME_CHARS = 60
 # Each question is one row of the model's 8,192-token window, and the row repeats the state, so the
 # state stays near 4,000 tokens to leave room for the instructions and 16 title options.
 MAX_STATE_CHARS = 16_000
@@ -765,7 +767,7 @@ def _state(context: InsightContext, tags: Mapping[str, str] | None = None) -> st
         }
     }
     if tags:
-        state["tags"] = dict(tags)
+        state["tags"] = {key: _clip(value, MAX_TAG_NAME_CHARS) for key, value in tags.items()}
     serialized = json.dumps(state, ensure_ascii=False)
     if len(serialized) > MAX_STATE_CHARS:
         raise InsightTooLargeForSuggestions()

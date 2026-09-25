@@ -26,6 +26,7 @@ from products.ml_inference.backend.facade.contracts import (
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     GROUP_WORDS,
     MAX_STATE_CHARS,
+    MAX_TAGS,
     PERSON_WORDS,
     ActorWords,
     InsightContext,
@@ -238,6 +239,18 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         with patch(DECIDE) as decide, self.assertRaises(InsightTooLargeForSuggestions):
             suggest_title(1, InsightContext(query=_trends(), description="y" * (MAX_STATE_CHARS + 1)))
         decide.assert_not_called()
+
+        long_tags = [f"{i:03d}" + "z" * 252 for i in range(MAX_TAGS)]
+        with patch(DECIDE) as decide:
+            decide.side_effect = lambda request: _result(
+                {key: NoulAnswer(probability=0.95) for key in request.questions}
+            )
+            suggestion = suggest_tags(
+                1, InsightContext(query=_trends(series=long_series), name="n" * 400, description="d" * 2000), long_tags
+            )
+        assert decide.call_count == MAX_TAGS // MAX_QUESTIONS_PER_REQUEST
+        assert all(len(call.args[0].state) <= MAX_STATE_CHARS for call in decide.call_args_list)
+        assert set(suggestion.tags) == set(long_tags)
 
     def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
         context = InsightContext(

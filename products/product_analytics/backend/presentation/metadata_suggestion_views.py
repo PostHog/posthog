@@ -209,9 +209,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except (DecisionsDisabledError, GatewayNotConfiguredError) as error:
             raise PermissionDenied("Suggestions are not enabled for this project") from error
         except InsightTooLargeForSuggestions as error:
-            raise ValidationError(
-                "This insight is too large for suggestions. Shorten its series names or filters."
-            ) from error
+            raise ValidationError("This insight is too large for suggestions. Shorten its description.") from error
         except DecisionGatewayUnreachableError as error:
             raise MetadataSuggestionsBusy() from error
         except DecisionGatewayError as error:
