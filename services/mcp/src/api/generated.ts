@@ -1596,14 +1596,12 @@ export namespace Schemas {
 
     /**
      * * `private` - Personal
-     * * `team` - Team
      */
-    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+    export type AccountViewUpdateVisibilityEnum = typeof AccountViewUpdateVisibilityEnum[keyof typeof AccountViewUpdateVisibilityEnum];
 
 
-    export const AccountViewVisibilityEnum = {
+    export const AccountViewUpdateVisibilityEnum = {
       Private: 'private',
-      Team: 'team',
     } as const;
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -70581,9 +70579,8 @@ export namespace Schemas {
       content?: AccountViewContent;
       /** Views can only be private.
        *
-       * * `private` - Personal
-       * * `team` - Team */
-      visibility?: AccountViewVisibilityEnum;
+       * * `private` - Personal */
+      visibility?: AccountViewUpdateVisibilityEnum;
       /**
          * Version returned by the last read.
          * @minimum 1

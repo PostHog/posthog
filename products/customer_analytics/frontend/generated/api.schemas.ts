@@ -605,14 +605,12 @@ export interface AccountViewCreateApi {
 
 /**
  * * `private` - Personal
- * * `team` - Team
  */
-export type AccountViewVisibilityEnumApi =
-    (typeof AccountViewVisibilityEnumApi)[keyof typeof AccountViewVisibilityEnumApi]
+export type AccountViewUpdateVisibilityEnumApi =
+    (typeof AccountViewUpdateVisibilityEnumApi)[keyof typeof AccountViewUpdateVisibilityEnumApi]
 
-export const AccountViewVisibilityEnumApi = {
+export const AccountViewUpdateVisibilityEnumApi = {
     Private: 'private',
-    Team: 'team',
 } as const
 
 export interface PatchedAccountViewUpdateApi {
@@ -625,9 +623,8 @@ export interface PatchedAccountViewUpdateApi {
     content?: AccountViewContentApi
     /** Views can only be private.
      *
-     * * `private` - Personal
-     * * `team` - Team */
-    visibility?: AccountViewVisibilityEnumApi
+     * * `private` - Personal */
+    visibility?: AccountViewUpdateVisibilityEnumApi
     /**
      * Version returned by the last read.
      * @minimum 1

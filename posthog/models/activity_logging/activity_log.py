@@ -281,7 +281,7 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
-    "AccountView": ["content", "text_content"],
+    "AccountView": ["name", "content", "text_content"],
     "HogFunction": [
         # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
         # leak-adjacent at worst; record that they changed, never the values.

@@ -178,6 +178,8 @@ def update_account_view(
         return None
     if view.version != expected_version:
         raise AccountViewVersionConflict("This view changed since you opened it.")
+    if name is None and content is None:
+        return view
 
     update_fields = ["last_modified_by", "version", "updated_at"]
     if name is not None:

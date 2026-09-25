@@ -262,10 +262,10 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Replacement account view components. Omit to keep current content.'),
     visibility: zod
-        .enum(['private', 'team'])
-        .describe('\* `private` - Personal\n\* `team` - Team')
+        .enum(['private'])
+        .describe('\* `private` - Personal')
         .optional()
-        .describe('Views can only be private.\n\n\* `private` - Personal\n\* `team` - Team'),
+        .describe('Views can only be private.\n\n\* `private` - Personal'),
     version: zod.number().min(1).optional().describe('Version returned by the last read.'),
 })
 
