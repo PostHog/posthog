@@ -4,7 +4,7 @@ Jev does not write text. It picks one option from a list, or says how likely a s
 returns a calibrated probability. So every suggestion here has two halves: this module builds the
 candidates deterministically from the query and the existing metadata, and Jev picks the candidate
 that best fits. Jev runs on PostHog's own inference hosts behind the AI gateway, reached through the
-ml_inference facade, so the metadata stays inside PostHog.
+shared System One client with no TypeSafe fallback, so the metadata stays inside PostHog.
 
 User text (the current name, description, tag names) always lives in the ``state`` document and is
 referenced from the question by path. It is never interpolated into instructions, so a person's
@@ -22,23 +22,29 @@ import posthoganalytics
 from posthog.schema import ActorsQuery, EventsQuery, GroupsQuery, InsightVizNode
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
-
-from products.ml_inference.backend.facade import api as ml_inference
-from products.ml_inference.backend.facade.contracts import (
-    MAX_OPTIONS_PER_QUESTION,
-    MAX_QUESTIONS_PER_REQUEST,
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.system_one import (
     ChoiceAnswer,
-    DecisionQuestion,
-    DecisionRequest,
+    ChoiceQuestion,
+    JsonValue,
     NoulAnswer,
+    NoulQuestion,
+    Question,
+    SystemOneResult,
 )
-from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from posthog.llm.system_one_client import (
+    GATEWAY_MAX_CHOICE_OPTIONS,
+    GATEWAY_MAX_QUESTIONS,
+    build_system_one_client,
+    system_one_configured,
+)
+from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
 # Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
 SUGGESTIONS_FLAG = "product-analytics-metadata-suggestions"
+JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 
 
 @frozen
@@ -56,11 +62,11 @@ MetadataQuery = InsightVizNode | ActorsQuery | EventsQuery | GroupsQuery
 
 # A tag with a lower probability is more likely wrong than right for the person to have to remove.
 TAG_THRESHOLD = 0.6
-# Each tag is one yes/no question and the gateway takes MAX_QUESTIONS_PER_REQUEST questions per call,
+# Each tag is one yes/no question and the gateway takes GATEWAY_MAX_QUESTIONS questions per call,
 # so this caps one click at three calls. The view offers the most used tags first.
-MAX_TAGS = 3 * MAX_QUESTIONS_PER_REQUEST
+MAX_TAGS = 3 * GATEWAY_MAX_QUESTIONS
 # Jev answers a choice with one letter per option, so the current name and the generated titles share this cap.
-MAX_TEXT_CANDIDATES = MAX_OPTIONS_PER_QUESTION
+MAX_TEXT_CANDIDATES = GATEWAY_MAX_CHOICE_OPTIONS
 # Insight.name holds at most this many characters, so a longer picked title would fail to save.
 MAX_TITLE_CHARS = 400
 # A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_CHARS.
@@ -104,8 +110,8 @@ class TagSuggestion:
 
 
 def suggestions_enabled(team: Team) -> bool:
-    """Whether this team gets suggestions: the product flag and the ml_inference enrollment must both
-    hold. Fails closed on a flag-eval blip, because the flag is how the rollout stays small."""
+    """Whether this team gets suggestions: the product flag must be on and a System One gateway must be
+    configured. Fails closed on a flag-eval blip, because the flag is how the rollout stays small."""
     try:
         flag_on = bool(
             posthoganalytics.feature_enabled(
@@ -123,7 +129,7 @@ def suggestions_enabled(team: Team) -> bool:
     except Exception:
         logger.warning("metadata_suggestions.flag_check_failed", team_id=team.id, exc_info=True)
         return False
-    return flag_on and ml_inference.decisions_enabled(team.id)
+    return flag_on and system_one_configured()
 
 
 def validate_metadata_query(query_data: Mapping[str, object]) -> MetadataQuery:
@@ -754,9 +760,9 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
     return lines
 
 
-def _state(context: InsightContext, tags: Mapping[str, str] | None = None) -> str:
-    """The state document as JSON text, so the instructions can point at ``subject.name`` or ``tags.t3``."""
-    state: dict[str, object] = {
+def _state(context: InsightContext, tags: Mapping[str, str] | None = None) -> dict[str, JsonValue]:
+    """The state document, so the instructions can point at ``subject.name`` or ``tags.t3``."""
+    state: dict[str, JsonValue] = {
         "subject": {
             "name": context.name,
             "description": context.description,
@@ -768,10 +774,17 @@ def _state(context: InsightContext, tags: Mapping[str, str] | None = None) -> st
     }
     if tags:
         state["tags"] = {key: _clip(value, MAX_TAG_NAME_CHARS) for key, value in tags.items()}
-    serialized = json.dumps(state, ensure_ascii=False)
-    if len(serialized) > MAX_STATE_CHARS:
+    if len(json.dumps(state, ensure_ascii=False)) > MAX_STATE_CHARS:
         raise InsightTooLargeForSuggestions()
-    return serialized
+    return state
+
+
+def _ask_jev(team_id: int, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+    # No TypeSafe fallback: the state holds a customer's insight metadata, which must not leave PostHog.
+    client = build_system_one_client(
+        model=JEV_MODEL, ai_product="product_analytics", distinct_id=team_distinct_id(team_id)
+    )
+    return client.decide(state=state, questions=questions)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -783,8 +796,7 @@ def suggest_title(team_id: int, context: InsightContext) -> TextSuggestion:
     if len(candidates) == 1:
         return TextSuggestion(value=candidates[0], confidence=1.0, candidates=candidates)
     criteria = {f"c{index}": candidate for index, candidate in enumerate(candidates)}
-    question = DecisionQuestion(
-        type=DecisionQuestionType.CHOICE,
+    question = ChoiceQuestion(
         instructions=(
             "`subject` describes a saved insight in a product analytics tool: its current name and "
             "description, and a plain-language `summary` of what it plots. Which option is the best title "
@@ -799,7 +811,7 @@ def suggest_title(team_id: int, context: InsightContext) -> TextSuggestion:
         ),
         criteria=criteria,
     )
-    result = ml_inference.decide(DecisionRequest(team_id=team_id, state=_state(context), questions={"title": question}))
+    result = _ask_jev(team_id, _state(context), {"title": question})
     answer = result.answers["title"]
     if not isinstance(answer, ChoiceAnswer) or answer.choice not in criteria:
         raise ValueError("Jev did not pick one of the title candidates")
@@ -814,23 +826,20 @@ def suggest_title(team_id: int, context: InsightContext) -> TextSuggestion:
     )
 
 
-def _tag_question(key: str) -> DecisionQuestion:
-    return DecisionQuestion(
-        type=DecisionQuestionType.NOUL,
+def _tag_question(key: str) -> NoulQuestion:
+    return NoulQuestion(
         instructions=(
             f"`subject` describes a saved insight in a product analytics tool. `tags.{key}` is one of the tags "
             "the team already uses to organize its work. Does that tag apply to this insight?"
         ),
-        criteria={
-            "true": (
-                "The tag names a theme, product area, team, metric family, or status that the insight clearly "
-                "belongs to, so a teammate filtering by that tag would expect to find it."
-            ),
-            "false": (
-                "The tag is about something else, is too specific to a different feature, or there is not "
-                "enough in the insight to say it applies."
-            ),
-        },
+        criteria_true=(
+            "The tag names a theme, product area, team, metric family, or status that the insight clearly "
+            "belongs to, so a teammate filtering by that tag would expect to find it."
+        ),
+        criteria_false=(
+            "The tag is about something else, is too specific to a different feature, or there is not "
+            "enough in the insight to say it applies."
+        ),
     )
 
 
@@ -838,17 +847,9 @@ def suggest_tags(team_id: int, context: InsightContext, available_tags: Sequence
     """Asks one yes/no question per tag. ``available_tags`` comes most used first, so the cap drops the rarest."""
     tags = _dedupe(available_tags, limit=MAX_TAGS)
     scores: dict[str, float] = {}
-    for start in range(0, len(tags), MAX_QUESTIONS_PER_REQUEST):
-        chunk = {
-            f"t{start + offset}": tag for offset, tag in enumerate(tags[start : start + MAX_QUESTIONS_PER_REQUEST])
-        }
-        result = ml_inference.decide(
-            DecisionRequest(
-                team_id=team_id,
-                state=_state(context, chunk),
-                questions={key: _tag_question(key) for key in chunk},
-            )
-        )
+    for start in range(0, len(tags), GATEWAY_MAX_QUESTIONS):
+        chunk = {f"t{start + offset}": tag for offset, tag in enumerate(tags[start : start + GATEWAY_MAX_QUESTIONS])}
+        result = _ask_jev(team_id, _state(context, chunk), {key: _tag_question(key) for key in chunk})
         for key, tag in chunk.items():
             answer = result.answers.get(key)
             if isinstance(answer, NoulAnswer):

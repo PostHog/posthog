@@ -51,6 +51,5 @@ See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog De
 
 Insights can offer sparkle buttons that ask the Jev decision model to pick a title and to say which of the project's existing tags apply.
 Jev picks from candidates the backend builds; it never writes text.
-The calls go through the `ml_inference` facade to `POST /v1/systemone` on the AI gateway, so they need `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` in `.env.local`.
+The calls go through the shared System One client in `posthog/llm/system_one_client.py` to `POST /v1/systemone` on the AI gateway, so they need `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` in `.env.local`. They never fall back to TypeSafe.
 The buttons appear only when the `product-analytics-metadata-suggestions` feature flag is on for the project and the organization has approved AI data processing.
-The backend also checks the `ml_inference` enrollment, which is on in local development and follows the `ml-inference-decisions` flag in the US cloud.

@@ -1,25 +1,23 @@
+import json
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+import httpx
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.llm.system_one import Answer, ChoiceAnswer, NoulAnswer, SystemOneRequestFailed, SystemOneResult
 from posthog.models import Organization, Tag, Team
 
-from products.ml_inference.backend.facade.contracts import (
-    ChoiceAnswer,
-    DecisionAnswer,
-    DecisionGatewayError,
-    DecisionRequest,
-    DecisionResult,
-    NoulAnswer,
-)
 from products.product_analytics.backend.facade.models import Insight
 
 MODULE = "products.product_analytics.backend.presentation.metadata_suggestions"
 FLAG = f"{MODULE}.posthoganalytics.feature_enabled"
-ENROLLED = f"{MODULE}.ml_inference.decisions_enabled"
-DECIDE = f"{MODULE}.ml_inference.decide"
+CONFIGURED = f"{MODULE}.system_one_configured"
+BUILD = f"{MODULE}.build_system_one_client"
 
 # A kind whose runner lives in this product. These endpoints never run the query, but the crossing
 # ratchet treats a posted TrendsQuery as a test that drives web_analytics code.
@@ -29,8 +27,21 @@ _QUERY = {
 }
 
 
-def _result(answers: dict[str, DecisionAnswer]) -> DecisionResult:
-    return DecisionResult(model="posthog/hogference/jevk5-fp8-0.2", answers=answers, input_tokens=10)
+def _result(answers: Mapping[str, Answer]) -> SystemOneResult:
+    return SystemOneResult(model="posthog/hogference/jevk5-fp8-0.2", answers=answers, input_tokens=10)
+
+
+@contextmanager
+def _jev(**decide: object) -> Iterator[MagicMock]:
+    with patch(BUILD) as build:
+        build.return_value.decide.configure_mock(**decide)
+        yield build.return_value.decide
+
+
+def _unreached() -> SystemOneRequestFailed:
+    error = SystemOneRequestFailed("The ai-gateway was not reached")
+    error.__cause__ = httpx.ConnectError("refused")
+    return error
 
 
 class TestMetadataSuggestionsApi(APIBaseTest):
@@ -43,26 +54,24 @@ class TestMetadataSuggestionsApi(APIBaseTest):
     @parameterized.expand(
         [
             ("flag_off", False, True, True),
-            ("not_enrolled_in_ml_inference", True, False, True),
+            ("no_system_one_gateway", True, False, True),
             ("ai_not_approved", True, True, False),
         ]
     )
-    def test_gate_sends_nothing_to_the_model(self, _name: str, flag: bool, enrolled: bool, approved: bool) -> None:
+    def test_gate_sends_nothing_to_the_model(self, _name: str, flag: bool, configured: bool, approved: bool) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
 
-        with patch(FLAG, return_value=flag), patch(ENROLLED, return_value=enrolled), patch(DECIDE) as decide:
+        with patch(FLAG, return_value=flag), patch(CONFIGURED, return_value=configured), patch(BUILD) as build:
             response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        decide.assert_not_called()
+        build.assert_not_called()
 
-    @patch(ENROLLED, return_value=True)
+    @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
-    def test_title_returns_one_of_the_candidates(self, _flag: MagicMock, _enrolled: MagicMock) -> None:
-        with patch(
-            DECIDE, return_value=_result({"title": ChoiceAnswer(choice="c0", confidence=0.9, probabilities={})})
-        ):
+    def test_title_returns_one_of_the_candidates(self, _flag: MagicMock, _configured: MagicMock) -> None:
+        with _jev(return_value=_result({"title": ChoiceAnswer(choice="c0", confidence=0.9, probabilities={})})):
             response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY, "name": "Current"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -71,9 +80,9 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         assert body["value"] in body["candidates"]
         assert body["confidence"] == 0.9
 
-    @patch(ENROLLED, return_value=True)
+    @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
-    def test_tags_offer_the_projects_most_used_tags_first(self, _flag: MagicMock, _enrolled: MagicMock) -> None:
+    def test_tags_offer_the_projects_most_used_tags_first(self, _flag: MagicMock, _configured: MagicMock) -> None:
         Tag.objects.create(name="billing", team=self.team)
         growth = Tag.objects.create(name="growth", team=self.team)
         insight = Insight.objects.create(team=self.team)
@@ -84,10 +93,10 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         for _ in range(3):
             Insight.objects.create(team=other_team).tagged_items.create(tag_id=other_tag.id)
 
-        def decide(request: DecisionRequest) -> DecisionResult:
-            return _result({key: NoulAnswer(probability=0.95) for key in request.questions})
+        def decide(**request: Mapping[str, object]) -> SystemOneResult:
+            return _result({key: NoulAnswer(probability=0.95) for key in request["questions"]})
 
-        with patch(DECIDE, side_effect=decide) as decide_mock:
+        with _jev(side_effect=decide) as decide_mock:
             response = self.client.post(f"{self.base_url}/tags/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -96,25 +105,31 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         assert "other-team-secret" not in body["tags"]
         assert "other-team-secret" not in body["scores"]
         assert decide_mock.call_args_list
-        assert all("other-team-secret" not in call.args[0].state for call in decide_mock.call_args_list)
+        assert all("other-team-secret" not in json.dumps(call.kwargs["state"]) for call in decide_mock.call_args_list)
 
     @parameterized.expand([("invalid", {"kind": "Nope"}), ("missing", None)])
-    @patch(ENROLLED, return_value=True)
+    @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
     def test_request_without_a_valid_query_is_a_400(
-        self, _name: str, query: dict | None, _flag: MagicMock, _enrolled: MagicMock
+        self, _name: str, query: dict | None, _flag: MagicMock, _configured: MagicMock
     ) -> None:
         response = self.client.post(f"{self.base_url}/title/", {"query": query}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @parameterized.expand([("saturated", 429, 503), ("broken_contract", 200, 500)])
-    @patch(ENROLLED, return_value=True)
+    @parameterized.expand(
+        [
+            ("saturated", SystemOneRequestFailed("busy", status_code=429), 503),
+            ("unreachable", _unreached(), 503),
+            ("broken_contract", SystemOneRequestFailed("The System One server returned no answers"), 500),
+        ]
+    )
+    @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
     def test_gateway_errors_map_to_a_retryable_or_a_server_error(
-        self, _name: str, gateway_status: int, expected: int, _flag: MagicMock, _enrolled: MagicMock
+        self, _name: str, failure: SystemOneRequestFailed, expected: int, _flag: MagicMock, _configured: MagicMock
     ) -> None:
-        with patch(DECIDE, side_effect=DecisionGatewayError(gateway_status, "no")):
+        with _jev(side_effect=failure):
             response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
 
         assert response.status_code == expected

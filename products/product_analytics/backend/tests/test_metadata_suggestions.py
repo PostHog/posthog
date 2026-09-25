@@ -1,6 +1,9 @@
 import json
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from typing import NamedTuple
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -15,16 +18,12 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from products.ml_inference.backend.facade.contracts import (
-    MAX_QUESTIONS_PER_REQUEST,
-    ChoiceAnswer,
-    DecisionAnswer,
-    DecisionRequest,
-    DecisionResult,
-    NoulAnswer,
-)
+from posthog.llm.system_one import Answer, ChoiceAnswer, NoulAnswer, Question, SystemOneResult
+from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
+
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     GROUP_WORDS,
+    JEV_MODEL,
     MAX_STATE_CHARS,
     MAX_TAGS,
     PERSON_WORDS,
@@ -38,7 +37,7 @@ from products.product_analytics.backend.presentation.metadata_suggestions import
     title_candidates,
 )
 
-DECIDE = "products.product_analytics.backend.presentation.metadata_suggestions.ml_inference.decide"
+BUILD = "products.product_analytics.backend.presentation.metadata_suggestions.build_system_one_client"
 
 
 def _viz(source: dict) -> InsightVizNode:
@@ -49,12 +48,30 @@ def _trends(**kwargs: object) -> InsightVizNode:
     return _viz({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], **kwargs})
 
 
-def _result(answers: dict[str, DecisionAnswer]) -> DecisionResult:
-    return DecisionResult(model="posthog/hogference/jevk5-fp8-0.2", answers=answers, input_tokens=10)
+def _result(answers: Mapping[str, Answer]) -> SystemOneResult:
+    return SystemOneResult(model=JEV_MODEL, answers=answers, input_tokens=10)
 
 
-def _sent(decide) -> DecisionRequest:
-    return decide.call_args.args[0]
+@contextmanager
+def _jev() -> Iterator[MagicMock]:
+    with patch(BUILD) as build:
+        yield build.return_value.decide
+
+
+class _Sent(NamedTuple):
+    state: str
+    questions: Mapping[str, Question]
+
+
+def _all_sent(decide: MagicMock) -> list[_Sent]:
+    return [
+        _Sent(state=json.dumps(call.kwargs["state"], ensure_ascii=False), questions=call.kwargs["questions"])
+        for call in decide.call_args_list
+    ]
+
+
+def _sent(decide: MagicMock) -> _Sent:
+    return _all_sent(decide)[-1]
 
 
 def _every_series_math() -> list[tuple[str]]:
@@ -177,7 +194,8 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         context = InsightContext(query=_trends())
         candidates = title_candidates(context)
         picked_key = f"c{candidates.index('Pageviews over time')}"
-        with patch(DECIDE) as decide:
+        with patch(BUILD) as build:
+            decide = build.return_value.decide
             decide.return_value = _result({"title": ChoiceAnswer(choice=picked_key, confidence=0.7, probabilities={})})
             suggestion = suggest_title(1, context)
 
@@ -186,11 +204,16 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         # The current name is user text: it must travel in state, never in the instructions.
         sent = _sent(decide)
         state = json.loads(sent.state)
-        assert sent.team_id == 1
+        # No TypeSafe fallback: this metadata must never reach a third party.
+        assert build.call_args.kwargs == {
+            "model": JEV_MODEL,
+            "ai_product": "product_analytics",
+            "distinct_id": "team-1",
+        }
         assert state["subject"]["name"] == ""
         assert state["subject"]["summary"][0] == "Type: Trends"
         assert "query" not in state["subject"]
-        assert "Pageviews" not in sent.questions["title"].instructions
+        assert "Pageviews" not in str(sent.questions["title"].instructions)
 
     @parameterized.expand(
         [
@@ -223,7 +246,7 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         ]
     )
     def test_typed_values_never_reach_the_model(self, _name: str, source: dict) -> None:
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
             suggest_title(1, InsightContext(query=_viz(source)))
 
@@ -231,25 +254,25 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
 
     def test_state_stays_inside_the_model_window(self) -> None:
         long_series = [{"kind": "EventsNode", "event": "$pageview", "custom_name": "x" * 1000} for _ in range(40)]
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
             suggest_title(1, InsightContext(query=_trends(series=long_series)))
         assert len(_sent(decide).state) <= MAX_STATE_CHARS
 
-        with patch(DECIDE) as decide, self.assertRaises(InsightTooLargeForSuggestions):
+        with _jev() as decide, self.assertRaises(InsightTooLargeForSuggestions):
             suggest_title(1, InsightContext(query=_trends(), description="y" * (MAX_STATE_CHARS + 1)))
         decide.assert_not_called()
 
         long_tags = [f"{i:03d}" + "z" * 252 for i in range(MAX_TAGS)]
-        with patch(DECIDE) as decide:
-            decide.side_effect = lambda request: _result(
-                {key: NoulAnswer(probability=0.95) for key in request.questions}
+        with _jev() as decide:
+            decide.side_effect = lambda **request: _result(
+                {key: NoulAnswer(probability=0.95) for key in request["questions"]}
             )
             suggestion = suggest_tags(
                 1, InsightContext(query=_trends(series=long_series), name="n" * 400, description="d" * 2000), long_tags
             )
-        assert decide.call_count == MAX_TAGS // MAX_QUESTIONS_PER_REQUEST
-        assert all(len(call.args[0].state) <= MAX_STATE_CHARS for call in decide.call_args_list)
+        assert decide.call_count == MAX_TAGS // GATEWAY_MAX_QUESTIONS
+        assert all(len(sent.state) <= MAX_STATE_CHARS for sent in _all_sent(decide))
         assert set(suggestion.tags) == set(long_tags)
 
     def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
@@ -266,7 +289,7 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
                 trendsFilter={"display": "ActionsBar"},
             ),
         )
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
             suggest_title(1, context)
 
@@ -309,7 +332,7 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
 
     def test_runner_up_is_the_second_most_likely_candidate(self) -> None:
         context = InsightContext(query=_trends())
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             decide.return_value = _result(
                 {"title": ChoiceAnswer(choice="c0", confidence=0.5, probabilities={"c0": 0.5, "c1": 0.1, "c2": 0.4})}
             )
@@ -318,7 +341,7 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
 
     def test_tags_keep_only_confident_matches_and_never_invent_one(self) -> None:
         context = InsightContext(name="Signups by country", query=_trends())
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             decide.return_value = _result(
                 {
                     "t0": NoulAnswer(probability=0.9),
@@ -332,18 +355,18 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         assert json.loads(_sent(decide).state)["tags"] == {"t0": "growth", "t1": "billing", "t2": "marketing"}
 
     def test_tags_split_into_requests_the_gateway_accepts(self) -> None:
-        tags = [f"tag {index}" for index in range(MAX_QUESTIONS_PER_REQUEST + 8)]
-        with patch(DECIDE) as decide:
-            decide.side_effect = lambda request: _result(
-                {key: NoulAnswer(probability=0.9) for key in request.questions}
+        tags = [f"tag {index}" for index in range(GATEWAY_MAX_QUESTIONS + 8)]
+        with _jev() as decide:
+            decide.side_effect = lambda **request: _result(
+                {key: NoulAnswer(probability=0.9) for key in request["questions"]}
             )
             suggestion = suggest_tags(1, InsightContext(query=_trends()), tags)
 
-        sizes = [len(call.args[0].questions) for call in decide.call_args_list]
-        assert sizes == [MAX_QUESTIONS_PER_REQUEST, 8]
+        sizes = [len(sent.questions) for sent in _all_sent(decide)]
+        assert sizes == [GATEWAY_MAX_QUESTIONS, 8]
         assert set(suggestion.tags) == set(tags)
 
     def test_tags_without_any_existing_tag_skip_the_call(self) -> None:
-        with patch(DECIDE) as decide:
+        with _jev() as decide:
             assert suggest_tags(1, InsightContext(query=_trends()), []).tags == ()
         decide.assert_not_called()

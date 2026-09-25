@@ -3,6 +3,7 @@ from typing import TypeVar, cast
 
 from django.db.models import Count
 
+import httpx
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -14,16 +15,11 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import Tag, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
-from products.ml_inference.backend.facade.contracts import (
-    DecisionGatewayError,
-    DecisionGatewayUnreachableError,
-    DecisionsDisabledError,
-)
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     MAX_TAGS,
     ActorWords,
@@ -206,14 +202,13 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _call(run: Callable[[], T]) -> T:
         try:
             return run()
-        except (DecisionsDisabledError, GatewayNotConfiguredError) as error:
+        except SystemOneNotConfigured as error:
             raise PermissionDenied("Suggestions are not enabled for this project") from error
         except InsightTooLargeForSuggestions as error:
             raise ValidationError("This insight is too large for suggestions. Shorten its description.") from error
-        except DecisionGatewayUnreachableError as error:
-            raise MetadataSuggestionsBusy() from error
-        except DecisionGatewayError as error:
-            if error.status_code in _BUSY_STATUSES:
+        except SystemOneRequestFailed as error:
+            # An unreached gateway carries no status, but a retry can succeed the same as a saturated one.
+            if error.status_code in _BUSY_STATUSES or isinstance(error.__cause__, httpx.HTTPError):
                 raise MetadataSuggestionsBusy() from error
             capture_exception(error)
             raise APIException("Couldn't get a suggestion. Try again.") from error
