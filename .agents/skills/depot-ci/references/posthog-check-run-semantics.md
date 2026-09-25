@@ -73,9 +73,13 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 ## Finding one event's Depot run
 
-Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate or migration check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
 
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
+
+## pull_request_target checks
+
+Depot can post a `pull_request_target` job's check on another pull request's head commit. A `pull_request_target` run's `github.sha` is the base branch head, so pull requests opened against the same master commit share it, and every misplaced check measured sat on a commit whose own run shared that base commit. Measured 2026-09-25 on a migration report workflow that ran on `pull_request_target`: 35 of its 42 checks sat on the wrong commit. For example, check `108123656729` on PR 106758's head `0295b92b41` links Depot workflow `ljv421dmlt`, whose run `vpg4b1kvh7` tested PR 106767's head `fb236b6c26`, and both runs had base `7af9307723`. The jobs' own writes, a check posted with an explicit `head_sha` and a comment on an explicit PR number, reached the right pull request. Post pull-request-facing results from a `pull_request` workflow, whose checks land on the right head.
 
 ## Depot CI CLI recipes
 

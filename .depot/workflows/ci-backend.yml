@@ -26,8 +26,10 @@
 # - permissions: read-only in every job, so the ambient token never writes. Canonical grants
 #   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
 #   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
-#   .depot/actions/commit-snapshots). Migration reports cross an artifact boundary into the
-#   base-controlled ci-backend-report.yml workflow before any write token is minted.
+#   .depot/actions/commit-snapshots). check-migrations mints that token itself, with
+#   checks:write added for the Migration risk check, before it posts SQL and risk sections,
+#   and it skips each write when the mint fails. Canonical posts the sections with
+#   github.token and mints the app token only for the check.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -70,12 +72,11 @@
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
-#   Depot CI job across repos shares, and fails the paths-filter mint outright. The trusted
-#   migration reporter publishes the migration-risk
-#   check because stamphog waits for it on every pull request.
-# - check-migrations uploads inert Django and ClickHouse migration report data. The
-#   pull_request_target workflow in ci-backend-report.yml validates that data and posts it
-#   with base-revision scripts, so PR-controlled code never receives a write token.
+#   Depot CI job across repos shares, and fails the paths-filter mint outright.
+# - Migration reports post from check-migrations, as in canonical. Do not move them to a
+#   pull_request_target workflow: Depot posts that workflow's job checks on another pull
+#   request's head commit when both events share a base commit. See "pull_request_target
+#   checks" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Workflow-command annotations (::error, ::warning) stay in the Depot job log. Depot CI
 #   does not attach them to the job's GitHub check run. The file annotations from
 #   `hogli lint:migration-deletions` therefore have no GitHub counterpart here; the failing
@@ -1876,18 +1877,55 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Render Django migration SQL report
+            - name: Get app token for migration reports
+              # Depot's ambient token must not write, so the CI report sections and the
+              # Migration risk check post with a posthog-tests token. When the mint fails,
+              # the token output is empty and every report write below skips, so a mint
+              # failure never reddens migration validation.
+              if: needs.wait-for-handoff.outputs.handed_off == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              id: migration-reports-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: write
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.migration-reports-app-token.outputs.token != ''
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.migration-reports-app-token.outputs.token }}
+            - name: Check migrations and post SQL to CI report
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
+                  CI_REPORT_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  mkdir -p migration-report
-                  printf '%s\n' '{"version":1,"migrations":[]}' > migration-report/django-migration-sql.json
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  # An empty token would leave the ambient Depot token in place, and a checkout
+                  # whose update-ci-report.mjs does not adopt tests-posthog[bot] comments would
+                  # add a comment per write, so both of those skip the section too.
+                  post_migration_section() {
+                    if [ -z "$CI_REPORT_TOKEN" ]; then
+                      echo "Skipping Django migration section: no CI report token"
+                    elif ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
+                      echo "Skipping Django migration section: this checkout predates Depot CI authorship"
+                    elif [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
 
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
+                    echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                     exit 0
                   fi
 
@@ -1898,7 +1936,10 @@ jobs:
                     git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
                   fi
 
+                  # Initialize comment body for SQL changes
+                  COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
                   HAS_NEW_MIGRATIONS=false
+                  MIGRATION_COUNT=0
                   mapfile -t migration_files < <(tr ' ' '\n' <<< "$CHANGED_FILES")
 
                   # Process each changed migration file (excluding Rust migrations)
@@ -1940,6 +1981,7 @@ jobs:
                       fi
 
                       HAS_NEW_MIGRATIONS=true
+                      MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
                       echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output. A sqlmigrate failure degrades to a
@@ -1950,37 +1992,94 @@ jobs:
                         SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
                       fi
 
-                      report_tmp=$(mktemp)
-                      jq --arg path "$file" --arg sql "$SQL_OUTPUT" \
-                          '.migrations += [{path: $path, sql: $sql}]' \
-                          migration-report/django-migration-sql.json > "$report_tmp"
-                      mv "$report_tmp" migration-report/django-migration-sql.json
+                      # Add to comment body
+                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
 
                   if [ "$HAS_NEW_MIGRATIONS" = false ]; then
                       echo "No new migrations to show (all changed files already exist on base branch)"
+                      echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                      exit 0
                   fi
 
-            - name: Run migration risk analysis
-              if: github.event_name == 'pull_request'
-              # The artifact upload uses always(), so an analyzer failure still reaches the reporter.
-              timeout-minutes: 5
-              run: |
-                  mkdir -p migration-report
+                  # Add timestamp and commit SHA to SQL changes
+                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
 
-                  set +e
-                  python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json
-                  EXIT_CODE=$?
-                  set -e
-                  if jq -e 'type == "object"' migration_analysis.json > /dev/null 2>&1; then
-                      jq -n --argjson exit_code "$EXIT_CODE" --slurpfile analysis migration_analysis.json \
-                          '{version: 1, exit_code: $exit_code, analysis: $analysis[0]}' \
-                          > migration-report/django-migration-risk.json
+                  # Convert \n into actual newlines
+                  COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
+                  printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
+                  if [ "$MIGRATION_COUNT" -eq 1 ]; then
+                    MIGRATION_SUMMARY="1 new migration to review"
                   else
-                      jq -n --argjson exit_code "$EXIT_CODE" \
-                          '{version: 1, exit_code: $exit_code, analysis: null}' \
-                          > migration-report/django-migration-risk.json
+                    MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
+                  fi
+                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
+
+            - name: Run migration risk analysis and update CI report
+              if: github.event_name == 'pull_request'
+              # Step timeout: an analyzer hang fails THIS step (a failure, which
+              # !cancelled() still publishes as a definitive verdict) instead of
+              # running out the job timeout — a job timeout counts as a
+              # cancellation, which the publish step skips, silently stranding
+              # the consumer. Normal analysis finishes in well under a minute.
+              timeout-minutes: 5
+              env:
+                  CI_REPORT_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+              run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  # An empty token would leave the ambient Depot token in place, and a checkout
+                  # whose update-ci-report.mjs does not adopt tests-posthog[bot] comments would
+                  # add a comment per write, so both of those skip the section too.
+                  post_migration_section() {
+                    if [ -z "$CI_REPORT_TOKEN" ]; then
+                      echo "Skipping Django migration section: no CI report token"
+                    elif ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
+                      echo "Skipping Django migration section: this checkout predates Depot CI authorship"
+                    elif [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
+                  # Get risk analysis for all unapplied migrations (including third-party).
+                  # --output-json gives downstream consumers (the check-run step
+                  # below, and any other tool) a stable structured shape to read.
+                  set +e  # Don't exit immediately on error
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
+                  EXIT_CODE=$?
+                  set -e  # Re-enable exit on error
+
+                  # Save analysis to file for artifact upload
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
+
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
+                    # Add timestamp and commit SHA to analysis
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                    RISK_COMMENT="We've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
+                    RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
+                    printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
+                    if [ $EXIT_CODE -ne 0 ]; then
+                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
+                    else
+                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
+                    fi
+                  elif [ $EXIT_CODE -ne 0 ]; then
+                    echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
+                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
+                  else
+                    echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
+                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -1988,14 +2087,109 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Publish Migration risk check
+              # Migration risk classification is published as a GitHub check on
+              # the head commit so it shows up in the PR UI alongside CI checks
+              # and so any tool that already reads check_runs (review bots,
+              # branch-protection rules, dashboards) can consume it without
+              # parsing the comment. The check is a CI feature; consumers and
+              # the analyzer are decoupled.
+              #
+              # Published via the posthog-tests app token (see the token step
+              # above) so the check lands in that app's own check suite.
+              #
+              # Published on success or genuine failure (including an analyzer
+              # crash, or zero migrations to analyze) so every PR ends up with a
+              # definitive verdict on its head SHA. Consumers can then treat
+              # "no completed check yet" purely as "CI hasn't finished" and
+              # don't need a fallback heuristic.
+              #
+              # !cancelled(): a cancelled job skipped the analyzer, leaving no
+              # migration_analysis.json, so an always() publish would stamp a
+              # spurious "❌ Analyzer failed". The newer run that superseded it
+              # publishes the real verdict; genuine crashes still publish here.
+              #
+              # Also skipped when the token step failed: its output is then
+              # empty and the check-runs POST would fall back to the ambient
+              # Depot token.
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-reports-app-token.outputs.token != '' }}
+              env:
+                  GH_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    # Analyzer crashed before writing JSON. Publish a failure
+                    # check so stamphog (or any consumer) gets a definitive
+                    # verdict instead of looping in "wait for the check."
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+                    exit 0
+                  fi
+
+                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
+
+                  case "$MAX_LEVEL" in
+                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
+                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
+                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
+                    "none"|"null")
+                      # Zero Django migrations to analyze. Publish success so
+                      # PRs that touch only ClickHouse/async/rbac migrations
+                      # (which the analyzer doesn't cover) don't leave
+                      # consumers waiting on a check that would never come.
+                      CONCLUSION=success
+                      TITLE="✅ No Django migrations to analyze"
+                      ;;
+                    *)
+                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
+                      CONCLUSION=failure
+                      TITLE="❌ Unknown analyzer output"
+                      ;;
+                  esac
+
+                  # Embed the analyzed file paths in the summary as a hidden
+                  # marker. Stamphog parses this to scope its deny-list bypass
+                  # to exactly the files the analyzer classified — heuristics
+                  # over directory names produce false bypasses for unrelated
+                  # systems (ClickHouse, async migrations) that share the
+                  # `migrations/` directory naming.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+
+                  # Truncate the human report to fit the check-run output
+                  # limit (~64KB); the full markdown is also posted in the CI
+                  # report for humans. The marker stays at the top so it's
+                  # never lost to truncation.
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the CI report")
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
+
+                  jq -n \
+                    --arg name "Migration risk" \
+                    --arg head_sha "$HEAD_SHA" \
+                    --arg conclusion "$CONCLUSION" \
+                    --arg title "$TITLE" \
+                    --arg summary "$SUMMARY" \
+                    '{name: $name, head_sha: $head_sha, status: "completed",
+                      conclusion: $conclusion,
+                      output: {title: $title, summary: $summary}}' \
+                    | gh api "repos/$REPO/check-runs" --method POST --input -
+
             - name: Upload migration analysis artifact
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
                   path: |
-                      migration-report/django-migration-sql.json
-                      migration-report/django-migration-risk.json
+                      migration_analysis.md
+                      migration_analysis.json
                   if-no-files-found: ignore
 
             - name: Run migrations for this PR
@@ -2136,8 +2330,6 @@ jobs:
                           echo "::warning::Could not fetch base ref $BASE_REF; rendering CH migrations against master instead"
                       fi
                   fi
-                  mkdir -p migration-report
-                  printf '%s\n' '{"version":1,"count":0,"environments":[]}' > migration-report/ch-migration-sql.json
                   CHANGED=$(git diff --name-only --diff-filter=AM "$DIFF_BASE"..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
@@ -2146,36 +2338,77 @@ jobs:
                   fi
                   echo "has_changes=true" >> "$GITHUB_OUTPUT"
                   mapfile -t changed_migrations <<< "$CHANGED"
-                  MIGRATION_COUNT=${#changed_migrations[@]}
-                  echo "migration_count=$MIGRATION_COUNT" >> "$GITHUB_OUTPUT"
-                  jq --argjson count "$MIGRATION_COUNT" '.count = $count' \
-                      migration-report/ch-migration-sql.json > migration-report/ch-migration-sql.tmp
-                  mv migration-report/ch-migration-sql.tmp migration-report/ch-migration-sql.json
+                  echo "migration_count=${#changed_migrations[@]}" >> "$GITHUB_OUTPUT"
+                  {
+                      echo '<!-- ch-migration-sql -->'
+                      echo '## ClickHouse migration SQL per cloud environment'
+                      echo ''
+                  } > ch_migration_sql_comment.md
                   mkdir -p ch_sql_env
                   DEPLOYMENTS=('' US EU DEV)
                   LABELS=(unset US EU DEV)
+                  # Bucket environments by identical rendered output (parallel indexed arrays;
+                  # avoids bash 4 associative arrays) so divergent SQL prints once.
+                  BUCKET_HASH=()
+                  BUCKET_LABEL=()
+                  BUCKET_FILE=()
                   for idx in "${!DEPLOYMENTS[@]}"; do
                       file="ch_sql_env/${idx}.md"
+                      # Render once per environment; the same output feeds both the log group and the comment.
+                      # On failure (e.g. an import error in the migration) write a visible marker rather than
+                      # silently dropping the environment — stderr still shows in the step log for debugging.
                       if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown "${changed_migrations[@]}" > "$file"; then
-                          echo 'Failed to render SQL for this environment. See the workflow logs.' > "$file"
+                          echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
                       fi
                       echo "::group::CLOUD_DEPLOYMENT=${LABELS[$idx]}"
                       cat "$file"
                       echo "::endgroup::"
-                      report_tmp=$(mktemp)
-                      jq --arg label "${LABELS[$idx]}" --rawfile output "$file" \
-                          '.environments += [{label: $label, output: $output}]' \
-                          migration-report/ch-migration-sql.json > "$report_tmp"
-                      mv "$report_tmp" migration-report/ch-migration-sql.json
+                      h=$(sha1sum "$file" | cut -d' ' -f1)
+                      found=-1
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          if [ "${BUCKET_HASH[$b]}" = "$h" ]; then found=$b; break; fi
+                      done
+                      if [ "$found" -ge 0 ]; then
+                          BUCKET_LABEL[$found]="${BUCKET_LABEL[$found]}, ${LABELS[$idx]}"
+                      else
+                          BUCKET_HASH+=("$h")
+                          BUCKET_LABEL+=("${LABELS[$idx]}")
+                          BUCKET_FILE+=("$file")
+                      fi
                   done
+                  if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
+                      # Every environment renders the same SQL — collapse the environment level.
+                      echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
+                      echo '' >> ch_migration_sql_comment.md
+                      cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
+                  else
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          echo "- **${BUCKET_LABEL[$b]}**" >> ch_migration_sql_comment.md
+                          sed 's/^/  /' "${BUCKET_FILE[$b]}" >> ch_migration_sql_comment.md
+                      done
+                  fi
 
-            - name: Upload CH migration report artifact
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: ch-migration-report
-                  path: migration-report/ch-migration-sql.json
-                  if-no-files-found: ignore
+            - name: Post CH migration SQL to CI report comment
+              # Sticky section in the shared CI report comment so pushes don't spam the PR.
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread. Skipped without a posthog-tests token, because an empty token would
+              # leave the ambient Depot token in place.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && steps.migration-reports-app-token.outputs.token != ''
+              env:
+                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
+                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
+                  GITHUB_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+              run: |
+                  # A checkout whose update-ci-report.mjs does not adopt tests-posthog[bot]
+                  # comments would add a comment per write.
+                  if ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
+                      echo "Skipping CH migration section: this checkout predates Depot CI authorship"
+                  elif [ -f .github/scripts/post-ch-migration-section.mjs ]; then
+                      node .github/scripts/post-ch-migration-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping CH migration section — script not present on this checkout"
+                  fi
 
     check-openapi-types:
         needs: [changes]

@@ -41,10 +41,6 @@ WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
-MIGRATION_CHECK = f"{DEPOT_WORKFLOW} / Validate migrations"
-CHANGES_CHECK = f"{DEPOT_WORKFLOW} / Determine need to run backend and migration checks"
-HANDOFF_CHECK = "Hand off backend tests to Depot CI"
-GITHUB_ACTIONS_APP_ID = 15368
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
 API_ROOT = "https://api.github.com"
@@ -57,16 +53,11 @@ class ReadRefusedError(RuntimeError):
     """The check-runs API keeps refusing the token, so no verdict can be read."""
 
 
-class HandoffUnresolvedError(RuntimeError):
-    """The report cannot determine which engine owns this event."""
-
-
 @dataclass(frozen=True)
 class CheckRun:
     id: int
     # The conclusion once the check completed, its status before that.
     state: str
-    pull_requests: frozenset[int]
     details_url: str
 
     @classmethod
@@ -74,7 +65,6 @@ class CheckRun:
         return cls(
             id=int(run["id"]),
             state=str((run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""),
-            pull_requests=frozenset(int(pr["number"]) for pr in run.get("pull_requests") or []),
             details_url=str(run.get("details_url") or ""),
         )
 
@@ -111,19 +101,7 @@ def newest_live(runs: Sequence[CheckRun]) -> CheckRun | None:
     return max(live or runs, key=lambda run: run.id, default=None)
 
 
-def handoff_decision(runs: Iterable[CheckRun], pr_number: int) -> bool | None:
-    """Mirror the router's durable decision for this pull request and commit."""
-    states = {run.state for run in runs if pr_number in run.pull_requests}
-    if "success" in states:
-        return True
-    if "skipped" in states:
-        return False
-    return None
-
-
-def progress(
-    wait: CheckRun | None, checks: Iterable[CheckRun], skipped_dependency_checks: Iterable[CheckRun] = ()
-) -> Progress:
+def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
     """Where the Depot run behind `wait` stands, judged by its check among `checks`."""
     if wait is None:
         return Progress(Phase.ABSENT)
@@ -140,14 +118,6 @@ def progress(
         key=lambda run: run.id,
         default=None,
     )
-    if check is None:
-        dependency = max(
-            (run for run in skipped_dependency_checks if workflow is not None and run.depot_workflow == workflow),
-            key=lambda run: run.id,
-            default=None,
-        )
-        if dependency is not None and dependency.state == "skipped":
-            return Progress(Phase.DECLINED, dependency.state, dependency.details_url)
     if check is None or check.state in PENDING_STATES:
         return Progress(Phase.RUNNING, check.state if check else "", wait.details_url)
     if check.state == "cancelled":
@@ -160,7 +130,7 @@ class CheckReader(Protocol):
 
 
 class CheckRunReader:
-    """Reads one commit's check runs for one app by name, with conditional requests.
+    """Reads one commit's Depot check runs by name, with conditional requests.
 
     A 304 answer is free against the rate limit, so polling stays cheap.
     """
@@ -171,19 +141,17 @@ class CheckRunReader:
         sha: str,
         token: str,
         opener: Callable[..., Any] = urllib.request.urlopen,
-        app_id: int = DEPOT_APP_ID,
     ) -> None:
         self._repo = repo
         self._sha = sha
         self._token = token
         self._opener = opener
-        self._app_id = app_id
         self._cache: dict[str, tuple[str, list[CheckRun]]] = {}
         self._refusals = 0
 
     def _url(self, name: str, page: int) -> str:
         query = urllib.parse.urlencode(
-            {"check_name": name, "app_id": self._app_id, "filter": "all", "per_page": PAGE_SIZE, "page": page}
+            {"check_name": name, "app_id": DEPOT_APP_ID, "filter": "all", "per_page": PAGE_SIZE, "page": page}
         )
         return f"{API_ROOT}/repos/{self._repo}/commits/{self._sha}/check-runs?{query}"
 
@@ -246,24 +214,6 @@ class Event:
     event_at: str
 
 
-def wait_for_handoff(
-    reader: CheckReader,
-    event: Event,
-    *,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], None] = time.sleep,
-) -> bool:
-    """The router's committed engine; an unread decision cannot suppress a report."""
-    start = clock()
-    while True:
-        decision = handoff_decision(reader.read(HANDOFF_CHECK), event.pr_number)
-        if decision is not None:
-            return decision
-        if clock() - start >= 10 * 60:
-            raise HandoffUnresolvedError(f"Cannot determine the backend hand-off for {event.sha}")
-        sleep(20)
-
-
 def poll(
     reader: CheckReader,
     event: Event,
@@ -276,18 +226,15 @@ def poll(
 ) -> Progress:
     """Polls until the event's check finishes, Depot declines the hand-off, or a deadline passes.
 
-    A duplicate run of the same event can replace a cancelled one. The migration report
-    gives an absent or cancelled run the full deadline; the required gate uses a shorter grace period.
+    A duplicate run of the same event can replace a cancelled one, so an absent or cancelled
+    run gets `absent_minutes` of grace before the poll gives up on it.
     """
     start = clock()
     event_name = wait_check_name(event.pr_number, event.event_at)
     while True:
         wait = newest_live(reader.read(event_name))
         checks = reader.read(check_name) if wait and wait.state == "success" else []
-        dependencies = (
-            reader.read(CHANGES_CHECK) if check_name == MIGRATION_CHECK and wait and wait.state == "success" else []
-        )
-        current = progress(wait, checks, dependencies)
+        current = progress(wait, checks)
         sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
         elapsed = clock() - start
         if current.phase in (Phase.FINISHED, Phase.DECLINED):
@@ -350,52 +297,20 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     return 1, [f"::error::No Depot verdict for {event.sha} within the relay's deadline"]
 
 
-def report_migrations(result: Progress) -> tuple[int, list[str], dict[str, str]]:
-    """The exit code, log lines and step outputs of the migration report's source step."""
-    if result.phase == Phase.FINISHED and result.state in ("success", "failure", "neutral"):
-        match = DEPOT_RUN_URL.match(result.details_url)
-        if not match:
-            return 1, ["::error::Unexpected Depot migration check URL"], {}
-        return 0, [], {"migration_state": result.state, "workflow_id": match.group(2)}
-    if result.phase in (Phase.FINISHED, Phase.CANCELLED) and result.state in ("skipped", "cancelled"):
-        return 0, [f"No completed migration report is available (migration check: {result.state})."], {}
-    if result.phase == Phase.FINISHED:
-        return 1, [f"::error::Unexpected migration check state: {result.state}"], {}
-    if result.phase == Phase.ABSENT:
-        return 1, ["::error::Depot posted no event-matched wait check after a confirmed hand-off"], {}
-    if result.phase == Phase.DECLINED:
-        return 0, [f"Depot CI ran no backend tests for this event ({result.phase.value} {result.state})."], {}
-    return 1, ["::error::Depot migration check did not finish within the report's deadline"], {}
-
-
 def main(argv: Sequence[str]) -> int:
-    mode = argv[1] if len(argv) > 1 else ""
+    if argv[1:] != ["gate"]:
+        sys.stderr.write("usage: ci_backend_relay.py gate\n")
+        return 2
     env = os.environ
     event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"])
     try:
-        if mode == "gate":
-            result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
-            code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
-            outputs: dict[str, str] = {}
-        elif mode == "migrations":
-            handoff_reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], app_id=GITHUB_ACTIONS_APP_ID)
-            if wait_for_handoff(handoff_reader, event):
-                result = poll(reader, event, MIGRATION_CHECK, deadline_minutes=70, absent_minutes=70)
-            else:
-                result = Progress(Phase.DECLINED, "skipped")
-            code, lines, outputs = report_migrations(result)
-        else:
-            sys.stderr.write("usage: ci_backend_relay.py gate|migrations\n")
-            return 2
-    except (ReadRefusedError, HandoffUnresolvedError) as error:
+        result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
+    except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
+    code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
     sys.stdout.writelines(f"{line}\n" for line in lines)
-    output_path = env.get("GITHUB_OUTPUT")
-    if output_path and outputs:
-        with open(output_path, "a", encoding="utf-8") as handle:
-            handle.writelines(f"{key}={value}\n" for key, value in outputs.items())
     return code
 
 
