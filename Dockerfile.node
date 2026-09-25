@@ -148,6 +148,8 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/di
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/package.json /code/common/replay-headless/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
+COPY --chown=posthog:posthog --chmod=0755 nodejs/bin/check-cdp-liveness.mjs /code/nodejs/bin/check-cdp-liveness.mjs
+COPY --chown=posthog:posthog --chmod=0644 nodejs/bin/check-proxy.mjs nodejs/bin/liveness-http.mjs /code/nodejs/bin/
 
 
 # Setup ENV
