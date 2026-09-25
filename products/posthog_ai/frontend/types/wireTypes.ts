@@ -443,6 +443,42 @@ export interface PosthogTurnCompleteParams {
     traceId?: string
 }
 
+export interface SuggestedInsightRefParams {
+    insightShortId?: string
+    insightId?: number | null
+    insightName?: string
+}
+
+/** Loose on purpose: the fold validates it. */
+export interface PosthogTurnSuggestionParams {
+    turnIndex?: number
+    kind?: string
+    intent?: string
+    confidence?: number
+    title?: string
+    description?: string
+    scout?: {
+        mode?: string
+        displayName?: string
+        description?: string
+        body?: string
+        cadence?: string
+    }
+    notebook?: {
+        title?: string
+        summary?: string
+        incident?: { timeline?: string; cause?: string; fix?: string } | null
+    }
+    alert?: SuggestedInsightRefParams & { direction?: string; changePercent?: number }
+    subscription?: SuggestedInsightRefParams & { cadence?: string }
+    errorAlert?: { issueId?: string; issueName?: string }
+}
+
+export interface PosthogTurnSuggestionResolvedParams {
+    turnIndex?: number
+    outcome?: string
+}
+
 export interface PosthogNotificationParamsByMethod {
     '_posthog/console': PosthogConsoleParams
     '_posthog/progress': PosthogProgressParams
@@ -460,6 +496,8 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/permission_resolved': PosthogPermissionResolvedParams
     '_posthog/run_started': PosthogRunStartedParams
     '_posthog/turn_complete': PosthogTurnCompleteParams
+    '_posthog/turn_suggestion': PosthogTurnSuggestionParams
+    '_posthog/turn_suggestion_resolved': PosthogTurnSuggestionResolvedParams
 }
 
 /**

@@ -52,7 +52,7 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
 export type { TurnTrailer } from '../utils/turnTrailers'
-export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
+export { TurnTrailerActions } from '../components/TurnTrailerActions'
 export { MessageTemplate } from '../messages/MessageTemplate'
 export { MarkdownMessage } from '../messages/MarkdownMessage'
 export { ReasoningAnswer } from '../messages/ReasoningAnswer'

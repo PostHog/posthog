@@ -13,7 +13,7 @@ import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
-import { TurnFeedbackActions } from './TurnFeedbackActions'
+import { TurnTrailerActions } from './TurnTrailerActions'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -219,13 +219,7 @@ function RunSurfaceThread({
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackSessionId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackSessionId} run={feedbackRun} />
             ) : null,
         [feedbackSessionId, feedbackRun]
     )

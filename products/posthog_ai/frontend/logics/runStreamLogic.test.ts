@@ -18,6 +18,7 @@ import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.
 
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
 import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
@@ -46,6 +47,10 @@ import {
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+jest.mock('../generated/api', () => ({
+    turnSuggestionsStateRetrieve: jest.fn(),
+}))
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsRetrieve: jest.fn(),
@@ -238,6 +243,7 @@ describe('runStreamLogic', () => {
             .mockReset()
             .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+        jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock)
@@ -4708,6 +4714,158 @@ describe('runStreamLogic', () => {
                     summary: 'Analysis written to report.md',
                 })
             )
+        })
+    })
+
+    describe('_posthog/turn_suggestion', () => {
+        const suggestionParams = {
+            turnIndex: 0,
+            kind: 'scout',
+            intent: 'metric_state',
+            confidence: 0.9,
+            title: 'Get this in Slack every week',
+            description: 'A scout runs this analysis again every week and posts the results to Slack.',
+            scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
+        }
+        const askAndOffer = (): void => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+        }
+
+        it('shows the newest valid offer and drops it on reset', async () => {
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 0 })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
+
+            const shown = logic.values.turnSuggestion
+            logic.actions.ingestAcpFrame(
+                notification('session/update', {
+                    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'More' } },
+                })
+            )
+            expect(logic.values.turnSuggestion).toBe(shown)
+
+            logic.actions.reset()
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('closes the offer when the conversation moves on and ignores frames for a passed turn', async () => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout' })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'And last month?' }))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { ...suggestionParams, turnIndex: 1 })
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 1 })
+        })
+
+        it.each([
+            { outcome: 'accepted', acceptedHere: true, shown: true, muted: false },
+            { outcome: 'accepted', acceptedHere: false, shown: false, muted: false },
+            { outcome: 'dismissed', acceptedHere: false, shown: false, muted: true },
+        ] as const)(
+            'an $outcome frame (accepted in this tab: $acceptedHere) leaves the card shown: $shown, mutes: $muted',
+            async ({ outcome, acceptedHere, shown, muted }) => {
+                await expectLogic(logic, () => {
+                    askAndOffer()
+                    if (acceptedHere) {
+                        logic.actions.markTurnSuggestionAccepted(0)
+                    }
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.turnSuggestion !== null).toBe(shown)
+                expect(logic.values.turnSuggestionsMuted).toBe(muted)
+            }
+        )
+
+        it.each([
+            ['the ledger resolved the turn', { muted: false, resolvedTurns: [0] }, null],
+            ['the ledger is muted', { muted: true, resolvedTurns: [] }, null],
+            ['this tab dismissed it before the ledger loaded', null, 'dismissed'],
+            [
+                'this tab dismissed it and the ledger read landed after',
+                { muted: false, resolvedTurns: [] },
+                'dismissed',
+            ],
+        ] as const)('hides the offer when %s', async (_label, ledger, localOutcome) => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            if (localOutcome) {
+                logic.actions.recordTurnSuggestionOutcome(0, localOutcome)
+            }
+            if (ledger) {
+                logic.actions.setTurnSuggestionLedger({
+                    taskId: 'task-1',
+                    ...ledger,
+                    resolvedTurns: [...ledger.resolvedTurns],
+                })
+            }
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('reads the server ledger once per task when the first offer arrives', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValue({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(1)
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledWith('997', { task_id: 'task-1' })
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('rereads the ledger when the tab returns, so a card resolved in another tab closes', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 0 })
+
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['loadTurnSuggestionLedger', 'setTurnSuggestionLedger'])
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('keeps the offer hidden until the ledger loads, and retries a failed read', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(turnSuggestionsStateRetrieve).mockRejectedValueOnce(new Error('offline'))
+
+                askAndOffer()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.turnSuggestion).toBeNull()
+
+                await jest.advanceTimersByTimeAsync(1000)
+
+                expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(2)
+                expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', turnIndex: 0 })
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
