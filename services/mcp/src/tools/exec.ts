@@ -1099,33 +1099,77 @@ function namedValues(values: readonly string[]): string {
     return `${values.slice(0, shown).join(', ')}${rest}`
 }
 
+/** A field's path as one string, for comparing paths across branches. */
+function issuePathKey(path: ReadonlyArray<PropertyKey>): string {
+    return path.map(String).join('.')
+}
+
 function unionValueOptions(
     branches: readonly (readonly z.core.$ZodIssue[])[]
 ): { path: ReadonlyArray<PropertyKey>; values: string[] }[] {
     const populated = branches.filter((branch) => branch.length > 0)
-    const rejected = new Map<string, { path: ReadonlyArray<PropertyKey>; values: Set<string>; branches: Set<number> }>()
-    populated.forEach((branch, index) => {
+    if (populated.length === 0) {
+        return []
+    }
+    // Only a field every branch rejects can qualify, so the branch rejecting the
+    // fewest bounds the search. A union of an enum array with `null` rejects one
+    // entry per array item on one side and nothing on the other, so a large
+    // invalid array settles here rather than allocating per entry.
+    let seed = populated[0]!
+    let fewest = Number.POSITIVE_INFINITY
+    for (const branch of populated) {
+        let rejected = 0
+        for (const issue of branch) {
+            if (issue.code === 'invalid_value') {
+                rejected += 1
+            }
+        }
+        if (rejected < fewest) {
+            fewest = rejected
+            seed = branch
+        }
+    }
+    const candidates = new Map<string, ReadonlyArray<PropertyKey>>()
+    for (const issue of seed) {
+        if (issue.code === 'invalid_value') {
+            candidates.set(issuePathKey(issue.path), issue.path)
+        }
+    }
+    // A candidate survives only where every branch rejects it, and its values
+    // come from all of them, so the list is the whole contract rather than the
+    // seed's slice of it.
+    const merged = new Map<string, Set<string>>()
+    for (const branch of populated) {
+        if (candidates.size === 0) {
+            break
+        }
+        const rejected = new Set<string>()
         for (const issue of branch) {
             if (issue.code !== 'invalid_value') {
                 continue
             }
-            const key = issue.path.map(String).join('.')
-            const entry = rejected.get(key) ?? {
-                path: issue.path,
-                values: new Set<string>(),
-                branches: new Set<number>(),
+            const key = issuePathKey(issue.path)
+            if (!candidates.has(key)) {
+                continue
             }
+            rejected.add(key)
+            const values = merged.get(key) ?? new Set<string>()
             for (const value of issue.values) {
-                entry.values.add(String(value))
+                values.add(String(value))
             }
-            entry.branches.add(index)
-            rejected.set(key, entry)
+            merged.set(key, values)
         }
-    })
+        for (const key of candidates.keys()) {
+            if (!rejected.has(key)) {
+                candidates.delete(key)
+            }
+        }
+    }
     const options: { path: ReadonlyArray<PropertyKey>; values: string[] }[] = []
-    for (const entry of rejected.values()) {
-        if (entry.branches.size === populated.length && entry.values.size > 0) {
-            options.push({ path: entry.path, values: [...entry.values] })
+    for (const [key, path] of candidates) {
+        const values = merged.get(key)
+        if (values?.size) {
+            options.push({ path, values: [...values] })
         }
     }
     return options
@@ -1169,12 +1213,21 @@ function branchExpectation(branch: readonly z.core.$ZodIssue[], path: ReadonlyAr
  * `bestUnionBranch` switches on: the variants here are told apart by their
  * operator enums rather than by one pinned value, and a filter keyed `icontains`
  * must not be offered the number its numeric variant would take.
+ *
+ * A field every variant rejects is exempt, because it selects nothing. A filter
+ * that misspells `type` as well as sending the wrong value type is wrong about
+ * both, and reading the `type` rejection as a selector would close off every
+ * variant and answer the value with one branch's type instead of the contract.
  */
 function unionTypeExpectations(
     branches: readonly (readonly z.core.$ZodIssue[])[],
-    path: ReadonlyArray<PropertyKey>
+    path: ReadonlyArray<PropertyKey>,
+    rejectedByEvery: ReadonlyMap<string, unknown>
 ): string[] {
-    const reachable = branches.filter((branch) => !branch.some((issue) => issue.code === 'invalid_value'))
+    const reachable = branches.filter(
+        (branch) =>
+            !branch.some((issue) => issue.code === 'invalid_value' && !rejectedByEvery.has(issuePathKey(issue.path)))
+    )
     const expectations = reachable.map((branch) => branchExpectation(branch, path))
     return [...new Set(expectations.filter((expectation) => expectation !== undefined))]
 }
@@ -1201,7 +1254,7 @@ function describeUnionIssue(
     // that field while the branch still carries the rest. A field every branch
     // rejects is rejected by this branch too, so nothing merged is left behind.
     const options = new Map(
-        unionValueOptions(branches).map(({ path: fieldPath, values }) => [fieldPath.map(String).join('.'), values])
+        unionValueOptions(branches).map(({ path: fieldPath, values }) => [issuePathKey(fieldPath), values])
     )
     const branch = bestUnionBranch(branches)
     if (!branch) {
@@ -1216,12 +1269,12 @@ function describeUnionIssue(
             }
         }
         const nestedName = nestedPath.map(String).join('.')
-        const values = options.get(issue.path.map(String).join('.'))
+        const values = options.get(issuePathKey(issue.path))
         if (values) {
             return `parameter "${nestedName}" must be one of: ${namedValues(values)}`
         }
         if (issue.code === 'invalid_type') {
-            const expectations = unionTypeExpectations(branches, issue.path)
+            const expectations = unionTypeExpectations(branches, issue.path, options)
             if (expectations.length > 1) {
                 return `parameter "${nestedName}" must be one of these types: ${expectations.join(', ')}`
             }

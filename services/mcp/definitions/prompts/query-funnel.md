@@ -84,7 +84,7 @@ Supported operators for the Boolean type are:
 `value` takes a single string, except:
 
 - `exact` and `is_not` also take an array of strings. `exact` matches any one of the values. `is_not` matches none of them. Every entry must be a string, so convert a number or a boolean first.
-- `gt` and `lt` take a number.
+- `exact` also takes a number, and `gt` and `lt` take only a number. Use the number form for a numeric property.
 - Boolean properties take the strings `"true"` and `"false"`.
 - `is_set` and `is_not_set` take no value.
 

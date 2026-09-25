@@ -2663,6 +2663,42 @@ describe('exec tool', () => {
                     expect(message).toContain('parameter "properties.0.value"')
                     expect(message).not.toContain('number')
                 })
+
+                // `type` is wrong on its own rather than a choice of variant, so
+                // reading its rejection as one closed off every variant that
+                // could have described the value.
+                it('still names the value types when another field is also wrong', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: 'plan_seats', type: 'nonsense', operator: 'exact', value: [1, 2] }],
+                    })
+
+                    expect(message).toContain('parameter "properties.0.type" must be one of: event, person')
+                    expect(message).toContain(
+                        'parameter "properties.0.value" must be one of these types: string, number, array of strings'
+                    )
+                })
+            })
+
+            // Merging a field only one variant rejects would report that
+            // variant's options as the shared contract, and would make the scan
+            // grow with the input rather than with the variants.
+            it('leaves a field only one variant rejects to that variant', () => {
+                const schema = z.object({
+                    mode: z.enum(['x']),
+                    lane: z.string(),
+                })
+                const other = z.object({
+                    mode: z.string(),
+                    lane: z.enum(['y']),
+                })
+                const either = z.object({ choice: z.union([schema, other]) })
+                const input = { choice: { mode: 'nope', lane: 'nope' } }
+                const result = either.safeParse(input, { reportInput: true })
+
+                const message = formatInputValidationError('some-tool', result.error!, input, either)
+
+                expect(message).not.toContain('must be one of')
             })
 
             // A variant can pin a second field to one value without that field
