@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any, Literal
 
 from django.conf import settings
+from django.db.models import Q
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -519,6 +520,9 @@ class ExportedAssetViewSet(
 
     def safely_get_queryset(self, queryset):
         """List shows only exports created by the current user."""
+        queryset = queryset.filter(
+            Q(export_context__historical_heatmap__isnull=True) | ~Q(export_context__historical_heatmap=True)
+        )
         if self.action == "list":
             queryset = queryset.filter(created_by=self.request.user)
 
