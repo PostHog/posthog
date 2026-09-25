@@ -24,6 +24,55 @@ describe('diagnoseReplayCapture', () => {
             expected: 'ad_blocked',
         },
         {
+            name: 'recorder script still lazy loading when the session ended',
+            properties: { $recording_status: 'lazy_loading' },
+            expected: 'script_loading',
+        },
+        {
+            name: 'ad_blocked takes priority over lazy_loading when both present',
+            properties: { $sdk_debug_recording_script_not_loaded: true, $recording_status: 'lazy_loading' },
+            expected: 'ad_blocked',
+        },
+        {
+            name: 'held buffer under a configured minimum duration',
+            properties: {
+                $recording_status: 'active',
+                $replay_minimum_duration: 5000,
+                $sdk_debug_replay_internal_buffer_length: 12,
+                $sdk_debug_replay_flushed_size: 0,
+            },
+            expected: 'below_minimum_duration',
+        },
+        {
+            name: 'buffer size alone is enough to show snapshots were held',
+            properties: {
+                $recording_status: 'active',
+                $replay_minimum_duration: 5000,
+                $sdk_debug_replay_internal_buffer_size: 2048,
+            },
+            expected: 'below_minimum_duration',
+        },
+        {
+            name: 'a configured minimum duration does not reclassify a session that flushed data',
+            properties: {
+                $recording_status: 'active',
+                $replay_minimum_duration: 5000,
+                $sdk_debug_replay_internal_buffer_length: 12,
+                $sdk_debug_replay_flushed_size: 2048,
+            },
+            expected: 'captured',
+        },
+        {
+            name: 'held buffer with no minimum duration configured stays unknown',
+            properties: {
+                $recording_status: 'active',
+                $replay_minimum_duration: 0,
+                $sdk_debug_replay_internal_buffer_length: 12,
+                $sdk_debug_replay_flushed_size: 0,
+            },
+            expected: 'unknown',
+        },
+        {
             name: 'recording explicitly disabled',
             properties: { $recording_status: 'disabled' },
             expected: 'disabled',
@@ -272,6 +321,23 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons[0]).toContain('URL trigger')
         expect(result.reasons[0]).toContain('event trigger')
         expect(result.reasons[0]).not.toContain('linked flag trigger')
+    })
+
+    it('sampled_out names the configured sample rate', () => {
+        const result = diagnoseReplayCapture({
+            $session_recording_start_reason: 'sampled_out',
+            $replay_sample_rate: 0.1,
+        })
+        expect(result.reasons.some((r) => r.includes('0.1') && r.includes('10%'))).toBe(true)
+    })
+
+    it('below_minimum_duration names the configured floor in seconds', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'active',
+            $replay_minimum_duration: 2500,
+            $sdk_debug_replay_internal_buffer_length: 4,
+        })
+        expect(result.reasons.some((r) => r.includes('2.5 seconds'))).toBe(true)
     })
 
     it('recorder_error surfaces the rrweb error message when present', () => {

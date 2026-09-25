@@ -49,6 +49,18 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             ).toBeInTheDocument()
         })
 
+        it('renders the script loading headline', () => {
+            render(
+                <ReplayCaptureDiagnosticsPanel
+                    eventProperties={{
+                        $recording_status: 'lazy_loading',
+                    }}
+                />
+            )
+
+            expect(screen.getByText('The recorder script never finished loading')).toBeInTheDocument()
+        })
+
         it('renders disabled headline', () => {
             render(
                 <ReplayCaptureDiagnosticsPanel
