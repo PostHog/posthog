@@ -1,4 +1,3 @@
-import jwt from 'jsonwebtoken'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,14 +11,15 @@ import { ClickHouseCredential } from './clickhouse-credential'
 const NOW = 1_000_000
 const FALLBACK_METRIC = 'recording_api_clickhouse_password_fallback_total'
 
-const tokenExpiringAt = (exp: number): string => jwt.sign({ exp }, 'test-secret')
+const base64url = (text: string): string => Buffer.from(text).toString('base64url')
+const unsignedToken = (payload: string): string =>
+    `${base64url('{"alg":"RS256","typ":"JWT"}')}.${base64url(payload)}.signature`
+const tokenExpiringAt = (exp: number): string => unsignedToken(JSON.stringify({ exp }))
 const liveToken = tokenExpiringAt(NOW + 3600)
 const expiredToken = tokenExpiringAt(NOW - 60)
 const withinLeewayToken = tokenExpiringAt(NOW + 5)
-const noExpToken = jwt.sign({ sub: 'system:serviceaccount:recording-api:recording-api' }, 'test-secret', {
-    noTimestamp: true,
-})
-const malformedPayloadToken = `${Buffer.from('{"alg":"RS256","typ":"JWT"}').toString('base64url')}.bm90LWpzb24.signature`
+const noExpToken = unsignedToken(JSON.stringify({ sub: 'system:serviceaccount:recording-api:recording-api' }))
+const malformedPayloadToken = unsignedToken('not-json')
 
 describe('ClickHouseCredential', () => {
     let dir: string
