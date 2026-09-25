@@ -53,7 +53,6 @@ import {
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { CANVAS_COMMENTS_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { CanvasSourceAutosave } from "@posthog/ui/features/canvas/blocks/CanvasBlocks";
@@ -69,6 +68,7 @@ import {
 } from "@posthog/ui/features/canvas/freeform/canvasGenerationStatus";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
+import { useCanvasCommentsEnabled } from "@posthog/ui/features/canvas/hooks/useCanvasCommentsEnabled";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
   useCanvasDrafts,
@@ -85,7 +85,6 @@ import {
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   canvasCommentFocusKey,
   useCommentNavigationStore,
@@ -357,8 +356,7 @@ export function FreeformCanvasView({
     interactive ? dashboardId : undefined,
   );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
-  const canvasCommentsFlag = useFeatureFlag(CANVAS_COMMENTS_FLAG);
-  const commentsEnabled = canvasCommentsFlag || !!commentTaskId;
+  const commentsEnabled = useCanvasCommentsEnabled(commentTaskId);
   // The run whose chat the panel shows: this person's own run on the canvas,
   // found through the record's task or the versions they published. Another
   // person's run never shows, so each editor keeps their own conversation.
@@ -1388,11 +1386,10 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      {!embedded && (
+      {!embedded && commentsEnabled && (
         <CanvasSelectionCommentAction
           selection={textSelection}
           taskId={commentTaskId}
-          enabled={commentsEnabled}
           dashboardId={dashboardId}
           canvasName={dashboard?.name ?? "Canvas"}
           versionId={displayedVersionId}

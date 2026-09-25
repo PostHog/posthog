@@ -66,7 +66,6 @@ describe("CanvasSelectionCommentAction", () => {
             rect: { top: 10, right: 80, bottom: 30, left: 20 },
           }}
           taskId={taskId}
-          enabled
           dashboardId="canvas-1"
           canvasName="Launch canvas"
           versionId="version-2"

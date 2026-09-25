@@ -12,7 +12,6 @@ import { useCreateComment } from "@posthog/ui/features/sessions/components/useCo
 export function CanvasSelectionCommentAction({
   selection,
   taskId,
-  enabled,
   dashboardId,
   canvasName,
   versionId,
@@ -20,7 +19,6 @@ export function CanvasSelectionCommentAction({
 }: {
   selection: CanvasTextSelection | null;
   taskId: string | null;
-  enabled: boolean;
   dashboardId: string;
   canvasName: string;
   versionId: string | null;
@@ -58,7 +56,7 @@ export function CanvasSelectionCommentAction({
             }
           : null
       }
-      open={!!selection && enabled}
+      open={!!selection}
       filePath={canvasName}
       actionLabel="Add comment"
       placeholder="Add a comment about this selection"
@@ -66,7 +64,7 @@ export function CanvasSelectionCommentAction({
       members={members}
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
-        if (!anchor || !enabled) return;
+        if (!anchor) return;
         openComments();
         const comment = await createComment.mutateAsync({
           content,
