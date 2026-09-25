@@ -31,7 +31,7 @@ from posthog.temporal.ai_observability.trace_summarization.coordinator import Ba
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 
-async def create_batch_trace_summarization_schedule(client: Client):
+async def create_batch_trace_summarization_schedule(client: Client) -> None:
     """Create or update the schedule for the batch trace summarization coordinator workflow.
 
     This schedule runs hourly and automatically processes all teams with recent LLM trace activity.
@@ -50,7 +50,12 @@ async def create_batch_trace_summarization_schedule(client: Client):
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=timedelta(minutes=COORDINATOR_EXECUTION_TIMEOUT_MINUTES),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
+        spec=ScheduleSpec(
+            intervals=[
+                # nosemgrep: schedule-must-avoid-minute-zero -- the rolling one-hour lookback has no cursor, so shifting the schedule skips data
+                ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))
+            ],
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
