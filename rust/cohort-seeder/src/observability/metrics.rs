@@ -105,6 +105,7 @@ pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_second
 pub const SCAN_RECEIVED_BYTES: &str = "seeder_scan_received_bytes_total";
 /// Decompressed bytes a scan cursor produced, labelled by `kind` (counter).
 pub const SCAN_DECODED_BYTES: &str = "seeder_scan_decoded_bytes_total";
+pub const CLICKHOUSE_PASSWORD_FALLBACK: &str = "seeder_clickhouse_password_fallback_total";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";
 pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";

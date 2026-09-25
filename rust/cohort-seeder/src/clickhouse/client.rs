@@ -543,6 +543,13 @@ LaIcbwSaQpbb1SSltcQ0krF2y351IH79a2fmV57qw3VZ5u17KbO4
         let mut config = default_config();
         config.clickhouse_url = format!("http://{address}");
         config.clickhouse_password = "static".to_string();
+        let static_client = build_client(&config).unwrap();
+        static_client.query("SELECT 1").execute().await.unwrap();
+        assert_eq!(
+            received_keys.recv().await.unwrap().as_deref(),
+            Some("static")
+        );
+
         config.clickhouse_password_file = token_file.to_string_lossy().into_owned();
         let client = build_client(&config).unwrap();
 

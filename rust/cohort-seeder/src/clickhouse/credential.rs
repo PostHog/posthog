@@ -4,9 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use metrics::counter;
 use tracing::warn;
 
 use crate::config::Config;
+use crate::observability::metrics::CLICKHOUSE_PASSWORD_FALLBACK;
 
 const TOKEN_EXPIRY_LEEWAY_SECS: f64 = 10.0;
 
@@ -39,21 +41,25 @@ impl ClickHouseCredential {
         let Some(token_file) = &self.token_file else {
             return self.static_password.clone();
         };
+        let path = token_file.display();
         let token = match fs::read_to_string(token_file) {
             Ok(contents) => contents.trim().to_owned(),
             Err(error) => {
-                warn!(%error, "ClickHouse token file is not readable, using the static password");
+                warn!(%error, %path, "ClickHouse token file is not readable, using the static password");
+                counter!(CLICKHOUSE_PASSWORD_FALLBACK, "reason" => "unreadable").increment(1);
                 return self.static_password.clone();
             }
         };
         if token.is_empty() {
-            warn!("ClickHouse token file is empty, using the static password");
+            warn!(%path, "ClickHouse token file is empty, using the static password");
+            counter!(CLICKHOUSE_PASSWORD_FALLBACK, "reason" => "empty").increment(1);
             return self.static_password.clone();
         }
         // The kubelet stops refreshing the token of a terminating pod, so a slow shutdown can leave
         // an expired token that ClickHouse rejects.
         if !self.static_password.is_empty() && token_expired(&token, now) {
-            warn!("ClickHouse token has expired, using the static password");
+            warn!(%path, "ClickHouse token has expired, using the static password");
+            counter!(CLICKHOUSE_PASSWORD_FALLBACK, "reason" => "expired").increment(1);
             return self.static_password.clone();
         }
         token
@@ -115,7 +121,8 @@ mod tests {
     fn the_token_file_supersedes_the_static_password_only_while_it_is_usable() {
         let scratch = tempfile::tempdir().unwrap();
         let live = jwt_expiring_at(NOW_SECS + 3600);
-        let expired = jwt_expiring_at(NOW_SECS - 60);
+        // `?>?>?>` encodes to `-` and `_`, where the URL-safe and standard alphabets differ.
+        let expired = jwt(&format!(r#"{{"exp":{},"sub":"?>?>?>"}}"#, NOW_SECS - 60));
         let within_leeway = jwt_expiring_at(NOW_SECS + 5);
         let padded_expired = {
             let (header_and_payload, _signature) = expired.rsplit_once('.').unwrap();
@@ -123,55 +130,89 @@ mod tests {
         };
         let no_exp = jwt(r#"{"sub":"system:serviceaccount:posthog:cohort-seeder"}"#);
 
-        let cases: [(&str, Option<String>, &str, String); 9] = [
+        let cases = [
             (
                 "live token",
                 Some(format!("{live}\n")),
                 "static",
                 live.clone(),
+                None,
             ),
-            ("missing file", None, "static", "static".into()),
-            ("empty file", Some(" \n".into()), "static", "static".into()),
+            (
+                "missing file",
+                None,
+                "static",
+                "static".into(),
+                Some("unreadable"),
+            ),
+            (
+                "empty file",
+                Some(" \n".into()),
+                "static",
+                "static".into(),
+                Some("empty"),
+            ),
             (
                 "expired token",
                 Some(expired.clone()),
                 "static",
                 "static".into(),
+                Some("expired"),
             ),
             (
                 "expired token, no static",
                 Some(expired.clone()),
                 "",
                 expired.clone(),
+                None,
             ),
             (
                 "inside the leeway",
                 Some(within_leeway),
                 "static",
                 "static".into(),
+                Some("expired"),
             ),
             (
                 "padded payload",
                 Some(padded_expired),
                 "static",
                 "static".into(),
+                Some("expired"),
             ),
-            ("no exp claim", Some(no_exp.clone()), "static", no_exp),
+            ("no exp claim", Some(no_exp.clone()), "static", no_exp, None),
             (
                 "opaque token",
                 Some("not-a-jwt".into()),
                 "static",
                 "not-a-jwt".into(),
+                None,
             ),
         ];
-        for (case, contents, static_password, expected) in cases {
+        for (case, contents, static_password, expected, fallback_reason) in cases {
             let token_file = scratch.path().join(case.replace(' ', "_"));
             if let Some(contents) = contents {
                 std::fs::write(&token_file, contents).unwrap();
             }
             let credential =
                 ClickHouseCredential::new(static_password.into(), token_file.to_str().unwrap());
-            assert_eq!(credential.current_at(now()), expected, "{case}");
+            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+            let handle = recorder.handle();
+            let password = metrics::with_local_recorder(&recorder, || credential.current_at(now()));
+            assert_eq!(password, expected, "{case}");
+            let rendered = handle.render();
+            match fallback_reason {
+                Some(reason) => assert!(
+                    rendered.contains(&format!(
+                        "{CLICKHOUSE_PASSWORD_FALLBACK}{{reason=\"{reason}\"}} 1"
+                    )),
+                    "{case} did not count a {reason} fallback:\n{rendered}"
+                ),
+                None => assert!(
+                    !rendered.contains(CLICKHOUSE_PASSWORD_FALLBACK),
+                    "{case} counted a fallback:\n{rendered}"
+                ),
+            }
         }
     }
 
