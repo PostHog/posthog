@@ -136,12 +136,15 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason, isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
 
     const onCreatePr = (): void => {
+        if (isCreatingPr) {
+            return
+        }
         captureInboxReportAction({
             report,
             actionType: 'create_pr',
@@ -276,12 +279,17 @@ function ReportContextMenuItems({
         </>
     )
 
+    // A blocked report's flow spans an artefact fetch, a confirmation and two writes, so the menu
+    // can be reopened and clicked again while the first one is still going. The detail pane and
+    // triage already read this state; without it here a second click starts a duplicate run.
+    const createPrBusyReason = isCreatingPr ? 'Already starting a pull request for this report' : null
+    const createPrReason = createPrDisabledReason ?? createPrBusyReason
     const createPrItem = canCreateImplementationPr(report) ? (
-        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
+        <ContextMenuItem asChild disabled={!!createPrReason}>
             <ButtonPrimitive
                 menuItem
                 onClick={onCreatePr}
-                disabledReasons={createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined}
+                disabledReasons={createPrReason ? { [createPrReason]: true } : undefined}
                 data-attr="inbox-report-context-menu-create-pr"
             >
                 <IconPullRequest />

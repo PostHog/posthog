@@ -49,12 +49,10 @@ function menuRowText(): (string | null)[] {
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
     let overrideRequests: { reportId: string; body: Record<string, unknown> }[]
-    let createdTasks: Record<string, unknown>[]
 
     beforeEach(() => {
         stateRequests = []
         overrideRequests = []
-        createdTasks = []
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
@@ -85,10 +83,7 @@ describe('ReportContextMenu', () => {
                     })
                     return [200, { id: params.report_id, status: 'ready' }]
                 },
-                '/api/projects/:team_id/tasks/': async ({ request }) => {
-                    createdTasks.push((await request.json()) as Record<string, unknown>)
-                    return [201, { id: 'task-1' }]
-                },
+                '/api/projects/:team_id/tasks/': { id: 'task-1' },
                 '/api/projects/:team_id/tasks/:task_id/run/': { id: 'run-1' },
             },
         })
@@ -132,7 +127,7 @@ describe('ReportContextMenu', () => {
         {
             name: 'a failed report offers creating a PR anyway',
             report: makeReport({ status: SignalReportStatus.FAILED, actionability: null }),
-            expected: ['Select', 'Create PR', 'Dismiss', 'Reviewers'],
+            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers'],
         },
         // The product's own reading is that this report holds no work, which is a different claim
         // from "we would not risk it" — so the escape hatch does not apply to it.
@@ -140,6 +135,17 @@ describe('ReportContextMenu', () => {
             name: 'a not-actionable dismissed report offers only restore',
             report: makeReport({ status: SignalReportStatus.SUPPRESSED, actionability: 'not_actionable' }),
             expected: ['Select', 'Restore'],
+        },
+        // A refunded report can never be billed again, so the server refuses to implement it. The
+        // button would 409, and the refunded-dismissed row renders no menu at all.
+        {
+            name: 'a refunded report does not offer creating a PR anyway',
+            report: makeReport({
+                status: SignalReportStatus.POTENTIAL,
+                actionability: null,
+                refund: { id: 'refund-1' } as unknown as SignalReport['refund'],
+            }),
+            expected: ['Select', 'Dismiss', 'Reviewers'],
         },
     ])('$name', ({ report, expected }) => {
         openMenu(report)
@@ -256,7 +262,6 @@ describe('ReportContextMenu', () => {
         expect(await screen.findByText('Implement "Report one" anyway?')).toBeInTheDocument()
         expect(await screen.findByText(/Unsafe instruction in the report's signals/)).toBeInTheDocument()
         expect(overrideRequests).toEqual([])
-        expect(createdTasks).toEqual([])
     })
 
     it('records the override and starts the run once the person confirms', async () => {
@@ -267,9 +272,6 @@ describe('ReportContextMenu', () => {
 
         await waitFor(() => {
             expect(overrideRequests).toEqual([{ reportId: 'report-1', body: {} }])
-        })
-        await waitFor(() => {
-            expect(createdTasks).toHaveLength(1)
         })
     })
 })

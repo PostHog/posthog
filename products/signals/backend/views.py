@@ -778,8 +778,7 @@ class SignalReportMergeRequestSerializer(serializers.Serializer):
     )
 
 
-# The steer a person types when they overrule the safety judge is the same textarea the Create PR
-# popover already offers, so it is capped the same way as the other report notes.
+# Same textarea the Create PR popover already offers, so it is capped like the other report notes.
 SIGNAL_REPORT_SAFETY_OVERRIDE_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
@@ -1183,12 +1182,11 @@ class SignalReportViewSet(
     # can reach suppressed reports too. `refund` is included so an already-archived but
     # billed report can still be refunded, and `feedback` because the detail view the
     # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
-    # note for the report it is displayed on. `safety_override` is the second mutating entry, for
-    # the same reason as `state`: a report the safety judge suppressed at birth is exactly the one a
-    # person needs to be able to overrule, so it has to be reachable by id. Mutating-by-ID actions
-    # that are not a reader's decision about a report in front of them (delete, reingest) are
-    # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
-    # returning 404 — matching the existing contract.
+    # note for the report it is displayed on. `safety_override` is here for the same reason as
+    # `state`: a report the safety judge suppressed at birth is the one a person most needs to
+    # reach by id. Mutating-by-ID actions that are not a reader's decision about the report in
+    # front of them (delete, reingest) are deliberately NOT here, so a suppressed report stays
+    # unreachable for those and keeps returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
     # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
     # read-only PR panel whatever the report's status is.
@@ -2567,7 +2565,10 @@ class SignalReportViewSet(
             "resolved or in-flight one holds no verdict to overrule. The override is appended to the "
             "report as a `safety_judgment` artefact with `choice: true`, naming the caller and their "
             "note, which makes the human verdict the report's canonical safety status and leaves an "
-            "audit row in its work log. Call this before creating the implementation task."
+            "audit row in its work log. A report that was refunded, or that was resolved before "
+            "being archived, is refused. Calling it again on a report that already carries the "
+            "override succeeds without changing anything, so a failed task creation can be "
+            "retried. Call this before creating the implementation task."
         ),
         request=SignalReportSafetyOverrideRequestSerializer,
         responses={
@@ -2585,15 +2586,18 @@ class SignalReportViewSet(
         note = serializer.validated_data.get("note") or None
 
         user = cast(User, request.user)
+        was_impersonated = is_impersonated_session(request)
         try:
-            override = override_safety_judgment(report=report, user_id=user.id, note=note)
+            override = override_safety_judgment(
+                report=report, user_id=user.id, note=note, was_impersonated=was_impersonated
+            )
         except SafetyOverrideNotAllowed as e:
             return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
 
-        # `previous_status` and `judge_verdict` are what make overrides measurable: which blocked
-        # status people rescue reports from, and whether they were overruling a rejection the judge
-        # explained or a report nothing had looked at. `scout_name` splits that per scout, so a
-        # scout whose reports are routinely overridden becomes visible as one.
+        # `previous_status` and `judge_verdict` record which blocked status people rescue reports
+        # from, and whether they overruled a rejection or a report nothing had looked at.
+        # `scout_name` splits that per scout, so a routinely-overridden scout becomes visible, and
+        # `already_overridden` marks the retries so they do not count as separate decisions.
         report_user_action(
             user,
             "signals_report_safety_overridden",
@@ -2602,9 +2606,11 @@ class SignalReportViewSet(
                 "organization_id": str(self.organization.id),
                 "report_id": str(report.id),
                 "previous_status": override.previous_status,
-                "judge_verdict": "rejected" if override.judge_explanation else "no_rejection",
+                "judge_verdict": "rejected" if override.judge_rejected else "no_rejection",
                 "scout_name": resolve_report_scout_skill(self.team.id, str(report.id)),
                 "has_note": note is not None,
+                "was_impersonated": was_impersonated,
+                "already_overridden": override.already_overridden,
             },
             team=self.team,
             organization=self.organization,

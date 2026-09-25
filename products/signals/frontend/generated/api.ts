@@ -84,6 +84,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSafetyOverrideRequestApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
     SignalScoutConfigApi,
@@ -738,6 +739,28 @@ export const signalsReportsReviewersUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportArtefactWriteApi),
+    })
+}
+
+export const getSignalsReportsSafetyOverrideCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/safety_override/`
+}
+
+/**
+ * Record that a person decided to implement a report PostHog would not implement on its own, and move it to `ready` so the resulting pull request can resolve it. Allowed from `potential`, `candidate`, `failed` and `suppressed` — the statuses a report holds when the safety judge rejected it or the pipeline never researched it. Any other status returns 409: a `ready` or `pending_input` report already offers Create PR, and a resolved or in-flight one holds no verdict to overrule. The override is appended to the report as a `safety_judgment` artefact with `choice: true`, naming the caller and their note, which makes the human verdict the report's canonical safety status and leaves an audit row in its work log. A report that was refunded, or that was resolved before being archived, is refused. Calling it again on a report that already carries the override succeeds without changing anything, so a failed task creation can be retried. Call this before creating the implementation task.
+ * @summary Override the safety judgment blocking a report
+ */
+export const signalsReportsSafetyOverrideCreate = async (
+    projectId: string,
+    id: string,
+    signalReportSafetyOverrideRequestApi?: SignalReportSafetyOverrideRequestApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsSafetyOverrideCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportSafetyOverrideRequestApi),
     })
 }
 
