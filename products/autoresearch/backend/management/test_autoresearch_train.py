@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -10,6 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.autoresearch.backend.facade.contracts import PipelineNotFound
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
 
 COMMAND = "products.autoresearch.backend.management.commands.autoresearch_train"
@@ -31,6 +34,7 @@ class TestAutoresearchTrainCommand(BaseTest):
             ("flag_off", {"flag": False}),
             ("malformed_pipeline_id", {"pipeline_id": "not-a-uuid"}),
             ("live_training_run", {"live_run": True}),
+            ("deleted_during_launch", {"deleted_during_launch": True}),
         ]
     )
     def test_real_training_is_refused_before_launch(self, _name, case) -> None:
@@ -52,6 +56,13 @@ class TestAutoresearchTrainCommand(BaseTest):
         with (
             patch(f"{COMMAND}.has_autoresearch_access", return_value=case.get("flag", True)),
             patch("products.autoresearch.backend.training.runner.run_training") as run_training,
+            # A delete that lands after the command resolved the pipeline, before the facade claims it.
+            patch(
+                "products.autoresearch.backend.facade.api._claim_pipeline_for_training",
+                side_effect=PipelineNotFound("Pipeline not found."),
+            )
+            if case.get("deleted_during_launch")
+            else nullcontext(),
             self.assertRaises(CommandError),
         ):
             call_command(

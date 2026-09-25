@@ -631,6 +631,17 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_model_defining_fields_are_rechecked_against_models_under_the_lock(self):
+        pipeline = self._make_trained_pipeline()
+        # The serializer read happened before the first run finished and created the model.
+        with patch(
+            "products.autoresearch.backend.presentation.views.serializers.api.pipeline_has_models", return_value=False
+        ):
+            resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"horizon_days": 30}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        pipeline.refresh_from_db()
+        assert pipeline.horizon_days == 7
+
     @parameterized.expand(
         [
             ("target_changed", {"horizon_days": 30}, status.HTTP_400_BAD_REQUEST),

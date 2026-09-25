@@ -33,7 +33,7 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.access import has_autoresearch_access
 from products.autoresearch.backend.facade.api import output_person_property_taken, start_training
-from products.autoresearch.backend.facade.contracts import AutoresearchConflict
+from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound
 from products.autoresearch.backend.management.scoping import resolve_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.presentation.views.serializers import validate_event_target
@@ -189,7 +189,8 @@ class Command(BaseCommand):
                 launched = start_training(
                     pipeline.team_id, pipeline.pk, iteration_budget=iteration_budget, user_id=user_id
                 )
-            except AutoresearchConflict as exc:
+            except (AutoresearchConflict, PipelineNotFound) as exc:
+                # PipelineNotFound: a delete landed between resolving the pipeline and claiming it.
                 raise CommandError(str(exc)) from exc
 
             run_id, run_status = launched.id, launched.status

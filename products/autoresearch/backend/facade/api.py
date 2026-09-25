@@ -368,7 +368,7 @@ def _changes_model_definition(row: AutoresearchPipeline, fields: dict[str, Any])
 
 
 def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
-    """Update a pipeline. Refuses a change to what it predicts while a training run is live.
+    """Update a pipeline. Refuses a change to what it predicts while a run is live or once a model exists.
 
     The row lock serializes this with ``start_training``, so a run cannot start between the
     live-run check and the write, and a concurrent delete waits instead of racing the save.
@@ -386,10 +386,17 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
             )
         except AutoresearchPipeline.DoesNotExist:
             raise PipelineNotFound("Pipeline not found.")
-        if _changes_model_definition(row, fields) and _has_live_training_run(team_id, row):
-            raise AutoresearchConflict(
-                "A training run is in progress. Wait for it to finish before changing what the pipeline predicts."
-            )
+        if _changes_model_definition(row, fields):
+            if _has_live_training_run(team_id, row):
+                raise AutoresearchConflict(
+                    "A training run is in progress. Wait for it to finish before changing what the pipeline predicts."
+                )
+            # Rechecked under the lock: a run can complete and create a model after the serializer's check.
+            if AutoresearchModel.objects.for_team(team_id).filter(pipeline=row).exists():
+                raise AutoresearchConflict(
+                    "What the pipeline predicts cannot change after a model has been trained. "
+                    "Create a new pipeline to predict a different target."
+                )
         for key, value in fields.items():
             setattr(row, key, value)
         # Only the request's fields, so the write never touches a column the request did not set.
