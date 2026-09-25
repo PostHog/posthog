@@ -3,6 +3,34 @@ import { colors, fonts } from "@/lib/theme";
 
 // Tiny hand-drawn glyphs so the app has no icon dependency.
 
+export function SearchIcon({ color = colors.ink }: { color?: ColorValue }) {
+  return (
+    <View style={{ width: 24, height: 24 }}>
+      <View
+        style={{
+          width: 17,
+          height: 17,
+          borderWidth: 2,
+          borderRadius: 9,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          width: 10,
+          height: 2,
+          left: 13,
+          top: 18,
+          borderRadius: 1,
+          backgroundColor: color,
+          transform: [{ rotate: "45deg" }],
+        }}
+      />
+    </View>
+  );
+}
+
 export function MenuIcon({ color = colors.ink }: { color?: ColorValue }) {
   return (
     <View style={styles.menu}>

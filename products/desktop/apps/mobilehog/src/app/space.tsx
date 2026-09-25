@@ -81,8 +81,7 @@ export default function SpaceSheet() {
       ) : null}
       {spaces.isSuccess ? (
         <View style={sheetStyles.card}>
-          {!spaces.data?.some((space) => space.system_role === "personal") &&
-          !needle ? (
+          {!hasPersonal && !needle ? (
             <SheetRow
               first
               label="Personal"

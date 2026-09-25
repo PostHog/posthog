@@ -27,15 +27,15 @@ export const keys = {
   repositories: ["repositories"] as const,
 };
 
-export function useTasks(search = "", allUsers = false) {
+export function useTasks(search = "") {
   const session = useAuth((s) => s.session);
   const query = useInfiniteQuery({
-    queryKey: [...keys.tasks, "list", session?.userId, allUsers, search],
+    queryKey: [...keys.tasks, "list", session?.userId, search],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       getClient().getTasksPage({
         basic: true,
-        createdBy: allUsers ? undefined : session?.userId,
+        createdBy: session?.userId,
         search: search.trim() || undefined,
         ordering: "-last_activity_at",
         limit: 100,

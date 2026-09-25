@@ -114,6 +114,13 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="search"
+              options={{
+                presentation: "fullScreenModal",
+                animation: "slide_from_bottom",
+              }}
+            />
+            <Stack.Screen
               name="space"
               options={{
                 presentation: "formSheet",
