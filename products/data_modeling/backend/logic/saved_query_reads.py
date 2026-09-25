@@ -63,20 +63,6 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
     )
 
 
-def get_saved_query_definition(team_id: int, saved_query_id: UUID | str) -> str | None:
-    """The saved query's HogQL text, or None when it no longer resolves or stores none."""
-    stored = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
-        .exclude(deleted=True)
-        .values_list("query", flat=True)
-        .first()
-    )
-    if not isinstance(stored, dict):
-        return None
-    definition = stored.get("query")
-    return definition if isinstance(definition, str) else None
-
-
 def all_saved_query_columns(team_id: int) -> dict[str, dict[str, str]]:
     """Each still-resolving saved query's columns, by id, unwrapped the way ``get_saved_query_columns`` does."""
     rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "columns")
@@ -86,6 +72,19 @@ def all_saved_query_columns(team_id: int) -> dict[str, dict[str, str]]:
         }
         for saved_query_id, stored in rows
     }
+
+
+def get_saved_query_sql(team_id: int, saved_query_id: UUID | str) -> str | None:
+    """The HogQL text of the saved query exactly as stored, or None when it no longer resolves or
+    stores no text. Soft-deleted rows are excluded for the reason ``get_saved_query_summary`` gives."""
+    stored = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .values_list("query", flat=True)
+        .first()
+    )
+    sql = stored.get("query") if isinstance(stored, dict) else None
+    return sql if isinstance(sql, str) else None
 
 
 def all_saved_query_names(team_id: int) -> dict[str, str]:

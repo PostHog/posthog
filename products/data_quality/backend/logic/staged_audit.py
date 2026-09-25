@@ -78,7 +78,7 @@ def replayable_failing_rows_query(
 
 def _view_definition_cte(team_id: int, saved_query_id: str | UUID) -> ast.CTE | None:
     summary = data_modeling_facade.get_saved_query_summary(team_id, saved_query_id)
-    definition = data_modeling_facade.get_saved_query_definition(team_id, saved_query_id)
+    definition = data_modeling_facade.get_saved_query_sql(team_id, saved_query_id)
     if summary is None or definition is None:
         return None
     try:

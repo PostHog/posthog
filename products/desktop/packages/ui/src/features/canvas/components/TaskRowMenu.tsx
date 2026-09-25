@@ -280,6 +280,7 @@ function TaskRowMenuItems({
 export interface TaskRowBulkMenu {
   actions: SidebarBulkActions;
   onArchive: () => void;
+  withCommandCenter?: boolean;
 }
 
 function TaskRowBulkMenuItems({
@@ -310,10 +311,12 @@ function TaskRowBulkMenuItems({
         )}
         {actions.pinLabel}
       </Item>
-      <Item onClick={actions.addSelectedToCommandCenter}>
-        <SquaresFourIcon size={14} />
-        Add {sessions} to Command Center
-      </Item>
+      {bulk.withCommandCenter !== false && (
+        <Item onClick={actions.addSelectedToCommandCenter}>
+          <SquaresFourIcon size={14} />
+          Add {sessions} to Command Center
+        </Item>
+      )}
       {channelItems.length > 0 && (
         <Sub>
           <SubTrigger>

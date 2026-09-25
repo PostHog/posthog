@@ -49,6 +49,17 @@ def _make_event(
 
 
 class TestChangeEventBatcher:
+    def test_discarding_a_table_releases_its_share_of_the_flush_budget(self):
+        batcher = ChangeEventBatcher(max_bytes=1)
+        batcher.add(_make_event(table="users"))
+        batcher.add(_make_event(table="orders"))
+
+        batcher.discard("users")
+        batcher.discard("orders")
+
+        assert batcher.event_count == 0
+        assert batcher.should_flush is False
+
     def test_empty_flush(self):
         batcher = ChangeEventBatcher()
         result = batcher.flush()
@@ -462,11 +473,12 @@ class TestEnrichDeleteRows:
         assert result.column(CDC_OP_COLUMN)[1].as_py() == "D"
         assert result.column(DELETED_COLUMN)[1].as_py() is True
 
-    def test_delete_after_update_uses_update_data(self):
+    def test_delete_uses_the_last_change_before_it(self):
         events = [
             _make_event(op="I", columns={"id": 1, "name": "Alice"}),
             _make_event(op="U", columns={"id": 1, "name": "Bob"}),
             _make_event(op="D", columns={"id": 1}),
+            _make_event(op="I", columns={"id": 1, "name": "Carol"}),
         ]
         table = self._make_raw_table(events)
         result = enrich_delete_rows(table, ["id"])

@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
     get_rows_extracted_metric,
+    get_run_attempt_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
@@ -343,6 +344,12 @@ class PipelineV3(Generic[ResumableData]):
         source_type = self._source.source_type if self._source else "unknown"
         sync_type = self._pg_producer.sync_type
 
+        # Recorded where extraction begins, so one observation is one attempt that actually did
+        # work. A rising distribution means runs are restarting and re-extracting what earlier
+        # attempts already staged.
+        if activity.in_activity():
+            get_run_attempt_metric(source_type).record(self._attempt)
+
         start_time = time.perf_counter()
         status = "success"
 
@@ -603,7 +610,7 @@ class PipelineV3(Generic[ResumableData]):
     async def _stamp_full_run(self) -> None:
         """Record that this run took the full extraction path, for the fast-return valve.
 
-        Writes only `last_full_run_at`, which `_fast_return_eligible` is the sole reader of.
+        Writes only `last_full_run_at`.
         `last_synced_at` is deliberately left alone: it feeds data freshness, the schemas UI and
         the signals watermark (`partition_field > last_synced_at`), so moving it on a run that
         loaded nothing would narrow the next run's signal window.

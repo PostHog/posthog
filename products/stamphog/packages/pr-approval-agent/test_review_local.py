@@ -1,6 +1,7 @@
 """Tests for the offline review entrypoint's context handling."""
 
 import sys
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,6 +14,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
 from github import CommitProvenance  # noqa: E402
@@ -157,30 +159,106 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
     assert "Migration risk" in result["reviewer"]["reasoning"]
 
 
-def test_offline_run_carries_commit_provenance(monkeypatch) -> None:
-    # pr_provenance reads commit trailers from the checkout and needs no token, so the sandbox can
-    # compute it. Without this call, provenance is null on every hosted review, which drops
-    # agent-authorship from the evidence bundle and from the stamphog_review_completed
-    # properties.
-    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
-    monkeypatch.setattr(
-        review_local,
-        "pr_provenance",
-        lambda *a, **k: CommitProvenance(
-            commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",)
+_GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
+
+
+@pytest.mark.parametrize(
+    "extra_context, expected",
+    [
+        pytest.param(
+            {},
+            {
+                "agent_authored": True,
+                "commit_count": 3,
+                "agent_commit_count": 2,
+                "generated_by": ["claude"],
+                "task_ids": ["t-1"],
+            },
+            id="git-log-without-server-messages",
         ),
-    )
-    context = _run_context([_api_file("posthog/migrations/0999_add_col.py")])
+        pytest.param(
+            {"commit_messages": ["feat: a\n\nGenerated-By: PostHog Code\nTask-Id: t-9", "fix: b"]},
+            {
+                "agent_authored": True,
+                "commit_count": 2,
+                "agent_commit_count": 1,
+                "generated_by": ["PostHog Code"],
+                "task_ids": ["t-9"],
+            },
+            id="server-messages",
+        ),
+        # The hosted checkout holds no PR history, so a null from the server stays null instead of
+        # reading a `git log` that would see no commits.
+        pytest.param({"commit_messages": None}, None, id="server-messages-unavailable"),
+    ],
+)
+def test_offline_run_carries_commit_provenance(monkeypatch, extra_context: dict, expected: dict | None) -> None:
+    # Without provenance, agent-authorship drops out of the evidence bundle and the
+    # stamphog_review_completed properties on every hosted review.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: _GIT_PROVENANCE)
+    context = {**_run_context([_api_file("posthog/migrations/0999_add_col.py")]), **extra_context}
 
     result = review_local.run(context)
 
-    assert result["provenance"] == {
-        "agent_authored": True,
-        "commit_count": 3,
-        "agent_commit_count": 2,
-        "generated_by": ["claude"],
-        "task_ids": ["t-1"],
-    }
+    assert result["provenance"] == expected
+
+
+_OWNED_FACTS = {
+    "commits": {"c1": {"login": "alice", "name": "Alice", "subject": "feat: x (#1)", "committed_at": 0}},
+    "blame": {"src/foo.py": [{"start": 1, "end": 9, "oid": "c1"}]},
+    "path_history": [],
+    "file_history": {},
+}
+
+
+@pytest.mark.parametrize(
+    "extra_context, expected_source, expected_band",
+    [
+        pytest.param({"familiarity_facts": _OWNED_FACTS}, "server", "STRONG", id="server-facts"),
+        # A null from the server means it failed. The hosted checkout has no history for git blame,
+        # so the signal stays absent instead of falling back.
+        pytest.param({"familiarity_facts": None, "author_pr_numbers": [1]}, "absent", None, id="server-failed"),
+        # A context from a runtime without server facts keeps the git path.
+        pytest.param({"author_pr_numbers": [1]}, "git", "MODERATE", id="no-server-facts"),
+        pytest.param({}, "absent", None, id="no-facts-and-no-pr-numbers"),
+    ],
+)
+def test_familiarity_source_follows_the_context(
+    monkeypatch, tmp_path, extra_context: dict, expected_source: str, expected_band: str | None
+) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    git_result = review_local.AuthorFamiliarity(
+        band="MODERATE",
+        blame_overlap_pct=0.0,
+        modified_lines_owned=0,
+        modified_lines_total=0,
+        prior_prs_in_paths=3,
+        days_since_last_touch=1,
+        files_prev_count=0,
+        files_total=1,
+        capped=False,
+        blame_incomplete_files=0,
+        top_prior_authors=(),
+    )
+    monkeypatch.setattr(review_local, "_familiarity_offline", lambda *a, **k: git_result)
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(
+        "diff --git a/src/foo.py b/src/foo.py\n--- a/src/foo.py\n+++ b/src/foo.py\n@@ -2 +2 @@\n-a\n+b\n"
+    )
+    context = {**_run_context([_api_file("src/foo.py", status="modified")]), **extra_context}
+    pipeline = Pipeline(0, "PostHog/posthog", head_checkout=True)
+    pipeline.pr = review_local._build_pr_data(context)
+    pipeline.classification = {"tier": "T1-agent"}
+    pipeline._diff_path = diff_path
+
+    review_local._attach_familiarity(pipeline, context)
+
+    assert pipeline.familiarity_source == expected_source
+    band = pipeline.familiarity.band if pipeline.familiarity else None
+    assert band == expected_band
+    # The prompt reads the classification and telemetry reads the pipeline, so both must agree.
+    assert pipeline.classification.get("familiarity") is pipeline.familiarity
 
 
 def _thread_context(review_threads: list[dict]) -> dict:
@@ -481,10 +559,147 @@ def test_hosted_stacked_review_never_creates_a_worktree(monkeypatch) -> None:
         seen["stacked"] = pr.stacked
         return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(review_pr.Reviewer, "review", fake_review)
+    monkeypatch.setattr(reviewer.Reviewer, "review", fake_review)
 
     result = review_local.run(_stacked_context("feat/parent", "master"))
 
     assert result["final_verdict"] == "APPROVED"
     assert seen["stacked"] is True
     assert seen["explore_root"] == review_pr.REPO_ROOT
+
+
+def _pregate_context(
+    files: list[dict],
+    *,
+    draft: bool = False,
+    user_type: str = "User",
+    check_runs: list[dict] | None = None,
+    folder_policies_known: bool = False,
+) -> dict:
+    context = _run_context(files, check_runs)
+    context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
+    if folder_policies_known:
+        context["folder_policies_known"] = True
+    return context
+
+
+def _lines(filename: str, additions: int) -> dict:
+    return {"filename": filename, "additions": additions, "deletions": 0, "status": "modified", "patch": "@@"}
+
+
+_PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", "conclusion": None}]
+
+
+@pytest.mark.parametrize(
+    "context, expect_verdict, expect_summary",
+    [
+        pytest.param(_pregate_context([_api_file("terraform/main.tf")]), "REFUSED", True, id="deny-list-and-t2"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), "REFUSED", True, id="draft-prerequisite"),
+        pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), "REFUSED", False, id="bot-author"),
+        pytest.param(
+            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]),
+            "REFUSED",
+            True,
+            id="past-the-file-contract",
+        ),
+        # Between the global ceiling and the delegation contract, a folder AGENT_APPROVALS.md on the PR
+        # head can lift the size gate, and the pre-check cannot read one.
+        pytest.param(_pregate_context([_lines("src/big.py", 900)]), None, False, id="size-a-folder-could-lift"),
+        pytest.param(
+            _pregate_context([_lines("src/big.py", 900)], folder_policies_known=True),
+            "REFUSED",
+            True,
+            id="size-with-folder-files-known",
+        ),
+        # The manifest scripts scan reads git, which the pre-check does not have; running it anyway fails
+        # closed and would refuse every manifest edit.
+        pytest.param(_pregate_context([_api_file("frontend/package.json")]), None, False, id="manifest-scan-skipped"),
+        pytest.param(
+            _pregate_context([_api_file("posthog/migrations/0999_add_col.py")], check_runs=_PENDING_MIGRATION_CHECK),
+            None,
+            False,
+            id="pending-migration-check-without-folder-files",
+        ),
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            "WAIT",
+            False,
+            id="pending-migration-check-waits",
+        ),
+        # A manifest's scripts scan could add a second deny in the sandbox and turn the WAIT into a refusal.
+        pytest.param(
+            _pregate_context(
+                [_api_file("posthog/migrations/0999_add_col.py"), _api_file("frontend/package.json")],
+                check_runs=_PENDING_MIGRATION_CHECK,
+                folder_policies_known=True,
+            ),
+            None,
+            False,
+            id="pending-migration-check-with-a-manifest",
+        ),
+        pytest.param(_pregate_context([_api_file("src/app.py")]), None, False, id="clean-t1"),
+    ],
+)
+def test_pregate_is_final_only_where_the_full_review_agrees(
+    monkeypatch, context: dict, expect_verdict: str | None, expect_summary: bool
+) -> None:
+    # The server posts a final pre-check result as the verdict and never makes a sandbox, so a final
+    # result the full review would not also reach is a wrong verdict nobody gets to overturn.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    outcome = review_local.pregate(context)
+
+    assert outcome["final"] is (expect_verdict is not None)
+    assert outcome["needs_summary"] is expect_summary
+    if expect_verdict is None:
+        assert outcome["result"] is None
+        assert outcome["not_final_reason"]
+        return
+    assert outcome["result"]["final_verdict"] == expect_verdict
+    assert outcome["result"]["review_body"]
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    assert review_local.run(context)["final_verdict"] == expect_verdict
+
+
+def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    context = _pregate_context([_api_file("terraform/main.tf")])
+
+    fallback = review_local.pregate(context)["result"]
+    summarized = review_local.pregate({**context, "refusal_reasoning": "Terraform needs a human."})["result"]
+
+    assert "deny-list: matches: infra_cicd" in fallback["reviewer"]["reasoning"]
+    assert summarized["reviewer"]["reasoning"] == "Terraform needs a human."
+    assert summarized["review_body"].startswith("Terraform needs a human.")
+
+
+def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch, tmp_path, capsys) -> None:
+    # The server parses only the last stdout line, and reads the phase timings from it to split the
+    # sandbox's reviewer step into uv launch, LLM and exit time.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps(_run_context([_api_file("src/app.py")])))
+    monkeypatch.setenv(review_local.LAUNCHED_AT_ENV, str(review_local._now_ms() - 1500))
+    monkeypatch.setattr(sys, "argv", ["review_local.py", "--context", str(context_path)])
+
+    review_local.main()
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["final_verdict"] == "APPROVED"
+    assert result["timings_ms"]["launch"] >= 1500
+    assert {"gates", "llm", "flush", "total"} <= set(result["timings_ms"])

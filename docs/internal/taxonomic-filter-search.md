@@ -7,6 +7,11 @@ The classic picker shows its active category in the search input. A person can d
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
+In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search does not offer an uncaptured event name, and it does not change the selected form value.
+When a caller allows custom event names, a successful empty search offers "Use event name".
+Pressing Enter in the search input selects that custom event name.
+The classic picker does not infer ingestion history from a filtered definition list.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.
 

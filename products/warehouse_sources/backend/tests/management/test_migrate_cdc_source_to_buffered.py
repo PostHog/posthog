@@ -233,6 +233,46 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["pause_schema"].assert_not_called()
         mocks["unpause_schema"].assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("marked_before_the_rollback", False, True),
+            ("marked_by_the_run_it_waited_out", True, True),
+            ("sync_turned_off", False, False),
+        ]
+    )
+    def test_rollback_restarts_a_snapshot_the_buffer_carries_on_legacy(
+        self, _name, started_during_the_wait, should_sync
+    ):
+        # Only the buffer holds that table's changes since its snapshot began, and legacy's hand-over
+        # would purge them. Refusing instead would block the emergency switch for as long as the
+        # snapshot cannot finish.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+        snapshotting = self._schema(source, "orders", cdc_mode="snapshot", initial_sync_complete=False)
+        ExternalDataSchema.objects.filter(id=snapshotting.id).update(should_sync=should_sync)
+
+        def start_snapshot_in_buffer(*_args):
+            update_sync_type_config_keys(snapshotting.id, self.team.pk, updates={"cdc_snapshot_lane": "buffer"})
+
+        if not started_during_the_wait:
+            start_snapshot_in_buffer()
+        with (
+            _mocked_side_effects() as mocks,
+            patch(f"{_CMD}.Command._wait_for_extraction_idle", side_effect=start_snapshot_in_buffer),
+            patch(f"{_CMD}.cancel_running_sync") as cancel,
+        ):
+            self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "legacy"
+        snapshotting.refresh_from_db()
+        assert "cdc_snapshot_lane" not in snapshotting.sync_type_config
+        assert snapshotting.sync_type_config["reset_pipeline"] is True
+        assert cancel.call_args.args[0].id == snapshotting.id
+        assert [(c.args[1], c.kwargs.get("strict")) for c in mocks["purge"].call_args_list] == [
+            (str(snapshotting.id), True)
+        ]
+
     def test_rollback_ignores_prefixes_the_buffered_lane_never_served(self):
         # A legacy schema's prefix holds shadow copies no consumer ever reads, so scanning it would
         # wedge every rollback of a hybrid source with capture left paused.

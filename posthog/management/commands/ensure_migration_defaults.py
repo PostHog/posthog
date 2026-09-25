@@ -15,7 +15,7 @@ from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.oauth import OAuthApplication
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-from products.demo.backend.facade.api import seed_dev_dashboard_templates
+from products.demo.backend.facade.dashboard_templates import seed_dev_dashboard_templates
 from products.growth.backend.models import EnrichmentPromptConfig
 
 # auth groups originally seeded by RunPython migrations. Keep this in sync with

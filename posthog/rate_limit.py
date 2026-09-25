@@ -460,6 +460,11 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
+class CodexConnectUserThrottle(UserRateThrottle):
+    scope = "codex_connect_user"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -1932,6 +1937,21 @@ class ComposeTicketBurstThrottle(UserRateThrottle):
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
+    rate = "60/hour"
+
+
+class TicketNoteBurstThrottle(UserRateThrottle):
+    """
+    Private notes get their own bucket, so an agent writing notes cannot use up the compose
+    budget that the same user needs for customer replies.
+    """
+
+    scope = "ticket_note_burst"
+    rate = "10/minute"
+
+
+class TicketNoteSustainedThrottle(UserRateThrottle):
+    scope = "ticket_note_sustained"
     rate = "60/hour"
 
 
