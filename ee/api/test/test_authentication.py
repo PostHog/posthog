@@ -1023,7 +1023,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
             self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
             self.assertNotIn("_auth_user_id", self.client.session)
             self.assertFalse(is_linked)
-            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+            self.assertTrue(self.user.check_password(cast(str, self.CONFIG_PASSWORD)))
             self.assertFalse(self.user.is_email_verified)
 
     def test_already_linked_github_identity_logs_in_without_a_verified_email(self):
