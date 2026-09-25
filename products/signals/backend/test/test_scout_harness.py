@@ -891,7 +891,12 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         assert "scheduled-changes-list" not in granted
         assert 'model_name="FeatureFlag"' in flag_granted
         assert "Read all pages" in flag_granted
-        assert "leave the flag and its schedules unchanged" in flag_granted
+        # The preflight has to name the flags a scout cannot see in the definition, and it has to
+        # stop at flags that already exist: a flag being created has no id to look schedules up by,
+        # and a scout whose skill maintains a schedule has to be able to change it.
+        assert "feature-flags-dependent-flags-retrieve" in flag_granted
+        assert "before you change a flag that already exists" in flag_granted
+        assert "unless your skill body is what maintains the schedule" in flag_granted
         assert "wait for any required approval" in flag_granted
 
         ungranted = _prompt(write_scopes=[])

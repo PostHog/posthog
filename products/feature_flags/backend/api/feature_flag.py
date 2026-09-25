@@ -1441,7 +1441,7 @@ class FeatureFlagSerializer(
             for tour in getattr(feature_flag, relation).all()
         }
         ordered = sorted(tours.values(), key=lambda tour: str(tour.id))
-        return FeatureFlagLinkedProductTourSerializer(ordered, many=True).data
+        return list(FeatureFlagLinkedProductTourSerializer(ordered, many=True).data)
 
     def get_surveys(self, feature_flag: FeatureFlag) -> dict:
         from products.surveys.backend.api.survey import SurveyAPISerializer
@@ -5088,6 +5088,7 @@ class FeatureFlagViewSet(
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
         deleted = []
+        scout_caller = is_scout_sandbox_request(request)
         errors = []
 
         # Add errors for invalid or missing IDs (only for ID-based deletion)
@@ -5114,7 +5115,7 @@ class FeatureFlagViewSet(
         for flag in flags_list:
             flag_id = flag.id
 
-            if flag.active and is_scout_sandbox_request(request):
+            if flag.active and scout_caller:
                 errors.append({"id": flag_id, "key": flag.key, "reason": SCOUT_ACTIVE_FLAG_DELETE_ERROR})
                 continue
 
@@ -5215,11 +5216,19 @@ class FeatureFlagViewSet(
             with transaction.atomic():
                 if flags_to_delete_normal:
                     normal_ids = [f.id for f in flags_to_delete_normal]
-                    FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
+                    normal_flags = FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id)
+                    if scout_caller:
+                        # The active state above was read before this transaction opened, so
+                        # without the predicate a concurrent enable lets the delete through on a
+                        # flag that serves again.
+                        normal_flags = normal_flags.filter(active=False)
+                    updated = normal_flags.update(
                         deleted=True,
                         last_modified_by=current_user,
                         updated_at=now_timestamp,
                     )
+                    if scout_caller and updated != len(normal_ids):
+                        raise serializers.ValidationError(SCOUT_ACTIVE_FLAG_DELETE_ERROR)
 
                 # Flags with soft-deleted experiments need key rename - use bulk_update
                 # to update all flags in a single query with per-flag key values
