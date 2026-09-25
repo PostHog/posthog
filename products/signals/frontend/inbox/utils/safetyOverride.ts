@@ -1,7 +1,14 @@
 // Why PostHog declined to implement a report on its own, in words the confirmation can show.
 // Pure so the detail pane and the list row show the same sentence.
 
-import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
+import { SignalReport, SignalReportStatus } from '../types'
+
+/** The three fields the verdict is read from. `SignalReportArtefactApi` satisfies this. */
+export interface SafetyJudgmentRow {
+    type: string
+    created_at: string
+    content: unknown
+}
 
 /**
  * The safety judge's reason for rejecting this report, from its newest `safety_judgment` artefact.
@@ -10,17 +17,22 @@ import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../types
  *
  * Selection compares ISO-8601 `created_at`, so it does not rely on the API's response ordering.
  */
-export function latestUnsafeSafetyExplanation(artefacts: SignalReportArtefact[] | null): string | null {
-    let latest: SignalReportArtefact | null = null
+export function latestUnsafeSafetyExplanation(artefacts: readonly SafetyJudgmentRow[] | null): string | null {
+    let latest: SafetyJudgmentRow | null = null
     for (const artefact of artefacts ?? []) {
         if (artefact.type === 'safety_judgment' && (!latest || artefact.created_at > latest.created_at)) {
             latest = artefact
         }
     }
-    if (!latest || latest.content?.choice !== false) {
+    const content = latest?.content
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
         return null
     }
-    const explanation = latest.content?.explanation
+    const verdict = content as { choice?: unknown; explanation?: unknown }
+    if (verdict.choice !== false) {
+        return null
+    }
+    const explanation = verdict.explanation
     return typeof explanation === 'string' && explanation.trim() ? explanation.trim() : null
 }
 

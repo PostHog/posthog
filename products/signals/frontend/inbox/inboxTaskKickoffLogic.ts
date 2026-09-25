@@ -45,6 +45,7 @@ import {
     WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { signalsReportArtefactsList, signalsReportsSafetyOverrideCreate } from '../generated/api'
 import { openSafetyOverrideDialog } from './components/shell/SafetyOverrideDialog'
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
@@ -251,12 +252,16 @@ async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise
  * row has not loaded the report's artefacts. A failed fetch still confirms: the person loses the
  * quoted verdict, not the choice.
  */
-async function confirmSafetyOverride(report: SignalReport, feedback?: string): Promise<string | null> {
+async function confirmSafetyOverride(
+    projectId: string,
+    report: SignalReport,
+    feedback?: string
+): Promise<string | null> {
     let judgeExplanation: string | null = null
     try {
         // The log is served newest-first and the verdict is written when the report is authored, so
         // it sits at the far end of any report with history. Same limit as the detail pane's load.
-        const artefacts = await api.signalReports.artefacts(report.id, { limit: 1000 })
+        const artefacts = await signalsReportArtefactsList(projectId, report.id, { limit: 1000 })
         judgeExplanation = latestUnsafeSafetyExplanation(artefacts.results)
     } catch {
         judgeExplanation = null
@@ -793,7 +798,18 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // start and then vanish when they backed out of the confirmation.
             let note = feedback
             if (requiresSafetyOverride(report)) {
-                const confirmedNote = await confirmSafetyOverride(report, feedback)
+                if (values.currentProjectId == null) {
+                    handleKickoffError(
+                        new Error('Project is required'),
+                        report,
+                        'create_pr',
+                        "Couldn't start the PR task. Try again."
+                    )
+                    actions.createPrFailure()
+                    return
+                }
+                const overrideProjectId = String(values.currentProjectId)
+                const confirmedNote = await confirmSafetyOverride(overrideProjectId, report, feedback)
                 if (confirmedNote === null) {
                     captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'cancelled' })
                     actions.createPrFailure()
@@ -801,7 +817,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 note = confirmedNote || undefined
                 try {
-                    await api.signalReports.overrideSafetyJudgment(report.id, note)
+                    await signalsReportsSafetyOverrideCreate(overrideProjectId, report.id, note ? { note } : {})
                 } catch (error: any) {
                     // The 409 (the report moved on since the row was rendered) carries its reason
                     // under `error`.

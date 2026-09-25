@@ -1,10 +1,9 @@
 import { makeReport } from '../__mocks__/inboxMocks'
-import { SignalReportArtefact, SignalReportStatus } from '../types'
-import { latestUnsafeSafetyExplanation, safetyOverrideReason } from './safetyOverride'
+import { SignalReportStatus } from '../types'
+import { SafetyJudgmentRow, latestUnsafeSafetyExplanation, safetyOverrideReason } from './safetyOverride'
 
-function judgment(overrides: Partial<SignalReportArtefact> & { content: Record<string, any> }): SignalReportArtefact {
+function judgment(overrides: Partial<SafetyJudgmentRow> & { content: unknown }): SafetyJudgmentRow {
     return {
-        id: 'artefact-1',
         type: 'safety_judgment',
         created_at: '2026-06-11T10:00:00Z',
         ...overrides,
@@ -22,12 +21,10 @@ describe('safetyOverride', () => {
                 name: 'the newest unsafe verdict, whatever order the API returned them in',
                 artefacts: [
                     judgment({
-                        id: 'old',
                         created_at: '2026-06-11T10:00:00Z',
                         content: { choice: false, explanation: 'Stale reason' },
                     }),
                     judgment({
-                        id: 'new',
                         created_at: '2026-06-12T10:00:00Z',
                         content: { choice: false, explanation: 'Current reason' },
                     }),
@@ -38,12 +35,10 @@ describe('safetyOverride', () => {
                 name: 'nothing when the newest verdict approves the report',
                 artefacts: [
                     judgment({
-                        id: 'old',
                         created_at: '2026-06-11T10:00:00Z',
                         content: { choice: false, explanation: 'Stale reason' },
                     }),
                     judgment({
-                        id: 'new',
                         created_at: '2026-06-12T10:00:00Z',
                         content: { choice: true, explanation: 'Overridden by user 7' },
                     }),
@@ -57,7 +52,7 @@ describe('safetyOverride', () => {
             },
             {
                 name: 'nothing when the report carries no verdict',
-                artefacts: [{ id: 'a', type: 'priority_judgment', content: {}, created_at: '2026-06-11T10:00:00Z' }],
+                artefacts: [{ type: 'priority_judgment', content: {}, created_at: '2026-06-11T10:00:00Z' }],
                 expected: null,
             },
             { name: 'nothing when the artefacts never loaded', artefacts: null, expected: null },
