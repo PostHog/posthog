@@ -66,17 +66,17 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 ## Available tools
 
-| Tool                                              | Returns                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `posthog:access-control-members-list`             | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
-| `posthog:access-control-roles-list`               | The same per role. `role_id` narrows to a role.                                                  |
-| `posthog:access-control-defaults-get`             | The project baseline, and which tools accept rules on single objects.                            |
-| `posthog:access-control-member-objects-list`      | The object rules set for a member: every object with a rule for that member.                     |
-| `posthog:access-control-member-properties-list`   | The property rules set for a member.                                                             |
-| `posthog:access-control-role-objects-list`        | The object rules set for a role.                                                                 |
-| `posthog:access-control-role-properties-list`     | The property rules set for a role.                                                               |
-| `posthog:access-control-default-objects-list`     | The object rules that apply to everyone in the project.                                          |
-| `posthog:access-control-default-properties-list`  | The property rules that apply to everyone in the project.                                        |
+| Tool                                             | Returns                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `posthog:access-control-members-list`            | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
+| `posthog:access-control-roles-list`              | The same per role. `role_id` narrows to a role.                                                  |
+| `posthog:access-control-defaults-get`            | The project baseline, and which tools accept rules on single objects.                            |
+| `posthog:access-control-member-objects-list`     | The object rules set for a member: every object with a rule for that member.                     |
+| `posthog:access-control-member-properties-list`  | The property rules set for a member.                                                             |
+| `posthog:access-control-role-objects-list`       | The object rules set for a role.                                                                 |
+| `posthog:access-control-role-properties-list`    | The property rules set for a role.                                                               |
+| `posthog:access-control-default-objects-list`    | The object rules that apply to everyone in the project.                                          |
+| `posthog:access-control-default-properties-list` | The property rules that apply to everyone in the project.                                        |
 
 All access control tools take an optional project id and default to the active project.
 
