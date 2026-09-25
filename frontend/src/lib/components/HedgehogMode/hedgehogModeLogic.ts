@@ -178,6 +178,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                             return null
                         }
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     return await api.get<Partial<HedgehogConfig>>(endpoint)
                 },
 
@@ -198,6 +199,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const newConfig: Partial<HedgehogConfig> = await api.update(endpoint, payload)
                         return newConfig ?? null
                     } catch (e) {
