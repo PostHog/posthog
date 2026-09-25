@@ -46,6 +46,7 @@ import {
     mcpAnalyticsToolQualityLogic,
     mcpToolReportUrl,
 } from '../mcpAnalyticsToolQualityLogic'
+import { TrendCell } from './TrendCell'
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
@@ -92,36 +93,6 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
         <Badge variant={pct >= DESTRUCTIVE_ERROR_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
-    )
-}
-
-// Doubling and halving are the same size of change, so both earn the badge.
-const BIG_GROWTH_PCT = 100
-const BIG_DROP_PCT = -50
-
-function TrendCell({ totalCalls, previousCalls }: { totalCalls: number; previousCalls: number }): JSX.Element {
-    const calls = pluralize(totalCalls, 'call')
-    if (previousCalls === 0) {
-        return (
-            <Tooltip title={`${calls}, none in the previous period`}>
-                <span>
-                    <Badge variant="info">New</Badge>
-                </span>
-            </Tooltip>
-        )
-    }
-    const pctChange = Math.round(((totalCalls - previousCalls) / previousCalls) * 100)
-    const label = `${pctChange > 0 ? '+' : ''}${pctChange.toLocaleString()}%`
-    return (
-        <Tooltip title={`${calls} vs ${formatNumber(previousCalls)} in the previous period`}>
-            <span className="tabular-nums">
-                {pctChange >= BIG_GROWTH_PCT || pctChange <= BIG_DROP_PCT ? (
-                    <Badge variant="info">{label}</Badge>
-                ) : (
-                    label
-                )}
-            </span>
-        </Tooltip>
     )
 }
 
