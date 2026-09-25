@@ -104,7 +104,11 @@ const consoleMatch = (
     item: InspectorListItemConsole,
     miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
 ): SharedListMiniFilter | null => {
-    if (['log', 'info'].includes(item.data.level)) {
+    if (item.data.level === 'debug') {
+        return miniFiltersByKey['console-debug']
+    } else if (item.data.level === 'log') {
+        return miniFiltersByKey['console-log']
+    } else if (item.data.level === 'info') {
         return miniFiltersByKey['console-info']
     } else if (item.data.level === 'warn') {
         return miniFiltersByKey['console-warn']
