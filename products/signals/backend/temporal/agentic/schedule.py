@@ -17,6 +17,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -53,7 +54,16 @@ async def create_signals_scout_coordinator_schedule(client: Client) -> None:
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             execution_timeout=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES),
+                    offset=deterministic_offset(
+                        SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID, timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
+                    ),
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -86,7 +96,14 @@ async def create_scout_suggestions_coordinator_schedule(client: Client) -> None:
             execution_timeout=timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES))]
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES),
+                    offset=deterministic_offset(
+                        SUGGESTIONS_COORDINATOR_SCHEDULE_ID, timedelta(minutes=SUGGESTIONS_COORDINATOR_INTERVAL_MINUTES)
+                    ),
+                )
+            ]
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
