@@ -53,6 +53,9 @@ export const Narrow: Story = {
     ],
 }
 export const Empty: Story = { args: { reports: [] } }
-export const Loading: Story = { args: { loading: true } }
+export const Loading: Story = {
+    args: { loading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Error: Story = { args: { failed: true } }
 export const Snoozed: Story = { args: { lastSnoozed: report } }
