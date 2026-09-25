@@ -10,9 +10,9 @@ import psycopg
 import requests
 import structlog
 import temporalio.activity
-from asgiref.sync import sync_to_async
 
 from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
@@ -54,8 +54,9 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     today = datetime.now(UTC).date()
 
     # The connection sets no lock_timeout, so partition DDL can wait on a lock for an unbounded time.
-    # Run the database work in a thread so that the wait does not block the worker's event loop.
-    changes = await sync_to_async(_manage_database_partitions)(today, errors)
+    # Run the database work on the general thread pool so that the wait blocks neither the worker's
+    # event loop nor the single thread shared by all thread-sensitive work in the process.
+    changes = await database_sync_to_async_pool(_manage_database_partitions)(today, errors)
 
     s3_deleted = _cleanup_old_s3_extractions(today, errors)
 
