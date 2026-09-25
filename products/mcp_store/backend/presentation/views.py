@@ -867,6 +867,46 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if not self._is_project_admin():
             raise PermissionDenied("Only project admins can create shared MCP servers.")
 
+    def _resolve_connect_template(self, template_id: Any, flow: str) -> MCPServerTemplate | Response:
+        """Resolve a template a Connect click names, or answer with the 404 the
+        client acts on. Availability comes from the same queryset the catalog list
+        serves, so connect accepts exactly what it advertised; a card fetched
+        earlier can still outlive its row, and the event makes that countable
+        while `reason` lets the client retire the stale card."""
+        template = MCPServerTemplate.available_for_team(self.team_id).filter(id=template_id).first()
+        if template is not None:
+            return template
+        # Only on the failure path: re-read unfiltered to say why it is gone.
+        unavailable = MCPServerTemplate.objects.filter(id=template_id).first()
+        if unavailable is None:
+            reason = "missing"
+        elif not unavailable.is_active:
+            reason = "inactive"
+        else:
+            reason = "restricted"
+        report_user_action(
+            cast(User, self.request.user),
+            "mcp_store template unavailable",
+            properties={
+                "template_id": str(template_id),
+                "server_url": unavailable.url if unavailable is not None else None,
+                "reason": reason,
+                "flow": flow,
+            },
+            team=self.team,
+            request=self.request,
+        )
+        return Response(
+            {
+                "detail": (
+                    "This server is no longer in the catalog. Refresh the page for the current list, "
+                    "or add it as a custom server."
+                ),
+                "reason": "template_unavailable",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
     def _require_server_enabled_for_team(self, url: str, allow_admin_posture_override: bool = False) -> None:
         """Connect-time gate: refuse installs and OAuth starts against a server
         the team disabled (explicitly, or via the catalog default posture). The
@@ -1393,10 +1433,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         self._require_admin_for_shared_scope(scope)
         self._validate_gateway_options(data)
 
-        try:
-            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
-        except MCPServerTemplate.DoesNotExist:
-            return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
+        resolved = self._resolve_connect_template(template_id, "install_template")
+        if isinstance(resolved, Response):
+            return resolved
+        template = resolved
         self._require_server_enabled_for_team(template.url)
 
         lookup = {"team_id": self.team_id, "url": template.url, "scope": scope}
@@ -1894,10 +1934,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         installation: MCPServerInstallation | None = None,
         web_return_path: str = "",
     ) -> HttpResponse:
-        try:
-            template = MCPServerTemplate.available_for_team(self.team_id).get(id=template_id)
-        except MCPServerTemplate.DoesNotExist:
-            return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
+        resolved = self._resolve_connect_template(template_id, "oauth_authorize")
+        if isinstance(resolved, Response):
+            return resolved
+        template = resolved
         self._require_server_enabled_for_team(template.url)
 
         if installation is None:
