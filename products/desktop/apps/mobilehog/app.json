@@ -2,6 +2,7 @@
   "expo": {
     "name": "mobilehog",
     "slug": "mobilehog",
+    "owner": "posthog",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -62,7 +63,10 @@
       "expo-updates"
     ],
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "d8e0731d-1107-4421-aa33-abf130eca27f"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
@@ -70,7 +74,8 @@
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/d8e0731d-1107-4421-aa33-abf130eca27f"
     }
   }
 }
