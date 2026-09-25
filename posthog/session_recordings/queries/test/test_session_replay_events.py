@@ -483,6 +483,39 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         assert properties is not None
         assert properties["$recording_status"] == marker
 
+    def test_prefers_latest_event_with_recording_diagnostics(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start, "older")
+        self._seed_event(session_id, session_start + relativedelta(seconds=10), "latest-with-diagnostics")
+        _create_event(
+            team=self.team,
+            event="custom event",
+            distinct_id="d1",
+            timestamp=session_start + relativedelta(seconds=20),
+            properties={"$session_id": session_id},
+        )
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties is not None
+        assert properties["$recording_status"] == "latest-with-diagnostics"
+
+    def test_falls_back_to_latest_event_without_recording_diagnostics(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        _create_event(
+            team=self.team,
+            event="custom event",
+            distinct_id="d1",
+            timestamp=session_start,
+            properties={"$session_id": session_id, "$sdk_debug_replay_internal_buffer_length": 3},
+        )
+
+        assert get_latest_session_event_properties(session_id, self.team) == {
+            "$sdk_debug_replay_internal_buffer_length": 3
+        }
+
     def test_filters_response_to_diagnostic_properties(self) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
         session_id = _uuidv7_session_id_for(session_start)
