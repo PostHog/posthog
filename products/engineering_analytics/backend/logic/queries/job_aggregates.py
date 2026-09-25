@@ -109,7 +109,8 @@ _RUNS_SCOPE_SUBQUERY = f"AND run_id IN (SELECT id FROM __RUNS_SOURCE__ AS r WHER
 # Depot job rows carry no branch, so a job without one matches through its run's branch.
 _DEPOT_JOBS_BRANCH_CLAUSE = (
     "AND (head_branch = {branch} OR (ifNull(head_branch, '') = '' AND run_id IN "
-    "(SELECT id FROM __RUNS_SOURCE__ AS r WHERE workflow_name = {workflow_name} AND head_branch = {branch})))"
+    "(SELECT id FROM __RUNS_SOURCE__ AS r WHERE workflow_name = {workflow_name} AND head_branch = {branch}"
+    " AND run_started_at >= toDateTime({job_created_floor}))))"
 )
 
 

@@ -111,11 +111,10 @@ TERMINAL_RUNS = [
 # Between r3 and r2, so no run can tie it.
 WATERMARK = NOW - dt.timedelta(hours=3, minutes=30)
 RECENT_IN_FLIGHT = {**_run("in-flight", dt.timedelta(minutes=90)), "status": "queued"}
-STALE_QUEUED = {**_run("stale", dt.timedelta(days=30)), "status": "queued"}
+QUEUED_PAST_CUTOFF = {**_run("queued-7h", dt.timedelta(hours=7)), "status": "queued"}
 LONG_RUNNING = {**_run("long", dt.timedelta(minutes=150)), "status": "running"}
-# Older than the queued cutoff, and still running, so it holds the horizon.
-VERY_LONG_RUNNING = {**_run("very-long", dt.timedelta(hours=7)), "status": "running"}
-STUCK_RUNNING = {**_run("stuck", dt.timedelta(days=30)), "status": "running"}
+RUNNING_INSIDE_CUTOFF = {**_run("running-23h", dt.timedelta(hours=23)), "status": "running"}
+RUNNING_PAST_CUTOFF = {**_run("running-25h", dt.timedelta(hours=25)), "status": "running"}
 
 
 class TestDepotSource:
@@ -124,11 +123,11 @@ class TestDepotSource:
         [
             ([], ["r3", "r4", "r5", "r6"]),
             ([RECENT_IN_FLIGHT], ["r3", "r4"]),
-            ([STALE_QUEUED], ["r3", "r4", "r5", "r6"]),
-            ([RECENT_IN_FLIGHT, STALE_QUEUED], ["r3", "r4"]),
+            ([QUEUED_PAST_CUTOFF], ["r3", "r4", "r5", "r6"]),
+            ([RECENT_IN_FLIGHT, QUEUED_PAST_CUTOFF], ["r3", "r4"]),
             ([LONG_RUNNING], ["r3"]),
-            ([VERY_LONG_RUNNING], []),
-            ([STUCK_RUNNING], ["r3", "r4", "r5", "r6"]),
+            ([RUNNING_INSIDE_CUTOFF], []),
+            ([RUNNING_PAST_CUTOFF], ["r3", "r4", "r5", "r6"]),
         ],
     )
     def test_syncs_only_runs_created_before_the_oldest_recent_in_flight_run(
@@ -139,6 +138,13 @@ class TestDepotSource:
         rows = _synced_rows(session, WATERMARK)
 
         assert [row["run_id"] for row in rows] == expected_run_ids
+
+    def test_a_stuck_run_with_workflows_still_holds_the_horizon(self) -> None:
+        stuck = {**_run("stuck", dt.timedelta(days=30)), "status": "running"}
+        workflows = {run["runId"]: [_single_attempt_workflow(run)] for run in [*TERMINAL_RUNS, stuck]}
+        session = _fake_session(TERMINAL_RUNS, [stuck], workflows_by_run=workflows)
+
+        assert _synced_rows(session, WATERMARK) == []
 
     @pytest.mark.parametrize(
         "created_after, expected_run_ids, expected_terminal_pages",

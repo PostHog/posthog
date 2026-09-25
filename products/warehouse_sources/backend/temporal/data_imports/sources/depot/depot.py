@@ -26,8 +26,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 # until Depot fixes its cursor. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run queued or running forever. Past its cutoff an in-flight run counts as stuck and
-# stops holding the sync horizon back. A real run can take hours, but a real queued run starts in minutes.
+# Depot can leave a run queued or running forever. A real run can take hours, but a real queued run
+# starts in minutes, so past these ages an in-flight run counts as stuck.
 IN_FLIGHT_MAX_AGE = {"queued": dt.timedelta(hours=6), "running": dt.timedelta(hours=24)}
 IN_FLIGHT_STATUSES = list(IN_FLIGHT_MAX_AGE)
 
@@ -92,14 +92,19 @@ def _list_runs(
     return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
 
 
-# The watermark stays behind every run still going, except a stuck one: if a stuck run finishes later,
-# no sync reads it. A job retried after its run synced is not read again either.
-def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
+# The watermark stays behind every run still going, because a run it passed is never read. A stuck run
+# with no workflows is the exception: it can never produce rows, and holding for it would stop every
+# sync. A job retried after its run synced is not read again.
+def _in_flight_horizon(
+    session: Session, repository: str, now: dt.datetime, logger: FilteringBoundLogger
+) -> dt.datetime:
     horizon = now
-    oldest_that_counts = now - max(IN_FLIGHT_MAX_AGE.values())
-    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES, oldest_that_counts):
-        if created_at > now - IN_FLIGHT_MAX_AGE.get(run["status"], IN_FLIGHT_MAX_AGE["queued"]):
-            horizon = min(horizon, created_at)
+    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
+        if created_at < now - IN_FLIGHT_MAX_AGE.get(run["status"], IN_FLIGHT_MAX_AGE["queued"]):
+            if not _call(session, "GetRunStatus", {"runId": run["runId"]}).get("workflows"):
+                continue
+            logger.warning("depot_ci.stuck_run_holds_horizon", run_id=run["runId"], created_at=created_at.isoformat())
+        horizon = min(horizon, created_at)
     return horizon
 
 
@@ -183,7 +188,7 @@ def depot_source(
 
     def items() -> Iterator[list[JSONObject]]:
         session = _make_session(api_token)
-        horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC))
+        horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC), logger)
         runs = _runs_to_sync(session, repository, lower_bound, horizon)
         logger.info(
             "depot_ci.runs_to_sync",
