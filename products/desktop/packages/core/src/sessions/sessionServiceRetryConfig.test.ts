@@ -493,6 +493,103 @@ describe("SessionService.connectToTask start failure", () => {
   });
 });
 
+describe("SessionService.connectToTask start timeout", () => {
+  it("keeps a detailed prompt on a retryable error when the agent never starts", async () => {
+    vi.useFakeTimers();
+    try {
+      const detailedPrompt = [
+        {
+          type: "text" as const,
+          text: [
+            "Refactor the billing export:",
+            "1. Split the CSV writer into its own module.",
+            "2. Keep the column order stable.",
+            "3. Add tests for empty and very large exports.",
+          ].join("\n"),
+        },
+        {
+          type: "text" as const,
+          text: "<channel-context>Billing</channel-context>",
+        },
+      ];
+      const setSession = vi.fn();
+      const clearTaskStarting = vi.fn();
+      let finishStart: (value: { channel: string }) => void = () => {};
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const deps = {
+        store: {
+          getSessionByTaskId: () => undefined,
+          getSessions: () => ({}),
+          setSession,
+          setTaskStarting: vi.fn(),
+          clearTaskStarting,
+        },
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        track: vi.fn(),
+        settings: { customInstructions: "" },
+        DEFAULT_GATEWAY_MODEL: "claude-opus-4-8",
+        getIsOnline: vi
+          .fn<() => boolean>()
+          .mockReturnValueOnce(true)
+          .mockReturnValue(false),
+        trpc: {
+          agent: {
+            start: {
+              mutate: vi.fn(
+                () =>
+                  new Promise<{ channel: string }>((resolve) => {
+                    finishStart = resolve;
+                  }),
+              ),
+            },
+            cancel: { mutate: cancel },
+            onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
+            onSessionIdleKilled: {
+              subscribe: () => ({ unsubscribe: vi.fn() }),
+            },
+          },
+        },
+      } as unknown as SessionServiceDeps;
+      const service = new SessionService(deps);
+      vi.spyOn(
+        service as unknown as {
+          getAuthCredentialsStatus: () => Promise<unknown>;
+        },
+        "getAuthCredentialsStatus",
+      ).mockResolvedValue({
+        kind: "ready",
+        auth: {
+          client: { createTaskRun: vi.fn().mockResolvedValue({ id: "run-1" }) },
+          apiHost: "https://app",
+          projectId: 1,
+        },
+      });
+
+      const connecting = service.connectToTask({
+        ...CONNECT_PARAMS,
+        initialPrompt: detailedPrompt,
+      });
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+      await connecting;
+
+      expect(clearTaskStarting).toHaveBeenCalledWith("task-1", "run-1");
+      const stored = setSession.mock.calls.at(-1)?.[0] as AgentSession;
+      expect(stored).toMatchObject({
+        status: "error",
+        errorTitle: "Failed to connect",
+        errorMessage: expect.stringContaining("took too long to start"),
+      });
+      expect(stored.initialPrompt).toEqual(detailedPrompt);
+
+      finishStart({ channel: "run-1" });
+      await vi.runAllTimersAsync();
+      expect(cancel).toHaveBeenCalledWith({ sessionId: "run-1" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("SessionService.connectToTask missing auth", () => {
   it("persists the run configuration on the auth-required error session", async () => {
     const setSession = vi.fn();
