@@ -954,12 +954,17 @@ class TestAgentCheckDispatch(APIBaseTest):
             }
         )
 
-        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
-            summary = run_due_report_checks()
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch, patch(_CAPTURE) as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                summary = run_due_report_checks()
 
         assert summary.errored == 1
         dispatch.assert_not_called()
         assert "is paused" in self._results()[0].content
+        properties = capture.call_args.kwargs["properties"]
+        assert capture.call_args.kwargs["event"] == "signals_report_check_evaluated"
+        assert properties["reason"] == "scout_paused"
+        assert properties["skill_name"] == "signals-scout-health-checks"
 
     def test_an_unenrolled_project_records_an_errored_result(self) -> None:
         self._enrol({"guaranteed_team_ids": []})
