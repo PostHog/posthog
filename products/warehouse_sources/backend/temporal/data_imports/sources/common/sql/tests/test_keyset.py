@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     KeysetResumeState,
     is_orderable_keyset_type,
     iter_keyset_pages,
+    keyset_key_of_last_row,
+    keyset_last_key,
+    keyset_state,
     resolve_keyset_eligibility,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import SelectQueryBuilder
@@ -84,6 +87,74 @@ def test_an_eligible_key_type_can_always_be_checkpointed(arrow_type, last_key):
 
     assert restored is not None
     assert restored.last_key is not None
+
+
+class TestKeysetCheckpointState:
+    """`keyset_state` and `keyset_last_key` are the only sanctioned way to build and read the pair."""
+
+    def test_a_single_column_key_fills_both_fields(self):
+        # `last_key` is what a deploy predating `last_keys` reads. Writing only `last_keys` would make
+        # a rollback drop every in-flight checkpoint and restart those loads from row 0.
+        assert keyset_state((7,)) == KeysetResumeState(last_key=7, last_keys=[7])
+
+    def test_a_composite_key_leaves_the_single_value_field_empty(self):
+        # There is no honest scalar for a composite key. A deploy that can't read `last_keys` also
+        # refuses composite keys, so it never seeks on this state.
+        assert keyset_state((7, "b")) == KeysetResumeState(last_key=None, last_keys=[7, "b"])
+
+    def test_a_key_from_an_older_deploy_still_resumes(self):
+        # Forward compatibility: state written before `last_keys` existed carries only the scalar.
+        assert keyset_last_key(KeysetResumeState(last_key=7), key_length=1) == (7,)
+
+    def test_a_key_comes_back_as_a_tuple_after_its_json_round_trip(self):
+        # JSON has no tuple, so Redis hands back a list. Callers compare and unpack tuples.
+        assert keyset_last_key(KeysetResumeState(last_keys=[7, "b"]), key_length=2) == (7, "b")
+
+    @pytest.mark.parametrize(
+        "state,key_length",
+        [
+            (KeysetResumeState(last_keys=[7]), 2),
+            (KeysetResumeState(last_keys=[7, "b"]), 1),
+            (KeysetResumeState(last_key=7), 2),
+        ],
+    )
+    def test_a_key_of_the_wrong_width_restarts_rather_than_seeking(self, state, key_length):
+        # The table's primary key changed since the checkpoint. Seeking on it would compare the wrong
+        # columns, so the load has to start again.
+        assert keyset_last_key(state, key_length=key_length) is None
+
+    @pytest.mark.parametrize("state", [None, KeysetResumeState(), KeysetResumeState(last_keys=[])])
+    def test_no_checkpoint_starts_from_the_beginning(self, state):
+        assert keyset_last_key(state, key_length=1) is None
+
+
+class TestKeysetKeyOfLastRow:
+    @pytest.mark.parametrize(
+        "table,columns,expected",
+        [
+            (pa.table({"id": [1, 2]}), ["id"], (2,)),
+            (pa.table({"a": [1, 1], "b": ["x", "y"]}), ["a", "b"], (1, "y")),
+            # Column order follows the key, not the table.
+            (pa.table({"a": [1], "b": ["x"]}), ["b", "a"], ("x", 1)),
+        ],
+    )
+    def test_reads_the_key_of_the_final_row(self, table, columns, expected):
+        assert keyset_key_of_last_row(table, columns) == expected
+
+    @pytest.mark.parametrize(
+        "table,columns",
+        [
+            (pa.table({"id": [1, None]}), ["id"]),
+            (pa.table({"a": [1, 1], "b": ["x", None]}), ["a", "b"]),  # NULL in the trailing column
+            (pa.table({"a": [1, None], "b": ["x", "y"]}), ["a", "b"]),  # NULL in the leading column
+        ],
+    )
+    def test_any_null_part_stops_the_walk(self, table, columns):
+        # A composite key fails worse than a single one: both `(a, NULL) > (x, y)` and `b > NULL`
+        # evaluate to UNKNOWN, so the next page comes back empty and truncates the load silently
+        # rather than looping. Raising is the only option that neither truncates nor spins.
+        with pytest.raises(KeysetNullKeyError):
+            keyset_key_of_last_row(table, columns)
 
 
 @pytest.mark.parametrize(
