@@ -9,12 +9,14 @@ import {
     LemonSelect,
     LemonTable,
     LemonTextArea,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { appLogic } from 'scenes/appLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -24,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DecisionAnswerCell } from './DecisionAnswerCell'
 import {
+    MAX_OPTIONS_PER_QUESTION,
     PlaygroundOption,
     PlaygroundQuestion,
     PlaygroundQuestionType,
@@ -49,8 +52,9 @@ const QUESTIONS_VIEW_OPTIONS: { value: QuestionsView; label: string }[] = [
 ]
 
 export function DecisionPlaygroundScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
     const {
         state,
         questions,
@@ -77,7 +81,12 @@ export function DecisionPlaygroundScene(): JSX.Element {
 
     // The same rule as the API: the flag enrols a project, and local development needs no flag.
     if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
-        return <NotFound object="page" />
+        // An unset flag before the first flags response is unknown, not off, so the 404 waits for the answer or the app's flag timeout.
+        return receivedFeatureFlags || featureFlagsTimedOut ? (
+            <NotFound object="page" />
+        ) : (
+            <Spinner className="text-3xl mx-auto my-8" />
+        )
     }
 
     const answerRows = decision
@@ -265,6 +274,11 @@ function QuestionRow({
                             size="small"
                             icon={<IconPlus />}
                             onClick={onAddOption}
+                            disabledReason={
+                                question.options.length >= MAX_OPTIONS_PER_QUESTION
+                                    ? `A question takes at most ${MAX_OPTIONS_PER_QUESTION} options.`
+                                    : undefined
+                            }
                             data-attr="decision-playground-add-option"
                         >
                             {question.type === 'choice' ? 'Add option' : 'Add label'}

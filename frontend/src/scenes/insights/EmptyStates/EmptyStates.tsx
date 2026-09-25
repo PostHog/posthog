@@ -7,7 +7,8 @@ import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as errorPng from '@posthog/brand/hoggies/png/error'
+import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
@@ -61,7 +62,8 @@ import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogDoctor = pngHoggie(doctorPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogError = pngHoggie(errorPng)
+const HedgehogReaper = pngHoggie(reaperPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
@@ -717,8 +719,8 @@ type InsightErrorKind =
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
-    memory_limit: HedgehogMagnifyingGlass,
-    invalid_query: HedgehogMagnifyingGlass,
+    memory_limit: HedgehogReaper,
+    invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
     server: HedgehogDoctor,

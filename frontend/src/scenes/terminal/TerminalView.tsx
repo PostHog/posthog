@@ -24,6 +24,7 @@ const examples = [
             'busybox',
         ],
     },
+    { title: 'Optional tools', commands: ['node --version', 'pi --help', 'nyancat', 'doom'] },
     { title: 'PostHog tools', commands: ['ph tools', 'ph tools notebook', 'ph help notebooks-retrieve', 'ph refresh'] },
     {
         title: 'Edit and organize',
@@ -152,7 +153,7 @@ export function TerminalView({
                 </LemonMenu>
                 <span role="status" className="text-secondary ml-auto text-xs">
                     {status === 'loading'
-                        ? 'Loading project files…'
+                        ? 'Starting terminal…'
                         : status === 'booting'
                           ? 'Starting Linux…'
                           : status === 'ready'

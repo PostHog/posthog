@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Hoisted mocks ---
@@ -145,9 +146,9 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   getClaudeModelRecency: vi.fn(() => 0),
   getProviderName: vi.fn(),
   isAnthropicModel: vi.fn((model) => model.owned_by === "anthropic"),
-  isBlockedModelId: vi.fn().mockReturnValue(false),
   isCloudflareModel: vi.fn((model) => model.owned_by === "cloudflare"),
   isModalModel: vi.fn((model) => model.owned_by === "modal"),
+  isOfferedModel: vi.fn().mockReturnValue(true),
   isOpenAIModel: vi.fn((model) => model.owned_by === "openai"),
   pickAllowedModel: vi.fn((_models, preferredModelId) => preferredModelId),
 }));
@@ -161,6 +162,8 @@ vi.mock("./context-wiki", () => ({
 }));
 
 vi.mock("./codex-home", () => ({
+  getCodexCloudHomeDir: vi.fn(() => "/mock/codex-cloud"),
+  getCodexCloudAuthFilePath: vi.fn(() => "/mock/codex-cloud/auth.json"),
   cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
   getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
   prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
@@ -323,6 +326,25 @@ describe("AgentService", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("rejects old cleanup while a newer cloud login owns the file", async () => {
+    vi.spyOn(fs.promises, "mkdir").mockResolvedValue(undefined);
+    const remove = vi.spyOn(fs.promises, "rm").mockResolvedValue(undefined);
+    await service.getCodexCloudAuthTerminal("attempt-1");
+    await expect(
+      service.getCodexCloudAuthTerminal("attempt-2"),
+    ).rejects.toThrow("in progress");
+    service.finishCodexCloudAuth("attempt-1");
+    await service.getCodexCloudAuthTerminal("attempt-2");
+    remove.mockClear();
+    service.finishCodexCloudAuth("attempt-1");
+    await expect(service.removeCodexCloudAuthFile("attempt-1")).rejects.toThrow(
+      "no longer active",
+    );
+    expect(remove).not.toHaveBeenCalled();
+    await service.removeCodexCloudAuthFile("attempt-2");
+    expect(remove).toHaveBeenCalledOnce();
   });
 
   describe("claude auth terminal", () => {

@@ -425,7 +425,9 @@ tools:
             reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT:
             create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`).
             There is at most one config per (source_product, source_type) per project; if one already exists, update it
-            instead.
+            instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear
+            team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals;
+            the warehouse still syncs the whole workspace. Omit it to use every team.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -467,7 +469,9 @@ tools:
         description: >
             Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or
             to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a
-            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config.
+            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. `config` is replaced as a
+            whole, so include the existing keys (such as `steering`) when changing one of them, for example the Linear
+            source's `linear_team_ids` allowlist.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
@@ -765,13 +769,18 @@ tools:
         title: List project members for reviewer routing
         description: >
             Return the people who can review work on this project — one row per member with access to it, each with
-            their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no
-            linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
-            fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
-            members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on
-            `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only
-            means no draft PR can be opened as that person. Pass `search` to narrow a large roster. Strictly
-            team-scoped.
+            their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked
+            GitHub identity), and the `teams` they belong to. The cold-start reviewer-routing path: when a finding's
+            owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or
+            inbox precedent, list members, match the owner by email/name, then put their `user_uuid` in
+            `suggested_reviewers` on `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a
+            null `github_login` only means no draft PR can be opened as that person. Pass `search` to narrow a large
+            roster by name or email. Pass `team` with a bare team slug (no `@org/` prefix) to turn a slug from a note,
+            from CODEOWNERS, or from an owners file into the people on that team, maintainers first: take the first 1 to
+            3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
+            as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
+            always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
+            snapshot, so it can lag the live team. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true

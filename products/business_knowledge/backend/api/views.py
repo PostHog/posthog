@@ -47,6 +47,7 @@ from .serializers import (
     KnowledgeDocumentWindowSerializer,
     KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
+    KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
@@ -371,6 +372,30 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
+
+    @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="documents",
+        required_scopes=["business_knowledge:read"],
+    )
+    def documents(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            source_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        documents = logic.list_live_documents_for_source(source_id, self.team_id)
+        if documents is None:
+            raise exceptions.NotFound()
+        page = self.paginate_queryset(documents)
+        serializer = KnowledgeSourceDocumentSerializer(
+            instance=page if page is not None else documents,
+            many=True,
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @extend_schema(responses={200: {"type": "object", "properties": {"text": {"type": "string"}}}})
     @action(detail=True, methods=["get"], url_path="text")

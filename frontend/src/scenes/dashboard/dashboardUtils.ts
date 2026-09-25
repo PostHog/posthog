@@ -171,7 +171,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -307,6 +307,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
@@ -327,6 +328,7 @@ export async function getInsightWithRetry(
                             ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
 
                         if (insightResponse?.query_status?.id) {
@@ -341,6 +343,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
                                     methodOptions

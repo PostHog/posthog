@@ -6,7 +6,9 @@ from urllib.parse import urlparse, urlunparse
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Model, Q
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
+from django.templatetags.static import static
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -1075,6 +1077,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     request=request,
                     context={
                         "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_safe_og_tags": resource.insight or resource.dashboard,
                         "add_og_tags": None,
                     },
                 )
@@ -1133,7 +1136,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
             if not exported_asset:
                 raise NotFound()
-            return get_content_response(exported_asset, False)
+            try:
+                return get_content_response(exported_asset, False)
+            except NotFound:
+                fallback = HttpResponseRedirect(static("blank-dashboard-hog.png"))
+                fallback["Cache-Control"] = "no-store"
+                return fallback
         elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
@@ -1141,7 +1149,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_safe_og_tags = resource.insight or resource.dashboard
+        add_og_tags = add_safe_og_tags and not (
+            isinstance(resource, SharingConfiguration) and resource.password_required
+        )
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
@@ -1533,6 +1544,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
             "asset_title": asset_title,
             "asset_description": asset_description,
+            "add_safe_og_tags": add_safe_og_tags,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }

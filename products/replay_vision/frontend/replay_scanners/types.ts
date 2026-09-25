@@ -212,6 +212,22 @@ export function failureKindDescription(kind: FailureKind): string {
     return FAILURE_KINDS[kind].description
 }
 
+/** Why a failed or ineligible scan produced no result, short enough for a table cell: the message when there is one, else the kind's description. */
+export function unsuccessfulScanReason(
+    status: ReplayObservationApi['status'],
+    errorReason: string | null | undefined
+): string | null {
+    if (!errorReason || (status !== 'failed' && status !== 'ineligible')) {
+        return null
+    }
+    if (status === 'failed') {
+        const parsed = parseFailureReason(errorReason)
+        return parsed ? parsed.message || failureKindDescription(parsed.kind) : errorReason
+    }
+    const parsed = parseIneligibleReason(errorReason)
+    return parsed ? parsed.message || ineligibleKindDescription(parsed.kind) : errorReason
+}
+
 /**
  * How to offer a retry for a given failure. An unparseable or unknown kind gets the encouraging default, since
  * the alternative is discouraging a retry we have no evidence against.

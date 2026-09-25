@@ -62,7 +62,6 @@ jobs:
             contents: read
         outputs:
             image: ${{ steps.filter.outputs.image }}
-            agent_shadow: ${{ steps.filter.outputs.agent_shadow }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -78,15 +77,11 @@ jobs:
               continue-on-error: true
               with:
                   # `.dockerignore` strips every desktop path from the image build
-                  # context except agent-shadow, so a change anywhere else under
-                  # products/desktop cannot alter the image. An exclude cannot be
-                  # reversed inside one filter, so agent-shadow needs its own.
+                  # context, so a change under products/desktop cannot alter the image.
                   filters: |
                       image:
                         - '**'
                         - '!products/desktop/**'
-                      agent_shadow:
-                        - 'products/desktop/packages/agent-shadow/**'
 
     posthog_build:
         name: Build and push PostHog
@@ -102,10 +97,8 @@ jobs:
         # `needs`, which skips this job whenever `changes` did not succeed. Cancelling
         # the run still stops the build, which `always()` would not.
         if: |
-            !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (
-                needs.changes.outputs.image != 'false' ||
-                needs.changes.outputs.agent_shadow == 'true'
-            )
+            !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
+            needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
         # Covers two bounded build attempts plus the post-build image-boot verification before
         # dispatch.
@@ -1311,27 +1304,6 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.dataWarehouse == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker-data-warehouse-metadata",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

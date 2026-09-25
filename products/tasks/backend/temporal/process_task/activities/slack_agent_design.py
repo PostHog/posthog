@@ -121,13 +121,11 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the final answer, append @-mention, close."""
-    from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
-        handler.run_footer = load_run_footer(input.run_id, integration_id=context.integration_id)
+        handler = SlackThreadHandler.for_run(context, input.run_id, turn_trace_id=input.trace_id)
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,

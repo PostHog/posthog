@@ -1,5 +1,7 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { PreparedToolCall } from '@posthog/mcp-analytics'
+
 import {
     buildToolResultPayload,
     estimateResponseTokens,
@@ -48,7 +50,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { getEffectiveMCPClientContext } from './mcp-context'
+import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -198,12 +200,48 @@ export class ToolExecutor {
             rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
-        const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
+        const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
+            toolName,
+            rawArgs,
+            originalTool,
+            requestMeta,
+            state.requestContext
+        )
+        // In place, not copied: `RequestStateResolver` gives this one object to both the state
+        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
+        // same session. A batch never reaches here holding a handle, because the dispatcher
+        // refuses a batch containing a modern message and a legacy client carries a session.
+        if (preparedCall?.conversationId) {
+            state.requestContext.mcpConversationId = preparedCall.conversationId
+        }
         const callState = stateCarryingIntent(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
+        const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
+        return this.deliverConversationHandle(result, preparedCall)
+    }
+
+    // The agent can only echo a handle it has been given. One exit for every dispatch path,
+    // and the SDK appends only on the call that minted the handle.
+    private deliverConversationHandle(result: unknown, preparedCall: PreparedToolCall | undefined): unknown {
+        if (!preparedCall?.conversationId) {
+            return result
+        }
+        try {
+            return getPostHogClient().prepareToolResult(result, preparedCall).result
+        } catch {
+            return result
+        }
+    }
+
+    private async dispatchToolCall(
+        toolName: string,
+        callParams: Record<string, unknown>,
+        state: ResolvedState,
+        analyticsMeta: ToolCallAnalyticsMeta
+    ): Promise<unknown> {
         if (toolName === 'exec') {
-            return this.callExecTool(callParams, callState, analyticsMeta)
+            return this.callExecTool(callParams, state, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -212,7 +250,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(callParams, callState, analyticsMeta)
+            return this.callRenderUiTool(callParams, state, analyticsMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -235,7 +273,7 @@ export class ToolExecutor {
                 _meta: tool._meta,
             },
             callParams,
-            callState,
+            state,
             analyticsMeta
         )
     }
@@ -258,10 +296,21 @@ export class ToolExecutor {
         toolName: string,
         rawArgs: Record<string, unknown>,
         originalTool: ListToolsResult['tools'][number] | undefined,
-        requestMeta: Record<string, unknown> | undefined
-    ): { analyticsMeta: ToolCallAnalyticsMeta; args: Record<string, unknown> } {
+        requestMeta: Record<string, unknown> | undefined,
+        requestContext: ResolvedState['requestContext']
+    ): {
+        analyticsMeta: ToolCallAnalyticsMeta
+        args: Record<string, unknown>
+        preparedCall: PreparedToolCall | undefined
+    } {
         try {
-            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, { originalTool, requestMeta })
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
+                originalTool,
+                requestMeta,
+                // The SDK mints a handle only when nothing was carried, so a client that already
+                // has a session keeps it and never sees the prompt-back.
+                sessionId: resolveSessionKey(requestContext),
+            })
             return {
                 analyticsMeta: {
                     intent: prepared.intent,
@@ -271,9 +320,14 @@ export class ToolExecutor {
                     llmModelMissingReason: prepared.llmModel ? undefined : getModelMissingReason(rawArgs.llm_model),
                 },
                 args: prepared.args ?? rawArgs,
+                preparedCall: prepared,
             }
         } catch {
-            return { analyticsMeta: { llmModelMissingReason: 'capture_error' }, args: rawArgs }
+            return {
+                analyticsMeta: { llmModelMissingReason: 'capture_error' },
+                args: rawArgs,
+                preparedCall: undefined,
+            }
         }
     }
 

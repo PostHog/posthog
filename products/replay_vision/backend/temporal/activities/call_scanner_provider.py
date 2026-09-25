@@ -75,7 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
-    STEP_MEDIA,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -327,18 +327,10 @@ async def run_scan(
         model_output=finalized,
         signals=signals,
         verification=outcome.verification,
-        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        thumbnail_video_s=outcome.thumbnail_video_s,
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
-
-
-def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
-    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
-    if thumbnail_video_s is None:
-        return None
-    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
-    return max(0, min(thumbnail_video_s, int(ceiling)))
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -646,9 +638,11 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
     return _MissionOutcome(
-        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
     )
 
 
@@ -1045,7 +1039,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now

@@ -43,7 +43,7 @@ Two gates keep that from passing silently.
 
 - `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
-- `deletes_job` counts the same way after its own sweep, and refuses to mark the requests verified unless every count completed and came back zero. Proving zero survivors is a full scan, so each count is time-bounded and retried; a count that completes no attempt reports unknown, and unknown blocks the marking the same as a survivor does. The failed run leaves the requests pending, which the next run sweeps again. The delete predicate itself scopes the person and adhoc arms to rows with `inserted_at` no later than the request's own `created_at` (NULL counting as old), and the count shares that predicate, so what gets verified is exactly what got deleted. The bound encodes the deletion contract: a request can only name rows that were already ingested when it was made, and a row cannot be ingested before its event happened, so both `timestamp` and `inserted_at` sit at or before `created_at` for every row a request covers. A row ingested after the request is outside its scope and takes a new request to remove; without the bound, one tenant continuously ingesting backdated events for a pending deletion would block verification for all tenants. `inserted_at` is stamped server-side (`writable_events` does not expose the column), so the bound cannot be forged the way the event `timestamp` can. The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows there are stragglers the next run converges on.
+- `deletes_job` counts the same way after its own sweep, and reports the result rather than gating on it: it marks the requests verified whether the count came back zero, non-zero, or not at all, and logs an error for the latter two. Proving zero survivors is a full scan, so each count is time-bounded and retried; see the known gap below for why the count cannot complete on `events` today. The delete predicate itself scopes the person and adhoc arms to rows with `inserted_at` no later than the request's own `created_at` (NULL counting as old), and the count shares that predicate, so what gets verified is exactly what got deleted. The bound encodes the deletion contract: a request can only name rows that were already ingested when it was made, and a row cannot be ingested before its event happened, so both `timestamp` and `inserted_at` sit at or before `created_at` for every row a request covers. A row ingested after the request is outside its scope and takes a new request to remove; without the bound, one tenant continuously ingesting backdated events for a pending deletion would block verification for all tenants. `inserted_at` is stamped server-side (`writable_events` does not expose the column), so the bound cannot be forged the way the event `timestamp` can. The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows there are stragglers the next run converges on.
 - A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.
@@ -83,15 +83,17 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events`, `sharded_events_json` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
 Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
+`sharded_events_json` is deliberately not in the list, so the squash never dispatches to the events cluster.
+A row a merge stranded there keeps the absorbed `person_id` until its partition ages out, and nothing later can recover the mapping.
 `SQUASH_TARGETS` is deliberately its own list rather than `PERSONAL_DATA_TARGETS`, so registering a table for deletion does not silently enroll it in the squash as well.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
 
 - `sharded_events` — all sweeps.
-- `sharded_events_json` — person, team, queued-uuid and event removal, but `deletes_job` skips it by default today. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration. See the known gap below.
+- `sharded_events_json` — person, team, queued-uuid and event removal, but `deletes_job` skips it by default today. Not a squash target. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration. See the known gap below.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
@@ -112,6 +114,38 @@ Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
 
 ## Known gaps
+
+### The survivor count is a report, not a gate
+
+`mark_deletions_verified` marks requests verified whatever the post-sweep count says, and logs an
+error when the count finds survivors or could not be taken at all. Nothing about the count stops a
+run.
+
+No branch of the delete predicate can use an index, because each one keys a dictionary on `team_id`
+and a dictionary lookup is opaque to the primary key. Counting survivors on `events` therefore reads
+the whole table, which exhausts every attempt against the cluster's read-bytes limit rather than its
+time budget, so no larger budget changes the outcome.
+
+Blocking on that stopped every request in the run rather than the ones at risk, and the requests it
+stranded grew the dictionaries the next count had to read, so each week's stall was worse than the
+last. The check is worth blocking on again once it is affordable; narrowing the count to the teams
+named in the dictionaries is the reduction that makes it so.
+
+A non-zero count is not on its own evidence the job skipped work, which is the second reason it does
+not gate.
+
+Every mutation is waited to completion before the count runs, and the person and adhoc arms of the
+predicate only match rows ingested at or before their request's `created_at`. That scope closes when
+the mutation finishes, so a survivor those arms still match would mean ClickHouse did not apply a
+mutation it reported as done.
+
+The team and event arms carry no such bound, deliberately, so a row can arrive after the mutation was
+enqueued and still match one. A count that finds those is reading a straggler the next sweep
+converges on. Failing the run on it would stall the queue on live ingestion.
+
+So a run can mark requests verified without proving the rows are gone. What stops a sweep silently
+removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
+mutation an earlier run enqueued, which is the failure the count was added to notice.
 
 ### `deletes_job` skips `sharded_events_json` by default
 
@@ -205,8 +239,9 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
 After person A merges into B, a deletion of B is queued under B's uuid, so any row still carrying A matches nothing and survives with its event `properties` and its stale `person_id` until the TTL drops the part.
-`sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` the events tables take.
+`sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` `sharded_events` takes.
 A table missing from `SQUASH_TARGETS` strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
+That is the accepted cost for `sharded_events_json`, which is excluded on purpose.
 Rows a merge stranded before `sharded_flag_evaluations` joined the list age out with their partition.
 
 ## Related, and deliberately unchanged

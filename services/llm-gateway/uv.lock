@@ -911,7 +911,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "litellm", specifier = "==1.92.0" },
     { name = "orjson", specifier = ">=3.10.0" },
-    { name = "posthoganalytics", specifier = ">=7.59.0" },
+    { name = "posthoganalytics", specifier = ">=7.60.0" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
@@ -1193,7 +1193,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.59.0"
+version = "7.60.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -1201,9 +1201,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/09/e2d4f86ae9f944c40544ea6005d955614ff2353e2e11e55507c0daf9a7f7/posthoganalytics-7.59.0.tar.gz", hash = "sha256:8f9da1842f04bb1014539a695d1c44998f5508f0aeb05821c0bde5b896fe12f2", size = 684265, upload-time = "2026-09-22T14:49:45.137Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/d4/af2bd39a81cda6325598a6ba615dd9e4b89677aca4b4e76b246575491f08/posthoganalytics-7.60.0.tar.gz", hash = "sha256:c39be68c3f477d2a33856883c348773c1d3553d2a62adf01d5150d0b294a7c1b", size = 689263, upload-time = "2026-09-23T16:35:37.808Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/5c/0a42cb15c6551b0fa93ab77e44d8347ff1211cd5e1a498769cdc83d77f20/posthoganalytics-7.59.0-py3-none-any.whl", hash = "sha256:33fa20378cbfc6a79ff8c7d5e45d4e1d709381fcdb82e8e935fed34af07153ac", size = 805057, upload-time = "2026-09-22T14:49:43.163Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/27/f380ebb988e7115e2c2753b21c86f9158494f51e537fc5f8dc13c035b667/posthoganalytics-7.60.0-py3-none-any.whl", hash = "sha256:2ed85f1ed78ea1864259b28f8a6c99dc9129d1c4fd92f64ad024a3dd371fcd56", size = 810831, upload-time = "2026-09-23T16:35:35.909Z" },
 ]
 
 [[package]]

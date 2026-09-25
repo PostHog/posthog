@@ -5,9 +5,9 @@ import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
+import * as trenchcoatPng from '@posthog/brand/hoggies/png/trenchcoat'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
 import {
@@ -68,9 +68,9 @@ import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './typ
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
-const HedgehogReporter = pngHoggie(reporterPng)
 const HedgehogMoney = pngHoggie(moneyPng)
+const HedgehogReporter = pngHoggie(reporterPng)
+const HedgehogTrenchcoat = pngHoggie(trenchcoatPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
 export const scene: SceneExport = {
@@ -90,7 +90,7 @@ const STEP_HEADERS: Record<
         subtitle: 'All optional. Tags help you find it later in the scanner list.',
     },
     configure: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogTrenchcoat className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
         subtitle: 'What it looks for and how it analyzes recordings.',
     },

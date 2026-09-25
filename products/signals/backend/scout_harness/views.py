@@ -82,7 +82,6 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -157,7 +156,11 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
-from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import (
+    max_enabled_scouts_for_team,
+    resolve_team_metadata,
+    withheld_skills_for_team,
+)
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -684,6 +687,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=False,
         methods=["get"],
@@ -981,6 +985,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_runs_token_costs",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=False,
         methods=["post"],
@@ -1062,6 +1067,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_emit_signal",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1212,6 +1218,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_emit_report",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1285,6 +1292,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_edit_report",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1375,6 +1383,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_record_output",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1456,6 +1465,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_lighthouse_audit",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1597,6 +1607,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_check_create",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1644,6 +1655,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_checks_list",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["get"],
@@ -1681,6 +1693,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_check_cancel",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1723,6 +1736,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_record_check_result",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -2281,6 +2295,34 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
 
 
+# A team filter that finds nothing has two very different causes, and a scout that reads both as
+# "no such team" stops routing to a team that exists. The roster endpoint is off by default at the
+# GitHub source, so an absent slug is much more often unsynced coverage than a wrong name.
+MEMBERSHIP_NOT_SYNCED = (
+    "This project has no synced team roster, so a team slug can't be resolved to people. Turn on the "
+    "`teams` and `team_members` schemas for the GitHub data warehouse source (they need the "
+    "organization Members permission), or match the owner by name or email instead."
+)
+TEAM_NOT_IN_ROSTER = (
+    "The synced team roster holds no members for '{team}'. Teams sync one by one, so this usually means "
+    "'{team}' isn't synced here rather than that it doesn't exist. Match the owner by name or email "
+    "instead, and don't report the team as missing."
+)
+
+
+class _TeamRosterUnavailable(exceptions.APIException):
+    """503 for a team roster the warehouse could not answer for. The project may well sync it, so
+    this must not read as the "turn the sync on" message above, which would send a scout to change
+    a setting that is already right."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "team_roster_unavailable"
+    default_detail = (
+        "Couldn't read this project's team roster, so a team slug can't be resolved right now. Try the "
+        "call again. If it keeps failing, match the owner by name or email instead."
+    )
+
+
 class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project member roster for reviewer routing — sandbox-only.
 
@@ -2325,36 +2367,53 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         summary="List project members for reviewer routing",
         description=(
             "Return the people who can review work on this project — one row per member with access to it, "
-            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
-            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
-            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
-            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
-            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
-            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null "
+            "when they have no linked GitHub identity), and the `teams` they're on. The cold-start "
+            "reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` "
+            "and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner "
+            "by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / "
+            "`edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass "
+            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly "
+            "team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         canonical_team = self.team.parent_team or self.team
-        members = list_project_members(canonical_team, search=validated.get("search") or None)
-        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
+        team_slug = (validated.get("team") or "").strip().lstrip("@").rsplit("/", 1)[-1].lower() or None
+        roster = list_project_members(canonical_team, search=validated.get("search") or None, team_slug=team_slug)
+        if team_slug is not None and roster.membership_read_failed:
+            raise _TeamRosterUnavailable
+        if team_slug is not None and not roster.membership_synced:
+            raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
+        if team_slug is not None and not roster.team_is_covered:
+            raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
+        return Response(
+            ScoutMemberSerializer([dataclasses.asdict(member) for member in roster.members], many=True).data
+        )
 
 
-def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
+def _reject_if_enabled_cap_reached(team_id: int, skill_name: str, *, cap: int) -> None:
     """Raise when enabling this scout would push the team past the per-team enabled cap.
 
     Counts every enabled config except this skill's own row, so re-asserting
-    `enabled=True` on an already-enabled scout is always allowed. Best-effort
-    (count + write, no lock): a concurrent enable can overshoot by one, which the
-    coordinator's per-tick caps still bound.
+    `enabled=True` on an already-enabled scout is always allowed. `cap` is the project's
+    effective ceiling, so the number in the error is the number enforcement uses; the
+    caller resolves it before opening its transaction, since resolving it reads the flag
+    and every write path here holds a row lock. The error names the count apart from the
+    cap, because a lowered cap pauses nothing and can leave the count above it.
+    Best-effort (count + write, no lock): a concurrent enable can overshoot by one, which
+    the coordinator's per-tick caps still bound.
     """
-    if enabled_scout_count(team_id, exclude_skill=skill_name) >= MAX_ENABLED_SCOUTS_PER_TEAM:
+    enabled = enabled_scout_count(team_id, exclude_skill=skill_name)
+    if enabled >= cap:
+        to_disable = enabled - cap + 1
         raise exceptions.ValidationError(
             {
                 "enabled": (
-                    f"This project already has {MAX_ENABLED_SCOUTS_PER_TEAM} enabled scouts (the maximum). "
-                    "Disable one before enabling another."
+                    f"This project already has {enabled} enabled scouts, and its limit is {cap}. "
+                    f"Disable {to_disable} {'scout' if to_disable == 1 else 'scouts'} before you enable another."
                 )
             }
         )
@@ -2367,6 +2426,7 @@ def _upsert_scout_config(
     tunables: dict,
     request: Request,
     serializer_context: dict,
+    max_enabled_scouts: int,
 ) -> tuple[SignalScoutConfig, bool]:
     """Create or tune one config while preserving the existing config endpoint's upsert semantics."""
 
@@ -2379,7 +2439,7 @@ def _upsert_scout_config(
         else (not existing.enabled and tunables.get("enabled") is True)
     )
     if will_enable:
-        _reject_if_enabled_cap_reached(team_id, skill_name)
+        _reject_if_enabled_cap_reached(team_id, skill_name, cap=max_enabled_scouts)
 
     # `team_id` stays in the kwargs because queryset filters do not propagate into
     # the row Django builds for `get_or_create`.
@@ -2486,6 +2546,10 @@ def create_scout_for_source(
     if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
         raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
+    # Resolved before the transaction: it reads the `signals-scout` flag, and the block below
+    # holds row locks on the skill and its config.
+    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
+
     with transaction.atomic():
         try:
             skill = create_skill(
@@ -2555,6 +2619,7 @@ def create_scout_for_source(
             skill_name=name,
             tunables=tunables,
             request=request,
+            max_enabled_scouts=max_enabled_scouts,
             serializer_context=serializer_context,
         )
         # `create_skill` derives the server-owned `category` from the name prefix, so a scout under
@@ -3130,6 +3195,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"]
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # Upsert, so the grant is compared against whatever row already exists — registering a
         # config for an existing scout is the same widening as patching one. The row stays locked
         # from the comparison to the save, so a grant revoked in between cannot be written back by
@@ -3164,6 +3230,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tunables=tunables,
                 request=request,
                 serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
+                max_enabled_scouts=max_enabled_scouts,
             )
         context = scout_config_context(team, [config.skill_name], request)
         return Response(
@@ -3197,6 +3264,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._assert_can_author_structured_output_schema()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
+        max_enabled_scouts = max_enabled_scouts_for_team(team_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
         # compared against the grant before a concurrent revoke would otherwise write it back,
         # because a model save writes every column off the instance it loaded.
@@ -3228,7 +3296,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer.is_valid(raise_exception=True)
             enabling = not config.enabled and serializer.validated_data.get("enabled")
             if enabling:
-                _reject_if_enabled_cap_reached(team_id, config.skill_name)
+                _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)
             # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
             save_kwargs: dict[str, Any] = {}
             if enabling:

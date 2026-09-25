@@ -502,6 +502,8 @@ fn verify_config(cli: &Cli, duration: Option<Duration>) -> Result<verify::Verify
         deadline: duration.map_or(cli.verify_timeout, |run| {
             cli.verify_timeout.max(run + cli.person_merge_delay)
         }),
+        probe_interval: verify::PROBE_INTERVAL,
+        compare_interval: verify::COMPARE_INTERVAL,
     })
 }
 

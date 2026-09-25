@@ -70,6 +70,7 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    AUTORESEARCH_BASE = "autoresearch_base"
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
@@ -78,6 +79,31 @@ class SandboxTemplate(str, Enum):
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
     CANVAS_BUILD = "canvas_build"
+    # SLIM_BASE plus a uv cache that already holds the stamphog review engine's pinned deps,
+    # so the engine's `uv run` starts without a download.
+    STAMPHOG_REVIEW = "stamphog_review"
+
+
+# Templates whose image hosts the task agent server, so a task can ask for them. The
+# notebook, streamlit, slim and canvas images omit the server on purpose, pi has no Modal
+# image, and VM_BASE bakes in Docker and forces the VM runtime, which only the server-side
+# VM routing gate may select.
+TASK_AGENT_TEMPLATES: frozenset[SandboxTemplate] = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
+
+
+def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """Resolve a template a caller asked for on a task; anything outside ``TASK_AGENT_TEMPLATES`` is refused."""
+    if value is None:
+        return SandboxTemplate.DEFAULT_BASE
+    try:
+        template = SandboxTemplate(value)
+    except ValueError:
+        raise ValueError(f"Unknown sandbox template: {value!r}")
+    if template not in TASK_AGENT_TEMPLATES:
+        raise ValueError(f"Sandbox template {value!r} cannot be requested per task")
+    return template
 
 
 class SandboxWorkload(str, Enum):
@@ -200,6 +226,10 @@ class SandboxConfig(BaseModel):
     # surfaced in the run log so image downgrades are never silent.
     image_fallback: str | None = None
     dev_stack_present: bool | None = None
+    # Hogland only: provision from the pluggable-memory golden (boots small, hot-adds
+    # guest RAM up to the cap) instead of the fixed-size default golden. Set from the
+    # tasks-hogland-hotplug-golden flag at context time; ignored by other providers.
+    use_hotplug_golden: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -627,6 +657,8 @@ class SandboxBase(ABC):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -799,6 +831,23 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "This run could not get a ChatGPT token from PostHog. Start the task again. "
+    "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
+)
+
+# The agent-server option each adapter's own-subscription runs need. The launcher greps the
+# binary for it before it starts a run, so both uses read the same name.
+SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
+
+
+def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+    access = {"claude": claude_model_access, "codex": codex_model_access}
+    return "".join(
+        f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
+    )
+
+
 def wait_for_health_check(
     execute: _ExecuteFn,
     sandbox_id: str,
@@ -821,6 +870,15 @@ def wait_for_health_check(
             "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
             {"sandbox_id": sandbox_id},
             RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
+    if "codex_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+            {"sandbox_id": sandbox_id},
+            RuntimeError("ChatGPT token unavailable"),
             capture=False,
         )
     if result.exit_code == 0:
@@ -850,7 +908,8 @@ def build_health_check_command(
         f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "

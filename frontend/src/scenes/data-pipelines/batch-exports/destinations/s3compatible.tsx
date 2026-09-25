@@ -1,4 +1,6 @@
-import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, S3_REGION_OPTIONS, validateBucketName } from './common'
+import { S3_REGION_OPTIONS } from 'lib/integrations/s3Regions'
+
+import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, validateBucketName } from './common'
 import type { DestinationDefinition } from './types'
 
 // Catch-all for any non-AWS S3-compatible object storage. Exposes virtual-style addressing; no

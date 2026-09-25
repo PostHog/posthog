@@ -1,1 +1,1 @@
-0330_trace_spans_retention_days
+0333_trace_spans_team_trace_id_projection

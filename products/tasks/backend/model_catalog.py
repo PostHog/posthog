@@ -123,6 +123,15 @@ class CatalogModel:
     ``cost`` is ``None`` where no public price list covers the model, and a picker then shows
     it with no cost rather than a guessed one.
 
+    ``supports_1m_context`` and ``supports_fast_mode`` are the two run options a model either
+    takes or rejects. A surface offers the toggle only where the model answers yes, and drops
+    the option from the request everywhere else, so a model that never learns it here runs at
+    the default context window with fast mode off.
+
+    ``retired`` marks a model no picker offers any more, while a session already pinned to it
+    still starts and still resolves its name, cost and efforts. Superseded models stay listed
+    here for that reason rather than being deleted.
+
     Both gates fail closed, so clear ``access_flag`` when the rollout reaches everyone. A flag
     left behind keeps the model away from every caller the flag service cannot answer for, and
     from every surface that reads flags before they load.
@@ -134,6 +143,9 @@ class CatalogModel:
     label: str | None = None
     access_flag: str | None = None
     cost: ModelCost | None = None
+    supports_1m_context: bool = False
+    supports_fast_mode: bool = False
+    retired: bool = False
 
 
 # Rates a model family lists at. Sources, checked 2026-09-17: Anthropic and OpenAI publish
@@ -160,7 +172,7 @@ MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
     # exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
     # so the `anthropic` provider is the intended routing rather than a direct Anthropic call.
-    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST),
+    CatalogModel("@cf/zai-org/glm-5.2", CLAUDE, _GLM, label="GLM-5.2", cost=_GLM_COST, retired=True),
     CatalogModel("zai-org/glm-5.3", CLAUDE, _GLM, label="GLM-5.3", cost=_GLM_COST),
     CatalogModel("zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST),
     CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST),
@@ -171,16 +183,52 @@ MODELS: tuple[CatalogModel, ...] = (
         label="DeepSeek V4 Flash",
         cost=_DEEPSEEK_COST,
     ),
-    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST),
-    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST),
-    CatalogModel("claude-opus-4-7", CLAUDE, _EXTENDED, cost=_OPUS_COST),
-    CatalogModel("claude-opus-4-8", CLAUDE, _EXTENDED, cost=_OPUS_COST),
-    CatalogModel("claude-opus-5", CLAUDE, _EXTENDED, cost=_OPUS_COST),
-    CatalogModel("claude-opus-5-5", CLAUDE, _EXTENDED, cost=_OPUS_5_5_COST),
-    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST),
-    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST),
-    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST),
-    CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD, cost=_SONNET_4_COST),
+    CatalogModel("claude-opus-4-5", CLAUDE, _STANDARD, cost=_OPUS_COST, retired=True),
+    CatalogModel("claude-opus-4-6", CLAUDE, _THROUGH_MAX, cost=_OPUS_COST, retired=True),
+    CatalogModel(
+        "claude-opus-4-7",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+        retired=True,
+    ),
+    CatalogModel(
+        "claude-opus-4-8",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel(
+        "claude-opus-5",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel(
+        "claude-opus-5-5",
+        CLAUDE,
+        _EXTENDED,
+        cost=_OPUS_5_5_COST,
+        supports_1m_context=True,
+        supports_fast_mode=True,
+    ),
+    CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
+    CatalogModel(
+        "claude-sonnet-4-6",
+        CLAUDE,
+        _STANDARD,
+        cost=_SONNET_4_COST,
+        supports_1m_context=True,
+        retired=True,
+    ),
     # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
     # anyone can check it against.
     CatalogModel("gpt-5", CODEX, _STANDARD),
@@ -315,6 +363,29 @@ def access_flag_for_model(model_id: str) -> str | None:
     """The feature flag a person needs before a picker offers this model, or ``None``."""
     model = _MODEL_BY_ID.get(normalize_model_id(model_id))
     return model.access_flag if model else None
+
+
+def is_offered_model(model_id: str) -> bool:
+    """Whether a picker may offer this model.
+
+    The catalog is the offer list, so a model it does not name is not offered however the
+    gateway answers. A retired model stays here to keep a pinned session running and to name
+    and price it, which is a different question from whether a person may choose it now.
+    """
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model is not None and not model.retired
+
+
+def supports_1m_context(model_id: str) -> bool:
+    """Whether this model runs with the 1M-token context window, ``False`` for one the catalog omits."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.supports_1m_context if model else False
+
+
+def supports_fast_mode(model_id: str) -> bool:
+    """Whether this model runs in fast mode, ``False`` for one the catalog omits."""
+    model = _MODEL_BY_ID.get(normalize_model_id(model_id))
+    return model.supports_fast_mode if model else False
 
 
 def label_for_model(model_id: str) -> str | None:
@@ -476,6 +547,7 @@ __all__ = [
     "cost_multiplier_for",
     "cost_multiplier_label",
     "format_cost_rates",
+    "is_offered_model",
     "label_for_model",
     "models_for_runtime_adapter",
     "normalize_model_id",
@@ -484,4 +556,6 @@ __all__ = [
     "reasoning_efforts_for",
     "runtime_adapter_for_model",
     "serves_model",
+    "supports_1m_context",
+    "supports_fast_mode",
 ]

@@ -181,6 +181,37 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
+    @patch("posthog.api.sharing.render_template")
+    def test_password_protected_dashboard_does_not_add_social_metadata(self, mock_render_template: Mock) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            password_required=True,
+        )
+        share_password, _ = SharePassword.create_password(
+            sharing_configuration=sharing_configuration,
+            created_by=self.user,
+        )
+        mock_render_template.return_value = HttpResponse("")
+        share_url = f"/shared_dashboard/{sharing_configuration.access_token}"
+
+        unlock_response = self.client.get(share_url)
+
+        assert unlock_response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is None
+
+        self.client.cookies["posthog_sharing_token"] = sharing_configuration.generate_password_protected_token(
+            share_password
+        )
+
+        response = self.client.get(share_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
+        assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
+
     @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
@@ -438,6 +469,36 @@ class TestSharing(APIBaseTest):
         assert ExportedAsset.objects.count() == 1
         assert item_opengraph_image.status_code == 302
         assert item_opengraph_image["Location"] == "https://s3.example.com/presigned-url"
+
+    @parameterized.expand(["insights", "dashboards"])
+    @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_shared_thing_uses_placeholder_while_open_graph_image_is_pending(
+        self, type: str, patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ) -> None:
+        target = self.insight if type == "insights" else self.dashboard
+        share_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
+        )
+        image_url = f"/shared/{share_response.json()['access_token']}.png"
+
+        pending_response = self.client.get(image_url)
+
+        assert pending_response.status_code == 302
+        assert pending_response["Location"] == "/static/blank-dashboard-hog.png"
+        assert pending_response["Cache-Control"] == "no-store"
+        patched_exporter_task.assert_called_once()
+
+        exported_asset = ExportedAsset.objects.get(team_id=self.team.id)
+        exported_asset.content_location = "some object url"
+        exported_asset.save(update_fields=["content_location"])
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+
+        ready_response = self.client.get(image_url)
+
+        assert ready_response.status_code == 302
+        assert ready_response["Location"] == "https://s3.example.com/presigned-url"
 
     @parameterized.expand(["insights", "dashboards"])
     @patch("products.exports.backend.models.exported_asset.object_storage.get_presigned_url")
@@ -1638,11 +1699,30 @@ class TestExportRendererTokenFlow(APIBaseTest):
         encoded_data = json.loads(html[start:end])
         return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
 
+    @parameterized.expand(
+        [
+            ("exact", "https://example.com", "url_exact", "https://example.com"),
+            (
+                "query_string_stays_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+                "url_exact",
+                "https://example.com/p?a=1+2&b=(x)",
+            ),
+            (
+                "wildcard_escapes_the_rest",
+                "https://example.com/users/*?tab=1",
+                "url_pattern",
+                "https\\:\\/\\/example\\.com\\/users\\/*\\?tab\\=1",
+            ),
+        ]
+    )
     @mock_exporter_template
-    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(self) -> None:
+    def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(
+        self, _name: str, heatmap_data_url: str, url_param: str, url_value: str
+    ) -> None:
         export_context = {
             "heatmap_url": "https://example.com",
-            "heatmap_data_url": "https://example.com",
+            "heatmap_data_url": heatmap_data_url,
             "heatmap_type": "click",
             "width": 1400,
             "common_filters": {"date_from": "-7d"},
@@ -1671,7 +1751,7 @@ class TestExportRendererTokenFlow(APIBaseTest):
             {
                 "type": "click",
                 "date_from": "-7d",
-                "url_exact": "https://example.com",
+                url_param: url_value,
                 "viewport_width_min": "1260",
                 "viewport_width_max": "1540",
                 "aggregation": "total_count",

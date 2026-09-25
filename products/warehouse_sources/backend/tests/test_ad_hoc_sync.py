@@ -5,7 +5,10 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
 from products.warehouse_sources.backend.ad_hoc_sync import WorkflowStartError, trigger_ad_hoc_sync
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = [pytest.mark.django_db]
@@ -81,3 +84,31 @@ def test_failed_start_restores_staged_reset_state(schema):
     assert schema.sync_type_config["cdc_mode"] == "streaming"
     assert schema.sync_type_config["cdc_last_log_position"] == "0/ABC"
     assert schema.initial_sync_complete is True
+
+
+@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
+def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(schema, ingest_mode):
+    schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode} if ingest_mode else {}
+    schema.source.save()
+    schema.sync_type = ExternalDataSchema.SyncType.CDC
+    schema.sync_type_config = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
+    schema.initial_sync_complete = True
+    schema.save()
+    # Capture writes the row after this copy was loaded; the reset must not revert it.
+    update_sync_type_config_keys(schema.id, schema.team_id, updates={"cdc_last_run_at": "2026-09-24T00:00:00+00:00"})
+
+    with (
+        patch(f"{MODULE}.is_schedule_paused", return_value=True),
+        patch(f"{MODULE}.start_external_data_workflow"),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
+            return_value=True,
+        ),
+    ):
+        trigger_ad_hoc_sync(MagicMock(), schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
+
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_mode"] == "snapshot"
+    # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
+    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+    assert schema.sync_type_config["cdc_last_run_at"] == "2026-09-24T00:00:00+00:00"
