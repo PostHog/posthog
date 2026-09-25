@@ -36,6 +36,13 @@ describe('StepTriggerConfiguration', () => {
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
+                '/api/environments/:team_id/hog_flows/user_blast_radius/': {
+                    affected: 1,
+                    total: 1,
+                    limit: 100,
+                    dedupe_key: null,
+                },
+                '/api/projects/:team/cohorts/': { id: 42, name: 'launch-list' },
             },
         })
         initKeaTests()
@@ -66,6 +73,57 @@ describe('StepTriggerConfiguration', () => {
             </BindLogic>
         )
     }
+
+    function renderBatchTrigger(): void {
+        const action = {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            config: { type: 'batch', filters: { properties: [] } },
+        } as TriggerAction
+        render(
+            <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
+                <StepTriggerConfiguration node={{ id: action.id, data: action } as Node<TriggerAction>} />
+            </BindLogic>
+        )
+    }
+
+    it('turns an uploaded CSV into a cohort condition on the batch audience', async () => {
+        renderBatchTrigger()
+
+        const file = new File(['a@example.com'], 'launch-list.csv', { type: 'text/csv' })
+        const input = document.querySelector('input[type="file"]') as HTMLInputElement
+        fireEvent.change(input, { target: { files: [file] } })
+
+        await waitFor(() => {
+            const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
+            expect((trigger as Extract<TriggerAction['config'], { type: 'batch' }>).filters?.properties).toEqual([
+                { type: 'cohort', key: 'id', value: 42, operator: 'in', cohort_name: 'launch-list' },
+            ])
+        })
+    })
+
+    it('keeps a condition added while the CSV was still uploading', async () => {
+        renderBatchTrigger()
+
+        const file = new File(['a@example.com'], 'launch-list.csv', { type: 'text/csv' })
+        const input = document.querySelector('input[type="file"]') as HTMLInputElement
+        fireEvent.change(input, { target: { files: [file] } })
+
+        const addedWhileUploading = { type: 'hogql', key: "properties.plan = 'pro'" }
+        workflowLogic(LOGIC_PROPS).actions.partialSetWorkflowActionConfig('trigger_node', {
+            filters: { properties: [addedWhileUploading] },
+        } as Partial<TriggerAction['config']>)
+
+        await waitFor(() => {
+            const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
+            expect((trigger as Extract<TriggerAction['config'], { type: 'batch' }>).filters?.properties).toEqual([
+                addedWhileUploading,
+                { type: 'cohort', key: 'id', value: 42, operator: 'in', cohort_name: 'launch-list' },
+            ])
+        })
+    })
 
     it('keeps a stored global property filter when the trigger events change', async () => {
         const properties = [{ type: 'hogql', key: "properties.plan = 'pro'" }] as NonNullable<

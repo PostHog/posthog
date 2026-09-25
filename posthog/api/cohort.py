@@ -1011,7 +1011,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         report_user_action(
             request.user,
             "cohort created",
-            cohort.get_analytics_metadata(),
+            {**cohort.get_analytics_metadata(), "has_csv": bool(request.FILES.get("csv"))},
             team=cohort.team,
             request=request,
         )

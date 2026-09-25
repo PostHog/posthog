@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import {
     IconBolt,
@@ -10,6 +10,7 @@ import {
     IconLeave,
     IconPeople,
     IconTarget,
+    IconUpload,
     IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
@@ -36,6 +37,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
@@ -46,7 +48,7 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/Tes
 import { teamLogic } from 'scenes/teamLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { PropertyFilterType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
 import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters'
@@ -58,6 +60,7 @@ import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIS
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
+import { batchAudienceCsvLogic } from './batchAudienceCsvLogic'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
@@ -712,6 +715,76 @@ function StepTriggerBatchAccountFilters({
     )
 }
 
+function StepTriggerBatchCsvUpload({
+    actionId,
+    filters,
+}: {
+    actionId: string
+    filters: BatchTriggerFilters
+}): JSX.Element {
+    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
+
+    // The conditions stay editable while the file uploads, so the cohort appends to whatever is
+    // stored when the upload finishes, not to what was on screen when it started.
+    const workflowRef = useRef(workflow)
+    workflowRef.current = workflow
+
+    const logic = batchAudienceCsvLogic({
+        id: actionId,
+        onCohortCreated: (cohort) => {
+            const storedConfig = workflowRef.current.actions.find((action) => action.id === actionId)?.config as
+                | { filters?: BatchTriggerFilters }
+                | undefined
+            const currentFilters = storedConfig?.filters ?? filters
+            partialSetWorkflowActionConfig(actionId, {
+                filters: {
+                    ...currentFilters,
+                    properties: [
+                        ...(currentFilters.properties ?? []),
+                        {
+                            type: PropertyFilterType.Cohort,
+                            key: 'id',
+                            value: cohort.id,
+                            operator: PropertyOperator.In,
+                            cohort_name: cohort.name,
+                        },
+                    ],
+                },
+            })
+        },
+    })
+    const { uploadCsv } = useActions(logic)
+    const { uploadedCohortLoading } = useValues(logic)
+
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonFileInput
+                accept=".csv"
+                multiple={false}
+                disabledReason={uploadedCohortLoading ? 'Building the audience from your file' : null}
+                onChange={(files) => files[0] && uploadCsv(files[0])}
+                showUploadedFiles={false}
+                callToAction={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUpload />}
+                        loading={uploadedCohortLoading}
+                        data-attr="workflows-batch-csv-upload"
+                    >
+                        Upload a list of people
+                    </LemonButton>
+                }
+            />
+            <div className="text-secondary text-xs">
+                Upload a CSV to add the people in it as a condition above. One distinct ID per row, or a header row with
+                a 'person_id', 'distinct_id', or 'email' column.
+            </div>
+        </div>
+    )
+}
+
 function StepTriggerConfigurationBatch({
     action,
     config,
@@ -754,7 +827,7 @@ function StepTriggerConfigurationBatch({
             {isAccountAudience ? (
                 <StepTriggerBatchAccountFilters actionId={action.id} filters={config.filters} />
             ) : (
-                <div>
+                <div className="flex flex-col gap-2">
                     <PropertyFilters
                         pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
                         propertyFilters={config.filters.properties}
@@ -785,6 +858,7 @@ function StepTriggerConfigurationBatch({
                         hasRowOperator={false}
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                     />
+                    <StepTriggerBatchCsvUpload actionId={action.id} filters={config.filters} />
                 </div>
             )}
 
