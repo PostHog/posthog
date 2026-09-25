@@ -21,13 +21,29 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
-export function numericOutputConfigError(config: EvaluationOutputConfig): string | null {
+export function numericOutputConfigError(
+    config: EvaluationOutputConfig,
+    requiresScoreLevels: boolean = false
+): string | null {
     const { min, max, step, passing_rule } = config
     if ([min, max, step, passing_rule?.threshold].some((value) => value != null && !Number.isFinite(value))) {
         return 'Enter finite numbers for the score bounds, step, and threshold.'
     }
     if (min != null && max != null && min > max) {
         return 'Minimum must be less than or equal to maximum.'
+    }
+    if (requiresScoreLevels || config.score_levels != null) {
+        if (min == null || max == null || min >= max) {
+            return 'Set a minimum and a greater maximum for the score levels.'
+        }
+        if (
+            !config.score_levels ||
+            config.score_levels.length < 2 ||
+            config.score_levels.length > 10 ||
+            config.score_levels.some((level) => !level.trim())
+        ) {
+            return 'Describe 2 to 10 score levels, one per line.'
+        }
     }
     if (step != null && step <= 0) {
         return 'Step must be greater than zero.'

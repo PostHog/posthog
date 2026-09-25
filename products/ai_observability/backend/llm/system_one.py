@@ -1,11 +1,12 @@
 import math
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 import requests
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, JsonValue, ValidationError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 from posthog.security.url_validation import has_authority_bypass_chars
@@ -22,10 +23,49 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 
+type SystemOneContent = str | dict[str, JsonValue] | list[JsonValue]
+type Probability = Annotated[float, Field(strict=True, ge=0, le=1, allow_inf_nan=False)]
+
+
+class NoulQuestion(BaseModel):
+    type: Literal["noul"] = "noul"
+    instructions: SystemOneContent | None = None
+    criteria: dict[Literal["true", "false"], SystemOneContent | None] | None = None
+
+
+class ScoreQuestion(BaseModel):
+    type: Literal["score"] = "score"
+    instructions: SystemOneContent | None = None
+    criteria: list[SystemOneContent] = Field(min_length=1, max_length=10)
+
+
+class ChoiceQuestion(BaseModel):
+    type: Literal["choice"] = "choice"
+    instructions: SystemOneContent | None = None
+    criteria: dict[str, SystemOneContent | None] = Field(min_length=1, max_length=255)
+
+
+type SystemOneQuestion = NoulQuestion | ScoreQuestion | ChoiceQuestion
+
 
 class NoulAnswer(BaseModel):
     type: Literal["noul"]
-    noul: float = Field(strict=True, ge=0, le=1, allow_inf_nan=False)
+    noul: Probability
+
+
+class ScoreAnswer(BaseModel):
+    type: Literal["score"]
+    score: float = Field(strict=True, ge=0, allow_inf_nan=False)
+    legend: dict[str, SystemOneContent]
+    probabilities: dict[str, Probability]
+    confidence: Probability
+
+
+class ChoiceAnswer(BaseModel):
+    type: Literal["choice"]
+    choice: str
+    probabilities: dict[str, Probability]
+    confidence: Probability
 
 
 class SystemOneUsage(BaseModel):
@@ -35,7 +75,7 @@ class SystemOneUsage(BaseModel):
 
 class SystemOneResponse(BaseModel):
     model: str = Field(min_length=1)
-    answers: dict[str, NoulAnswer]
+    answers: dict[str, Annotated[NoulAnswer | ScoreAnswer | ChoiceAnswer, Field(discriminator="type")]]
     usage: SystemOneUsage
 
 
@@ -79,27 +119,31 @@ class SystemOneClient:
         return base_url.rstrip("/")
 
     @staticmethod
-    def evaluate_boolean(
-        *, api_key: str, model: str, prompt: str, source: str, allows_na: bool, base_url: str = BASE_URL
+    def evaluate(
+        *,
+        api_key: str,
+        model: str,
+        state: SystemOneContent,
+        questions: Mapping[str, SystemOneQuestion],
+        base_url: str = BASE_URL,
     ) -> SystemOneResponse:
         base_url = SystemOneClient.normalize_base_url(base_url)
         if not api_key and base_url == SystemOneClient.BASE_URL:
             raise AuthenticationError("A TypeSafe API key is required.")
-        questions = {"verdict": {"type": "noul", "instructions": prompt}}
-        if allows_na:
-            questions["applicable"] = {
-                "type": "noul",
-                "instructions": (
-                    "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
-                    "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n" + prompt
-                ),
-            }
+        if not questions:
+            raise ValueError("Provide at least one System One question.")
         try:
             response = pinned_request(
                 "POST",
                 f"{base_url}/systemone",
                 headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
-                json={"model": model, "state": source, "questions": questions},
+                json={
+                    "model": model,
+                    "state": state,
+                    "questions": {
+                        key: question.model_dump(mode="json", exclude_none=True) for key, question in questions.items()
+                    },
+                },
                 timeout=60,
             )
         except SSRFBlockedError as error:
@@ -131,23 +175,46 @@ class SystemOneClient:
             raise StructuredOutputParseError(
                 "The endpoint returned an invalid System One response. Check compatibility."
             ) from error
-        # boffin: Missing answers cannot become a false verdict.
+        # Missing or mismatched answers cannot become valid evaluation results.
         if not questions.keys() <= result.answers.keys():
             raise StructuredOutputParseError(
                 "The endpoint did not answer every evaluation question. Check compatibility."
             )
+        for key, question in questions.items():
+            answer = result.answers[key]
+            if answer.type != question.type:
+                raise StructuredOutputParseError("The endpoint returned the wrong answer type. Check compatibility.")
+            if isinstance(question, ChoiceQuestion) and isinstance(answer, ChoiceAnswer):
+                if set(answer.probabilities) != set(question.criteria) or answer.choice not in question.criteria:
+                    raise StructuredOutputParseError("The endpoint returned different choices. Check compatibility.")
+            if isinstance(question, ScoreQuestion) and isinstance(answer, ScoreAnswer):
+                levels = {str(index) for index in range(len(question.criteria))}
+                if (
+                    set(answer.probabilities) != levels
+                    or set(answer.legend) != levels
+                    or answer.score > len(levels) - 1
+                ):
+                    raise StructuredOutputParseError(
+                        "The endpoint returned an invalid score scale. Check compatibility."
+                    )
+            # Compatible servers round each probability to four decimal places.
+            if isinstance(answer, ScoreAnswer | ChoiceAnswer) and not math.isclose(
+                sum(answer.probabilities.values()), 1.0, abs_tol=max(0.001, len(answer.probabilities) * 0.00005)
+            ):
+                raise StructuredOutputParseError(
+                    "The endpoint returned an invalid probability distribution. Check compatibility."
+                )
         return result
 
     @staticmethod
     def validate_key(api_key: str, *, base_url: str = BASE_URL, model: str = MODEL) -> tuple[str, str | None]:
         try:
-            SystemOneClient.evaluate_boolean(
+            SystemOneClient.evaluate(
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
-                prompt="Does the text contain a greeting?",
-                source="Hello!",
-                allows_na=True,
+                state="Hello!",
+                questions={"verdict": NoulQuestion(instructions="Does the text contain a greeting?")},
             )
         except (AuthenticationError, ModelPermissionError) as error:
             return "invalid", str(error)

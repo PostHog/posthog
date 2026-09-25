@@ -1437,7 +1437,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                if (
+                    evaluation.output_type === 'numeric' &&
+                    numericOutputConfigError(
+                        evaluation.output_config,
+                        evaluation.model_configuration?.provider === 'typesafe'
+                    )
+                ) {
                     return false
                 }
                 const hasValidName = (evaluation.name?.length ?? 0) > 0

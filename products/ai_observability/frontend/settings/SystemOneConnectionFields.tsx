@@ -39,8 +39,9 @@ export function SystemOneConnectionFields(): JSX.Element {
                     />
                 </div>
                 <p className="text-xs text-muted">
-                    Use a public HTTPS endpoint that supports the System One API. Include /v1 in the base URL if
-                    required by your service. Validation sends a short synthetic example to the selected model.
+                    Defaults to TypeSafe's hosted service and the Jev model. Use a public HTTPS endpoint that supports
+                    the System One API. Include /v1 in the base URL if required by your service. Validation sends a
+                    short synthetic example to the selected model.
                 </p>
             </div>
         </details>

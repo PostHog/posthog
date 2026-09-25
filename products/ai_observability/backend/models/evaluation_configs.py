@@ -81,16 +81,34 @@ class NumericOutputConfig(BaseModel):
     min: float | None = None
     max: float | None = None
     step: float | None = Field(default=None, gt=0)
+    score_levels: list[str] | None = Field(default=None, min_length=2, max_length=10)
     allows_na: bool = False
     passing_rule: NumericPassingRule | None = None
+
+    @field_validator("score_levels")
+    @classmethod
+    def validate_score_levels(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None:
+            value = [level.strip() for level in value]
+            if any(not level for level in value):
+                raise ValueError("Describe every score level")
+        return value
 
     @model_validator(mode="after")
     def validate_bounds(self) -> Self:
         if self.min is not None and self.max is not None and self.min > self.max:
             raise ValueError("Minimum score cannot exceed maximum score")
+        if self.score_levels is not None and (self.min is None or self.max is None or self.min >= self.max):
+            raise ValueError("Score levels require a minimum and a greater maximum")
         if self.passing_rule is not None:
             self.passing_rule.threshold = self.validate_score(self.passing_rule.threshold)
         return self
+
+    def score_from_level(self, level: float) -> float:
+        if self.score_levels is None or self.min is None or self.max is None:
+            raise ValueError("Configure score levels and bounds before using this judge")
+        fraction = level / (len(self.score_levels) - 1)
+        return self.validate_score((1 - fraction) * self.min + fraction * self.max)
 
     def validate_score(self, value: object) -> float:
         if isinstance(value, bool) or not isinstance(value, int | float):

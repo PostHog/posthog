@@ -7,6 +7,23 @@ import { NumericEvaluationConfig } from './NumericEvaluationConfig'
 describe('NumericEvaluationConfig', () => {
     afterEach(cleanup)
 
+    it('requires a bounded rubric for System One and keeps level edits', () => {
+        const onChange = jest.fn()
+        const config: EvaluationOutputConfig = { min: 0, max: 10 }
+        expect(numericOutputConfigError(config)).toBeNull()
+        expect(numericOutputConfigError(config, true)).not.toBeNull()
+        const { getByLabelText, rerender } = render(
+            <NumericEvaluationConfig config={config} onChange={onChange} requiresScoreLevels />
+        )
+        fireEvent.change(getByLabelText('Score levels'), { target: { value: 'Poor\nFair\nGood' } })
+        expect(onChange).toHaveBeenLastCalledWith({ score_levels: ['Poor', 'Fair', 'Good'] })
+        const edited = { ...config, ...onChange.mock.calls[0][0] }
+        expect(numericOutputConfigError(edited, true)).toBeNull()
+        expect(numericOutputConfigError({ ...edited, min: null }, true)).not.toBeNull()
+        rerender(<NumericEvaluationConfig config={edited} onChange={onChange} />)
+        expect((getByLabelText('Score levels') as HTMLTextAreaElement).value).toBe('Poor\nFair\nGood')
+    })
+
     it.each([
         ['min', 'Minimum (optional)'],
         ['max', 'Maximum (optional)'],

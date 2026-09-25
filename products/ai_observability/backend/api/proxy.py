@@ -67,7 +67,7 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
 
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
-    "typesafe": "System One (Jev)",
+    "typesafe": "System One",
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",

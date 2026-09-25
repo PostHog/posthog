@@ -1,6 +1,6 @@
 import { useId } from 'react'
 
-import { LemonBanner, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -10,13 +10,16 @@ import type { EvaluationOutputConfig } from '../types'
 export function NumericEvaluationConfig({
     config,
     onChange,
+    requiresScoreLevels = false,
 }: {
     config: EvaluationOutputConfig
     onChange: (patch: EvaluationOutputConfig) => void
+    requiresScoreLevels?: boolean
 }): JSX.Element {
     const id = useId()
     const rule = config.passing_rule
-    const error = numericOutputConfigError(config)
+    const hasScoreLevels = requiresScoreLevels || config.score_levels != null
+    const error = numericOutputConfigError(config, requiresScoreLevels)
     return (
         <div className="space-y-4">
             {error && <LemonBanner type="error">{error}</LemonBanner>}
@@ -25,7 +28,13 @@ export function NumericEvaluationConfig({
                     <LemonField.Pure
                         key={field}
                         htmlFor={`${id}-${field}`}
-                        label={{ min: 'Minimum (optional)', max: 'Maximum (optional)', step: 'Step (optional)' }[field]}
+                        label={
+                            {
+                                min: hasScoreLevels ? 'Minimum' : 'Minimum (optional)',
+                                max: hasScoreLevels ? 'Maximum' : 'Maximum (optional)',
+                                step: 'Step (optional)',
+                            }[field]
+                        }
                     >
                         <LemonInput
                             id={`${id}-${field}`}
@@ -38,7 +47,25 @@ export function NumericEvaluationConfig({
                     </LemonField.Pure>
                 ))}
             </div>
-            <p className="text-muted text-sm">Bounds are inclusive. Step guides scoring without rounding results.</p>
+            <p className="text-muted text-sm">
+                Bounds are inclusive. Step controls input increments without rounding results.
+            </p>
+            {hasScoreLevels && (
+                <LemonField.Pure label="Score levels" htmlFor={`${id}-score-levels`}>
+                    <LemonTextArea
+                        id={`${id}-score-levels`}
+                        value={config.score_levels?.join('\n') ?? ''}
+                        onChange={(value) => onChange({ score_levels: value.split('\n') })}
+                        placeholder={'Does not meet the criteria\nPartly meets the criteria\nFully meets the criteria'}
+                        minRows={3}
+                        data-attr="llma-evaluation-score-levels"
+                    />
+                    <p className="text-muted text-sm">
+                        Describe 2 to 10 levels, one per line, from the minimum to the maximum. Levels are spaced
+                        evenly. Scores can fall between levels. They measure the rubric, not the probability of passing.
+                    </p>
+                </LemonField.Pure>
+            )}
             <LemonSwitch
                 label="Allow N/A responses"
                 checked={config.allows_na ?? false}

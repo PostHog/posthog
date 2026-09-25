@@ -18,6 +18,7 @@ describe('normalizeLLMProvider', () => {
         ['zeabur', 'zeabur'],
         ['openai', 'openai'],
         ['System One (Jev)', 'typesafe'],
+        ['System One', 'typesafe'],
         ['typesafe', 'typesafe'],
     ])('maps %s to %s', (input, expected) => {
         expect(normalizeLLMProvider(input)).toBe(expected)

@@ -9,7 +9,7 @@ export function EvaluationExplanation({
 }): JSX.Element {
     if (probability != null) {
         return (
-            <Tooltip title="Jev's estimated probability that the evaluation criteria are true. Jev does not provide written reasoning.">
+            <Tooltip title="The judge's estimated probability that the evaluation criteria are true. This result has no written reasoning.">
                 <span>{`${(probability * 100).toFixed(1)}% probability of true`}</span>
             </Tooltip>
         )

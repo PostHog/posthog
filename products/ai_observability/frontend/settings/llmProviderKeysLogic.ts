@@ -25,7 +25,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     together_ai: 'Together AI',
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
-    typesafe: 'System One (Jev)',
+    typesafe: 'System One',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -59,7 +59,7 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
 
     const normalized = provider.trim().toLowerCase()
-    if (normalized === 'system one (jev)') {
+    if (normalized === 'system one' || normalized === 'system one (jev)') {
         return 'typesafe'
     }
     if (normalized === 'google' || normalized === 'google-ai-studio') {

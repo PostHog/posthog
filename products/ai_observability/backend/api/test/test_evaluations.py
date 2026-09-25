@@ -108,16 +108,21 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
-    def test_numeric_evaluation_rejects_system_one_connection(self) -> None:
+    @parameterized.expand([({}, False), ({"min": 0, "max": 10, "score_levels": ["Poor", "Good"]}, True)])
+    def test_numeric_system_one_requires_score_levels(self, config: dict, valid: bool) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "Score quality"},
             output_type="numeric",
-            output_config={},
+            output_config=config,
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
-        with self.assertRaisesMessage(ValidationError, "System One connections support boolean evaluations only"):
-            serializer.validate({"model_configuration": {"provider": "typesafe", "model": "custom-model"}})
+        data = {"model_configuration": {"provider": "typesafe", "model": "custom-model"}}
+        if valid:
+            self.assertEqual(serializer.validate(data)["model_configuration"], data["model_configuration"])
+        else:
+            with self.assertRaisesMessage(ValidationError, "Add 2 to 10 score levels"):
+                serializer.validate(data)
 
     @parameterized.expand(
         [

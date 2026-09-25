@@ -170,7 +170,7 @@ def build_eval_report_system_prompt(
         sample_ordering_signature = ""
         sample_ordering_instruction = (
             'Rows include full reasoning when available. Use the default `order_by="recent"`. '
-            "Some judges, including Jev, return no written reasoning. For those results, inspect the original "
+            "Some judges return no written reasoning. For those results, inspect the original "
             "generation, trace, or session with the detail tools and ground your analysis in that source. "
             "Do not invent a judge explanation or treat absent reasoning as an evaluation failure."
         )
