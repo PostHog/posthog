@@ -815,12 +815,14 @@ export const EvaluationTypeEnumApi = {
 
 /**
  * * `boolean` - Boolean (Pass/Fail)
+ * * `numeric` - Numeric
  * * `sentiment` - Sentiment
  */
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
 
 export const OutputTypeEnumApi = {
     Boolean: 'boolean',
+    Numeric: 'numeric',
     Sentiment: 'sentiment',
 } as const
 
@@ -912,7 +914,7 @@ export type EvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -923,13 +925,46 @@ export type EvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+ * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+ * @nullable
+ */
+export type EvaluationApiOutputConfigPassingRule = {
+    /** Pass at or above (gte), or at or below (lte), the threshold. */
+    operator: 'gte' | 'lte'
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+} | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
  */
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    passing_rule?: EvaluationApiOutputConfigPassingRule
 }
 
 /**
@@ -997,12 +1032,13 @@ export interface EvaluationApi {
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
-    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
      * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1152,7 +1188,7 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
     | {
           /**
-           * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+           * Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
            * @minLength 1
            */
           source: string
@@ -1163,13 +1199,46 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
- * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem.
+ * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+ * @nullable
+ */
+export type PatchedEvaluationApiOutputConfigPassingRule = {
+    /** Pass at or above (gte), or at or below (lte), the threshold. */
+    operator: 'gte' | 'lte'
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+} | null
+
+/**
+ * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    passing_rule?: PatchedEvaluationApiOutputConfigPassingRule
 }
 
 /**
@@ -1237,12 +1306,13 @@ export interface PatchedEvaluationApi {
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
-    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+    /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
-    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. */
+    /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
@@ -1269,7 +1339,62 @@ export interface PatchedEvaluationApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+ * @nullable
+ */
+export type TestHogRequestApiOutputConfigPassingRule = {
+    /** Pass at or above (gte), or at or below (lte), the threshold. */
+    operator: 'gte' | 'lte'
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+} | null
+
+/**
+ * Output settings used to validate the preview, including numeric bounds and allows_na.
+ */
+export type TestHogRequestApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    passing_rule?: TestHogRequestApiOutputConfigPassingRule
+}
+
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ * * `numeric` - Numeric
+ */
+export type HogEvaluationOutputTypeEnumApi =
+    (typeof HogEvaluationOutputTypeEnumApi)[keyof typeof HogEvaluationOutputTypeEnumApi]
+
+export const HogEvaluationOutputTypeEnumApi = {
+    Boolean: 'boolean',
+    Numeric: 'numeric',
+} as const
 
 export interface TestHogTargetConfigApi {
     /**
@@ -1287,8 +1412,15 @@ export interface TestHogTargetConfigApi {
 }
 
 export interface TestHogRequestApi {
+    /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric */
+    output_type?: HogEvaluationOutputTypeEnumApi
+    /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+    output_config?: TestHogRequestApiOutputConfig
     /**
-     * Hog source code to test. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+     * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
      * @minLength 1
      */
     source: string
@@ -1313,6 +1445,11 @@ export interface TestHogRequestApi {
 }
 
 export interface TestHogResultItemApi {
+    /**
+     * Raw numeric score, or null when no numeric score was produced.
+     * @nullable
+     */
+    score?: number | null
     /** Stable identifier for the sampled generation, trace, or session. */
     sample_id: string
     /** Type of sampled unit: generation, trace, or session.
@@ -1873,6 +2010,49 @@ export const GenerationStatusEnumApi = {
 } as const
 
 /**
+ * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+ * @nullable
+ */
+export type EvaluationReportMetricsApiOutputConfigPassingRule = {
+    /** Pass at or above (gte), or at or below (lte), the threshold. */
+    operator: 'gte' | 'lte'
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
+} | null
+
+/**
+ * Numeric score configuration and passing rule used for both report periods.
+ */
+export type EvaluationReportMetricsApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
+     * @nullable
+     */
+    passing_rule?: EvaluationReportMetricsApiOutputConfigPassingRule
+}
+
+/**
  * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
  */
 export type EvaluationReportMetricsApiResultCounts = { [key: string]: number }
@@ -1895,9 +2075,12 @@ export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: nu
 export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
 
 export interface EvaluationReportMetricsApi {
+    /** Numeric score configuration and passing rule used for both report periods. */
+    output_config?: EvaluationReportMetricsApiOutputConfig
     /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
      *
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
      * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
     /** Number of evaluation results in the report period. */
@@ -1925,10 +2108,13 @@ export interface EvaluationReportMetricsApi {
      * @nullable
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
-    /** Boolean pass percentage, excluding results marked not applicable. */
-    pass_rate?: number
     /**
-     * Boolean pass percentage for the previous period, or null when unavailable.
+     * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+     * @nullable
+     */
+    pass_rate?: number | null
+    /**
+     * Boolean or numeric pass percentage for the previous period, or null when unavailable.
      * @nullable
      */
     previous_pass_rate?: number | null

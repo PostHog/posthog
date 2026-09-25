@@ -93,7 +93,7 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
                     })}`
                     // groupsRelatedList returns RelatedActorApi, which ActorType cannot hold:
                     // ~/types has is_identified non-nullable and distinct_ids optional.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     return await api.get(url)
                 },
                 setGroup: () => [],

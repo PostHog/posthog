@@ -235,6 +235,12 @@ def test_post_query_sends_freshly_read_token(tmp_path):
     "query,query_parameters,expected",
     [
         (
+            # the empty-object sentinel HogQL prints for a native-JSON property read must not become '{0}'
+            "SELECT if(notEquals(x, '{}'), x, %(fallback)s) FROM t WHERE team_id = {{team_id:Int64}}",
+            {"fallback": "{}"},
+            "SELECT if(notEquals(x, '{}'), x, '{}') FROM t WHERE team_id = {team_id:Int64}",
+        ),
+        (
             "select * from events where event = {event}",
             {"event": "hello"},
             "select * from events where event = 'hello'",

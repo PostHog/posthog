@@ -121,7 +121,9 @@ export const StamphogReviewRunsListQueryParams = () => zod.object({
     trigger: zod
         .enum(['all', 'label', 'manual', 'self_driving'])
         .optional()
-        .describe('Filter by what caused the run: self_driving, manual, label, or all.'),
+        .describe(
+            "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox)."
+        ),
 })
 
 /**

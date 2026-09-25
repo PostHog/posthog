@@ -36,6 +36,75 @@ return jsonParse()
 EVALUATION = {"id": "01890000-0000-0000-0000-000000000000", "team_id": 1}
 
 
+@pytest.mark.parametrize("source,score", [("return 0", 0), ("return 0.25", 0.25), ("return 1", 1)])
+def test_numeric_hog_preserves_scores_and_bounds(source: str, score: float) -> None:
+    config = {"min": 0, "max": 1, "step": 0.5}
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"),
+        {},
+        False,
+        output_type="numeric",
+        output_config=config,
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert result == {
+        "result_type": "numeric",
+        "score": score,
+        "score_min": 0,
+        "score_max": 1,
+        "reasoning": "",
+        "allows_na": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "source,terminal",
+    [("return true", True), ("return '0.5'", True), ("return -1", False), ("return 2", False), ("return null", True)],
+)
+def test_invalid_numeric_hog_only_skips_bounds_errors(source: str, terminal: bool) -> None:
+    config = {"min": 0, "max": 1}
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"),
+        {},
+        False,
+        output_type="numeric",
+        output_config=config,
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert result["result_type"] == "numeric"
+    assert is_terminal_user_error_result(result) is terminal
+    assert result["skipped"] is True
+    assert result["skip_reason"] == ("hog_error" if terminal else "score_out_of_bounds")
+    assert "score" not in result
+    assert "verdict" not in result
+
+
+def test_numeric_hog_na_omits_score() -> None:
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog("return null", "destination"),
+        {},
+        True,
+        output_type="numeric",
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "numeric"},
+        allows_na=True,
+        unit_label=None,
+    )
+    assert result == {"result_type": "numeric", "reasoning": "", "allows_na": True, "applicable": False}
+
+
 def run_source(source: str, property_value: object = "", *, allows_na: bool = True) -> dict:
     bytecode = compile_ai_observability_hog(source, "destination")
     return execute_hog_eval_bytecode(bytecode, {"properties": {"$ai_output": property_value}}, allows_na=allows_na)
