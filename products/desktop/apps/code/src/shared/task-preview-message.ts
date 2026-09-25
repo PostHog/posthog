@@ -20,7 +20,8 @@ export type TaskPreviewGuestMessage =
 export type TaskPreviewHostMessage =
   | { type: "pick"; active: boolean }
   | { type: "pins"; items: TaskPreviewPin[] }
-  | { type: "locate"; id: string };
+  | { type: "locate"; id: string }
+  | { type: "release" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -91,6 +92,7 @@ export function sanitizeTaskPreviewHostMessage(
   if (value.type === "pick" && typeof value.active === "boolean") {
     return { type: "pick", active: value.active };
   }
+  if (value.type === "release") return { type: "release" };
   if (value.type === "locate" && boundedId(value.id)) {
     return { type: "locate", id: value.id };
   }

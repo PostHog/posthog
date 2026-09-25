@@ -29,7 +29,11 @@ export type TaskPreviewFrameProps = {
   pins: TaskPreviewPin[];
   locateRequest: TaskPreviewLocateRequest | null;
   onLoadFailed: () => void;
-  onPicked: (element: TaskPreviewElement, rect: TaskPreviewRect) => void;
+  onPicked: (
+    element: TaskPreviewElement,
+    rect: TaskPreviewRect,
+    screenshot: string | null,
+  ) => void;
   onPickCancelled: () => void;
   onActivatePin: (id: string) => void;
 };

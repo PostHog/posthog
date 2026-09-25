@@ -1,6 +1,7 @@
 import type {
   TaskPreviewFrameProps,
   TaskPreviewPin,
+  TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
 import { useEffect, useRef } from "react";
 import {
@@ -12,9 +13,21 @@ import {
   sanitizeTaskPreviewGuestMessage,
   type TaskPreviewHostMessage,
 } from "../../shared/task-preview-message";
+import { screenshotArea } from "../../shared/task-preview-screenshot";
+
+type CapturedImage = {
+  isEmpty: () => boolean;
+  toDataURL: () => string;
+};
 
 type TaskPreviewWebviewElement = HTMLElement & {
   send: (channel: string, ...args: unknown[]) => void;
+  capturePage: (rect?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => Promise<CapturedImage>;
 };
 
 type WebviewLoadFailureEvent = Event & {
@@ -28,6 +41,23 @@ type WebviewIpcMessageEvent = Event & {
 };
 
 const ABORTED_LOAD_ERROR_CODE = -3;
+
+async function captureAround(
+  webview: TaskPreviewWebviewElement,
+  rect: TaskPreviewRect,
+): Promise<string | null> {
+  const area = screenshotArea(rect, {
+    width: webview.clientWidth,
+    height: webview.clientHeight,
+  });
+  if (!area) return null;
+  try {
+    const image = await webview.capturePage(area);
+    return image.isEmpty() ? null : image.toDataURL();
+  } catch {
+    return null;
+  }
+}
 
 export function ElectronTaskPreviewFrame({
   url,
@@ -104,7 +134,14 @@ export function ElectronTaskPreviewFrame({
       const message = sanitizeTaskPreviewGuestMessage(ipcEvent.args[0]);
       if (!message) return;
       if (message.type === "picked") {
-        callbacksRef.current.onPicked(message.element, message.rect);
+        void captureAround(webview, message.rect).then((screenshot) => {
+          sendRef.current({ type: "release" });
+          callbacksRef.current.onPicked(
+            message.element,
+            message.rect,
+            screenshot,
+          );
+        });
       } else if (message.type === "pick-cancelled") {
         callbacksRef.current.onPickCancelled();
       } else {

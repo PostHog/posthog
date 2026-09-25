@@ -317,6 +317,7 @@ export interface TaskPreviewSessionStartedProperties {
 export interface CommentSentToAgentProperties {
   surface: "preview" | "artifact" | "canvas" | "task";
   with_context: boolean;
+  with_screenshot: boolean;
 }
 
 export interface SidebarNavItemClickedProperties {

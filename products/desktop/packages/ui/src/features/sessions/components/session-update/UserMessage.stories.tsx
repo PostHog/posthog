@@ -1,3 +1,7 @@
+import {
+  STORY_SCREENSHOT_PATHS,
+  WithStoryScreenshots,
+} from "@posthog/ui/features/message-editor/components/commentContextStoryFixtures";
 import { UserMessage } from "@posthog/ui/features/sessions/components/session-update/UserMessage";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -7,9 +11,11 @@ const meta: Meta<typeof UserMessage> = {
   args: { animate: false, taskId: "task-1" },
   decorators: [
     (Story) => (
-      <div className="max-w-2xl p-6">
-        <Story />
-      </div>
+      <WithStoryScreenshots>
+        <div className="max-w-2xl p-6">
+          <Story />
+        </div>
+      </WithStoryScreenshots>
     ),
   ],
 };
@@ -31,7 +37,7 @@ const COMMENT_CONTEXT_BODY = [
 
 export const WithCommentContext: Story = {
   args: {
-    content: `<comment_context label="h1 &quot;Hot stuff&quot;">\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
+    content: `<comment_context label="h1 &quot;Hot stuff&quot;" screenshot="${STORY_SCREENSHOT_PATHS.heading}">\n<file path="${STORY_SCREENSHOT_PATHS.heading}" />\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
     timestamp: FIXED_TIMESTAMP,
   },
 };
@@ -39,8 +45,8 @@ export const WithCommentContext: Story = {
 export const WithManyCommentContexts: Story = {
   args: {
     content: [
-      `<comment_context label="h1 &quot;Hot stuff&quot;">\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
-      '<comment_context label="button &quot;Start free trial&quot;">\n- **Page** http://localhost:5173/pricing\n</comment_context> Use the primary style here.',
+      `<comment_context label="h1 &quot;Hot stuff&quot;" screenshot="${STORY_SCREENSHOT_PATHS.heading}">\n<file path="${STORY_SCREENSHOT_PATHS.heading}" />\n${COMMENT_CONTEXT_BODY}\n</comment_context> Make this heading red and a bit larger.`,
+      `<comment_context label="button &quot;Start free trial&quot;" screenshot="${STORY_SCREENSHOT_PATHS.button}">\n- **Page** http://localhost:5173/pricing\n</comment_context> Use the primary style here.`,
       '<comment_context label="report.md &quot;Revenue grew 12% quarter over…&quot;">\n- **Artifact** report.md\n\n> Revenue grew 12% quarter over quarter\n</comment_context> Check this number against the dashboard.',
       '<comment_context label="chart.png (region)">\n- **Artifact** chart.png\n</comment_context> The legend overlaps the bars.',
     ].join("\n"),

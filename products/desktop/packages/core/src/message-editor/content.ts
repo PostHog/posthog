@@ -55,6 +55,7 @@ export interface MentionChip {
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
+  imagePath?: string;
 }
 
 export interface FileAttachment {
@@ -137,7 +138,7 @@ export function contentToXml(content: EditorContent): string {
         return `<${chip.type} number="${escapeXmlAttr(number)}" title="${escapeXmlAttr(title)}" url="${escapedId}" />`;
       }
       case "comment_context":
-        return commentContextXml(chip.label, chip.id);
+        return commentContextXml(chip.label, chip.id, chip.imagePath);
       default:
         return `@${chip.label}`;
     }
@@ -157,9 +158,17 @@ export function contentToXml(content: EditorContent): string {
 
 export const COMMENT_CONTEXT_TAG = "comment_context";
 
-export function commentContextXml(label: string, body: string): string {
+export function commentContextXml(
+  label: string,
+  body: string,
+  imagePath?: string,
+): string {
   const safeBody = body.replaceAll(`</${COMMENT_CONTEXT_TAG}`, "");
-  return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
+  if (!imagePath) {
+    return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
+  }
+  const path = escapeXmlAttr(imagePath);
+  return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}" screenshot="${path}">\n<file path="${path}" />\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
 }
 
 // Self-closing chip tags, paired report references, and the paired
@@ -266,8 +275,17 @@ function hogqlChipFromBody(body: string): MentionChip | null {
 }
 
 function commentContextChip(rawAttrs: string, body: string): MentionChip {
-  const label = parseXmlAttrs(rawAttrs).label || "Comment";
-  return { type: "comment_context", id: body.trim(), label };
+  const attrs = parseXmlAttrs(rawAttrs);
+  const imagePath = attrs.screenshot || undefined;
+  const text = imagePath
+    ? body.replace(/^\s*<file\s+path="[^"]*"\s*\/>\n?/, "")
+    : body;
+  return {
+    type: "comment_context",
+    id: text.trim(),
+    label: attrs.label || "Comment",
+    ...(imagePath ? { imagePath } : {}),
+  };
 }
 
 export function xmlToContent(xml: string): EditorContent {

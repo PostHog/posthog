@@ -216,11 +216,27 @@ export function resolveMessageAttachments(
   };
 }
 
+const COMMENT_CONTEXT_BLOCK =
+  /<comment_context\b[^>]*>[\s\S]*?<\/comment_context>/g;
+
+function outsideCommentContext(
+  text: string,
+  transform: (part: string) => string,
+): string {
+  let result = "";
+  let cursor = 0;
+  for (const match of text.matchAll(COMMENT_CONTEXT_BLOCK)) {
+    const index = match.index ?? 0;
+    result += transform(text.slice(cursor, index)) + match[0];
+    cursor = index + match[0].length;
+  }
+  return result + transform(text.slice(cursor));
+}
+
 function extractImageFileTags(text: string): PromptDisplayContent {
   const attachments: AttachmentRef[] = [];
-  const stripped = text.replace(
-    ABSOLUTE_FILE_TAG_REGEX,
-    (tag, rawPath: string) => {
+  const stripped = outsideCommentContext(text, (part) =>
+    part.replace(ABSOLUTE_FILE_TAG_REGEX, (tag, rawPath: string) => {
       const filePath = unescapeXmlAttr(rawPath);
       const label = getFileName(filePath);
       // Message text is not trusted: only files the composer saved may be read from disk.
@@ -232,7 +248,7 @@ function extractImageFileTags(text: string): PromptDisplayContent {
         attachments.push({ id, label });
       }
       return "";
-    },
+    }),
   );
   if (attachments.length === 0) return { text, attachments };
   return { text: normalizePromptText(stripped), attachments };

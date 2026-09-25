@@ -1,4 +1,4 @@
-import { ChatCircleText, File, Folder, Warning } from "@phosphor-icons/react";
+import { File, Folder, Warning } from "@phosphor-icons/react";
 import {
   hasMentionTags,
   SLASH_COMMAND_START,
@@ -16,9 +16,10 @@ import {
   defaultRemarkPlugins,
 } from "../../../editor/components/MarkdownRenderer";
 import { CommentContextPreview } from "../../../message-editor/components/CommentContextPreview";
+import { CommentContextThumbnail } from "../../../message-editor/components/CommentContextThumbnail";
 
 const MENTION_TAG_REGEX =
-  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)">([\s\S]*?)<\/comment_context>/g;
+  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="([^"]*)")?>([\s\S]*?)<\/comment_context>/g;
 
 const inlineComponents: Components = {
   ...baseComponents,
@@ -175,15 +176,21 @@ function parseMentionTags(content: string): ReactNode[] {
       );
     } else if (match[8] !== undefined) {
       const label = unescapeXmlAttr(match[8]) || "Comment";
-      if (parts.length > 0)
+      const imagePath = match[9] ? unescapeXmlAttr(match[9]) : undefined;
+      if (parts.length > 0) {
         parts.push(<br key={`comment-break-${matchIndex}`} />);
+      }
       parts.push(
         <MentionChip
           key={`comment-ctx-${matchIndex}`}
-          icon={<ChatCircleText size={12} />}
+          icon={<CommentContextThumbnail imagePath={imagePath} />}
           label={label}
           tooltip={
-            <CommentContextPreview label={label} body={match[9].trim()} />
+            <CommentContextPreview
+              label={label}
+              body={match[10].trim()}
+              imagePath={imagePath}
+            />
           }
         />,
       );

@@ -33,12 +33,3 @@ export function parseCommentContextBody(body: string): CommentContextDetails {
     snippet: snippetLines.length > 0 ? snippetLines.join("\n") : null,
   };
 }
-
-export function inlineCodeRuns(
-  value: string,
-): { key: string; text: string; code: boolean }[] {
-  return value
-    .split("`")
-    .map((text, index) => ({ key: `${index}`, text, code: index % 2 === 1 }))
-    .filter((run) => run.text.length > 0);
-}

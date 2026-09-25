@@ -26,6 +26,8 @@ const REPORTED_ATTRIBUTES = [
 ];
 const PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 const PIN_REFRESH_INTERVAL_MS = 500;
+const MARKER_RELEASE_TIMEOUT_MS = 4_000;
+const MARKER_SIZE = 22;
 const ACCENT = "#f54e00";
 
 function truncate(value: string, maxLength: number): string {
@@ -91,6 +93,8 @@ export function setupTaskPreviewPicker(
   let overlayRoot: ShadowRoot | null = null;
   let highlight: HTMLDivElement | null = null;
   let pinLayer: HTMLDivElement | null = null;
+  let marker: HTMLDivElement | null = null;
+  let releaseTimer: ReturnType<typeof setTimeout> | null = null;
   let picking = false;
   let hovered: Element | null = null;
   let pins: TaskPreviewPin[] = [];
@@ -105,7 +109,9 @@ export function setupTaskPreviewPicker(
     highlight = document.createElement("div");
     highlight.style.cssText = `position:fixed;display:none;border:2px solid ${ACCENT};background:rgba(245,78,0,0.12);border-radius:2px;pointer-events:none;`;
     pinLayer = document.createElement("div");
-    overlayRoot.append(highlight, pinLayer);
+    marker = document.createElement("div");
+    marker.style.cssText = `position:fixed;display:none;width:${MARKER_SIZE}px;height:${MARKER_SIZE}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${ACCENT};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);pointer-events:none;`;
+    overlayRoot.append(highlight, pinLayer, marker);
     document.documentElement.appendChild(host);
     return overlayRoot;
   };
@@ -166,6 +172,24 @@ export function setupTaskPreviewPicker(
     }
   };
 
+  const showMarker = (element: Element) => {
+    showHighlight(element);
+    if (!marker) return;
+    const rect = element.getBoundingClientRect();
+    marker.style.display = "block";
+    marker.style.top = `${Math.max(0, rect.top - MARKER_SIZE / 2)}px`;
+    marker.style.left = `${Math.max(0, rect.right - MARKER_SIZE / 2)}px`;
+    if (releaseTimer) clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(releaseMarker, MARKER_RELEASE_TIMEOUT_MS);
+  };
+
+  const releaseMarker = () => {
+    if (releaseTimer) clearTimeout(releaseTimer);
+    releaseTimer = null;
+    if (marker) marker.style.display = "none";
+    if (!picking) showHighlight(null);
+  };
+
   const stopPicking = () => {
     picking = false;
     hovered = null;
@@ -196,6 +220,7 @@ export function setupTaskPreviewPicker(
       document.elementFromPoint(event.clientX, event.clientY) ?? hovered;
     if (!target) return;
     stopPicking();
+    showMarker(target);
     send({
       type: "picked",
       element: describeElement(target),
@@ -220,6 +245,10 @@ export function setupTaskPreviewPicker(
   window.addEventListener("resize", () => renderPins());
 
   return (message) => {
+    if (message.type === "release") {
+      releaseMarker();
+      return;
+    }
     if (message.type === "pick") {
       if (message.active) {
         picking = true;

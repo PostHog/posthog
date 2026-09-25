@@ -8,6 +8,7 @@ export type CommentResource =
 export type CommentAgentContext = {
   label: string;
   body: string;
+  screenshot?: string;
 };
 
 const LABEL_LENGTH = 48;
@@ -94,7 +95,7 @@ export function commentComposerContent({
 }: {
   comment: string;
   draftEmpty: boolean;
-  context: CommentAgentContext | null;
+  context: (CommentAgentContext & { imagePath?: string }) | null;
 }): EditorContent {
   const segments: EditorContent["segments"] = [];
   if (!draftEmpty) segments.push({ type: "text", text: "\n" });
@@ -106,6 +107,7 @@ export function commentComposerContent({
           type: "comment_context",
           id: context.body,
           label: context.label,
+          ...(context.imagePath ? { imagePath: context.imagePath } : {}),
         },
       },
       { type: "text", text: " " },

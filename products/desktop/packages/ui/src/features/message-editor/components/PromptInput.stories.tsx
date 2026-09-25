@@ -14,6 +14,10 @@ import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/Steer
 import { ChannelContextChip } from "@posthog/ui/features/task-detail/components/ChannelContextChip";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
+import {
+  STORY_SCREENSHOT_PATHS,
+  WithStoryScreenshots,
+} from "./commentContextStoryFixtures";
 
 // The host tRPC, DI, and query providers are supplied globally by the
 // `withAppProviders` decorator in `.storybook/preview.tsx`. Image attachments
@@ -231,9 +235,11 @@ const meta: Meta<typeof PromptInputHarness> = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-[800px]">
-        <Story />
-      </div>
+      <WithStoryScreenshots>
+        <div className="max-w-[800px]">
+          <Story />
+        </div>
+      </WithStoryScreenshots>
     ),
   ],
   args: {
@@ -325,16 +331,22 @@ export const WithCommentContextChip: Story = {
         type: "comment_context",
         id: COMMENT_CONTEXT_BODY,
         label: 'h1 "Hot stuff"',
+        imagePath: STORY_SCREENSHOT_PATHS.heading,
       },
     ],
     text: "Make this heading red and a bit larger.",
   },
 };
 
-function commentChip(label: string, body: string) {
+function commentChip(label: string, body: string, imagePath?: string) {
   return {
     type: "chip" as const,
-    chip: { type: "comment_context" as const, id: body, label },
+    chip: {
+      type: "comment_context" as const,
+      id: body,
+      label,
+      ...(imagePath ? { imagePath } : {}),
+    },
   };
 }
 
@@ -344,11 +356,16 @@ export const WithManyCommentContextChips: Story = {
     sessionId: "sb-chip-comment-context-many",
     content: {
       segments: [
-        commentChip('h1 "Hot stuff"', COMMENT_CONTEXT_BODY),
+        commentChip(
+          'h1 "Hot stuff"',
+          COMMENT_CONTEXT_BODY,
+          STORY_SCREENSHOT_PATHS.heading,
+        ),
         { type: "text", text: " Make this heading red and a bit larger.\n" },
         commentChip(
           'button "Start free trial"',
           '- **Page** http://localhost:5173/pricing\n- **Element** `<button>` Start free trial\n- **Selector** `button[data-attr="trial"]`',
+          STORY_SCREENSHOT_PATHS.button,
         ),
         { type: "text", text: " Use the primary style here.\n" },
         commentChip(

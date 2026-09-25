@@ -189,12 +189,18 @@ describe("xmlToContent", () => {
       segments: [
         {
           type: "chip",
-          chip: { type: "comment_context", id: body, label: 'h1 "Hot & new"' },
+          chip: {
+            type: "comment_context",
+            id: body,
+            label: 'h1 "Hot & new"',
+            imagePath: "/tmp/clipboard/shot 1.png",
+          },
         },
         { type: "text", text: " Make it red" },
       ],
     });
 
+    expect(serialized).toContain('<file path="/tmp/clipboard/shot 1.png" />');
     expect(xmlToContent(serialized).segments).toEqual([
       {
         type: "chip",
@@ -202,6 +208,7 @@ describe("xmlToContent", () => {
           type: "comment_context",
           id: body.replace("</comment_context>", ">"),
           label: 'h1 "Hot & new"',
+          imagePath: "/tmp/clipboard/shot 1.png",
         },
       },
       { type: "text", text: " Make it red" },

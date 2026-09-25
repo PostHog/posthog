@@ -17,6 +17,7 @@ import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { CommentContextPreview } from "../components/CommentContextPreview";
+import { CommentContextThumbnail } from "../components/CommentContextThumbnail";
 import { usePasteUndoStore } from "../pasteUndoStore";
 import type { ChipType, MentionChipAttrs } from "./MentionChipNode";
 
@@ -42,11 +43,13 @@ function IconCloseButton({
   type,
   iconSize,
   objectKind,
+  leading,
   onRemove,
 }: {
   type: ChipType;
   iconSize: number;
   objectKind?: MentionChipAttrs["objectKind"];
+  leading?: React.ReactNode;
   onRemove: () => void;
 }) {
   const Icon =
@@ -60,15 +63,20 @@ function IconCloseButton({
       tabIndex={-1}
       className={cn(
         "relative inline-flex shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0",
-        iconSize > 10 ? "size-4" : "size-3.5",
+        leading ? "h-3.5 w-5" : iconSize > 10 ? "size-4" : "size-3.5",
       )}
       onClick={(e) => {
         e.stopPropagation();
         onRemove();
       }}
     >
-      <span className="ease pointer-events-none absolute inset-0 flex items-center justify-center opacity-50 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-        <Icon size={iconSize} />
+      <span
+        className={cn(
+          "ease pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none",
+          leading ? "opacity-100" : "opacity-50",
+        )}
+      >
+        {leading ?? <Icon size={iconSize} />}
       </span>
       <span className="ease pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
         <XIcon size={iconSize} />
@@ -84,12 +92,14 @@ function DefaultChip({
   objectKind,
   chipId,
   pastedText,
+  imagePath,
   selected,
   onRemove,
 }: {
   type: string;
   id: string;
   label: string;
+  imagePath?: string;
   objectKind?: MentionChipAttrs["objectKind"];
   chipId: string | null;
   pastedText: boolean;
@@ -145,6 +155,11 @@ function DefaultChip({
         type={type as ChipType}
         iconSize={isPr ? 12 : 10}
         objectKind={objectKind}
+        leading={
+          isCommentContext && imagePath ? (
+            <CommentContextThumbnail imagePath={imagePath} />
+          ) : undefined
+        }
         onRemove={onRemove}
       />
       {isGithubRef ? (
@@ -157,7 +172,15 @@ function DefaultChip({
 
   if (isCommentContext) {
     return (
-      <Tooltip content={<CommentContextPreview label={label} body={id} />}>
+      <Tooltip
+        content={
+          <CommentContextPreview
+            label={label}
+            body={id}
+            imagePath={imagePath}
+          />
+        }
+      >
         {chipContent}
       </Tooltip>
     );
@@ -180,7 +203,7 @@ export function MentionChipView({
   editor,
   selected,
 }: NodeViewProps) {
-  const { type, id, label, objectKind, pastedText, chipId } =
+  const { type, id, label, objectKind, pastedText, chipId, imagePath } =
     node.attrs as MentionChipAttrs;
 
   const handleRemove = () => {
@@ -202,6 +225,7 @@ export function MentionChipView({
         objectKind={objectKind}
         chipId={chipId ?? null}
         pastedText={pastedText}
+        imagePath={imagePath}
         selected={selected}
         onRemove={handleRemove}
       />

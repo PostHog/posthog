@@ -20,6 +20,7 @@ import type {
 
 type PendingComment = {
   element: TaskPreviewElement;
+  screenshot: string | null;
   anchor: { top: number; right: number; bottom: number };
 };
 
@@ -68,12 +69,17 @@ export function AnnotatedTaskPreview({
   }, []);
 
   const onPicked = useCallback(
-    (element: TaskPreviewElement, rect: TaskPreviewRect) => {
+    (
+      element: TaskPreviewElement,
+      rect: TaskPreviewRect,
+      screenshot: string | null,
+    ) => {
       onCommentingChange(false);
       const box = frameRef.current?.getBoundingClientRect();
       if (!box) return;
       setPending({
         element,
+        screenshot,
         anchor: {
           top: box.top + rect.top,
           right: box.left + rect.right,
@@ -100,17 +106,23 @@ export function AnnotatedTaskPreview({
     setActiveThreadId(created.id);
   };
 
-  const sendToAgent = (anchor: ElementCommentAnchor, content: string) =>
-    sendCommentToAgent({
+  const sendToAgent = (
+    anchor: ElementCommentAnchor,
+    screenshot: string | null,
+    content: string,
+  ) => {
+    const context = commentAgentContext(anchor, {
+      kind: "preview",
+      name: title,
+      port,
+    });
+    void sendCommentToAgent({
       taskId,
       comment: content,
-      context: commentAgentContext(anchor, {
-        kind: "preview",
-        name: title,
-        port,
-      }),
+      context: context && screenshot ? { ...context, screenshot } : context,
       surface: "preview",
     });
+  };
 
   const showThreads = threads.length > 0 || commenting;
 
@@ -177,7 +189,11 @@ export function AnnotatedTaskPreview({
         onSendToAgent={
           pending
             ? (content) =>
-                sendToAgent({ kind: "element", ...pending.element }, content)
+                sendToAgent(
+                  { kind: "element", ...pending.element },
+                  pending.screenshot,
+                  content,
+                )
             : undefined
         }
       />

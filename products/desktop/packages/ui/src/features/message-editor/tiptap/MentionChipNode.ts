@@ -29,6 +29,7 @@ export interface MentionChipAttrs {
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
+  imagePath?: string;
 }
 
 declare module "@tiptap/core" {
@@ -62,6 +63,7 @@ export const MentionChipNode = Node.create({
       skillPath: { default: undefined },
       skillSource: { default: undefined },
       skillName: { default: undefined },
+      imagePath: { default: undefined },
     };
   },
 
