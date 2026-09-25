@@ -1240,13 +1240,6 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         isShared: boolean
     }
-    reportInsightShareToggled: (
-        insightShortId: InsightShortId | undefined,
-        isShared: boolean
-    ) => {
-        insightShortId: InsightShortId | undefined
-        isShared: boolean
-    }
     reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
         tileDensity: DashboardTileSpacing
     }
@@ -1991,6 +1984,13 @@ export interface eventUsageLogicActions {
         isNewInsight: boolean
         query: Node<Record<string, any>> | null
         saveType: 'save' | 'save_as'
+    }
+    reportInsightShareToggled: (
+        insightShortId: InsightShortId | undefined,
+        isShared: boolean
+    ) => {
+        insightShortId: InsightShortId | undefined
+        isShared: boolean
     }
     reportInsightStarted: (query: Node | null) => {
         query: Node<Record<string, any>> | null
