@@ -8398,6 +8398,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'PinterestAds',
     'AppleSearchAds',
     'OpenAIAds',
+    'AmazonAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8588,10 +8589,20 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['openai', 'chatgpt', 'openai_ads'] as const,
         primarySource: 'openai',
     },
+    AmazonAds: {
+        sourceType: 'AmazonAds' as const,
+        nameField: 'name',
+        idField: 'campaign_id',
+        campaignTableName: 'sp_campaigns',
+        statsTableName: 'sp_campaign_reports',
+        defaultSources: ['amazon', 'amazon_ads'] as const,
+        primarySource: 'amazon',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
+export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
 export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]

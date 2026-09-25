@@ -1502,6 +1502,10 @@
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
         },
+        "AmazonAdsDefaultSources": {
+            "enum": ["amazon", "amazon_ads"],
+            "type": "string"
+        },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
             "properties": {
@@ -36531,6 +36535,60 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "sp_campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "amazon",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "amazon_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "campaign_id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "amazon",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "AmazonAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "sp_campaign_reports",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38440,7 +38498,8 @@
                 "SnapchatAds",
                 "PinterestAds",
                 "AppleSearchAds",
-                "OpenAIAds"
+                "OpenAIAds",
+                "AmazonAds"
             ],
             "type": "string"
         },
