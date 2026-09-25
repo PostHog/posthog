@@ -44,7 +44,7 @@ const CHECK_META: Record<string, CheckMeta> = {
     web_vitals: {
         title: '$web_vitals',
         description:
-            'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
+            'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking. If none arrive, check that web vitals are enabled in posthog-js, and that your Content-Security-Policy allows the PostHog assets host in script-src and connect-src.',
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
     },
     path_cleaning_suggestions: {
