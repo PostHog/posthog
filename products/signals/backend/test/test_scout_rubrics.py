@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.presentation.scout_rubrics import ScoutRubricSaveSerializer
 from products.signals.backend.scout_harness.rubrics import (
     GENERATION_TIMEOUT,
     ScoutRubricCriterion,
@@ -31,7 +32,6 @@ from products.signals.backend.scout_harness.rubrics import (
     update_generation,
 )
 from products.signals.backend.scout_harness.rubrics_runner import run_rubric_generation
-from products.signals.backend.scout_rubrics_api import ScoutRubricSaveSerializer
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
@@ -87,7 +87,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             team_id=self.team.id, skill_name="signals-scout-checkout", enabled=False
         )
         self.url = f"/api/projects/{self.team.id}/signals/scout/rubrics/{self.config.id}/"
-        self.team_patch = patch("products.signals.backend.scout_rubrics_api.RUBRIC_TEAM_ID", self.team.id)
+        self.team_patch = patch("products.signals.backend.presentation.scout_rubrics.RUBRIC_TEAM_ID", self.team.id)
         self.team_patch.start()
         self.addCleanup(self.team_patch.stop)
 
@@ -115,7 +115,9 @@ class TestScoutRubricsAPI(APIBaseTest):
     def test_internal_gate_covers_every_action(self, _name: str, staff: bool, different_team: bool) -> None:
         self.user.is_staff = staff
         self.user.save(update_fields=["is_staff"])
-        with patch("products.signals.backend.scout_rubrics_api.RUBRIC_TEAM_ID", -1 if different_team else self.team.id):
+        with patch(
+            "products.signals.backend.presentation.scout_rubrics.RUBRIC_TEAM_ID", -1 if different_team else self.team.id
+        ):
             self.assertEqual(self.client.get(self.url).status_code, 403)
             self.assertEqual(self.client.put(self.url, {"revision": 0, "criteria": []}).status_code, 403)
             self.assertEqual(self.client.post(self.url + "generate/").status_code, 403)
@@ -136,7 +138,7 @@ class TestScoutRubricsAPI(APIBaseTest):
 
     def test_generate_is_deduplicated_and_preserves_concurrent_manual_save(self) -> None:
         client = SimpleNamespace(start_workflow=AsyncMock())
-        with patch("products.signals.backend.scout_rubrics_api.sync_connect", return_value=client):
+        with patch("products.signals.backend.scout_harness.rubrics.sync_connect", return_value=client):
             first = self.client.post(self.url + "generate/")
             second = self.client.post(self.url + "generate/")
         self.assertEqual(first.status_code, 202)
@@ -164,7 +166,7 @@ class TestScoutRubricsAPI(APIBaseTest):
         update_generation(self.team.id, str(self.config.id), old)
         self.assertEqual(self.client.get(self.url).json()["generation"]["status"], "failed")
         with patch(
-            "products.signals.backend.scout_rubrics_api.sync_connect",
+            "products.signals.backend.scout_harness.rubrics.sync_connect",
             return_value=SimpleNamespace(start_workflow=AsyncMock()),
         ):
             response = self.client.post(self.url + "generate/")
@@ -176,7 +178,7 @@ class TestScoutRubricsAPI(APIBaseTest):
 
     def test_dispatch_failure_keeps_rubric_and_allows_retry(self) -> None:
         save_rubric(self.team.id, str(self.config.id), revision=0, criteria=[custom_criterion()])
-        with patch("products.signals.backend.scout_rubrics_api.sync_connect", side_effect=RuntimeError("offline")):
+        with patch("products.signals.backend.scout_harness.rubrics.sync_connect", side_effect=RuntimeError("offline")):
             response = self.client.post(self.url + "generate/")
         self.assertEqual(response.status_code, 500)
         state = self.client.get(self.url).json()

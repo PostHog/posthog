@@ -58,6 +58,11 @@ what passing means, and when it is not applicable or cannot be assessed. Include
 or correct declines when relevant; avoid rewarding report quantity, excessive tool use, or unnecessary
 memory writes. Do not claim missed findings can be measured from the scout's summary alone.
 Do not grade runs or invent a baseline. Keep criteria reusable when the model or prompt changes.
+Preserve distinct decision thresholds, explicit exceptions, optional steps, and fallback paths.
+Do not turn one branch's requirements into a rule for every output. Check each passing condition
+against its applicability and the other suggested criteria. If the supplied instructions conflict,
+explain the unresolved policy in the summary instead of inventing a resolution or encoding
+contradictory requirements.
 Write short, plain text without customer names, literal customer messages, or incidental identifiers.
 The summary should describe the inspected sources and limitations without copying their contents.
 Finish with only JSON matching the supplied result schema. Never ask the user a question.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -12,22 +12,21 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
-from posthog.temporal.common.client import sync_connect
 
-from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_chat import consume_daily_attempt, refund_daily_attempt
-from products.signals.backend.scout_harness.rubrics import (
+from products.signals.backend.facade.rubrics import (
     MAX_CRITERIA,
     RUBRIC_TEAM_ID,
     ScoutRubricCriterion,
+    ScoutRubricDocument,
+    ScoutRubricGenerationLimitExceeded,
     ScoutRubricGenerationStatus,
+    ScoutRubricGenerationUnavailable,
+    ScoutRubricNotFound,
     ScoutRubricSource,
     default_criteria,
-    fail_generation,
-    read_rubric_state,
-    reserve_generation,
-    save_rubric,
-    visible_rubric_state,
+    generate_scout_rubric,
+    get_scout_rubric,
+    save_scout_rubric,
 )
 
 if TYPE_CHECKING:
@@ -102,27 +101,47 @@ class ScoutRubricAccessPermission(BasePermission):
         return bool(getattr(request.user, "is_staff", False) and getattr(view, "team_id", None) == RUBRIC_TEAM_ID)
 
 
-def rubric_response(config: SignalScoutConfig, *, response_status: int = status.HTTP_200_OK) -> Response:
-    state = visible_rubric_state(config)
-    payload = {"config_id": config.id, "skill_name": config.skill_name, **state.model_dump(mode="json")}
+def rubric_response(document: ScoutRubricDocument, *, response_status: int = status.HTTP_200_OK) -> Response:
+    payload = {
+        "config_id": document.config_id,
+        "skill_name": document.skill_name,
+        **document.state.model_dump(mode="json"),
+    }
     return Response(ScoutRubricDocumentSerializer(payload).data, status=response_status)
 
 
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            "id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.PATH,
+            description="A UUID string identifying this Signal scout config.",
+        )
+    ]
+)
 class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ScoutRubricDocumentSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutRubricAccessPermission]
     scope_object = "signal_scout"
-    queryset = SignalScoutConfig.objects.unscoped()
     lookup_field = "id"
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return ["signal_scout:read" if getattr(view, "action", None) == "retrieve" else "signal_scout:write"]
 
+    def get_rubric(self, config_id: str) -> ScoutRubricDocument:
+        try:
+            document = get_scout_rubric(self.team_id, config_id)
+        except ScoutRubricNotFound:
+            raise exceptions.NotFound() from None
+        self.check_object_permissions(self.request, document)
+        return document
+
     @extend_schema(responses={200: ScoutRubricDocumentSerializer}, operation_id="signals_scout_rubrics_retrieve")
     def retrieve(self, request: Request, id: str, **kwargs: object) -> Response:
-        return rubric_response(self.get_object())
+        return rubric_response(self.get_rubric(id))
 
     @extend_schema(
         request=ScoutRubricSaveSerializer,
@@ -130,16 +149,16 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_rubrics_update",
     )
     def update(self, request: Request, id: str, **kwargs: object) -> Response:
-        config = self.get_object()
+        document = self.get_rubric(id)
         serializer = ScoutRubricSaveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        config = save_rubric(
+        document = save_scout_rubric(
             self.team_id,
-            str(config.id),
+            str(document.config_id),
             revision=serializer.validated_data["revision"],
             criteria=[ScoutRubricCriterion.model_validate(item) for item in serializer.validated_data["criteria"]],
         )
-        return rubric_response(config)
+        return rubric_response(document)
 
     @extend_schema(
         request=None,
@@ -148,36 +167,18 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"])
     def generate(self, request: Request, id: str, **kwargs: object) -> Response:
-        config = self.get_object()
+        document = self.get_rubric(id)
         user_id = request.user.pk
         if user_id is None:
             raise exceptions.NotAuthenticated()
         if self.team.organization.is_ai_data_processing_approved is not True:
             raise exceptions.PermissionDenied("Enable AI data processing for this organization to generate rubrics.")
-        config, created = reserve_generation(self.team_id, str(config.id))
-        if not created:
-            return rubric_response(config, response_status=status.HTTP_202_ACCEPTED)
-        generation = read_rubric_state(config).generation
-        assert generation is not None
-        if not consume_daily_attempt("signals_scout_rubrics", self.team_id, 20):
-            fail_generation(
-                self.team_id, str(config.id), generation.id, "Daily generation limit reached. Try tomorrow."
-            )
-            raise exceptions.Throttled(detail="You've reached today's rubric generation limit. Try again tomorrow.")
         try:
-            from products.signals.backend.temporal.agentic.scout_rubrics import (  # noqa: PLC0415 - keeps Temporal off the route import path
-                start_scout_rubric_generation,
-            )
-
-            start_scout_rubric_generation(
-                sync_connect(),
-                team_id=self.team_id,
-                config_id=str(config.id),
-                generation_id=generation.id,
-                user_id=user_id,
-            )
-        except Exception:
-            refund_daily_attempt("signals_scout_rubrics", self.team_id)
-            fail_generation(self.team_id, str(config.id), generation.id, "Generation could not start. Try again.")
-            raise exceptions.APIException("Generation could not start. Try again.")
-        return rubric_response(config, response_status=status.HTTP_202_ACCEPTED)
+            document = generate_scout_rubric(self.team_id, str(document.config_id), user_id=user_id)
+        except ScoutRubricGenerationLimitExceeded:
+            raise exceptions.Throttled(
+                detail="You've reached today's rubric generation limit. Try again tomorrow."
+            ) from None
+        except ScoutRubricGenerationUnavailable:
+            raise exceptions.APIException("Generation could not start. Try again.") from None
+        return rubric_response(document, response_status=status.HTTP_202_ACCEPTED)

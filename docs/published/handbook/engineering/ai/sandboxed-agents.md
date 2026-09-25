@@ -294,6 +294,8 @@ await session.end()
 ### Reference implementation
 
 The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` uses a single background session to inspect a scout's instructions and recent runs.
+When no runs exist, it drafts criteria from the instructions and available references and states that limitation.
+The prompt asks the agent to preserve conditional rules and fallback paths and identify conflicting instructions for owner review.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
 The worker saves validated suggestions on the scout config and ends the session.
 The browser can close during generation and retrieve the result later without restoring a sandbox.

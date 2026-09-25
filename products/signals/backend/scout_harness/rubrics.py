@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from posthog.dataclasses import frozen
 from posthog.exceptions import Conflict
+from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import SignalScoutConfig
 
@@ -74,6 +77,25 @@ class ScoutRubricState(BaseModel):
     revision: int = 0
     criteria: list[ScoutRubricCriterion] = Field(default_factory=list)
     generation: ScoutRubricGeneration | None = None
+
+
+@frozen
+class ScoutRubricDocument:
+    config_id: UUID
+    skill_name: str
+    state: ScoutRubricState
+
+
+class ScoutRubricNotFound(Exception):
+    pass
+
+
+class ScoutRubricGenerationLimitExceeded(Exception):
+    pass
+
+
+class ScoutRubricGenerationUnavailable(Exception):
+    pass
 
 
 def default_criteria() -> list[ScoutRubricCriterion]:
@@ -221,3 +243,54 @@ def fail_generation(team_id: int, config_id: str, generation_id: str, message: s
         state.generation.completed_at = timezone.now()
         config.rubrics = state.model_dump(mode="json")
         config.save(update_fields=["rubrics", "updated_at"])
+
+
+def _to_document(config: SignalScoutConfig) -> ScoutRubricDocument:
+    return ScoutRubricDocument(config_id=config.id, skill_name=config.skill_name, state=visible_rubric_state(config))
+
+
+def get_scout_rubric(team_id: int, config_id: str) -> ScoutRubricDocument:
+    try:
+        config = SignalScoutConfig.objects.for_team(team_id).get(id=config_id)
+    except (SignalScoutConfig.DoesNotExist, ValidationError, ValueError):
+        raise ScoutRubricNotFound from None
+    return _to_document(config)
+
+
+def save_scout_rubric(
+    team_id: int, config_id: str, *, revision: int, criteria: list[ScoutRubricCriterion]
+) -> ScoutRubricDocument:
+    return _to_document(save_rubric(team_id, config_id, revision=revision, criteria=criteria))
+
+
+def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> ScoutRubricDocument:
+    from products.signals.backend.scout_chat import (  # noqa: PLC0415 - keeps HTTP-only dependencies out of background rubric imports
+        consume_daily_attempt,
+        refund_daily_attempt,
+    )
+
+    config, created = reserve_generation(team_id, config_id)
+    if not created:
+        return _to_document(config)
+    generation = read_rubric_state(config).generation
+    assert generation is not None
+    if not consume_daily_attempt("signals_scout_rubrics", team_id, 20):
+        fail_generation(team_id, config_id, generation.id, "Daily generation limit reached. Try tomorrow.")
+        raise ScoutRubricGenerationLimitExceeded
+    try:
+        from products.signals.backend.temporal.agentic.scout_rubrics import (  # noqa: PLC0415 - keeps Temporal off the route import path
+            start_scout_rubric_generation,
+        )
+
+        start_scout_rubric_generation(
+            sync_connect(),
+            team_id=team_id,
+            config_id=config_id,
+            generation_id=generation.id,
+            user_id=user_id,
+        )
+    except Exception:
+        refund_daily_attempt("signals_scout_rubrics", team_id)
+        fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
+        raise ScoutRubricGenerationUnavailable from None
+    return _to_document(config)

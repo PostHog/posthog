@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
+from products.signals.backend.presentation.scout_rubrics import SignalScoutRubricViewSet
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
@@ -12,7 +13,6 @@ from products.signals.backend.scout_harness.views import (
     SignalScoutViewSet,
     SignalScratchpadViewSet,
 )
-from products.signals.backend.scout_rubrics_api import SignalScoutRubricViewSet
 from products.signals.backend.scout_suggestions_api import SignalScoutSuggestionViewSet
 from products.signals.backend.views import SignalViewSet
 

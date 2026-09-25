@@ -672,6 +672,7 @@ Each criterion contains an identifier, description, passing condition, applicabi
 These are definitions for later evaluations; saving them does not score runs or change scout execution.
 
 The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
+The API lives in `backend/presentation/scout_rubrics.py` and calls `backend/facade/rubrics.py`; rubric persistence and generation dispatch stay in `backend/scout_harness/rubrics.py`.
 `PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
 `POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
 The background agent inspects instructions and recent runs through read-only access and returns structured suggestions.
