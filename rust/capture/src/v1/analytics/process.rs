@@ -538,6 +538,7 @@ fn validate_events(
                             uuid,
                             options: Options::default(),
                             adjusted_timestamp: None,
+                            client_capture: Some(raw_ts),
                             result: EventResult::Drop,
                             details: Some(DETAIL_INVALID_OPTIONS),
                             destination,
@@ -564,6 +565,7 @@ fn validate_events(
                     uuid,
                     options,
                     adjusted_timestamp: Some(adjusted),
+                    client_capture: Some(raw_ts),
                     result: EventResult::Ok,
                     details: if illegal {
                         Some(DETAIL_PERSON_PROCESSING_DISABLED)
@@ -582,6 +584,7 @@ fn validate_events(
                     uuid,
                     options: Options::default(),
                     adjusted_timestamp: None,
+                    client_capture: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
                     destination,
