@@ -13,7 +13,7 @@ const McpConnectionToolsListSchema = () => {
 
 const mcpConnectionToolsList = (): ToolBase<
     ReturnType<typeof McpConnectionToolsListSchema>,
-    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMCPServerInstallationToolList>>
+    WithPostHogUrl<Schemas.PaginatedMCPServerInstallationToolList>
 > => ({
     name: 'mcp-connection-tools-list',
     schema: McpConnectionToolsListSchema(),
@@ -23,8 +23,7 @@ const mcpConnectionToolsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
         })
-        const paged = withPageOffsets(result)
-        return await withPostHogUrl(context, paged, '/settings/mcp-servers')
+        return await withPostHogUrl(context, result, '/settings/mcp-servers')
     },
 })
 

@@ -970,13 +970,17 @@ function buildResponseFilter(config: ToolConfig): {
 
 /**
  * DRF paginated envelopes carry `next`/`previous` links an agent cannot follow — see
- * `withPageOffsets`. Codegen swaps them for offsets wherever the response is one.
+ * `withPageOffsets`. The envelope type is the same for every pagination class, so the swap is
+ * gated on the endpoint declaring an `offset` param too: a cursor- or page-paginated endpoint
+ * keeps its links, because the token for the next call lives inside them and no offset replaces it.
  */
 function buildPageOffsets(
     responseType: string | undefined,
+    operation: OpenApiOperation,
     resultVar: string
 ): { code: string; resultVar: string; applied: boolean } {
-    if (!responseType?.startsWith('Schemas.Paginated')) {
+    const pagesByOffset = (operation.parameters ?? []).some((p) => p.in === 'query' && p.name === 'offset')
+    if (!responseType?.startsWith('Schemas.Paginated') || !pagesByOffset) {
         return { code: '', resultVar, applied: false }
     }
     return { code: `        const paged = withPageOffsets(${resultVar})\n`, resultVar: 'paged', applied: true }
@@ -1260,7 +1264,7 @@ function generateToolCode(
     handlerBody += responseFilter.code
 
     // Pagination — swap the unusable next/previous links for offsets
-    const pageOffsets = buildPageOffsets(responseType, responseFilter.code ? 'filtered' : 'result')
+    const pageOffsets = buildPageOffsets(responseType, resolved.operation, responseFilter.code ? 'filtered' : 'result')
     handlerBody += pageOffsets.code
 
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
@@ -1637,7 +1641,7 @@ function generateCustomSchemaToolCode(
     const responseFilter = buildResponseFilter(config)
     handlerBody += responseFilter.code
 
-    const pageOffsets = buildPageOffsets(responseType, responseFilter.code ? 'filtered' : 'result')
+    const pageOffsets = buildPageOffsets(responseType, resolved.operation, responseFilter.code ? 'filtered' : 'result')
     handlerBody += pageOffsets.code
     handlerBody += buildEnrichment(config, category, pageOffsets.resultVar)
 

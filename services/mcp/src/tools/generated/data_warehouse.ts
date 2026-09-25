@@ -319,7 +319,7 @@ const ViewListSchema = () => {
 
 const viewList = (): ToolBase<
     ReturnType<typeof ViewListSchema>,
-    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>>
+    WithPostHogUrl<Schemas.PaginatedDataWarehouseSavedQueryMinimalList>
 > => ({
     name: 'view-list',
     schema: ViewListSchema(),
@@ -334,13 +334,12 @@ const viewList = (): ToolBase<
                 search: params.search,
             },
         })
-        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...paged,
+                ...result,
                 results: await Promise.all(
-                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
                 ),
             },
             '/sql'

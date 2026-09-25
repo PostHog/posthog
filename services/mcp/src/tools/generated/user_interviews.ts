@@ -87,7 +87,7 @@ const UserInterviewTopicsGenerateLinksSchema = () => {
 
 const userInterviewTopicsGenerateLinks = (): ToolBase<
     ReturnType<typeof UserInterviewTopicsGenerateLinksSchema>,
-    WithPageOffsets<Schemas.PaginatedInterviewLinkList>
+    Schemas.PaginatedInterviewLinkList
 > => ({
     name: 'user-interview-topics-generate-links',
     schema: UserInterviewTopicsGenerateLinksSchema(),
@@ -97,8 +97,7 @@ const userInterviewTopicsGenerateLinks = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/generate_links/`,
         })
-        const paged = withPageOffsets(result)
-        return paged
+        return result
     },
 })
 
@@ -449,7 +448,7 @@ const UserInterviewTopicsSendInvitesSchema = () => {
 
 const userInterviewTopicsSendInvites = (): ToolBase<
     ReturnType<typeof UserInterviewTopicsSendInvitesSchema>,
-    WithPageOffsets<Schemas.PaginatedInterviewInviteResultList>
+    Schemas.PaginatedInterviewInviteResultList
 > => ({
     name: 'user-interview-topics-send-invites',
     schema: UserInterviewTopicsSendInvitesSchema(),
@@ -470,8 +469,7 @@ const userInterviewTopicsSendInvites = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/send_invites/`,
             body,
         })
-        const paged = withPageOffsets(result)
-        return paged
+        return result
     },
 })
 
