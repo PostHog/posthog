@@ -32,6 +32,8 @@ import type {
   AvailableSuggestedReviewersResponse,
   ChannelFeedMessage,
   ChannelFeedMessageEvent,
+  CheckResultArtefact,
+  CheckResultContent,
   CodeReferenceArtefact,
   CommitArtefact,
   CommitDiffResponse,
@@ -52,6 +54,11 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportCheck,
+  SignalReportCheckKind,
+  SignalReportCheckOutcome,
+  SignalReportCheckStatus,
+  SignalReportChecksResponse,
   SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
@@ -1359,7 +1366,8 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | CheckResultArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1701,6 +1709,51 @@ function normalizeNoteArtefact(
   };
 }
 
+const CHECK_OUTCOMES: SignalReportCheckOutcome[] = [
+  "passed",
+  "failed",
+  "errored",
+];
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * A check verdict. The detail rail reads `check_id` to attach the explanation to its check row,
+ * so this row cannot fall through to the fallback normalizer, which keeps only a text preview.
+ */
+function normalizeCheckResultArtefact(
+  value: Record<string, unknown>,
+): CheckResultArtefact | null {
+  const id = optionalString(value.id);
+  if (!id) return null;
+  const c = isObjectRecord(value.content) ? value.content : null;
+  if (!c) return null;
+  const checkId = optionalString(c.check_id);
+  const outcome = optionalString(c.outcome) as SignalReportCheckOutcome | null;
+  if (!checkId || !outcome || !CHECK_OUTCOMES.includes(outcome)) return null;
+
+  const content: CheckResultContent = {
+    check_id: checkId,
+    kind: optionalString(c.kind) ?? "",
+    title: optionalString(c.title) ?? "",
+    outcome,
+    explanation: optionalString(c.explanation) ?? "",
+    observed_value: optionalNumber(c.observed_value),
+    baseline_value: optionalNumber(c.baseline_value),
+    threshold: optionalString(c.threshold),
+    run_id: optionalString(c.run_id),
+  };
+
+  return {
+    id,
+    type: "check_result",
+    ...artefactBase(value),
+    content,
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1801,6 +1854,11 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
   }
+  if (dispatchType === "check_result") {
+    return (
+      normalizeCheckResultArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
+  }
 
   const id = optionalString(value.id);
   if (!id) {
@@ -1878,6 +1936,86 @@ function parseSignalReportArtefactsPayload(
   return {
     results,
     count,
+  };
+}
+
+const CHECK_KINDS: SignalReportCheckKind[] = ["metric_threshold", "agent"];
+
+const CHECK_STATUSES: SignalReportCheckStatus[] = [
+  "pending",
+  "active",
+  "passed",
+  "failed",
+  "errored",
+  "expired",
+  "cancelled",
+];
+
+function normalizeSignalReportCheck(value: unknown): SignalReportCheck | null {
+  if (!isObjectRecord(value)) return null;
+  const id = optionalString(value.id);
+  const kind = optionalString(value.kind) as SignalReportCheckKind | null;
+  const status = optionalString(value.status) as SignalReportCheckStatus | null;
+  const nextRunAt = optionalString(value.next_run_at);
+  // An unknown kind or status has no row to render: every presentation branch keys on them, and
+  // guessing a branch would put the wrong verdict word on the row.
+  if (
+    !id ||
+    !kind ||
+    !status ||
+    !nextRunAt ||
+    !CHECK_KINDS.includes(kind) ||
+    !CHECK_STATUSES.includes(status)
+  ) {
+    return null;
+  }
+
+  const outcome = optionalString(
+    value.last_outcome,
+  ) as SignalReportCheckOutcome | null;
+
+  return {
+    id,
+    title: optionalString(value.title) ?? "",
+    rationale: optionalString(value.rationale) ?? "",
+    kind,
+    status,
+    config: isObjectRecord(value.config) ? value.config : {},
+    next_run_at: nextRunAt,
+    soak_minutes: optionalNumber(value.soak_minutes),
+    run_interval_minutes: optionalNumber(value.run_interval_minutes),
+    runs_remaining: optionalNumber(value.runs_remaining) ?? 0,
+    expires_at: optionalString(value.expires_at) ?? "",
+    last_run_at: optionalString(value.last_run_at),
+    last_outcome: outcome && CHECK_OUTCOMES.includes(outcome) ? outcome : null,
+    dispatched_at: optionalString(value.dispatched_at),
+    consecutive_errors: optionalNumber(value.consecutive_errors) ?? 0,
+    created_at: optionalString(value.created_at) ?? "",
+    updated_at: optionalString(value.updated_at) ?? "",
+  };
+}
+
+function parseSignalReportChecksPayload(
+  value: unknown,
+): SignalReportChecksResponse {
+  const payload = isObjectRecord(value) ? value : null;
+  const rawResults = Array.isArray(payload?.results)
+    ? payload.results
+    : Array.isArray(value)
+      ? value
+      : [];
+
+  const results = rawResults
+    .map(normalizeSignalReportCheck)
+    .filter((check): check is SignalReportCheck => check !== null);
+
+  if (rawResults.length > 0 && results.length === 0) {
+    return { results: [], count: 0, unavailableReason: "invalid_payload" };
+  }
+
+  return {
+    results,
+    count: typeof payload?.count === "number" ? payload.count : results.length,
   };
 }
 
@@ -5667,6 +5805,82 @@ export class PostHogAPIClient {
         unavailableReason: "request_failed",
       };
     }
+  }
+
+  /**
+   * A report's follow-up checks: the expectations still scheduled against it, and the verdicts
+   * the ones that ran recorded. Degrades to an empty list with a reason, the same way the
+   * artefact read does, so a report whose checks a viewer cannot read still opens.
+   */
+  async getSignalReportChecks(
+    reportId: string,
+  ): Promise<SignalReportChecksResponse> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/checks/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path,
+      });
+
+      if (!response.ok) {
+        log.warn("Signal report checks unavailable", {
+          teamId,
+          reportId,
+          status: response.status,
+        });
+        return {
+          results: [],
+          count: 0,
+          unavailableReason:
+            response.status === 403
+              ? "forbidden"
+              : response.status === 404
+                ? "not_found"
+                : "request_failed",
+        };
+      }
+
+      return parseSignalReportChecksPayload(await response.json());
+    } catch (error) {
+      log.warn("Failed to fetch signal report checks", {
+        teamId,
+        reportId,
+        error,
+      });
+      return { results: [], count: 0, unavailableReason: "request_failed" };
+    }
+  }
+
+  /**
+   * Stop an open check. Terminal, so the caller confirms first. The endpoint rejects a check that
+   * already finished, and its message names the status it finished as.
+   */
+  async cancelSignalReportCheck(
+    reportId: string,
+    checkId: string,
+  ): Promise<SignalReportCheck> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/checks/${checkId}/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({ method: "delete", url, path });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn\u2019t stop this check."),
+      );
+    }
+
+    const check = normalizeSignalReportCheck(await response.json());
+    if (!check) {
+      throw new Error("Couldn\u2019t stop this check.");
+    }
+    return check;
   }
 
   async getCommitDiff(

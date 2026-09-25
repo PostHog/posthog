@@ -5,6 +5,7 @@ import {
   quoteSelection,
 } from "@posthog/ui/features/inbox/components/AskAboutSelection";
 import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
+import { ReportChecksSection } from "@posthog/ui/features/inbox/components/detail/ReportChecksSection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
@@ -101,6 +102,7 @@ export function ReportDetailContent({
       >
         <ReportReviewersSection report={report} />
         <ReportRunsSection report={report} />
+        <ReportChecksSection report={report} />
         <ReportActivitySection
           reportId={report.id}
           collapsedNoteCount={report.collapsed_note_count}
