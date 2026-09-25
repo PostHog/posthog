@@ -8,6 +8,9 @@ export type TraceAiEvent = _TracingTraceAiEventApi
 /** The service name synthetic AI rows carry, so they get one color and one label in the waterfall. */
 export const AI_EVENT_SERVICE_NAME = 'llm'
 
+/** Matches `MAX_AI_EVENTS_PER_TRACE` in the backend lookup, which returns at most this many events. */
+export const MAX_AI_EVENTS_PER_TRACE = 500
+
 const AI_SPAN_ID_PREFIX = 'ai:'
 const SPAN_KIND_CLIENT = 3
 

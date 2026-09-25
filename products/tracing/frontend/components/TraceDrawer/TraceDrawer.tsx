@@ -28,6 +28,7 @@ import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { TraceAiEventsCapNotice } from './TraceAiEventsCapNotice'
 import { traceAiEventsLogic } from './traceAiEventsLogic'
 import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
@@ -87,7 +88,7 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
-    const { aiEvents } = useValues(traceAiEventsLogic({ traceId }))
+    const { aiEvents, hasMoreAiEvents } = useValues(traceAiEventsLogic({ traceId }))
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
@@ -175,6 +176,7 @@ export function TraceDrawer({
             <div className="relative min-h-32 flex gap-4 items-start">
                 {loading && <SpinnerOverlay />}
                 <div className="flex-1 min-w-0">
+                    <TraceAiEventsCapNotice aiEvents={aiEvents} hasMore={hasMoreAiEvents} />
                     {/* Keyed by trace so a new trace resets selection + scroll state. */}
                     <TraceWaterfallView
                         key={traceId ?? ''}

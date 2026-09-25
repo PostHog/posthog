@@ -36,18 +36,20 @@ describe('traceAiEventsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockAiEventsRetrieve.mockReset()
-        mockAiEventsRetrieve.mockResolvedValue({ results: [] })
+        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: false })
     })
 
     afterEach(() => {
         logic?.unmount()
     })
 
-    it('asks for the events of the trace by its lowercase id', async () => {
+    it('asks for the events of the trace by its lowercase id and keeps the cap marker', async () => {
+        mockAiEventsRetrieve.mockResolvedValue({ results: [], has_more: true })
         await mount()
 
         expect(mockAiEventsRetrieve).toHaveBeenCalledTimes(1)
         expect(mockAiEventsRetrieve.mock.calls[0][1]).toBe(PROPS.traceId!.toLowerCase())
+        expect(logic.values.hasMoreAiEvents).toBe(true)
     })
 
     // On a cold page load the flag can arrive from posthog-js after the trace has loaded.
