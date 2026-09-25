@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("ai_observability", "0058_backfill_report_run_index_columns"),
+        ("ai_observability", "0059_backfill_report_run_index_columns"),
     ]
 
     operations = [

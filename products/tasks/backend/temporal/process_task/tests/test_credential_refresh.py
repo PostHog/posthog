@@ -57,11 +57,14 @@ class TestRunCredentialRefreshLoop:
                     sandbox_gone=True,
                     orphaned_kinds=["github"],
                     no_credentials_left=True,
+                    sandbox_exit_reason="timed out",
                 ),
             ]
         )
         self._patch_workflow(monkeypatch, execute_activity)
+        on_sandbox_gone = MagicMock()
 
-        exit_reason = await run_credential_refresh_loop(MagicMock(), "sb-1")
+        exit_reason = await run_credential_refresh_loop(MagicMock(), "sb-1", on_sandbox_gone=on_sandbox_gone)
 
         assert exit_reason == CredentialRefreshExitReason.SANDBOX_GONE
+        on_sandbox_gone.assert_called_once_with("timed out")

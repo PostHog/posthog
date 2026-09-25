@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("ai_observability", "0057_denormalize_report_run_index_columns"),
+        ("ai_observability", "0058_denormalize_report_run_index_columns"),
     ]
 
     operations = [

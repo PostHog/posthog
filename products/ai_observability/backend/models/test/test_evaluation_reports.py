@@ -258,7 +258,7 @@ class TestBackfillReportRunIndexColumns(BaseTest):
     def _run_backfill(self) -> None:
         # The migration module name starts with a digit, so it can only be imported dynamically.
         module = importlib.import_module(
-            "products.ai_observability.backend.migrations.0058_backfill_report_run_index_columns"
+            "products.ai_observability.backend.migrations.0059_backfill_report_run_index_columns"
         )
         module.backfill_report_run_index_columns(connection)
 

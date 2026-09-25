@@ -48,4 +48,4 @@ signals.0154_backfill_report_actionability
 posthog.1383_taggeditem_untrack_legacy_keys
 # Backfills the denormalized index columns on report runs in batches, so a long run does not
 # hold one transaction open. Re-running is a no-op: each batch only selects unfilled rows.
-ai_observability.0058_backfill_report_run_index_columns
+ai_observability.0059_backfill_report_run_index_columns
