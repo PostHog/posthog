@@ -1402,8 +1402,8 @@
 2 posthog/temporal/tests/common/test_error_tracking.py
 2 posthog/temporal/tests/common/test_posthog_client_team_id.py
 2 posthog/temporal/tests/test_slo_interceptor.py
-2 posthog/temporal/tests/utils/workflow.py
 2 posthog/temporal/utils.py
+2 posthog/temporal/waiter/workflow.py
 2 products/batch_exports/backend/temporal/destinations/s3_batch_export.py
 2 products/batch_exports/backend/temporal/pipeline/types.py
 2 products/batch_exports/backend/tests/temporal/pipeline/test_entrypoint.py
