@@ -1,6 +1,7 @@
-import { Gauge } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -11,6 +12,15 @@ const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
+
+const capturedEventsDropped = new Counter({
+    name: 'cdp_captured_events_dropped',
+    help: 'Internal capture events lost because every attempt to send them failed.',
+})
+
+// Capture takes one request per event. A whole batch sent at once opens that many connections to capture and the
+// connects then time out, so a flush keeps a fixed number in flight and queues the rest.
+const MAX_CONCURRENT_CAPTURES = 16
 
 /**
  * Collects and flushes PostHog capture events emitted by hog function
@@ -101,12 +111,17 @@ export class CapturedEventsService {
             return
         }
 
+        const inFlight = new ConcurrencyController(MAX_CONCURRENT_CAPTURES)
+
         await Promise.all(
             events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
-                    captureException(error)
-                })
+                inFlight
+                    .run({ fn: () => this.internalCaptureService.capture(event), debugTag: 'internal-capture' })
+                    .catch((error) => {
+                        capturedEventsDropped.inc()
+                        logger.error('Error capturing internal event', { error })
+                        captureException(error)
+                    })
             )
         )
     }

@@ -33,7 +33,7 @@ describe('CapturedEventsService', () => {
 
     beforeEach(() => {
         internalCaptureService = {
-            capture: jest.fn().mockResolvedValue({ status: 200 }),
+            capture: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -106,6 +106,36 @@ describe('CapturedEventsService', () => {
 
             await expect(service.flush()).resolves.toBeUndefined()
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
+        })
+
+        it('keeps a bounded number of captures in flight', async () => {
+            let inFlight = 0
+            let peakInFlight = 0
+            const pending: (() => void)[] = []
+            internalCaptureService.capture.mockImplementation(() => {
+                inFlight++
+                peakInFlight = Math.max(peakInFlight, inFlight)
+                return new Promise<void>((resolve) =>
+                    pending.push(() => {
+                        inFlight--
+                        resolve()
+                    })
+                )
+            })
+
+            service.queue(
+                Array.from({ length: 50 }, (_, i) => ({ team_token: 'token', event: 'e', distinct_id: `u${i}` }))
+            )
+            const flushed = service.flush()
+            // Each pass releases the captures running now, which lets the queued ones start.
+            while (internalCaptureService.capture.mock.calls.length < 50 || pending.length > 0) {
+                pending.splice(0, pending.length).forEach((release) => release())
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            }
+            await flushed
+
+            expect(internalCaptureService.capture).toHaveBeenCalledTimes(50)
+            expect(peakInFlight).toBeLessThanOrEqual(16)
         })
     })
 
