@@ -188,6 +188,44 @@ describe("buildDiscussReportPrompt", () => {
     expect(withoutQuestion).toMatch(/can't fetch the report/i);
   });
 
+  it.each([undefined, "# Report: Conversion drop"])(
+    "offers consent-first feedback saving with report context %s",
+    (reportContext) => {
+      const prompt = buildDiscussReportPrompt({
+        reportId: "abc123",
+        isDevBuild: false,
+        reportContext,
+      });
+      expect(prompt).toContain(
+        "a correction, a preference, context the report missed, or a fact you verified",
+      );
+      expect(prompt).toContain("scout-notes-create");
+      expect(prompt).toContain("inbox-report-artefacts-create");
+      expect(prompt).toContain(
+        "Confirm the proposed text and destination with the user before writing",
+      );
+      expect(prompt).toContain("wait for their agreement");
+      expect(prompt).toContain("verify the author's exact `skill_name`");
+      expect(prompt).toContain("instead of a fleet-wide note");
+      expect(prompt).toContain("If a scout note is unavailable or refused");
+      expect(prompt).toContain("asking again before changing the destination");
+      expect(prompt).toContain(
+        "Skip the offer for pure Q&A or when nothing durable emerges",
+      );
+      expect(prompt).toContain(
+        "Saving feedback does not resolve or suppress the report",
+      );
+      expect(prompt).toContain(
+        "This first turn is automated: stick to read-only tools",
+      );
+      if (reportContext) {
+        expect(prompt.indexOf("scout-notes-create")).toBeLessThan(
+          prompt.indexOf("--- BEGIN REPORT ---"),
+        );
+      }
+    },
+  );
+
   it("requires code-backed answers to disclose scan coverage", () => {
     const prompt = buildDiscussReportPrompt({
       reportId: "abc123",
