@@ -77,6 +77,26 @@ describe('ResourceSaveQueue', () => {
         expect(saves.takeDeferred()).toBeNull()
     })
 
+    it('keeps holding a replayed event until the last queued save settles', async () => {
+        const saves = queue()
+        const finishers: (() => void)[] = []
+        const first = saves.run(() => new Promise<void>((resolve) => finishers.push(resolve)))
+        const second = saves.run(() => new Promise<void>((resolve) => finishers.push(resolve)))
+        await Promise.resolve()
+
+        expect(saves.classify(event())).toBe('defer')
+        finishers[0]()
+        await first
+        const replayed = saves.takeDeferred()
+        expect(replayed && saves.classify(replayed)).toBe('defer')
+
+        await Promise.resolve()
+        finishers[1]()
+        await second
+        const lastReplay = saves.takeDeferred()
+        expect(lastReplay && saves.classify(lastReplay)).toBe('external')
+    })
+
     it('holds events while the editor says it is busy', () => {
         expect(queue(undefined, true).classify(event())).toBe('defer')
     })
