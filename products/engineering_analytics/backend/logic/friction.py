@@ -308,7 +308,8 @@ def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFricti
     repo_filter = "source_id = {source_id}"
     if "/" in curated.repository:
         owner, name = curated.repository.split("/", 1)
-        repo_filter += " AND repo_owner = {repo_owner} AND repo_name = {repo_name}"
+        # A source can store its repositories lowercased, while the view keeps GitHub's casing.
+        repo_filter += " AND lower(repo_owner) = lower({repo_owner}) AND lower(repo_name) = lower({repo_name})"
         placeholders |= {"repo_owner": ast.Constant(value=owner), "repo_name": ast.Constant(value=name)}
     try:
         rows = curated.run_paged(
