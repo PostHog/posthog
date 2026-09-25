@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconCopy, IconInfo, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSkeleton, LemonSwitch, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonModal,
+    LemonSkeleton,
+    LemonSwitch,
+    Tooltip,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
@@ -11,8 +19,14 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 export function TwoFactorSettings(): JSX.Element {
-    const { status, isDisable2FAModalOpen, isBackupCodesModalOpen, generatingCodes, generatingCodesLoading } =
-        useValues(twoFactorLogic)
+    const {
+        status,
+        statusLoadFailed,
+        isDisable2FAModalOpen,
+        isBackupCodesModalOpen,
+        generatingCodes,
+        generatingCodesLoading,
+    } = useValues(twoFactorLogic)
 
     const { updateUser } = useActions(userLogic)
     const { loadMemberUpdates } = useActions(membersLogic)
@@ -31,7 +45,11 @@ export function TwoFactorSettings(): JSX.Element {
     }
 
     if (!status) {
-        return (
+        return statusLoadFailed ? (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadStatus() }}>
+                Couldn't load your 2FA settings.
+            </LemonBanner>
+        ) : (
             <div className="space-y-2">
                 <LemonSkeleton className="h-6 w-40" />
                 <LemonSkeleton className="h-32 w-full" />
