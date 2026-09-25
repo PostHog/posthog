@@ -4,20 +4,24 @@ Only a query whose every bucket is computed from that bucket's own rows can have
 buckets reused. This module proves that property, or refuses. Refusal costs one full scan;
 a wrong acceptance costs correctness, so every rule fails closed.
 
-The rulebook a query must pass, in plain terms:
+The rulebook a query must pass, each rule named after the check that enforces it:
 
-1. Plain HogQL over the ``events`` table alone — no joins, CTEs, windows, HAVING, or fill.
-2. It buckets by ``toStartOfHour(timestamp)``, groups by exactly that bucket, and (at the
-   outermost level) orders by it ascending.
-3. Its value is an aggregate from a small allowlist (count/countIf/uniq family, plus +/-
-   between them), and every predicate reads only the row itself — never the clock.
-4. Its WHERE carries the two exact window bounds, ``timestamp >= toStartOfHour(now()) -
-   INTERVAL N HOUR`` and ``timestamp < toStartOfHour(now())``; N becomes the window.
-5. Optionally, one projection level on top: ``SELECT <bucket>, <scalar over the inner
-   aggregates> FROM (...) ORDER BY <bucket> ASC`` with at most a LIMIT.
-6. No alias may take a reserved name (``timestamp``, ``event``, ...) — ClickHouse resolves
-   select aliases inside WHERE, so a shadowing alias would bind the narrowing predicates to
-   the wrong expression.
+- Plain HogQL over the ``events`` table alone — no joins, CTEs, windows, HAVING, or fill
+  (``_uses_only_allowed_clauses``, ``_reads_events_table_only``).
+- Buckets by ``toStartOfHour(timestamp)``, grouped by exactly that bucket and, at the
+  outermost level, ordered by it ascending (``_bucket``, ``_ordered_by_alias_asc``).
+- The value is an allowlisted aggregate — count/countIf/uniq family, plus +/- between them —
+  and every predicate reads only the row itself, never the clock (``_aggregate``,
+  ``_row_local``).
+- The WHERE carries the two exact window bounds, ``timestamp >= toStartOfHour(now()) -
+  INTERVAL N HOUR`` and ``timestamp < toStartOfHour(now())``; N becomes the window
+  (``_window_hours``).
+- Optionally one projection level on top: ``SELECT <bucket>, <scalar over the inner
+  aggregates> FROM (...) ORDER BY <bucket> ASC`` with at most a LIMIT (``_OuterShape.match``,
+  ``_OuterShape._reads``).
+- No alias may take a reserved name — ClickHouse resolves select aliases inside WHERE, so a
+  shadowing alias would bind the narrowing predicates to the wrong expression
+  (``_RESERVED_ALIASES``).
 
 The matcher deliberately mirrors ``hogql_query_optimization`` in PR #102956, which narrows the
 scan of eligible *threshold* last-row alerts. Both need the same proof; they differ in what
@@ -41,7 +45,7 @@ _MIN_WINDOW_HOURS = 2
 # can materialize in the cache to ~2.2k rows, whatever quota a team has.
 _MAX_WINDOW_HOURS = 24 * 90
 
-# Rule 6: aliases that would shadow a column the narrowing predicates or HogQL resolution rely on.
+# Aliases that would shadow a column the narrowing predicates or HogQL resolution rely on.
 _RESERVED_ALIASES = {"timestamp", "event", "distinct_id", "person_id", "properties", "events"}
 _ROW_LOCAL_FIELD_ROOTS = ("timestamp", "event", "distinct_id", "person_id", "properties")
 # Deterministic scalar functions of the row alone — no clock, no randomness, no other rows.
@@ -57,7 +61,7 @@ _ROW_LOCAL_CALLS = (
     "ifNull",
     "trim",
 )
-# Deterministic scalars a projection may combine inner aggregates with (rule 5).
+# Deterministic scalars a projection may combine inner aggregates with.
 _SCALAR_CALLS = ("greatest", "least", "round", "abs", "coalesce", "if")
 
 
@@ -76,74 +80,74 @@ class _OuterShape:
     inner_bucket: str
     inner_fields: frozenset[str]
 
+    @classmethod
+    def match(cls, query: ast.SelectQuery, column: str | None) -> "_OuterShape | None":
+        """Recognize ``SELECT <bucket>, <scalar> FROM (...) ORDER BY <bucket> ASC``."""
+        allowed = {"start", "end", "type", "select", "select_from", "order_by", "limit"}
+        if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
+            return None
+        source = query.select_from
+        if source is None or not isinstance(source.table, ast.SelectQuery):
+            return None
+        if any(
+            getattr(source, field_.name)
+            for field_ in fields(source)
+            if field_.name not in {"start", "end", "type", "table", "alias"}
+        ):
+            return None
+        if len(query.select) != 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
+            return None
+        bucket, value = query.select
+        assert isinstance(bucket, ast.Alias) and isinstance(value, ast.Alias)
+        if bucket.alias in _RESERVED_ALIASES or value.alias in _RESERVED_ALIASES or bucket.alias == value.alias:
+            return None
+        if column is not None and value.alias != column:
+            return None
+        if not isinstance(bucket.expr, ast.Field) or len(bucket.expr.chain) != 1:
+            return None
+        reads = cls._reads(value.expr)
+        if not reads:
+            return None
+        if not _ordered_by_alias_asc(query, bucket.alias):
+            return None
+        return cls(
+            bucket_alias=bucket.alias,
+            value_alias=value.alias,
+            inner_bucket=str(bucket.expr.chain[0]),
+            inner_fields=reads,
+        )
+
+    @classmethod
+    def _reads(cls, expr: ast.Expr) -> frozenset[str] | None:
+        """The inner aliases a projection expression reads, or None when it is not a plain scalar.
+
+        Accepted: constants, bare single-name fields, arithmetic and comparisons over accepted
+        parts, and calls from ``_SCALAR_CALLS``. Anything else could depend on the clock, other
+        rows, or state, so the projection is refused.
+        """
+        if isinstance(expr, ast.Constant):
+            return frozenset()
+        if isinstance(expr, ast.Field):
+            return frozenset({str(expr.chain[0])}) if len(expr.chain) == 1 else None
+        if isinstance(expr, ast.ArithmeticOperation | ast.CompareOperation):
+            left, right = cls._reads(expr.left), cls._reads(expr.right)
+            return left | right if left is not None and right is not None else None
+        if isinstance(expr, ast.Call) and expr.name in _SCALAR_CALLS and not expr.params and not expr.distinct:
+            reads: frozenset[str] = frozenset()
+            for arg in expr.args:
+                found = cls._reads(arg)
+                if found is None:
+                    return None
+                reads |= found
+            return reads
+        return None
+
 
 @frozen
 class _HourlySeriesShape:
     window_hours: int
     bucket_alias: str
     value_alias: str
-
-
-def _projection_reads(expr: ast.Expr) -> frozenset[str] | None:
-    """The inner aliases a projection expression reads, or None when it is not a plain scalar.
-
-    Accepted: constants, bare single-name fields, +-*/ and comparisons over accepted parts,
-    and calls from ``_SCALAR_CALLS``. Anything else could depend on the clock, other rows, or
-    state, so the projection is refused.
-    """
-    if isinstance(expr, ast.Constant):
-        return frozenset()
-    if isinstance(expr, ast.Field):
-        return frozenset({str(expr.chain[0])}) if len(expr.chain) == 1 else None
-    if isinstance(expr, ast.ArithmeticOperation | ast.CompareOperation):
-        left, right = _projection_reads(expr.left), _projection_reads(expr.right)
-        return left | right if left is not None and right is not None else None
-    if isinstance(expr, ast.Call) and expr.name in _SCALAR_CALLS and not expr.params and not expr.distinct:
-        reads: frozenset[str] = frozenset()
-        for arg in expr.args:
-            found = _projection_reads(arg)
-            if found is None:
-                return None
-            reads |= found
-        return reads
-    return None
-
-
-def _match_outer(query: ast.SelectQuery, column: str | None) -> _OuterShape | None:
-    """Recognize rule 5's projection: ``SELECT <bucket>, <scalar> FROM (...) ORDER BY <bucket> ASC``."""
-    allowed = {"start", "end", "type", "select", "select_from", "order_by", "limit"}
-    if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
-        return None
-    source = query.select_from
-    if source is None or not isinstance(source.table, ast.SelectQuery):
-        return None
-    if any(
-        getattr(source, field_.name)
-        for field_ in fields(source)
-        if field_.name not in {"start", "end", "type", "table", "alias"}
-    ):
-        return None
-    if len(query.select) != 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
-        return None
-    bucket, value = query.select
-    assert isinstance(bucket, ast.Alias) and isinstance(value, ast.Alias)
-    if bucket.alias in _RESERVED_ALIASES or value.alias in _RESERVED_ALIASES or bucket.alias == value.alias:
-        return None
-    if column is not None and value.alias != column:
-        return None
-    if not isinstance(bucket.expr, ast.Field) or len(bucket.expr.chain) != 1:
-        return None
-    reads = _projection_reads(value.expr)
-    if not reads:
-        return None
-    if not _ordered_by_alias_asc(query, bucket.alias):
-        return None
-    return _OuterShape(
-        bucket_alias=bucket.alias,
-        value_alias=value.alias,
-        inner_bucket=str(bucket.expr.chain[0]),
-        inner_fields=reads,
-    )
 
 
 def _ordered_by_alias_asc(query: ast.SelectQuery, alias: str) -> bool:
@@ -159,7 +163,7 @@ def _ordered_by_alias_asc(query: ast.SelectQuery, alias: str) -> bool:
 
 
 class _HourlySeriesMatcher:
-    """Decide whether one parsed query is a bucket-local hourly aggregation (rules 1-4).
+    """Decide whether one parsed query is a bucket-local hourly aggregation.
 
     With ``outer`` set, ``query`` is the inner aggregation of a recognized projection: its
     select may carry several aggregates for the projection to combine, the projection owns
@@ -180,8 +184,6 @@ class _HourlySeriesMatcher:
             return None
         return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
 
-    # --- rule 1: plain single-table shape ---------------------------------------------------
-
     def _uses_only_allowed_clauses(self) -> bool:
         """New clauses, windows, joins, fill, CTEs and HAVING can all make one bucket depend on
         rows outside it, so anything unrecognized refuses. The inner query of a projection owns
@@ -201,8 +203,6 @@ class _HourlySeriesMatcher:
             for field_ in fields(source)
             if field_.name not in {"start", "end", "type", "table"}
         )
-
-    # --- rules 2, 3 and 6: select list, aliases, grouping and ordering -----------------------
 
     def _aliases(self) -> _SeriesAliases | None:
         """The (bucket, value) output column names, when the select shape allows reuse."""
@@ -247,7 +247,7 @@ class _HourlySeriesMatcher:
         return _SeriesAliases(bucket=self.outer.bucket_alias, value=value_alias)
 
     def _bucket(self, expr: ast.Expr) -> bool:
-        """Rule 2's bucket expression: exactly ``toStartOfHour(timestamp)``."""
+        """The bucket expression: exactly ``toStartOfHour(timestamp)``."""
         return (
             isinstance(expr, ast.Call)
             and self._plain_call(expr, "toStartOfHour")
@@ -256,7 +256,7 @@ class _HourlySeriesMatcher:
         )
 
     def _aggregate(self, expr: ast.Expr) -> bool:
-        """Rule 3's value: an allowlisted aggregate over row-local arguments, or +/- of two."""
+        """An allowlisted aggregate over row-local arguments, or +/- of two of them."""
         if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
             ast.ArithmeticOperationOp.Add,
             ast.ArithmeticOperationOp.Sub,
@@ -275,7 +275,7 @@ class _HourlySeriesMatcher:
         return False
 
     def _row_local(self, expr: ast.Expr) -> bool:
-        """Rule 3's predicate test: reads only the row itself — never the clock.
+        """A predicate that reads only the row itself — never the clock.
 
         The two window bounds are the only now()-dependent predicates the cache can account
         for, and ``_window_hours`` recognizes those structurally before this runs. Any other
@@ -311,10 +311,8 @@ class _HourlySeriesMatcher:
             return all(self._row_local(arg) for arg in expr.args)
         return False
 
-    # --- rule 4: the window bounds ------------------------------------------------------------
-
     def _window_hours(self) -> int | None:
-        """The N of rule 4's bounds, when every WHERE conjunct is a bound or row-local.
+        """The window's N, when every WHERE conjunct is one of the two bounds or row-local.
 
         A clock-dependent predicate in any other shape shifts which rows a bucket holds as time
         advances without moving the window this returns, so the cache would keep buckets a full
@@ -521,7 +519,7 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
     if not isinstance(parsed, ast.SelectQuery):
         return None
     if parsed.select_from is not None and isinstance(parsed.select_from.table, ast.SelectQuery):
-        outer = _match_outer(parsed, column)
+        outer = _OuterShape.match(parsed, column)
         if outer is None:
             return None
         matched = _HourlySeriesMatcher(parsed.select_from.table, column, outer=outer).match()
