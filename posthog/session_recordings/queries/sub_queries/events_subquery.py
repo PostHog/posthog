@@ -485,7 +485,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
 
     def _emitted_event_properties(self) -> list[AnyPropertyFilter]:
-        # With operand AND, _negative_guard_query handles the negative event properties.
+        # With operand AND, _negative_blocklist_query handles the negative event properties.
         if self._query.operand == "AND":
             return [p for p in self.event_properties if not is_negative_prop(p)]
         return self.event_properties
@@ -554,7 +554,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip group properties with negative operators since they're handled by _negative_guard_query
+        # With operand AND, _negative_blocklist_query handles negative group and person properties
         skip_negative_properties = self._query.operand == "AND"
 
         for p in self._emitted_event_properties():
