@@ -24,9 +24,11 @@ REQUEST_TIMEOUT_SECONDS = 60
 LIST_RUNS_PAGE_SIZE = 200
 IN_FLIGHT_STATUSES = ["queued", "running"]
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run in `queued` and never start it. A queued run older than this counts as stuck,
-# so it does not hold the sync horizon back. A running run always holds it, because its jobs time out.
+# Depot can leave a run in `queued` or `running` and never finish it. An in-flight run older than its
+# cutoff counts as stuck, so it does not hold the sync horizon back. A running run gets the longer
+# cutoff because a real run can take hours, while a real queued run starts within minutes.
 QUEUED_MAX_AGE = dt.timedelta(hours=6)
+RUNNING_MAX_AGE = dt.timedelta(hours=24)
 
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
@@ -76,7 +78,8 @@ def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> d
     horizon = now
     for run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
         created_at = _parse_timestamp(run["createdAt"])
-        if run["status"] == "running" or created_at > now - QUEUED_MAX_AGE:
+        max_age = RUNNING_MAX_AGE if run["status"] == "running" else QUEUED_MAX_AGE
+        if created_at > now - max_age:
             horizon = min(horizon, created_at)
     return horizon
 
