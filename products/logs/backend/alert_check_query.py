@@ -1,6 +1,9 @@
 import time
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, Protocol
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -27,7 +30,26 @@ from posthog.models import Team
 
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
-from products.logs.backend.models import LogsAlertConfiguration
+
+
+class AlertQuerySubject(Protocol):
+    """What the query layer needs from an alert.
+
+    A `Protocol` rather than a concrete type so `LogsAlertConfiguration` satisfies it as it
+    stands, and so a caller holding a configuration from elsewhere can build the query without
+    a model instance. The query layer reads no other field: everything about thresholds,
+    windows and cadence is the caller's to resolve before it gets here.
+    """
+
+    # Read-only, so a frozen dataclass satisfies this as readily as the model does.
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def filters(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -42,7 +64,7 @@ class BucketedCount:
     count: int
 
 
-def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> LogsQuery:
+def _build_logs_query(alert: AlertQuerySubject, date_range: DateRange) -> LogsQuery:
     filters = alert.filters
     filter_group = filters.get("filterGroup")
     if filter_group:
@@ -116,7 +138,7 @@ def _tag_alert_query(*, team: Team, alert_config_id: str, source: str) -> None:
 def build_alert_where_expr(
     *,
     team: Team,
-    alert: LogsAlertConfiguration,
+    alert: AlertQuerySubject,
     date_from: dt.datetime,
     date_to: dt.datetime,
 ) -> ast.Expr:
@@ -194,7 +216,7 @@ class AlertCheckQuery:
         self,
         *,
         team: Team,
-        alert: LogsAlertConfiguration,
+        alert: AlertQuerySubject,
         date_from: dt.datetime,
         date_to: dt.datetime,
     ) -> None:
@@ -360,10 +382,11 @@ class BatchedAlertCheckQuery:
         self,
         *,
         team: Team,
-        alerts: list[LogsAlertConfiguration],
+        alerts: Sequence[AlertQuerySubject],
         date_from: dt.datetime,
         date_to: dt.datetime,
         projection_eligible: bool | None = None,
+        max_execution_time: int | None = None,
     ) -> None:
         if not alerts:
             raise ValueError("BatchedAlertCheckQuery requires at least one alert")
@@ -373,6 +396,16 @@ class BatchedAlertCheckQuery:
         self.alerts = list(alerts)
         self.date_from = date_from
         self.date_to = date_to
+        # A caller that runs several of these inside one deadline needs each query to end before
+        # the deadline does. Throw rather than break: a partial count could resolve an alert that
+        # is actually breaching, and the caller already handles a failed cohort.
+        self._settings = (
+            self.SETTINGS
+            if max_execution_time is None
+            else self.SETTINGS.model_copy(
+                update={"max_execution_time": max_execution_time, "timeout_overflow_mode": "throw"}
+            )
+        )
         self._alert_where_exprs: list[ast.Expr] = [
             build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
             for alert in self.alerts
@@ -537,7 +570,7 @@ class BatchedAlertCheckQuery:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
-            settings=self.SETTINGS,
+            settings=self._settings,
             limit_context=LimitContext.QUERY,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )

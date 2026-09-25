@@ -5,6 +5,9 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -71,6 +74,7 @@ describe('NotebookNodeGeneratedWidget', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true })
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as never)
         jest.spyOn(api.notebooks, 'get').mockResolvedValue(cachedNotebook)
         jest.spyOn(api.notebooks, 'markdownSave').mockImplementation(async (_shortId, notebook) => ({
@@ -126,6 +130,59 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         expect(screen.getByText('Widget')).toBeTruthy()
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
+    })
+
+    it('keeps a markdown widget identity when its instructions are edited', async () => {
+        const markdown =
+            '<Widget showFilters title="Hourly chart" prompt="Plot hourly totals" model="claude-sonnet-5" />'
+        const originalId = parseMarkdownNotebook(markdown).nodes[0].id
+        logic.unmount()
+        const editProps = { ...logicProps, shortId: 'widget-identity-edit' }
+        const notebook = {
+            ...cachedNotebook,
+            short_id: editProps.shortId,
+            content: buildMarkdownNotebookContent(markdown),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(notebook)
+        jest.spyOn(api.notebooks, 'update').mockResolvedValue(notebook)
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'awaiting_generation',
+            has_versions: false,
+            current_version_id: null,
+            active_job: null,
+            artifact_url: null,
+            error_detail: null,
+            frame_names: [],
+            input_bindings: {},
+            input_contract: [],
+            pinned_version_id: null,
+            is_reusable: false,
+            widget_id: null,
+            instance_id: null,
+            security_review: null,
+            build_hash: null,
+        })
+        logic = notebookLogic(editProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+        render(
+            <BindLogic logic={notebookLogic} props={editProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        fireEvent.change(await screen.findByLabelText('Instructions'), { target: { value: 'Plot daily totals' } })
+
+        await waitFor(() => {
+            const node = parseMarkdownNotebook(getMarkdownNotebookMarkdown(logic.values.content)).nodes.find(
+                (node) => node.type === 'component'
+            )
+            expect(node?.type === 'component' && node.props).toEqual(
+                expect.objectContaining({ nodeId: originalId, prompt: 'Plot daily totals' })
+            )
+        })
     })
 
     it('renders without crashing when the markdown tag has a non-string prompt or unknown model', async () => {
@@ -592,6 +649,10 @@ describe('NotebookNodeGeneratedWidget', () => {
         }
         expect(screen.queryByText('Open reusable widget')).toBeNull()
         fireEvent.click(screen.getByLabelText('More actions'))
+        fireEvent.click(screen.getByText('Add to dashboard'))
+        expect(await screen.findByText('Add widget to dashboard')).toBeTruthy()
+        fireEvent.click(screen.getByText('Cancel'))
+        fireEvent.click(screen.getByLabelText('More actions'))
         expect(screen.queryByText('Open reusable widget') !== null).toBe(isReusable)
         if (isReusable) {
             expect(screen.getByText('Open reusable widget').closest('a')?.getAttribute('href')).toContain(
@@ -724,8 +785,11 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        expect(await screen.findByText(/preview is no longer available/)).toBeTruthy()
-        fireEvent.click(screen.getByText('View source'))
+        const unavailablePreview = await screen.findByText(/preview is no longer available/)
+        fireEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Add to dashboard')).toBeNull()
+        fireEvent.click(screen.getByLabelText('More actions'))
+        fireEvent.click(within(unavailablePreview.parentElement!).getByText('View source'))
 
         await waitFor(() =>
             expect(notebooksWidgetSource).toHaveBeenCalledWith(

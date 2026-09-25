@@ -45,6 +45,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -198,6 +199,26 @@ class TestLLMSkillAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            # Named by its directory under products/signals/skills/.
+            ("skill_directory", "signals-scout-logs"),
+            # Named by the frontmatter of a loose entry point, which its path does not carry.
+            ("loose_entry_point", "adding-warehouse-person-properties"),
+        ]
+    )
+    def test_create_skill_rejects_a_bundled_skill_name(self, _label, skill_name):
+        response = self.client.post(
+            self._url(),
+            data={"name": skill_name, "description": "Shadows a bundled skill.", "body": "# Shadow"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        assert "already ships a skill" in response.json()["detail"]
+        assert not LLMSkill.objects.filter(team=self.team, name=skill_name).exists()
 
     def test_create_skill_requires_description(self):
         response = self.client.post(
@@ -586,20 +607,134 @@ class TestLLMSkillAPI(APIBaseTest):
             "needle",
             "needle-name",
             "description-skill",
-            "body-skill",
             "file-path-skill",
+            "body-skill",
             "file-content-skill",
         ]
         assert [result["matches"][0]["matched_field"] for result in results] == [
             "name",
             "name",
             "description",
-            "body",
             "file_path",
+            "body",
             "file_content",
         ]
-        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert [result["score"] for result in results] == [8000, 3000, 900, 360, 240, 120]
+        assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
+
+    @parameterized.expand(
+        [
+            (
+                "path",
+                [
+                    {"path": "references/a-support.txt", "content": "No match."},
+                    {"path": "references/z-support-queue.txt", "content": "No match."},
+                ],
+                "references/z-support-queue.txt",
+            ),
+            (
+                "content",
+                [
+                    {"path": "references/a.md", "content": "Support only.", "content_type": "text/markdown"},
+                    {
+                        "path": "references/z.md",
+                        "content": "Support queue.",
+                        "content_type": "text/markdown",
+                    },
+                ],
+                "references/z.md",
+            ),
+        ]
+    )
+    def test_search_skills_returns_the_file_that_produced_the_highest_score(
+        self, _label: str, files: list[dict[str, str]], expected_path: str
+    ) -> None:
+        skill = self.create_skill(name="ranked-file-match", description="A ranked file match.", body="# Body")
+        for file in files:
+            LLMSkillFile.objects.create(skill=skill, **file)
+
+        response = self.client.get(self._url("search?query=support%20queue"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["matches"][0]["path"] == expected_path
+
+    def test_search_skills_ranks_multi_token_project_workflow_before_generic_matches(self):
+        self.create_skill(
+            name="self-driving-support-hero",
+            description="Run the prioritized support inbox for tickets by SLA and priority.",
+            body="# Support hero\nWork the queue without missing tickets.",
+        )
+        for index in range(12):
+            self.create_skill(
+                name=f"generic-support-queue-{index:02d}",
+                description="Generic project workflow.",
+                body="# Generic\nLook up tickets.",
+            )
+
+        response = self.client.get(self._url("search?query=support%20queue%20tickets"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert results[0]["name"] == "self-driving-support-hero"
+        assert results[0]["score"] == 213
+        assert len(results) == SKILL_SEARCH_RESULT_LIMIT
+
+    def test_search_skills_ranks_exact_name_before_substring_matches(self):
+        self.create_skill(name="support", description="Exact match.", body="# Support")
+        for index in range(SKILL_SEARCH_RESULT_LIMIT):
+            self.create_skill(
+                name=f"{chr(ord('a') + index)}-support",
+                description="Substring match.",
+                body="# Support",
+            )
+
+        response = self.client.get(self._url("search?query=support"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["name"] == "support"
+
+    def test_search_skills_bounds_token_expansion(self):
+        self.create_skill(name="first-token-match", description="Contains alpha.", body="# First")
+        self.create_skill(name="long-token-match", description="Contains ninthtoken.", body="# Long")
+        self.create_skill(name="overflow-match", description="Contains golf.", body="# Overflow")
+
+        response = self.client.get(
+            self._url("search?query=a%20alpha%20bravo%20charlie%20delta%20echo%20foxtrot%20golf%20hotel%20ninthtoken")
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == [
+            "first-token-match",
+            "long-token-match",
+        ]
+
+    @parameterized.expand(
+        [
+            ("ies_plural", "queries", "querying", "Run a query.", True),
+            ("u_plural", "bayous", "wetlands", "Explore a bayou.", True),
+            ("short_derived_stem", "types", "classification", "Review a stereotype.", False),
+            ("distinct_final_character", "states", "statistics", "Analyze numerical data.", False),
+        ]
+    )
+    def test_search_skills_applies_bounded_stemming(
+        self, _label: str, query: str, name: str, description: str, should_match: bool
+    ) -> None:
+        self.create_skill(name=name, description=description, body="# Guide")
+
+        response = self.client.get(self._url(f"search?query={query}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ([name] if should_match else [])
+
+    def test_search_skills_does_not_stem_singular_s_words(self):
+        self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")
+        self.create_skill(name="support-workflow", description="Track support status.", body="# Support workflow")
+
+        response = self.client.get(self._url("search?query=status"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["support-workflow"]
 
     def test_search_skills_limits_file_queries_to_remaining_matches(self):
         path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
@@ -863,6 +998,38 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_listed_skill_is_readable_by_the_name_and_version_the_list_returned(self):
+        self.create_skill(name="signals-scout-drive-session-completion", version=1)
+
+        listed = self.client.get(self._url()).json()["results"][0]
+        response = self.client.get(self._url(f"name/{listed['name']}?version={listed['version']}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["name"], response.json()["version"]) == (listed["name"], listed["version"])
+
+    def test_get_skill_by_near_miss_name_suggests_the_listed_name(self):
+        self.create_skill(name="signals-scout-drive-session-completion")
+
+        response = self.client.get(self._url("name/signals-scout-drive-session?version=1"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_not_found"
+        assert body["suggestions"] == ["signals-scout-drive-session-completion"]
+        assert "signals-scout-drive-session-completion" in body["detail"]
+
+    def test_get_skill_at_absent_version_names_the_versions_the_store_holds(self):
+        self.create_skill(name="versioned-skill", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", version=2)
+
+        response = self.client.get(self._url("name/versioned-skill?version=7"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_version_not_found"
+        assert body["available_versions"] == [1, 2]
+        assert "has no version 7" in body["detail"]
+
     @parameterized.expand(
         [
             ("no_query_string", "", None),
@@ -1011,6 +1178,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["description"] == "Original desc."
         assert data["license"] == "MIT"
         assert data["compatibility"] == "Python 3.12+"
+
+    @parameterized.expand(
+        [
+            ("drops_the_hash", {"seeded_by": "signals_scout_harness"}),
+            ("forges_the_hash", {"seeded_by": "signals_scout_harness", "canonical_hash": "forged"}),
+            ("forges_the_seed_tag", {"seeded_by": "someone_else", "canonical_hash": "forged", "source": "elsewhere"}),
+        ]
+    )
+    def test_publish_cannot_rewrite_harness_provenance_metadata(self, _label, supplied_metadata):
+        seeded = {"seeded_by": "signals_scout_harness", "canonical_hash": "abc123", "source": "products/signals/skills"}
+        self.create_skill(name="signals-scout-health-checks", metadata=seeded)
+
+        response = self.client.patch(
+            self._url("name/signals-scout-health-checks"),
+            data={"body": "# Repurposed", "metadata": {**supplied_metadata, "note": "mine"}, "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["metadata"] == {**seeded, "note": "mine"}
 
     def test_publish_can_update_description(self):
         self.create_skill(name="update-desc", description="Old desc.", body="# Body")
@@ -1538,6 +1725,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
         assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    @parameterized.expand([("rename", "rename"), ("duplicate", "duplicate")])
+    def test_taking_a_bundled_skill_name_is_rejected(self, _label, action):
+        self.create_skill(name="source")
+
+        response = self.client.post(
+            self._url(f"name/source/{action}"),
+            data={"new_name": "signals-scout-logs"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-logs").exists()
 
     def test_rename_of_a_missing_skill_is_not_found(self):
         response = self.client.post(
@@ -2157,6 +2357,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 {
                     "name": self.skill.name,
                     "description": self.skill.description,
+                    "score": 240,
                     "matches": [
                         {
                             "matched_field": "body",
@@ -2168,6 +2369,27 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 }
             ],
         }
+
+    def test_not_found_suggestions_omit_skills_the_member_cannot_read(self):
+        LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals-restricted",
+            description="d",
+            body="# x\n",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+
+        response = self.client.get(self._url("name/make-fractal"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["suggestions"] == ["make-fractals"]
 
     @parameterized.expand(
         [

@@ -34,7 +34,7 @@ import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -167,6 +167,13 @@ export function buildImageFetchConsumerConfigs(
     }))
 }
 
+export function imageFetchBatchesPerPass(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    consumerCount: number
+): number {
+    return config.SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES ? consumerCount : 1
+}
+
 export function buildImageFetchConsumerOverrides(
     config: IngestionSessionReplayMlMirrorServerConfig,
     consumerCount: number
@@ -199,7 +206,7 @@ export async function shutdownImageFetchConsumers(
  * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
 export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerServer {
-    private privacy?: MlPrivacyRuntime
+    private keyManager?: MlKeyManager
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private topHog?: TopHog
@@ -244,8 +251,8 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             ) {
                 throw new Error('ML v2 requires a separate image fetch history table')
             }
-            this.privacy = new MlPrivacyRuntime(this.config)
-            await this.privacy.start()
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
             const v2 = new DynamoDBCrawlHistory(
                 this.crawlHistoryClient,
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE,
@@ -287,13 +294,14 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             buildFetchRunner(this.config, publisher, topHogMetrics),
             deadLetters,
             topHogMetrics,
-            this.privacy?.kafka
+            this.keyManager?.kafka
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
-        const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
-            fetchConsumer.handleBatch(messages, Date.now())
+        const batchJoiner = new ImageFetchBatchJoiner(
+            imageFetchBatchesPerPass(this.config, consumerConfigs.length),
+            (messages) => fetchConsumer.handleBatch(messages, Date.now())
         )
         const consumerOverrides = buildImageFetchConsumerOverrides(this.config, consumerConfigs.length)
         const consumers = consumerConfigs.map(
@@ -323,7 +331,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             kafkaProducers: [],
             redisPools: [],
             additionalCleanup: async () => {
-                this.privacy?.stop()
+                this.keyManager?.stop()
                 this.crawlHistoryClient?.destroy()
                 try {
                     await this.topHog?.stop()

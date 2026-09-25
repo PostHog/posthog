@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -18,6 +19,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     MissingPrimaryKeysException,
@@ -31,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
@@ -76,21 +79,81 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
+UNREADABLE_JOB_INPUTS_MESSAGE = (
+    "Can't read this source's saved connection settings. Reconnect the source to fix the sync."
+)
+
+
+class UnreadableJobInputsError(Exception):
+    """A stored `job_inputs` value that holds no mapping, so no run of this source can read it.
+
+    Raised as the cause of a `NonRetryableException` because the workflow reads the customer-facing
+    error text off the cause, not off the wrapper.
+    """
+
+
+def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
+    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
+
+    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
+    else whole, and its read path hands a scalar straight back without parsing it. So a config
+    written as a JSON string instead of a mapping decodes to that same string on every later read,
+    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
+    same way, so decoding here keeps the two readers in agreement.
+    """
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError:
+        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
+        # unusable config, so both take the branch below.
+        decoded = None
+
+    if not isinstance(decoded, dict):
+        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+
+    return decoded
+
+
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
-    # for a malformed source config — nothing to trim key-by-key in that case.
-    if not isinstance(source.job_inputs, dict):
+    decoded_from_string = isinstance(source.job_inputs, str)
+    if decoded_from_string:
+        job_inputs = _decode_job_inputs(source.job_inputs)
+    elif isinstance(source.job_inputs, dict):
+        job_inputs = source.job_inputs
+    else:
+        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
+        # parse in the import activity reports an unusable value.
         return
 
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
+    # A value decoded out of a string is saved even when no key needs trimming, so the row is
+    # rewritten as a mapping once instead of every run reading the string back.
+    did_update_inputs = decoded_from_string
+    for key, value in job_inputs.items():
         if isinstance(value, str):
             if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
+                job_inputs[key] = value.strip()
                 did_update_inputs = True
 
     if did_update_inputs:
+        source.job_inputs = job_inputs
         await database_sync_to_async_pool(source.save)()
+
+
+def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
+    """The source type behind a dying run, so a death event is diagnosable per connector without
+    joining against the source table. Best-effort: the death event must survive a failed lookup."""
+    try:
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSource,
+        )
+
+        return (
+            ExternalDataSource.objects.filter(id=inputs.source_id, team_id=inputs.team_id)
+            .values_list("source_type", flat=True)
+            .first()
+        )
+    except Exception:
+        return None
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -167,6 +230,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 "workflow_run_id": info.workflow_run_id,
                 "workflow_type": info.workflow_type,
                 "attempt": info.attempt,
+                "source_type": _source_type_for_death_event(inputs),
             }
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
@@ -303,21 +367,24 @@ def resolve_primary_keys(
 
     Returns None when no key can be resolved, so the keyless-table guardrail still fires.
     """
-    if schema.primary_key_columns:
-        return schema.primary_key_columns
-    if resource.primary_keys:
-        return list(resource.primary_keys)
-    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
-    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
-    id_column = next(
-        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    return resolve_merge_keys(
+        schema.primary_key_columns,
+        resource.primary_keys,
+        extract_available_column_names(schema.schema_metadata),
     )
-    if id_column is not None:
-        return [id_column]
-    return None
 
 
 async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await persist_verified_primary_keys(schema, resource, logger)
+
+
+async def _persist_detected_primary_keys(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
     is_incremental: bool,
@@ -361,6 +428,34 @@ async def persist_primary_keys(
         await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
+async def persist_verified_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the key a full-table probe proved unique, so later runs only probe what they read.
+
+    Best-effort: losing this costs another full probe next run, not correctness.
+    """
+    verified = resource.verified_primary_keys
+    if not verified or list(verified) == list(schema.verified_primary_keys or []):
+        return
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            updates={"verified_primary_keys": list(verified)},
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist verified primary keys into sync_type_config")
+
+
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
@@ -369,7 +464,7 @@ def validate_incremental_sync(
 ) -> None:
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
-            f"The primary keys for this table are not unique. We can't sync incrementally until the table "
+            f"{DUPLICATE_PRIMARY_KEYS_ERROR}. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
 

@@ -1,3 +1,6 @@
 name: Product tours
+# Individual caretaker, not a team, quoted because YAML disallows a plain scalar
+# starting with `@`. The product is deprecated and no team owns it, so review
+# requests go to the person the PRODUCT_TOURS flag annotations already name.
 owners:
-    - team-surveys
+    - '@adboio'

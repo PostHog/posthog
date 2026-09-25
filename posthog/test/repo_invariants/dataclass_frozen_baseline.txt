@@ -52,7 +52,6 @@
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
-1 posthog/taxonomy/property_definition_api.py
 1 posthog/temporal/ai/anomaly_investigation/notebook.py
 1 posthog/temporal/ai/anomaly_investigation/runner.py
 1 posthog/temporal/ai/anomaly_investigation/tools.py
@@ -369,7 +368,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/capsule_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/care_quality_commission.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/cast_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/census/census.py
@@ -385,8 +383,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chartmogul/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/chatwoot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/checkmarx.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/checkout_com/checkout_com.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/churnkey.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/settings.py

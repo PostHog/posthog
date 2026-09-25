@@ -24,8 +24,8 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { MlSessionKeys } from './keys/key-store'
 import { MlMirrorMetrics } from './metrics'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
@@ -33,7 +33,7 @@ import {
     PSEUDONYM_TEAM,
     pseudonymize,
 } from './pseudonymize'
-import { sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
+import { mlDatasetVersion, sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -111,10 +111,9 @@ export interface ImageCollectionConfig {
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
-    imageCollection?: ImageCollectionConfig,
-    privacy?: MlPrivacyBatchController
-): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+export function createParseAndAnonymizeMessageStep<
+    T extends ParseMessageStepInput & { team: TeamForReplay; mlKeys?: MlSessionKeys },
+>(imageCollection?: ImageCollectionConfig): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
     const globalUrlKey =
         imageCollection?.collectUrls === true
             ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
@@ -173,7 +172,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
-        const privacyKeys = privacy?.keys(input.team.teamId, headers.session_id)
+        const sessionKeys = input.mlKeys
         let referenceNamespace: string | undefined
         let imageTeamId: string | undefined
         const t0 = performance.now()
@@ -181,8 +180,8 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         let result
         try {
             referenceNamespace =
-                privacyKeys && usesRawSessionIdentifiers(headers.session_id)
-                    ? `v2:${input.team.teamId}:${sessionStartMonth(headers.session_id)}`
+                sessionKeys && usesRawSessionIdentifiers(headers.session_id)
+                    ? `v${mlDatasetVersion(headers.session_id)}:${input.team.teamId}:${sessionStartMonth(headers.session_id)}`
                     : undefined
             imageTeamId = referenceNamespace ?? teamKeys?.teamId
             result = await getRustAnonymizer().anonymizeKafkaPayload(

@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -6,7 +7,10 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import message_prefix_for_mode
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
@@ -74,6 +78,30 @@ def test_review_already_posted_proceeds_when_readback_fails() -> None:
     assert _review_posted(_review_marker("rep-1", "sha1"), [], boom=True) is False
 
 
+@parameterized.expand(
+    [
+        ("full", ""),
+        ("flash", "FLASH MODE\n"),
+        ("flash", message_prefix_for_mode("flash")),
+    ]
+)
+def test_legacy_markers_only_suppress_reviews_in_the_same_mode(posted_mode: str, prefix: str) -> None:
+    legacy = _review_marker("rep-1", "sha1")
+    review = {"body": f"{prefix}body\n{legacy}", "user": {"type": "Bot"}}
+    with patch(_PAGINATED, side_effect=_paginated([review])):
+        for requested_mode in ("full", "flash"):
+            assert _review_already_posted(
+                "o",
+                "r",
+                1,
+                _review_marker("rep-1", "sha1", requested_mode),
+                token="t",
+                installation_id=None,
+                legacy_marker=legacy,
+                review_mode=requested_mode,
+            ) is (posted_mode == requested_mode)
+
+
 def test_promo_already_posted_detects_the_markered_comment() -> None:
     # The promo posts before the review, so a retry after a transient review failure re-enters
     # with published_head_sha still unset — the marker is what stops a second promo comment.
@@ -134,6 +162,46 @@ class TestPublishIdempotency(BaseTest):
             )
         return report_id
 
+    @parameterized.expand([("full_then_flash", "full", "flash"), ("flash_then_full", "flash", "full")])
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_distinct_modes_publish_once_each_at_the_same_head(
+        self, _name, first_mode, second_mode, _auth, _snapshot, mock_publish
+    ) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        first = replace(_publish_input(self.team.id, report_id, "sha1"), review_mode=first_mode)
+        second = replace(first, review_mode=second_mode, run_index=2)
+        for item in (first, second, first, second):
+            _publish(item)
+        assert mock_publish.call_count == 2
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_heads_by_mode == {"full": "sha1", "flash": "sha1"}
+
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_publication_write_keeps_a_watermark_that_landed_while_posting(
+        self, _auth, _snapshot, mock_publish
+    ) -> None:
+        report_id = self._report()
+
+        def post_while_the_other_mode_publishes(**_kwargs: Any) -> PublishOutcome:
+            # The standalone publish command runs outside the per-PR queue, so a Flash publication
+            # can commit while this Full one is still posting to GitHub.
+            ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
+                published_heads_by_mode={"flash": "sha1"}, published_head_shas={"9": "sha1"}
+            )
+            return PublishOutcome(posted=True)
+
+        mock_publish.side_effect = post_while_the_other_mode_publishes
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
+
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.published_heads_by_mode == {"flash": "sha1", "full": "sha1"}
+        assert report.published_head_shas == {"9": "sha1", "1": "sha1"}
+
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", "9876543"))
@@ -186,9 +254,20 @@ class TestPublishIdempotency(BaseTest):
         # later turn with a valid finding can still publish at the same head.
         mock_publish.return_value = PublishOutcome(posted=False)
         report_id = self._report()
-        _publish(_publish_input(self.team.id, report_id, "sha1"))
+        _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source="automatic"))
         assert mock_publish.call_count == 1
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.published_head_sha is None
+        assert report.automatic_reviewed_head_sha == "sha1"
         # No watermark, but the turn is over: the no-post exit still restores rest.
         assert report.status == ReviewReport.Status.IDLE
+
+    @patch(_PUBLISH, side_effect=RuntimeError("GitHub unavailable"))
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_failed_publication_does_not_complete_an_automatic_review(self, _auth, _snapshot, _publish_mock) -> None:
+        report_id = self._report()
+        with self.assertRaises(RuntimeError):
+            _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source="automatic"))
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.automatic_reviewed_head_sha is None

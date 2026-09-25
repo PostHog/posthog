@@ -36,6 +36,7 @@ export type SettingSectionId =
     | 'environment-csp-reporting'
     | 'environment-customer-analytics'
     | 'environment-customization'
+    | 'environment-data-quality'
     | 'environment-discussions'
     | 'environment-error-tracking'
     | 'environment-error-tracking-configuration'
@@ -144,6 +145,7 @@ export type SettingId =
     | 'customer-analytics-track-rules'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
+    | 'data-quality-materialization-gate'
     | 'data-theme'
     | 'datacapture'
     | 'date-and-time'
@@ -188,6 +190,8 @@ export type SettingId =
     | 'feature-previews-coming-soon'
     | 'group-analytics'
     | 'heatmaps'
+    | 'heatmap-screenshot-cookie'
+    | 'heatmaps-capture'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
@@ -206,11 +210,11 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-json-parse-attribute'
     | 'logs-metric-rules'
     | 'logs-pattern-message-keys'
     | 'logs-pii-scrub'
     | 'logs-retention'
-    | 'logs-retention-rules'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
@@ -272,6 +276,7 @@ export type SettingId =
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
     | 'saml-configuration'
+    | 'oidc-configuration'
     | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
@@ -287,6 +292,7 @@ export type SettingId =
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
+    | 'tracing-retention'
     | 'tracing-session-id-attribute-keys'
     | 'user-delete'
     | 'user-groups'
@@ -389,19 +395,25 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     hideFromNavigation?: boolean
 
     /**
-     * When true, navigating to this section prompts for re-authentication if the sensitive
-     * session has expired — matching how user- and organization-level settings behave. Use for
-     * environment/project sections that manage credentials, which otherwise only surface the
-     * re-auth modal reactively when a write is attempted.
-     */
-    requiresReauthentication?: boolean
-
-    /**
      * Gate every setting in the section behind one billing feature. The section renders a single
      * upsell when the feature is unavailable. Use this instead of a `PayGateMini` inside each
      * setting's component, which stacks one identical upsell card per setting on the page.
      */
     payGate?: SettingSectionPayGate
+
+    /**
+     * Where to send a reader who cannot open this section, shown as the next step when the section
+     * is gated off. `label` is user-facing copy.
+     */
+    unavailableFallback?: { sectionId: SettingSectionId; label: string }
+}
+
+/** Why a section the reader asked for is not there, and where to go instead. */
+export interface UnavailableSection {
+    id: SettingSectionId
+    title: JSX.Element | string
+    reason: 'not-enabled' | 'admin-only'
+    fallback: { sectionId: SettingSectionId; label: string } | null
 }
 
 export interface SettingSectionPayGate {

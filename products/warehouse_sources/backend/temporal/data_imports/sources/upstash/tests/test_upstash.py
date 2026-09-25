@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.se
     UPSTASH_ENDPOINTS,
     UPSTASH_ROOT_BASE_URL,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import (
     upstash_source,
     validate_credentials,
@@ -224,6 +225,32 @@ class TestValidateCredentials:
             ok, error = validate_credentials("e", "k")
         assert ok is expected_ok
         assert (error is None) is expected_ok
+
+    # A 403 means the whole account can't use the management API, so it must not read as a bad key
+    # and send the customer off to generate another one that fails the same way.
+    @parameterized.expand(
+        [
+            (401, "invalid or has been revoked"),
+            (403, "isn't authorized to use the management API"),
+        ]
+    )
+    def test_a_bad_key_and_an_unauthorized_account_read_differently(self, status: int, expected: str) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status)
+        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+            ok, error = validate_credentials("e", "k")
+        assert ok is False
+        assert expected in (error or "")
+
+    def test_a_rejected_credential_reads_the_same_during_setup_and_during_a_sync(self) -> None:
+        # Setup and sync reach the message by different routes, so a divergence between them is
+        # invisible unless the two are compared.
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=401)
+        with mock.patch(SESSION_PATCH, lambda *a, **k: session):
+            _ok, setup_error = validate_credentials("e", "k")
+        sync_errors = UpstashSource().get_non_retryable_errors()
+        assert setup_error == sync_errors["401 Client Error: Unauthorized for url: https://api.upstash.com"]
 
     def test_probes_teams_endpoint_with_basic_auth(self) -> None:
         session = mock.MagicMock()

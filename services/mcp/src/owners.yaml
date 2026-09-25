@@ -1,5 +1,6 @@
 version: 1
-owners: []
+owners:
+    - team-context-mcp
 rules:
     - match:
           - '/generated/mcp_analytics/'

@@ -107,7 +107,7 @@ INSERT INTO `{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}` (team_id, enabled_b
   {values};"""
 
 
-def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY():
+def WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL():
     return f"""
 SELECT
     team_id
@@ -115,7 +115,11 @@ FROM
     `{CLICKHOUSE_DATABASE}`.`{WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME}`
 FINAL
 WHERE version > 0
-""".replace("\n", " ").strip()
+"""
+
+
+def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY():
+    return WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL().replace("\n", " ").strip()
 
 
 _dict_reader_creds = get_clickhouse_creds(ClickHouseUser.DICT_READER)

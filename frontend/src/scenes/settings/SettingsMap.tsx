@@ -57,7 +57,7 @@ import { AISection } from 'products/conversations/frontend/scenes/settings/AISec
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
-import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
+import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import {
@@ -66,14 +66,16 @@ import {
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
+import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
-import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
-import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
+import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
+import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
@@ -120,9 +122,10 @@ import {
     LogsCaptureSettings,
     LogsJsonParseSettings,
     LogsPiiScrubSettings,
-    LogsRetentionSettings,
+    LogsRetentionSettingsBlock,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsJsonParseAttributeSettings } from './environment/LogsJsonParseAttributeSettings'
 import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -475,6 +478,23 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-data-quality',
+        title: 'Data quality',
+        flag: 'DATA_QUALITY_CHECKS',
+        group: 'Products',
+        settings: [
+            {
+                id: 'data-quality-materialization-gate',
+                title: 'Materialization on failing checks',
+                description:
+                    'When an error-severity check fails, the materialized view keeps serving its previous version instead of being replaced. Applies to every materialized view in this project.',
+                component: <DataQualityGateToggle />,
+                keywords: ['data quality', 'check', 'materialization', 'materialized view', 'block', 'gate'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
         flag: 'CUSTOMER_ANALYTICS',
@@ -531,12 +551,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-event-stream',
-                title: 'Event stream',
-                description:
-                    "Stream selected customers' events to a Slack channel of your choice in real time. Each team member configures their own stream: pick your events and channel here, then add customers from their account profiles.",
-                component: <CustomerAnalyticsEventStream />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['event', 'stream', 'live', 'slack', 'accounts'],
+                title: 'Notifications',
+                description: 'Configure your task digest emails and customer event stream for this project.',
+                component: <CustomerAnalyticsNotifications />,
+                flag: 'CUSTOMER_ANALYTICS',
+                keywords: ['notifications', 'email', 'digest', 'tasks', 'event', 'stream', 'live', 'slack', 'accounts'],
             },
             {
                 id: 'customer-analytics-person-properties',
@@ -865,6 +884,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
                 keywords: ['click map', 'scroll', 'rage click', 'mouse', 'touch'],
             },
+            {
+                id: 'heatmap-screenshot-cookie',
+                title: 'Screenshot request cookie',
+                description:
+                    'Heatmap backgrounds are screenshots of your site. Generate a value your screenshots send as a cookie, so bot protection can tell them apart from other headless browsers and allow them.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                component: <HeatmapScreenshotCookieSettings />,
+                keywords: [
+                    'waf',
+                    'bot protection',
+                    'firewall',
+                    'cloudflare',
+                    'screenshot',
+                    'blocked',
+                    'allowlist',
+                    'cookie',
+                ],
+            },
+            {
+                id: 'heatmaps-capture',
+                title: 'Heatmap capture URLs',
+                description: 'Choose which pages send heatmap data: every page, or only the URLs you list.',
+                docsUrl: 'https://posthog.com/docs/toolbar/heatmaps',
+                platformSupport: FEATURE_SUPPORT.heatmaps,
+                component: <HeatmapCaptureSettings />,
+                keywords: ['allow list', 'allowlist', 'url', 'capture', 'restrict'],
+            },
         ],
     },
     {
@@ -891,6 +937,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsJsonParseSettings />,
                 flag: 'LOGS_SETTINGS_JSON',
                 keywords: ['json', 'parse', 'structured', 'format'],
+            },
+            {
+                id: 'logs-json-parse-attribute',
+                title: 'JSON parse log attribute',
+                description:
+                    'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
+                docsUrl: 'https://posthog.com/docs/logs/logs-config',
+                component: <LogsJsonParseAttributeSettings />,
+                flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
+                keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
             },
             {
                 id: 'logs-pii-scrub',
@@ -951,8 +1007,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                         setting at most once per 24 hours.
                     </span>
                 ),
-                component: <LogsRetentionSettings />,
-                keywords: ['retention', 'storage', 'delete', 'ttl'],
+                component: <LogsRetentionSettingsBlock />,
+                keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-drop-rules',
@@ -970,15 +1026,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsMetricRulesSection />,
                 flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
-            },
-            {
-                id: 'logs-retention-rules',
-                title: 'Retention rules',
-                description:
-                    "Keep matching logs longer or shorter than the environment default using ordered rules. The first matching rule sets a log's retention; retention is applied at ingest.",
-                component: <LogsRetentionSection />,
-                flag: LogsFeatureFlagKeys.retentionRules,
-                keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-alerting',
@@ -1378,7 +1425,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-tracing',
         title: 'Tracing',
         group: 'Products',
-        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        flag: 'TRACING',
         settings: [
             {
                 id: 'tracing-distinct-id-attribute-keys',
@@ -1394,6 +1441,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
                 component: <TracingDistinctIdAttributeKeys />,
+                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -1410,7 +1458,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <TracingSessionIdAttributeKeys />,
+                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
+            },
+            {
+                id: 'tracing-retention',
+                title: 'Retention',
+                description: (
+                    <span>
+                        How long to keep spans before they are automatically deleted.{' '}
+                        <strong>Changes only affect the retention for new spans</strong>. You can only change this
+                        setting at most once per 24 hours.
+                    </span>
+                ),
+                component: <TracingRetentionSettingsBlock />,
+                flag: 'TRACING_SETTINGS_RETENTION',
+                keywords: ['retention', 'storage', 'delete', 'ttl', 'rules', 'filter', 'keep', 'expire', 'span'],
             },
         ],
     },
@@ -1794,7 +1857,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
-        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',
@@ -1967,6 +2029,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
             },
             {
+                id: 'oidc-configuration',
+                title: 'OIDC single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
+            },
+            {
                 id: 'scim-configuration',
                 title: 'SCIM provisioning',
                 description:
@@ -2124,6 +2194,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         // Temporary migration surface: reachable only from the access control
         // settings banner, never from the settings navigation or search
         hideFromNavigation: true,
+        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
         settings: [
             {
                 id: 'organization-access-resolution-preview',

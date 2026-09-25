@@ -6,7 +6,7 @@ from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL
 
 
 def is_eu_cluster() -> bool:
@@ -377,12 +377,14 @@ def get_team_filters(team_ids: list[int] | None) -> dict[str, str]:
             "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
             "events": f"e.team_id IN({team_ids_str})",
         }
-    else:
-        return {
-            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
-            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
-            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
-        }
+
+    # GLOBAL IN reads the team selection once on the initiator, so data hosts do not need the selection table
+    selected_teams = f"GLOBAL IN ({WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL().strip()})"
+    return {
+        "raw_sessions": f"raw_sessions.team_id {selected_teams}",
+        "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id {selected_teams}",
+        "events": f"e.team_id {selected_teams}",
+    }
 
 
 def get_date_filters(date_start: str, date_end: str, timezone: str, granularity: str = "daily") -> dict[str, str]:

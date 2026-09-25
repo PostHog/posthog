@@ -6,15 +6,16 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -38,6 +39,7 @@ from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
@@ -76,7 +78,8 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
+from posthog.cloud_utils import is_cloud
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -86,6 +89,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
     reject_plus_addressed_email,
@@ -131,7 +135,12 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import (
+    fresh_reauth_expires_at,
+    reauth_is_fresh,
+    sensitive_action_reference,
+    step_up_required,
+)
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -229,6 +238,12 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
     )
     sensitive_session_expires_at = serializers.SerializerMethodField()
+    fresh_reauth_expires_at = serializers.SerializerMethodField(
+        help_text=(
+            "When the last re-authentication stops counting as fresh. Changing `email` after this needs a new "
+            "re-authentication. Null when the session has none on record."
+        )
+    )
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
@@ -328,6 +343,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -375,6 +391,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -403,16 +420,26 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_display_name(value)
 
     def validate_email(self, value: str) -> str:
-        if self.instance and value.lower() == self.instance.email.lower():
-            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
-            return value
+        normalized = EmailNormalizer.normalize(value)
+        if self.instance and normalized == EmailNormalizer.normalize(self.instance.email):
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit. The
+            # stored string is returned as it is, because an edit of the case alone reaches no
+            # verification and so cannot rewrite the address a person signs in with.
+            return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         if EmailValidationHelper.user_exists_with_stripped_alias(
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        return value
+        # The alias check above reads active accounts, so a deactivated holder of the same folded
+        # address passes it. Resolve on the fold every lookup shares, across every account.
+        holders = EmailLookupHandler.users_matching_email(normalized, User.objects.all())
+        if self.instance:
+            holders = holders.exclude(pk=self.instance.pk)
+        if holders.exists():
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return normalized
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -465,6 +492,16 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
+
+    def get_fresh_reauth_expires_at(self, instance: User) -> Optional[str]:
+        if "request" not in self.context:
+            return None
+
+        expires_at = fresh_reauth_expires_at(self.context["request"].session)
+        if expires_at is None:
+            return None
+
+        return datetime.fromtimestamp(expires_at, tz=UTC).isoformat()
 
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
@@ -698,11 +735,13 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
-        if (
-            "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
-            and is_email_available()
-        ):
+        # Fold both sides: `validate_email` hands back the stored address for an edit of the case
+        # alone, and a legacy row can hold that address in any case.
+        changes_email = "email" in validated_data and EmailNormalizer.normalize(
+            validated_data["email"]
+        ) != EmailNormalizer.normalize(instance.email)
+
+        if changes_email and is_email_available():
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
@@ -731,7 +770,7 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            instance.pending_email = new_email
+            instance.pending_email = EmailNormalizer.normalize(new_email)
             instance.save(update_fields=["pending_email"])
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
@@ -908,10 +947,37 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class TwoFactorStatusSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(help_text="Whether the user has any 2FA method enabled.")
+    backup_codes_remaining = serializers.IntegerField(
+        help_text="Number of unused backup codes. The codes themselves are only returned when they are generated."
+    )
+    method = serializers.CharField(
+        allow_null=True, help_text='The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.'
+    )
+    has_passkeys = serializers.BooleanField(help_text="Whether the user has at least one verified passkey.")
+    has_totp = serializers.BooleanField(help_text="Whether the user has an authenticator app set up.")
+    passkeys_enabled_for_2fa = serializers.BooleanField(help_text="Whether passkeys count as a 2FA method.")
+
+
 class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
         help_text="The user's resolved GitHub login, or null when no GitHub identity is linked.",
+    )
+
+
+def refuse_pending_email_promotion() -> NoReturn:
+    """Refuse the change, because the address is no longer free.
+
+    The staged address stays. Clearing it would leave a verified account with nothing staged, which
+    is the state the replay shortcut in `verify_email` reads as a completed change, so the next
+    request would report success for a change that never happened. Keeping it staged also keeps
+    `cancel_email_change_request` available as the way out.
+    """
+    raise serializers.ValidationError(
+        {"email": ["Another account now uses this email address. Start the change again with a different address."]},
+        code="email_taken",
     )
 
 
@@ -978,7 +1044,7 @@ class UserViewSet(
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
-    queryset = User.objects.filter(is_active=True)
+    queryset = User.objects.filter(is_active=True).order_by("id")
     lookup_field = "uuid"
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
@@ -1017,6 +1083,46 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self.guard_identity_change(request)
+        return super().update(request, *args, **kwargs)
+
+    def guard_identity_change(self, request: Request) -> None:
+        """Refuse an email or password change that the request cannot prove the account holder wants.
+
+        This runs before serializer validation, because an email validation error would tell the
+        caller which addresses already have an account.
+        """
+        # DRF types `request.data` as a mapping, but a JSON array or string body parses to a list or a
+        # str. Such a body carries neither field, and the serializer rejects it with a 400.
+        data = cast(Any, request.data)
+        if not isinstance(data, Mapping):
+            return
+
+        email = data.get("email")
+        changes_email = "email" in data and not (
+            isinstance(email, str)
+            and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
+        )
+
+        # The login email and the password decide who can sign in, so a leaked personal API key or
+        # OAuth token must not reset either of them.
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            if changes_email or "password" in data:
+                raise exceptions.PermissionDenied(
+                    "You can only change your email or password from the PostHog app, not with an API key or token."
+                )
+            return
+
+        # A session alone is not enough for the email, because the freshness window of
+        # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
+        # for an account without a password means a passkey or an SSO round trip.
+        if changes_email and not reauth_is_fresh(request.session):
+            raise exceptions.PermissionDenied(
+                "Confirm it's you before changing your email.",
+                code="sensitive_action_required_reauth",
+            )
 
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
@@ -1135,12 +1241,26 @@ class UserViewSet(
         # and in the verifier.
         if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
-            with transaction.atomic():
-                user.email = user.pending_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+            # `pending_email` holds whatever case the change was staged in.
+            new_email = EmailNormalizer.normalize(user.pending_email)
+            # Anyone can claim the address while the change waits for this code.
+            taken = (
+                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
+            )
+            if taken:
+                refuse_pending_email_promotion()
+            try:
+                with transaction.atomic():
+                    user.email = EmailNormalizer.normalize(new_email)
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                # A row that appeared since the check above reaches this write.
+                user.refresh_from_db()
+                refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 
@@ -1468,9 +1588,10 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(responses={200: TwoFactorStatusSerializer})
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
-        """Get current 2FA status including backup codes if enabled"""
+        """Get current 2FA status, including how many backup codes are left."""
         from posthog.helpers.two_factor_session import has_passkeys
 
         user = self.get_object()
@@ -1479,9 +1600,7 @@ class UserViewSet(
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-        backup_codes = []
-        if static_device:
-            backup_codes = [token.token for token in static_device.token_set.all()]
+        backup_codes_remaining = static_device.token_set.count() if static_device else 0
 
         # Determine 2FA method
         method = None
@@ -1493,7 +1612,7 @@ class UserViewSet(
         return Response(
             {
                 "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
-                "backup_codes": backup_codes if totp_device else [],
+                "backup_codes_remaining": backup_codes_remaining if totp_device else 0,
                 "method": method,
                 "has_passkeys": user_has_passkeys,
                 "has_totp": totp_device is not None,
@@ -1824,6 +1943,57 @@ def get_toolbar_preloaded_flags(request):
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
+
+
+TOOLBAR_ENTITLEMENT_FEATURES: list[AvailableFeature] = [
+    AvailableFeature.TOOLBAR_HEATMAPS,
+]
+
+
+def _toolbar_entitlements(organization: Organization) -> dict[str, bool]:
+    """Gated toolbar tools are a Cloud plan entitlement, so every self-hosted deployment keeps them."""
+    if not is_cloud():
+        return {feature.value: True for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+    return {feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+
+
+class ToolbarEntitlementsSerializer(serializers.Serializer):
+    entitlements = serializers.DictField(
+        child=serializers.BooleanField(),
+        help_text="Whether the current organization has each toolbar plan entitlement, keyed by feature name.",
+    )
+
+
+class ToolbarEntitlementsErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Why toolbar entitlements could not be retrieved.")
+
+
+class ToolbarEntitlementsView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    include_in_api_docs = True
+
+    @extend_schema(
+        extensions={"x-product": "core"},
+        responses={
+            200: ToolbarEntitlementsSerializer,
+            400: ToolbarEntitlementsErrorSerializer,
+            403: ToolbarEntitlementsErrorSerializer,
+        },
+    )
+    def get(self, request: Request) -> JsonResponse:
+        user = cast(User, request.user)
+        team = user.team
+        if not team:
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        return JsonResponse({"entitlements": _toolbar_entitlements(team.organization)})
+
+
+get_toolbar_entitlements = session_auth_required(ToolbarEntitlementsView.as_view())
 
 
 @session_auth_required

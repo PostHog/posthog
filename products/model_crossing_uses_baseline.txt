@@ -36,7 +36,6 @@
 access_control.Role approvals.ApprovalPolicy.bypass_roles reverse-accessor(bypass_policies) 1
 access_control.Role posthog.Organization.default_role reverse-accessor(default_for_organizations) 1
 actions.Action cdp.PluginConfig.match_action reverse-accessor(plugin_configs) 1
-actions.Action posthog.TaggedItem.action reverse-accessor(tagged_items) 1
 actions.Action surveys.Survey.actions reverse-accessor(survey_set) 1
 approvals.ChangeRequest feature_flags.ScheduledChange.change_request reverse-accessor(scheduled_changes) 1
 batch_exports.BatchExport cdp.HogFunction.batch_export reverse-accessor(hogfunction_set) 1
@@ -58,9 +57,7 @@ canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
-conversations.Ticket posthog.TaggedItem.ticket reverse-accessor(tagged_items) 1
 customer_analytics.Account notebooks.ResourceNotebook.account reverse-accessor(notebooks) 1
-customer_analytics.Account posthog.TaggedItem.account reverse-accessor(tagged_items) 1
 customer_analytics.Account products.customer_analytics.backend.facade.api.create_account facade-returns 1
 customer_analytics.Account products.customer_analytics.backend.facade.api.update_account facade-accepts(account) 1
 customer_analytics.Account products.customer_analytics.backend.facade.api.update_account facade-returns 1
@@ -96,7 +93,6 @@ dashboards.Dashboard ee.DashboardPrivilege.dashboard reverse-accessor(privileges
 dashboards.Dashboard exports.ExportedAsset.dashboard reverse-accessor(exportedasset_set) 1
 dashboards.Dashboard feature_flags.FeatureFlag.analytics_dashboards reverse-accessor(analytics_dashboards) 1
 dashboards.Dashboard posthog.SharingConfiguration.dashboard reverse-accessor(sharingconfiguration_set) 1
-dashboards.Dashboard posthog.TaggedItem.dashboard reverse-accessor(tagged_items) 1
 dashboards.Dashboard posthog.Team.primary_dashboard reverse-accessor(primary_dashboard_teams) 1
 dashboards.Dashboard product_analytics.Insight.dashboard reverse-accessor(items) 1
 dashboards.Dashboard products.dashboards.backend.facade.api.InsightTilePlacement.__init__ facade-accepts(dashboards) 1
@@ -194,8 +190,6 @@ django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_event facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_review_event facade-returns 1
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
 django.JsonResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_callback facade-returns 1
 django.JsonResponse products.tasks.backend.facade.agent_proxy.agent_proxy_callback facade-returns 1
@@ -263,7 +257,6 @@ django.QuerySet products.tasks.backend.facade.api.task_ids_with_pr_url_subquery 
 django.QuerySet products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-returns 1
 django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-returns 1
-endpoints.Endpoint posthog.TaggedItem.endpoint reverse-accessor(tagged_items) 1
 endpoints.Endpoint products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(endpoint) 1
 endpoints.Endpoint products.endpoints.backend.facade.api.validate_update_request facade-accepts(endpoint) 1
 endpoints.EndpointVersion products.endpoints.backend.facade.api.build_materialization_info facade-accepts(version) 1
@@ -282,14 +275,10 @@ error_tracking:backend/hogql_queries/ products.posthog_ai.eval_harness.test.test
 error_tracking:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(ErrorTrackingQuery) 1
 event_definitions.EventDefinition ee.EnterpriseEventDefinition.eventdefinition_ptr reverse-accessor(enterpriseeventdefinition) 1
 event_definitions.EventDefinition posthog.ObjectMediaPreview.event_definition reverse-accessor(media_previews) 1
-event_definitions.EventDefinition posthog.TaggedItem.event_definition reverse-accessor(tagged_items) 1
 event_definitions.PropertyDefinition access_control.PropertyAccessControl.property_definition reverse-accessor(property_access_controls) 1
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
-event_definitions.PropertyDefinition posthog.TaggedItem.property_definition reverse-accessor(tagged_items) 1
-experiments.Experiment posthog.TaggedItem.experiment reverse-accessor(tagged_items) 1
 experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
-experiments.ExperimentSavedMetric posthog.TaggedItem.experiment_saved_metric reverse-accessor(tagged_items) 1
 experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
 experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
@@ -308,7 +297,6 @@ exports.ExportedAsset products.exports.backend.facade.exporters.register_export_
 feature_flags.FeatureFlag access_control.FeatureFlagRoleAccess.feature_flag reverse-accessor(access) 1
 feature_flags.FeatureFlag early_access_features.EarlyAccessFeature.feature_flag reverse-accessor(features) 1
 feature_flags.FeatureFlag experiments.Experiment.feature_flag reverse-accessor(experiment_set) 1
-feature_flags.FeatureFlag posthog.TaggedItem.feature_flag reverse-accessor(tagged_items) 1
 feature_flags.FeatureFlag product_tours.ProductTour.internal_targeting_flag reverse-accessor(product_tours_internal_targeting_flag) 1
 feature_flags.FeatureFlag product_tours.ProductTour.linked_flag reverse-accessor(product_tours_linked_flag) 1
 feature_flags.FeatureFlag products.feature_flags.backend.facade.api.archive_flag facade-accepts(flag) 1
@@ -440,6 +428,7 @@ posthog.Team workflows.HogFlowRevision.team reverse-accessor(hogflowrevision_set
 posthog.Team workflows.HogFlowSchedule.team reverse-accessor(hogflowschedule_set) 1
 posthog.Team workflows.HogFlowTemplate.team reverse-accessor(hogflowtemplate_set) 1
 posthog.Team workflows.TeamWorkflowsConfig.team reverse-accessor(teamworkflowsconfig) 1
+posthog.Team workflows.WorkflowProposal.team reverse-accessor(workflowproposal_set) 1
 posthog.User access_control.AccessControl.created_by reverse-accessor(accesscontrol_set) 1
 posthog.User access_control.OrganizationResourceAccess.created_by reverse-accessor(organizationresourceaccess_set) 1
 posthog.User access_control.Role.created_by reverse-accessor(roles) 1
@@ -547,6 +536,7 @@ posthog.User workflows.HogFlow.created_by reverse-accessor(hogflow_set) 1
 posthog.User workflows.HogFlowBatchJob.created_by reverse-accessor(hogflowbatchjob_set) 1
 posthog.User workflows.HogFlowRevision.created_by reverse-accessor(hogflowrevision_set) 1
 posthog.User workflows.HogFlowTemplate.created_by reverse-accessor(hogflowtemplate_set) 1
+posthog.User workflows.WorkflowProposal.resolved_by reverse-accessor(resolved_workflow_proposals) 1
 product_analytics.Insight alerts.AlertConfiguration.insight reverse-accessor(alertconfiguration_set) 1
 product_analytics.Insight dashboards.Dashboard.insights reverse-accessor(dashboards) 1
 product_analytics.Insight dashboards.DashboardTile.insight reverse-accessor(dashboard_tiles) 1
@@ -562,7 +552,6 @@ product_analytics.Insight ee.hogai.tools.upsert_dashboard.tool construct 1
 product_analytics.Insight exports.ExportedAsset.insight reverse-accessor(exportedasset_set) 1
 product_analytics.Insight exports.Subscription.dashboard_export_insights reverse-accessor(subscriptions_dashboard_export) 1
 product_analytics.Insight posthog.SharingConfiguration.insight reverse-accessor(sharingconfiguration_set) 1
-product_analytics.Insight posthog.TaggedItem.insight reverse-accessor(tagged_items) 1
 product_analytics.Insight posthog.api.cohort instance-many(order_by) 1
 product_analytics.Insight posthog.api.search in-collection 1
 product_analytics.Insight posthog.api.sharing instance-many(filter) 1
@@ -648,7 +637,7 @@ product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
@@ -678,7 +667,6 @@ product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_qu
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_trends_lazy_precompute drives(TrendsQueryRunner) 9
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute drives(TrendsQueryRunner) 1
-replay_vision.ReplayScanner posthog.TaggedItem.replay_scanner reverse-accessor(tagged_items) 1
 rest_framework.Request products.dashboards.backend.facade.access.dashboard_access_method facade-accepts(request) 1
 rest_framework.Request products.data_catalog.backend.facade.api.accept_proposal facade-accepts(request) 1
 rest_framework.Request products.data_catalog.backend.facade.api.approve_metric facade-accepts(request) 1
@@ -698,7 +686,6 @@ rest_framework.Request products.data_catalog.backend.facade.api.upsert_metric fa
 rest_framework.Request products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.access.code_access_required_response facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-accepts(request) 1
-rest_framework.Request products.tasks.backend.facade.client_provenance.is_sandbox_oauth_request facade-accepts(request) 1
 rest_framework.Response products.tasks.backend.facade.access.code_access_required_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.compute_quota_limit_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.usage_limit_response facade-returns 1
@@ -880,6 +867,7 @@ warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sql_warehou
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status in-collection 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.sync_status instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.external_data_failure instance-many(select_related) 1
+warehouse_sources.ExternalDataSchema products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.logic.sources instance-many(select_related) 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics instance-single 1
 warehouse_sources.ExternalDataSchema products.engineering_analytics.backend.management.commands.seed_engineering_analytics write(create) 1
@@ -977,7 +965,7 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_aler
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_run_insights drives(TrendsQuery) 1

@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -19,10 +19,12 @@ import {
     Breakdown,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentExposureNode,
     ExperimentMetricSource,
     ExperimentRetentionMetric,
     ExperimentTrendsQuery,
     InsightQueryNode,
+    isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
@@ -71,11 +73,13 @@ import {
     OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
-    QueryBasedInsightModel,
+    InsightModel,
     type SDK,
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import type { ExperimentMetricsRecalculationTriggerEnumApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
@@ -129,6 +133,30 @@ export enum GraphSeriesAddedSource {
  * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
+    /**
+     * What put the tab in the state it opened in, when it was not the viewer: 'results_button' or
+     * 'results_menu' for a results-table link. Null when the viewer opened the tab themselves,
+     * which is the ordinary case, so this is what separates the two populations in a report.
+     */
+    entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
+    /**
+     * The experiment's status as the scene reads it, kept as a string rather than the scene's enum
+     * so telemetry doesn't import from the scene. A draft experiment never mounts the list at all,
+     * so without this a draft visit cannot be told from a visit whose list failed to arrive.
+     */
+    experiment_status: string
+    /**
+     * Why the tab stated the list was unavailable instead of mounting it, null when it mounted the
+     * list. One of the tab's `ExperimentRecordingsListUnavailableReason` codes, as a string for the
+     * same reason the other codes here are.
+     */
+    list_unavailable_reason: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -158,6 +186,19 @@ export interface ExperimentRecordingsFilterContext {
      * This is the success metric for the behavior comparison: opens it drove versus opens the
      * plain list drove. */
     watch_card_kind: string | null
+    /**
+     * What set these facets, when it was not the viewer: 'results_button' or 'results_menu' for a
+     * results-table link. Null once the viewer moves a facet themselves, so an empty list that a
+     * results row produced can be told from one somebody narrowed into by hand.
+     */
+    entry_point: string | null
+    /**
+     * Why the results row that opened this visit could not hand its metric to the tab, so the list
+     * shows every recording of the variant instead. Null on every other visit, and null once the
+     * viewer moves a facet themselves, for the same reason `entry_point` is. Kept as a string
+     * rather than the scene's union so telemetry doesn't import from the scene.
+     */
+    metric_unavailable_reason: string | null
 }
 
 /**
@@ -172,6 +213,16 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     result_count: number
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
+    /**
+     * The way out the empty state offered, null when its banner offered none. This follows
+     * `empty_reason` rather than the state of the tab: four reasons carry a way out of a narrowing,
+     * and the rest carry a link or nothing, so a variant that still narrows the list is not
+     * reported here when replay is off or the window expired. Null on a list with rows too, for the
+     * same reason `empty_reason` is. The values match `action` on `experiment recordings empty
+     * state action clicked`, so the two together size how often a viewer takes the way out against
+     * how often it is offered.
+     */
+    narrowing_action: string | null
     /** Null when the experiment has not launched. */
     days_since_start: number | null
     /** Null while the experiment runs. */
@@ -206,8 +257,56 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      * filter as a difference. The three properties above are null when the viewer removed it.
      */
     duration_filter_customized: boolean
+    /**
+     * Whether the viewer narrowed the list past the tab's own scoping through the filter bar. This
+     * is the input that decides `filters_narrowed`, and the only filter-bar signal the rest of this
+     * event lacks.
+     */
+    filters_customized: boolean
+    /**
+     * Whose already-watched recordings the viewer hides, and `off` when the viewer hides none. The
+     * server removes the recordings this setting hides before it answers, so the setting can empty
+     * a list on its own, and no `empty_reason` names it.
+     */
+    hide_viewed_recordings: 'off' | 'current-user' | 'any-user'
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
+}
+
+/**
+ * A first page of the recordings list the tab asked for and did not get. The backend states its
+ * refusals as a 400 carrying a message the tab shows, so `error_detail` is what separates a refusal
+ * no retry can change from a transient failure. Carries the same facets as `experiment recordings
+ * list rendered`, so a failed visit and a rendered one are comparable facet for facet. A page that
+ * scrolling added is not reported here: it fails a list that already has rows.
+ */
+export interface ExperimentRecordingsListFailedContext extends ExperimentRecordingsFilterContext {
+    /** The HTTP status, null when the request failed before it reached a response. */
+    status: number | null
+    /**
+     * The backend's own message, truncated. These messages are fixed strings that name an
+     * experiment id or a variant key at most, so they carry no user data.
+     */
+    error_detail: string
+    /** Null when the experiment has not launched. */
+    days_since_start: number | null
+}
+
+/**
+ * A visit that left the tab before its first page of recordings either arrived or failed. The list
+ * load waits out a debounce and then a request, so a viewer who clicks through to another tab in a
+ * second or two leaves before either outcome, and the playlist drops the load without reporting
+ * one. These visits are the largest part of "tab viewed, list never rendered", and this event is
+ * what accounts for them. A browser tab closed outright does not unmount React, so those visits
+ * still report no outcome at all.
+ */
+export interface ExperimentRecordingsListAbandonedContext extends ExperimentRecordingsFilterContext {
+    /** How long the tab stayed mounted, in milliseconds. */
+    ms_on_tab: number
+    /** Whether the playlist was still held for the tab's own checks, so no list request went out. */
+    held_for_checks: boolean
+    /** Whether the metric filter's session set was still loading, which holds the list empty. */
+    bucket_loading: boolean
 }
 
 /**
@@ -282,6 +381,12 @@ export interface ExperimentRecordingsEmptyActionContext {
     empty_reason: string | null
     /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
+    /**
+     * Whole days from the launch to the click, null when the experiment has not launched. The same
+     * count `experiment recordings list rendered` carries, so an action on a young experiment reads
+     * apart from one on a run that has had time to collect recordings.
+     */
+    days_since_start: number | null
 }
 
 /**
@@ -327,6 +432,12 @@ export interface ExperimentRecordingsBucketFailedContext {
     error: string
 }
 
+/** Where a reader picked an SDK in the setup snippets, so selection can be compared across surfaces. */
+export type SDKSetupInstructionsSurface =
+    | 'settings_sdk_setup'
+    | 'settings_reverse_proxy_setup'
+    | 'onboarding_ai_observability'
+
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
@@ -353,13 +464,22 @@ function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefi
     return multiplier ? (metric.retention_window_end - metric.retention_window_start) * multiplier : undefined
 }
 
-function getSourceProperties(source: ExperimentMetricSource): {
+function getSourceProperties(source: ExperimentMetricSource | ExperimentExposureNode): {
     source_kind: string
     is_data_warehouse: boolean
     property_filter_count: number
     math_type: string | undefined
     has_math_hogql: boolean
 } {
+    if (isExperimentExposureNode(source)) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: undefined,
+            has_math_hogql: false,
+        }
+    }
     return {
         source_kind: source.kind,
         is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,
@@ -480,7 +600,7 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
-function sanitizeInsight(insight: Partial<QueryBasedInsightModel> | null): object | undefined {
+function sanitizeInsight(insight: Partial<InsightModel> | null): object | undefined {
     if (!insight) {
         return undefined
     }
@@ -498,7 +618,7 @@ function sanitizeInsight(insight: Partial<QueryBasedInsightModel> | null): objec
     return sanitizedInsight
 }
 
-function sanitizeTile(tile: DashboardTile<QueryBasedInsightModel> | null): object | undefined {
+function sanitizeTile(tile: DashboardTile | null): object | undefined {
     if (!tile) {
         return undefined
     }
@@ -509,7 +629,7 @@ function sanitizeTile(tile: DashboardTile<QueryBasedInsightModel> | null): objec
     }
 }
 
-function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | null): object | null {
+function sanitizeDashboard(dashboard: DashboardType | null): object | null {
     if (!dashboard) {
         return null
     }
@@ -604,12 +724,12 @@ function increment(counts: Record<string, any>, key: string): void {
     counts[key] = (counts[key] || 0) + 1
 }
 
-function insightTileCountKey(tile: DashboardTile<QueryBasedInsightModel>): string {
+function insightTileCountKey(tile: DashboardTile): string {
     const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
     return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
 }
 
-function countDashboardTiles(tiles: DashboardTile<QueryBasedInsightModel>[], properties: Record<string, any>): void {
+function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, any>): void {
     for (const tile of tiles) {
         if (tile.insight) {
             increment(properties, insightTileCountKey(tile))
@@ -627,7 +747,7 @@ function countDashboardTiles(tiles: DashboardTile<QueryBasedInsightModel>[], pro
 }
 
 export function dashboardViewedProperties(
-    dashboard: DashboardType<QueryBasedInsightModel>,
+    dashboard: DashboardType,
     lastRefreshed: Dayjs | null,
     viewerUuid: string | undefined
 ): Record<string, any> {
@@ -901,38 +1021,38 @@ export interface eventUsageLogicActions {
         source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         manualCount: number,
         autoCount: number,
         breakdownTypes: string[]
     ) => {
         autoCount: number
         breakdownTypes: string[]
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         manualCount: number
     }
     reportDashboardColorThemeSet: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         themeId: number | null
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         themeId: number | null
     }
     reportDashboardDateRangeChanged: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         dateFrom?: string | Dayjs | null,
         dateTo?: string | Dayjs | null
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         dateFrom: string | Dayjs | null | undefined
         dateTo: string | Dayjs | null | undefined
     }
     reportDashboardEditModeDiscardPrompt: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         action: 'discarded' | 'kept_editing' | 'shown'
     ) => {
         action: 'discarded' | 'kept_editing' | 'shown'
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
     }
     reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
         dashboardId: number | undefined
@@ -964,12 +1084,12 @@ export interface eventUsageLogicActions {
         exportFormat: ExporterFormat
     }
     reportDashboardFiltersChanged: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         changeType: DashboardFilterChangeType,
         properties: Record<string, boolean | number | string | null | undefined>
     ) => {
         changeType: DashboardFilterChangeType
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         properties: Record<string, boolean | number | string | null | undefined>
     }
     reportDashboardFrontEndUpdate: (
@@ -1026,20 +1146,20 @@ export interface eventUsageLogicActions {
         source: DashboardEventSource
     }
     reportDashboardLayoutEditModeEntered: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         source: DashboardEventSource,
         layoutZoom: number | null
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutZoom: number | null
         source: DashboardEventSource
     }
     reportDashboardLayoutZoomChanged: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         layoutZoom: number,
         source: 'button' | 'shortcut'
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutZoom: number
         source: 'button' | 'shortcut'
     }
@@ -1051,13 +1171,13 @@ export interface eventUsageLogicActions {
         loadingMilliseconds: number
     }
     reportDashboardModeToggled: (
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        dashboard: DashboardType | null,
         mode: DashboardMode | null,
         source: DashboardEventSource | null,
         layoutZoom: number | null,
         layoutEditMode?: boolean
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        dashboard: DashboardType | null
         layoutEditMode: boolean | undefined
         layoutZoom: number | null
         mode: DashboardMode | null
@@ -1079,8 +1199,8 @@ export interface eventUsageLogicActions {
         pinned: boolean
         source: DashboardEventSource
     }
-    reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+    reportDashboardPropertiesChanged: (dashboard: DashboardType | null) => {
+        dashboard: DashboardType | null
     }
     reportDashboardRefreshed: (
         dashboardId: number,
@@ -1134,7 +1254,7 @@ export interface eventUsageLogicActions {
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
-        tile: DashboardTile<QueryBasedInsightModel>,
+        tile: DashboardTile,
         filters: Record<string, any>,
         variables: Record<string, any>,
         refreshDurationMs: number,
@@ -1144,7 +1264,7 @@ export interface eventUsageLogicActions {
         filters: Record<string, any>
         individualRefresh: boolean
         refreshDurationMs: number
-        tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
+        tile: DashboardTile
         variables: Record<string, any>
     }
     reportDashboardTileRepositioned: (
@@ -1157,11 +1277,11 @@ export interface eventUsageLogicActions {
         layoutZoom: number
     }
     reportDashboardViewed: (
-        dashboard: DashboardType<QueryBasedInsightModel>,
+        dashboard: DashboardType,
         lastRefreshed: Dayjs | null,
         delay?: number
     ) => {
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+        dashboard: DashboardType
         delay: number | undefined
         lastRefreshed: Dayjs | null
     }
@@ -1256,15 +1376,6 @@ export interface eventUsageLogicActions {
     }
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
-    }
-    reportExperimentAutoRefreshToggled: (
-        experiment: Experiment,
-        enabled: boolean,
-        interval: number
-    ) => {
-        enabled: boolean
-        experiment: Experiment
-        interval: number
     }
     reportExperimentBehaviorComparisonFailed: (
         experimentId: ExperimentIdType,
@@ -1428,18 +1539,7 @@ export interface eventUsageLogicActions {
             recalculation_id: string | null
             succeeded?: number
             total_metrics?: number
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi
         }
     ) => {
         properties: {
@@ -1451,19 +1551,7 @@ export interface eventUsageLogicActions {
             recalculation_id: string | null
             succeeded?: number | undefined
             total_metrics?: number | undefined
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
-                | undefined
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
         }
         status: 'completed' | 'failed' | 'triggered'
     }
@@ -1520,6 +1608,20 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsEmptyActionContext
     ) => {
         context: ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListAbandoned: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListAbandonedContext
+    ) => {
+        context: ExperimentRecordingsListAbandonedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListFailedContext
+    ) => {
+        context: ExperimentRecordingsListFailedContext
         experimentId: ExperimentIdType
     }
     reportExperimentRecordingsListRendered: (
@@ -1738,6 +1840,17 @@ export interface eventUsageLogicActions {
     reportFunnelStepReordered: () => {
         value: true
     }
+    reportGithubInstallationSelected: (
+        surface: string,
+        discoveryId?: string,
+        installationId?: string,
+        responseAgeMs?: number
+    ) => {
+        discoveryId: string | undefined
+        installationId: string | undefined
+        responseAgeMs: number | undefined
+        surface: string
+    }
     reportGroupProfileViewed: (delay?: number) => {
         delay: number | undefined
     }
@@ -1843,13 +1956,22 @@ export interface eventUsageLogicActions {
         insightShortId: InsightShortId
         loadingMilliseconds: number
     }
+    reportInsightResultsCopiedToClipboard: (
+        format: string,
+        insightId: number | null,
+        dashboardId: number | null
+    ) => {
+        dashboardId: number | null
+        format: string
+        insightId: number | null
+    }
     reportInsightSaved: (
-        insight: Partial<QueryBasedInsightModel> | null,
+        insight: Partial<InsightModel> | null,
         query: Node | null,
         isNewInsight: boolean,
         saveType: 'save' | 'save_as'
     ) => {
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        insight: Partial<InsightModel<Node<Record<string, any>>>> | null
         isNewInsight: boolean
         query: Node<Record<string, any>> | null
         saveType: 'save' | 'save_as'
@@ -1858,13 +1980,13 @@ export interface eventUsageLogicActions {
         query: Node<Record<string, any>> | null
     }
     reportInsightViewed: (
-        insightModel: Partial<QueryBasedInsightModel>,
+        insightModel: Partial<InsightModel>,
         query: Node | null,
         isFirstLoad: boolean,
         delay?: number
     ) => {
         delay: number | undefined
-        insightModel: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        insightModel: Partial<InsightModel<Node<Record<string, any>>>>
         isFirstLoad: boolean
         query: Node<Record<string, any>> | null
     }
@@ -1898,6 +2020,15 @@ export interface eventUsageLogicActions {
     ) => {
         error: string
         kind: string
+    }
+    reportIntegrationLinkExistingOffered: (
+        kind: string,
+        surface: IntegrationConnectSurface,
+        counts: IntegrationLinkExistingCounts
+    ) => {
+        counts: IntegrationLinkExistingCounts
+        kind: string
+        surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
         value: true
@@ -2128,11 +2259,11 @@ export interface eventUsageLogicActions {
         value: true
     }
     reportRemovedInsightFromDashboard: (
-        insight: Partial<QueryBasedInsightModel> | null,
+        insight: Partial<InsightModel> | null,
         dashboardId: number | null
     ) => {
         dashboardId: number | null
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        insight: Partial<InsightModel<Node<Record<string, any>>>> | null
     }
     reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => {
         sourceType: string
@@ -2159,6 +2290,13 @@ export interface eventUsageLogicActions {
     reportSDKSelected: (sdk: SDK) => {
         sdk: SDK
     }
+    reportSDKSetupInstructionsSDKSelected: (
+        sdkKey: string,
+        surface: SDKSetupInstructionsSurface
+    ) => {
+        sdkKey: string
+        surface: SDKSetupInstructionsSurface
+    }
     reportSavedInsightFilterUsed: (filterKeys: string[]) => {
         filterKeys: string[]
     }
@@ -2173,11 +2311,11 @@ export interface eventUsageLogicActions {
         tab: string
     }
     reportSavedInsightToDashboard: (
-        insight: Partial<QueryBasedInsightModel> | null,
+        insight: Partial<InsightModel> | null,
         dashboardId: number | null
     ) => {
         dashboardId: number | null
-        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        insight: Partial<InsightModel<Node<Record<string, any>>>> | null
     }
     reportSessionTableVersionUpdated: (version: string) => {
         version: string
@@ -2476,6 +2614,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationLinkExistingOffered: (
+            kind: string,
+            surface: IntegrationConnectSurface,
+            counts: IntegrationLinkExistingCounts
+        ) => ({ kind, surface, counts }),
+        reportGithubInstallationSelected: (
+            surface: string,
+            discoveryId?: string,
+            installationId?: string,
+            responseAgeMs?: number
+        ) => ({ surface, discoveryId, installationId, responseAgeMs }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
@@ -2489,13 +2638,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightStarted: (query: Node | null) => ({ query }),
         reportInsightSaved: (
-            insight: Partial<QueryBasedInsightModel> | null,
+            insight: Partial<InsightModel> | null,
             query: Node | null,
             isNewInsight: boolean,
             saveType: 'save' | 'save_as'
         ) => ({ insight, query, isNewInsight, saveType }),
         reportInsightViewed: (
-            insightModel: Partial<QueryBasedInsightModel>,
+            insightModel: Partial<InsightModel>,
             query: Node | null,
             isFirstLoad: boolean,
             delay?: number
@@ -2579,29 +2728,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (
-            dashboard: DashboardType<QueryBasedInsightModel>,
-            lastRefreshed: Dayjs | null,
-            delay?: number
-        ) => ({
+        reportDashboardViewed: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
             dashboard,
             delay,
             lastRefreshed,
         }),
         reportDashboardModeToggled: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             mode: DashboardMode | null,
             source: DashboardEventSource | null,
             layoutZoom: number | null,
             layoutEditMode?: boolean
         ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
         reportDashboardLayoutEditModeEntered: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             source: DashboardEventSource,
             layoutZoom: number | null
         ) => ({ dashboard, source, layoutZoom }),
         reportDashboardFiltersChanged: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ dashboard, changeType, properties }),
@@ -2611,25 +2756,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             ignored: boolean
         ) => ({ dashboardId, insightId, ignored }),
         reportDashboardLayoutZoomChanged: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
         reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
         reportDashboardEditModeDiscardPrompt: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             action: 'shown' | 'discarded' | 'kept_editing'
         ) => ({ dashboard, action }),
         reportDashboardBreakdownColorsSaved: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             manualCount: number,
             autoCount: number,
             breakdownTypes: string[]
         ) => ({ dashboard, manualCount, autoCount, breakdownTypes }),
-        reportDashboardColorThemeSet: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
-            themeId: number | null
-        ) => ({ dashboard, themeId }),
+        reportDashboardColorThemeSet: (dashboard: DashboardType | null, themeId: number | null) => ({
+            dashboard,
+            themeId,
+        }),
         reportDashboardRefreshed: (
             dashboardId: number,
             filters: Record<string, any>,
@@ -2656,7 +2801,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardTileRefreshed: (
             dashboardId: number,
-            tile: DashboardTile<QueryBasedInsightModel>,
+            tile: DashboardTile,
             filters: Record<string, any>,
             variables: Record<string, any>,
             refreshDurationMs: number,
@@ -2670,7 +2815,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             individualRefresh,
         }),
         reportDashboardDateRangeChanged: (
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            dashboard: DashboardType | null,
             dateFrom?: string | Dayjs | null,
             dateTo?: string | Dayjs | null
         ) => ({
@@ -2678,7 +2823,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dateFrom,
             dateTo,
         }),
-        reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
+        reportDashboardPropertiesChanged: (dashboard: DashboardType | null) => ({ dashboard }),
         reportDashboardPinToggled: (dashboardId: number, pinned: boolean, source: DashboardEventSource) => ({
             dashboardId,
             pinned,
@@ -2769,19 +2914,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             template_variable_count: number
             template_scope: DashboardTemplateScope | null
         }) => payload,
-        reportSavedInsightToDashboard: (
-            insight: Partial<QueryBasedInsightModel> | null,
-            dashboardId: number | null
-        ) => ({ insight, dashboardId }),
-        reportRemovedInsightFromDashboard: (
-            insight: Partial<QueryBasedInsightModel> | null,
-            dashboardId: number | null
-        ) => ({ insight, dashboardId }),
+        reportSavedInsightToDashboard: (insight: Partial<InsightModel> | null, dashboardId: number | null) => ({
+            insight,
+            dashboardId,
+        }),
+        reportRemovedInsightFromDashboard: (insight: Partial<InsightModel> | null, dashboardId: number | null) => ({
+            insight,
+            dashboardId,
+        }),
         reportCopiedDashboardTileToDashboard: (
             fromDashboardId: number,
             toDashboardId: number,
             tileType: DashboardWidgetType
         ) => ({ fromDashboardId, toDashboardId, tileType }),
+        reportInsightResultsCopiedToClipboard: (
+            format: string,
+            insightId: number | null,
+            dashboardId: number | null
+        ) => ({ format, insightId, dashboardId }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightNewInsightClicked: (insightType: string, presetKey?: string) => ({
@@ -2825,11 +2975,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             forceRefresh,
             context,
-        }),
-        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
-            experiment,
-            enabled,
-            interval,
         }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2948,18 +3093,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties: {
                 experiment_id: number
                 recalculation_id: string | null
-                trigger?:
-                    | 'manual'
-                    | 'cold_run'
-                    | 'stale_refresh'
-                    | 'auto_refresh'
-                    | 'experiment_config_change'
-                    | 'metric_config_change'
-                    | 'config_change'
-                    | 'experiment_launch'
-                    | 'experiment_stop'
-                    | 'experiment_update'
-                    | 'agent_mcp'
+                trigger?: ExperimentMetricsRecalculationTriggerEnumApi
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
@@ -2995,6 +3129,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentRecordingsListRendered: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsListRenderedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsListFailed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListFailedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsListAbandoned: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListAbandonedContext
         ) => ({ experimentId, context }),
         reportExperimentRecordingsEmptyActionClicked: (
             experimentId: ExperimentIdType,
@@ -3241,6 +3383,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportSDKSetupInstructionsSDKSelected: (sdkKey: string, surface: SDKSetupInstructionsSurface) => ({
+            sdkKey,
+            surface,
+        }),
         // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
         // (installationProgressLogic); guards for "once per session" live in that logic.
         reportWizardSyncSessionDetected: (props: {
@@ -3426,6 +3572,31 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // self-driving runs and everyone else, so it resolves this; surfaces that are
                 // self-driving by construction leave it unset rather than assert a constant.
                 self_driving: selfDriving,
+            })
+        },
+        // The banner offering an existing installation is where an unfamiliar account name is read,
+        // so it reports what it offered: without this, neither the label nor its source is recorded
+        // anywhere, and a confusing entry only shows up as a support ticket.
+        reportGithubInstallationSelected: ({ surface, discoveryId, installationId, responseAgeMs }) => {
+            posthog.capture('integration_link_existing_selected', {
+                integration_kind: 'github',
+                surface,
+                discovery_id: discoveryId,
+                installation_id: installationId,
+                response_age_ms: responseAgeMs,
+            })
+        },
+        reportIntegrationLinkExistingOffered: ({ kind, surface, counts }) => {
+            posthog.capture('integration_link_existing_offered', {
+                integration_kind: kind,
+                surface,
+                discovery_id: counts.discoveryId,
+                displayed_installation_ids: counts.installationIds,
+                response_age_ms: counts.responseAgeMs,
+                installation_count: counts.total,
+                sibling_installation_count: counts.sibling,
+                orphan_installation_count: counts.orphan,
+                unnamed_installation_count: counts.unnamed,
             })
         },
         // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
@@ -3883,6 +4054,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 tile_type: tileType,
             })
         },
+        reportInsightResultsCopiedToClipboard: async ({ format, insightId, dashboardId }) => {
+            posthog.capture('insight results copied to clipboard', {
+                format,
+                insight_id: insightId,
+                dashboard_id: dashboardId,
+            })
+        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
         },
@@ -3980,13 +4158,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
                 previous_refresh_state: context?.previous_refresh_state ?? null,
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
-            })
-        },
-        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
-            posthog.capture('experiment auto refresh toggled', {
-                ...getEventPropertiesForExperiment(experiment),
-                enabled,
-                interval,
             })
         },
         reportExperimentMetricBreakdownAdded: ({ experiment, metricUuid, breakdown, isPrimary }) => {
@@ -4171,6 +4342,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
             posthog.capture('experiment recordings list rendered', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsListFailed: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsListAbandoned: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list abandoned', {
                 experiment_id: experimentId,
                 ...context,
             })
@@ -4719,6 +4902,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
+            })
+        },
+        reportSDKSetupInstructionsSDKSelected: ({ sdkKey, surface }) => {
+            posthog.capture('sdk setup instructions sdk selected', {
+                sdk: sdkKey,
+                surface,
             })
         },
         reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {

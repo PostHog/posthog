@@ -8,8 +8,8 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
-import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
@@ -104,13 +104,13 @@ describe('exec tool', () => {
                     projectAvailable: false,
                     commands: [
                         'learn skills',
-                        'learn -s <query>',
+                        'learn -s "<up to 8 keywords>"',
                         'learn -d <source>:<skill> [...]',
                         'learn posthog:<skill> [path]',
                         'learn project:<skill> [path]',
                         'learn <source>:<skill> <path> [path...]',
                         'learn <source>:<skill> [<source>:<skill>...]',
-                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
                         'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],
                 },
@@ -135,17 +135,26 @@ describe('exec tool', () => {
             )
         })
 
-        it('reports every unknown guide as a typed learn error without partial content', async () => {
-            const exec = createExec(undefined, undefined, { learnCatalog })
+        it.each([true, false])(
+            'reports unknown guides with recovery instructions (skills enabled: %s)',
+            async (skillsEnabled) => {
+                const exec = createExec(undefined, undefined, {
+                    learnCatalog: new ExecLearnCatalog(guides, skillsEnabled ? { posthog: undefined } : undefined),
+                })
 
-            await expect(
-                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
-            ).rejects.toMatchObject({
-                name: 'ExecCommandError',
-                reason: 'unknown_learn_topic',
-                message: 'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations',
-            })
-        })
+                await expect(
+                    exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
+                ).rejects.toMatchObject({
+                    name: 'ExecCommandError',
+                    reason: 'unknown_learn_topic',
+                    message:
+                        'Unknown learning topics: "unknown", "missing". Available: analytics, visualizations.' +
+                        (skillsEnabled
+                            ? ' To load a skill, run `learn -s "<task keywords>"`, then `learn posthog:<skill>` or `learn project:<skill>` using the exact qualified name from the results.'
+                            : ' Run `learn` to list available topics.'),
+                })
+            }
+        )
 
         it('keeps core exec usable and reports each unavailable skill source', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -160,113 +169,6 @@ describe('exec tool', () => {
                 message: expect.stringContaining('PostHog skills are temporarily unavailable'),
             })
             await expect(exec.handler(mockContext, { command: 'tools' })).resolves.toContain('mock-tool')
-        })
-    })
-
-    describe('skills-first gate', () => {
-        const guideCatalog = (): ExecLearnCatalog =>
-            new ExecLearnCatalog(
-                [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }],
-                {
-                    posthog: new SkillCatalog([
-                        {
-                            name: 'bot-traffic',
-                            description: 'Filtering bot traffic.',
-                            files: [makeSkillFile('SKILL.md', '# Bot traffic\n\nFilter bots.')],
-                        },
-                    ]),
-                }
-            )
-
-        function makeSkillsSession(): NonNullable<ExecToolOptions['skillsSession']> {
-            const state: { learnedAt?: number; ackAt?: number } = {}
-            return {
-                hasLearned: async () => state.learnedAt !== undefined,
-                markLearned: async () => {
-                    state.learnedAt = Date.now()
-                },
-                hasAcknowledgedNoSkills: async () => state.ackAt !== undefined,
-                markAcknowledgedNoSkills: async () => {
-                    state.ackAt = Date.now()
-                },
-            }
-        }
-
-        it('rejects an un-learned call with a typed reason and passes it after a skill load', async () => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
-                name: 'ExecCommandError',
-                reason: 'skills_gate',
-                message: expect.stringContaining('No skills loaded this session'),
-            })
-
-            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        // Each of these is a way an agent can touch `learn` without loading a skill; none
-        // may open the gate, and the quoting cases fail a naive whitespace split.
-        it.each([
-            { label: 'a generic guide read', command: 'learn analytics' },
-            { label: 'a bare search', command: 'learn -s bot traffic' },
-            { label: 'a quoted search flag', command: "learn '-s' bot traffic" },
-            { label: 'a listing', command: 'learn skills' },
-        ])('does not open the gate for $label', async ({ command }) => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            await exec.handler(mockContext, { command })
-
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
-                'No skills loaded this session'
-            )
-        })
-
-        it('opens the gate when the skill identifier is quoted', async () => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            // A leading quote defeats a naive `startsWith('posthog:')` check, so a
-            // real skill load would fail to open the gate.
-            await exec.handler(mockContext, { command: "learn 'posthog:bot-traffic'" })
-
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        it('call --no-skills acknowledges once and opens the gate for the session', async () => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            await expect(exec.handler(mockContext, { command: 'call --no-skills mock-tool {}' })).resolves.toBeDefined()
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        it('opens the gate when the session store fails', async () => {
-            const down = async (): Promise<never> => {
-                throw new Error('redis down')
-            }
-            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
-                hasLearned: down,
-                markLearned: down,
-                hasAcknowledgedNoSkills: down,
-                markAcknowledgedNoSkills: down,
-            }
-            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
-
-            await expect(exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })).resolves.toContain(
-                'Bot traffic'
-            )
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
         })
     })
 
@@ -312,6 +214,21 @@ describe('exec tool', () => {
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
+
+        it.each(['call mock-tool', 'call --json mock-tool'])(
+            'uses the requested pagination format for %s',
+            async (command) => {
+                const results = [{ id: 1, name: 'example' }]
+                const handlerResult = { results, next: null, count: 1, previous: null }
+                const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+                const result = await exec.handler(mockContext, { command })
+
+                expect(result).toBe(
+                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                )
+            }
+        )
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -431,14 +348,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
@@ -902,6 +819,54 @@ describe('exec tool', () => {
             )
         })
 
+        // A near-miss name is how a scout loses its bound skill: the store denies a
+        // name `skill-list` would show, and the run reads that as the store being
+        // inconsistent rather than as its own typo.
+        it('names the near-miss skill the store offered', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'signals-scout-drive-session' not found. Did you mean 'signals-scout-drive-session-completion'?",
+                        type: 'skill_not_found',
+                        skill_name: 'signals-scout-drive-session',
+                        suggestions: ['signals-scout-drive-session-completion'],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"signals-scout-drive-session","version":1}',
+            })) as string
+
+            expect(result).toContain("Did you mean 'signals-scout-drive-session-completion'?")
+            expect(result).toContain('Run `call skill-get {"skill_name": "signals-scout-drive-session-completion"}`')
+        })
+
+        it('names the versions the store holds when the pinned one is absent', async () => {
+            const exec = createExec([
+                makeSkillTool(
+                    'skill-get',
+                    JSON.stringify({
+                        detail: "Skill with name 'real-skill' has no version 7. Available versions: 1, 2.",
+                        type: 'skill_version_not_found',
+                        skill_name: 'real-skill',
+                        available_versions: [1, 2],
+                    })
+                ),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call skill-get {"skill_name":"real-skill","version":7}',
+            })) as string
+
+            expect(result).toContain('Available versions: 1, 2.')
+            expect(result).toContain('Run `call skill-get {"skill_name": "real-skill", "version": 2}`')
+            // The store told the two lookups apart, so the message must not repeat the
+            // legacy caveat that a version miss could mean the skill is gone.
+            expect(result).not.toContain('answers the same way')
+        })
+
         // Built-in PostHog skills are a catalog the store never held, so a tool
         // description that says "load the `<name>` skill" sends an agent here and
         // the store answers 404. The message above points at `skill-list`, which
@@ -1166,6 +1131,30 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(received[0]!.output_format).toBe('optimized')
             expect(result).toBe('Date|count\n2026-05-07|6')
+        })
+    })
+
+    describe('batched commands', () => {
+        it.each([
+            ['info mock-tool\ninfo other-tool', 2],
+            ['search flags\ncall mock-tool {}\ninfo mock-tool', 3],
+        ])('rejects %j and names each command', async (command, expected) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                `exec runs one command per request, and this request held ${expected}.`
+            )
+        })
+
+        it.each([
+            ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
+            ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
+        ])('runs a single call with %s', async (_label, command) => {
+            const tool = makeMockTool({
+                schema: z.object({ query: z.string().optional(), search: z.string().optional() }),
+                handler: async () => ({ ok: true }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
         })
     })
 
@@ -1492,9 +1481,23 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        it('accepts an anchored alternation of a whole toolset', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const alternation = [
+                ...Array.from({ length: 20 }, (_, index) => `^scout-some-long-tool-name-${index}$`),
+                '^feature-flag-get-all$',
+            ].join('|')
+            expect(alternation.length).toBeGreaterThan(400)
+
+            const result = await exec.handler(mockContext, { command: `search ${alternation}` })
+
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(401)
+            const longPattern = 'a'.repeat(801)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )
@@ -1673,6 +1676,15 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // A generic unknown-command reply reads as "the tool does not exist".
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1804,6 +1816,9 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // Recording the tool separates a dropped `call` prefix from a genuine typo.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],
@@ -1877,14 +1892,19 @@ describe('exec tool', () => {
                     }
                 })
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 v2Tools,
                 context,
-                formatter.buildExecToolDescription(),
+                formatter.buildExecToolDescription({
+                    skillsEnabled: true,
+                    docsSearchEnabled: true,
+                    businessKnowledgeSearchEnabled: true,
+                }),
                 commandReference,
                 undefined
             )
@@ -1906,10 +1926,11 @@ describe('exec tool', () => {
             const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
 
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 [],
                 createExecContext(),
@@ -2121,14 +2142,14 @@ describe('exec tool', () => {
                 expect(message).toContain('resend them as {"query": {"orderBy": ..., "limit": ...}}')
             })
 
-            it('names only wrapper fields, so an undeclared key cannot reach the message', () => {
-                // The rendered shape is returned to the caller and recorded as the
-                // analytics error message, so every key in it has to come from the
-                // tool's own schema rather than the caller's payload.
+            it('builds the shape from wrapper fields, and names the key that fits none of them', () => {
+                // The rendered shape is the tool's own vocabulary, so a key the schema
+                // never declared cannot appear inside it. Naming it alongside is what
+                // stops the caller resending the same unaccepted key.
                 const message = formatFor({ limit: 10, sneaky_key: 'x' })
 
-                expect(message).toContain('{"query": {"limit": ...}}')
-                expect(message).not.toContain('sneaky_key')
+                expect(message).toContain('resend them as {"query": {"limit": ...}}')
+                expect(message).toContain('not fields of query, so remove or rename them: "sneaky_key"')
             })
 
             it('caps the fields it names so a large payload cannot inflate the message', () => {
@@ -2263,6 +2284,22 @@ describe('exec tool', () => {
                 )
             })
 
+            it('keeps a top-level sibling in the shape it tells the caller to resend', () => {
+                // A caller that copies a shape without `baselineDateRange` diffs against the
+                // default baseline, so the retry answers a different question.
+                const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                const input = {
+                    serviceNames: ['api'],
+                    dateRange: { date_from: '-1d' },
+                    baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                }
+                const result = tool.schema.safeParse(input, { reportInput: true })
+
+                expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
+                    '"baselineDateRange": ...'
+                )
+            })
+
             describe('rewrapping it into the call the caller meant', () => {
                 const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
                     const result = schema.safeParse(input, { reportInput: true })
@@ -2314,6 +2351,83 @@ describe('exec tool', () => {
                     const input = { serviceNames: ['api'], dateRagne: { date_from: '-7d' } }
 
                     expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                // Flattening the payload usually flattens the window one level further, and
+                // `{date_from, limit}` is the single most common rejected shape on these tools.
+                it.each([
+                    ['a window sent as loose snake_case keys', { date_from: '-1h', limit: 10 }],
+                    ['the camelCase spelling of the same keys', { dateFrom: '-1h', limit: 10 }],
+                ])("folds %s into the wrapper's own dateRange", (_label, input) => {
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('carries both ends of the window across', () => {
+                    const tool = GENERATED_TOOL_MAP['query-apm-spans']!()
+
+                    expect(rewrapFor(tool.schema, { date_from: '-1d', date_to: '-1h' })).toMatchObject({
+                        query: { dateRange: { date_from: '-1d', date_to: '-1h' } },
+                    })
+                })
+
+                it('places a loose field in whichever object declares it', () => {
+                    // Nothing about this is specific to a window: `compare` belongs to
+                    // `compareFilter` the same way `date_from` belongs to `dateRange`.
+                    const tool = GENERATED_TOOL_MAP['apm-spans-aggregate']!()
+                    const input = { serviceNames: ['api'], compare: true, date_from: '-1d' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: {
+                            serviceNames: ['api'],
+                            compareFilter: { compare: true },
+                            dateRange: { date_from: '-1d' },
+                        },
+                    })
+                })
+
+                it('reads a field the caller spelled in the other case convention', () => {
+                    // These schemas mix the two: a query's own fields are camelCase while a
+                    // window's fields are snake_case, and `query-metrics` names its own window
+                    // `dateFrom`. A caller cannot tell which without reading the schema.
+                    const tool = GENERATED_TOOL_MAP['query-metrics']!()
+                    const input = { metricName: 'http_requests', date_from: '2026-09-01T00:00:00Z' }
+
+                    expect(rewrapFor(tool.schema, input)).toMatchObject({
+                        query: { metricName: 'http_requests', dateFrom: '2026-09-01T00:00:00Z' },
+                    })
+                })
+
+                it.each([
+                    ['two spellings of one field', { date_from: '-1h', dateFrom: '-7d' }],
+                    [
+                        'two spellings of one object',
+                        { dateRange: { date_from: '-1h' }, date_range: { date_from: '-7d' } },
+                    ],
+                ])('leaves a payload alone when it carries %s', (_label, input) => {
+                    // Both keys answer to the same place, so placing them would keep one value
+                    // and drop the other without telling the caller which.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the caller also sent a dateRange', () => {
+                    // Two windows in one call is a caller that means something we cannot read,
+                    // and picking either one runs a query over a range it did not ask for.
+                    const tool = GENERATED_TOOL_MAP['query-logs']!()
+                    const input = { dateRange: { date_from: '-1h' }, date_from: '-7d' }
+
+                    expect(rewrapFor(tool.schema, input)).toBeUndefined()
+                })
+
+                it('leaves a loose date key alone when the wrapper holds no window', () => {
+                    expect(
+                        rewrapFor(z.object({ query: z.object({ limit: z.number() }) }), { date_from: '-1h', limit: 10 })
+                    ).toBeUndefined()
                 })
 
                 it('leaves a rejection that names more than the missing wrapper alone', () => {

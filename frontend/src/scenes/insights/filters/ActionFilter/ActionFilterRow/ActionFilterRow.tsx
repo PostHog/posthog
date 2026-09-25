@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
@@ -148,9 +148,15 @@ export function ActionFilterRow({
         duplicateFilter,
         convertFilterToGroup,
     } = useActions(logic)
-    const { actions } = useValues(actionsModel)
+    const { actions } = useValues(actionsModel({ shouldLoad: filter.type === EntityTypes.ACTIONS }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (filter.type === 'data_warehouse') {
+            ensureAllTableFields()
+        }
+    }, [filter.type, ensureAllTableFields])
     const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
@@ -402,6 +408,7 @@ export function ActionFilterRow({
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts
+            promoteSelectedItemToFirstPosition
             selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)

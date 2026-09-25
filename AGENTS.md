@@ -30,14 +30,14 @@
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - In a PostHog Tasks cloud run (`POSTHOG_TASK_RUN_ID` set), the boot sequence, prewarmed test database and scoped-test rules differ — read [Cloud task sandbox](docs/internal/cloud-task-sandbox.md) before starting the stack or running tests there
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
-- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.
 
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update a relevant existing doc under `docs/` **in the same PR**. If none exists, make no docs change.
+- A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
 
 ### Commit types
 
@@ -104,7 +104,7 @@ Never run `gh pr merge` or click the GitHub merge button — both are blocked by
 
 **Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack.**
 Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers.
-Agents may inspect status, fix code and CI, apply the `stamphog` label when a required approval is missing, and report that a PR is ready — then wait for a direct instruction.
+Agents may inspect status, fix code and CI, request a stamphog review when a required approval is missing (MCP first, label fallback, see `/merging-prs`), and report that a PR is ready — then wait for a direct instruction.
 
 Once approved, follow `/merging-prs` for the enqueue, watch and failure loop. It also covers why the PR's own checks never show queue progress.
 
@@ -137,6 +137,8 @@ Examples:
 - CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
 - **A workflow edit reaches every open PR before those branches rebase.** It runs against the PR merged with master, but a companion change — a new dependency, file, or config — only arrives when the branch rebases. A workflow that starts requiring something unrebased branches lack fails every in-flight PR before its tests run. Make the new behavior degrade gracefully, or gate it. This has broken CI repeatedly.
 - Mechanical workflow rules (`timeout-minutes`, concurrency, dispatch budget, path filters, gate hygiene) are enforced by `hogli lint:workflows` and actionlint, which are the source of truth. `/authoring-ci-workflows` explains the reasoning behind each.
+- **Agents must classify every PR for native-JSON event-table coverage before opening it.** Add `test-new-events-schema` when a diff changes event ingestion or cleaning, event or property reads, generated SQL over events, or schema-specific snapshots. Add the label while the PR is a draft so `ready_for_review` starts the run. If the PR must open ready, label it immediately and push another commit because label events do not start Backend CI. Leave unrelated PRs unlabeled because the label doubles the backend test matrices.
+- **A pull request never publishes a package or release.** `[lint: github-actions-publish-on-pull-request]` A published version is public forever, and a pull request run executes code its author controls. Publish only from a `push` to `master`, a release tag, or a `workflow_dispatch` on `master`. A pull request run only builds and validates, for example with `--dry-run`. The semgrep rule cannot see a publisher inside a reusable workflow, so gate that job in the called workflow too. Never run a publish command by hand from a pull request branch. [`build-hogql-parser-npm.yml`](.github/workflows/build-hogql-parser-npm.yml) is the reference shape.
 
 ## Security
 
@@ -193,7 +195,7 @@ Each rule is tagged with what catches a violation.
 - **A Python `requests` call to GitHub or Slack under `common/`, `ee/`, `posthog/` or `products/` goes through `posthog/egress/`.** `[lint: github-api-calls-go-through-egress, slack-api-calls-go-through-egress]` Route it through the gated, recorded transport.
 - **Every other call to those hosts is on review.** `[review]` The rules match an inline URL in a Python `requests` call inside those four directories. A URL bound to a variable first, another transport such as `httpx`, another language, or a caller under `tools/` all pass CI.
 - **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
-- **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as migration tooling in `docker-compose.hobby.yml` and `bin/upgrade-objectstorage`. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
+- **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
 
 ### Django admin
 
@@ -263,7 +265,7 @@ When automating a convention, try these in order — only fall back to the next 
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
 Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile.
-Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; changes to `.claude/settings.json` are blocked outright by lint-staged.
+Changes to `.claude/hooks/` trigger a warning from the `pre-commit` hook; lint-staged allows only repo-wide keys in `.claude/settings.json`, because personal settings belong in the gitignored `.claude/settings.local.json`.
 A warn-only check belongs in the `pre-commit` hook body rather than in a lint-staged task, because lint-staged discards the output of every task that exits 0.
 
 ### Mandatory skill invocation
@@ -299,6 +301,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
+- `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`

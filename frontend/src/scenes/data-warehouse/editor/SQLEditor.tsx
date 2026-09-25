@@ -7,6 +7,7 @@ import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@p
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -31,16 +32,17 @@ import {
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ExpressionModal } from 'products/data_warehouse/frontend/shared/components/ExpressionModal'
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { ExpressionModal } from '../ExpressionModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
-import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -60,6 +62,7 @@ export enum SQLEditorPanel {
 }
 
 const VARIABLE_QUERY_SYNC_DEBOUNCE_MS = 150
+const MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
 interface SQLEditorProps {
     tabId?: string
@@ -68,6 +71,8 @@ interface SQLEditorProps {
     defaultShowDatabaseTree?: boolean
     /** Extra top-level sections for the database tree, owned by the embedder — see QueryDatabase. */
     extraTreeSections?: TreeDataItem[]
+    /** Which product embeds this editor. Only used to attribute analytics events to a host. */
+    hostProduct?: ProductKey
     panel?: SQLEditorPanel
     showOutputToolbar?: boolean
     onRunQuery?: () => void
@@ -93,6 +98,7 @@ export function SQLEditor({
     showDatabaseTree,
     defaultShowDatabaseTree = true,
     extraTreeSections,
+    hostProduct,
     panel = SQLEditorPanel.Full,
     showOutputToolbar = true,
     onRunQuery,
@@ -296,6 +302,7 @@ export function SQLEditor({
                                                             tabId={tabId || ''}
                                                             showDatabaseTree={showDatabaseTreePanel}
                                                             onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
+                                                            hostProduct={hostProduct}
                                                             showQueryPanel={showQueryPanel}
                                                             showOutputPanel={showOutputPanel}
                                                             onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
@@ -478,13 +485,23 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
-    useAttachedContext([
-        {
-            type: 'sql_editor_state',
-            value: JSON.stringify(getExecuteSqlToolContext(queryInput, sourceQuery)),
-            label: 'Current query',
-        },
-    ])
+    const debouncedQueryInput = useDebouncedValue(queryInput, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const debouncedSourceQuery = useDebouncedValue(sourceQuery, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const executeSqlToolContext = useMemo(
+        () => getExecuteSqlToolContext(debouncedQueryInput, debouncedSourceQuery),
+        [debouncedQueryInput, debouncedSourceQuery]
+    )
+    const attachedContextItems = useMemo(
+        () => [
+            {
+                type: 'sql_editor_state' as const,
+                value: JSON.stringify(executeSqlToolContext),
+                label: 'Current query',
+            },
+        ],
+        [executeSqlToolContext]
+    )
+    useAttachedContext(attachedContextItems)
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
@@ -661,7 +678,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 })}
                 maxToolProps={{
                     identifier: 'execute_sql',
-                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
+                    context: executeSqlToolContext,
                     contextDescription: {
                         text: 'Current query',
                         icon: iconForType('sql_editor'),

@@ -9,6 +9,33 @@ This doc says how a change becomes an activity row, where the code for a new mod
 The skill `.agents/skills/adding-activity-logging/SKILL.md` carries the step-by-step workflow.
 Read this doc before you add or change activity logging.
 
+## Reading activity rows
+
+Activity rows show the actor, optional client tag, and time above the action summary and its target.
+Long action summaries collapse to two lines.
+Description changes include a two-line preview of the new value in normal text.
+The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
+Diff compares the recorded values, and Raw shows the activity payload.
+Product-specific detail tabs remain the initial view when supplied by a describer.
+The copy-link control beside expand appears on hover or keyboard focus.
+
+Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
+Use `activityLogSummary` for the usual actor, or pass a specialized actor such as a workflow link or an anonymous user.
+The optional plain-text `preview` holds long values such as descriptions; keep them out of the action headline.
+Field mappings can supply separate summary clauses and a preview while preserving their notification wording.
+Summary clauses stay lowercase so combined changes read as one sentence, and they do not depend on notification mode.
+Use `summarizeDescriptionChange` for consistent added, updated, and cleared description clauses.
+Rename summaries retain both names, with the resource link in the target.
+Use `describeMappedChanges` for a field-to-handler mapping, or `describeChangeMappings` when a product needs its own change selection.
+Both helpers assemble the summary and notification sentence and retain extended descriptions and custom detail tabs.
+The row uses that structure without parsing a JSX sentence.
+The complete `description` remains available to notifications and other activity consumers.
+A describer can still return `description: null` to hide an event.
+Keep existing fallback rows when no fields have a description, and preserve collected changes if a later field cannot be described.
+The row retains sentence rendering for legacy items constructed without a summary.
+The sentence aligns with the avatar, with the client tag and time underneath.
+Agent intent and task links remain optional and retain their existing attribution rules.
+
 ## How a change becomes an activity row
 
 ```text
@@ -96,6 +123,10 @@ Four registries in `activity_log.py` tune it per scope:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
+`changes_between` also reads named reverse relations.
+Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
+Reading their fail-closed managers can require team context that background writes do not have.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
@@ -120,6 +151,20 @@ A Celery task, a Temporal activity, or a webhook handler has no request user.
 The row is a system row.
 To attribute it to a job, pass a `Trigger(job_type=..., job_id=..., payload=...)` in `Detail`.
 A receiver can also read one from `get_current_trigger()` when the job wrapped its write in `ActivityTriggerContext(...)`; the receiver has to read and pass it, the context alone stores nothing.
+
+### Agent writes
+
+`record_agent_intent` stores the agent's stated reason from the `x-posthog-intent` header for any authenticated request.
+A session, a personal API key and an OAuth token all reach it: the middleware calls it for a session, and the authentication class calls it for a bearer credential.
+`OAuthAccessTokenAuthentication` also records the task id when the server has bound the token to a sandbox task.
+When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
+A product that passes its own trigger keeps it, so this only fills the gap.
+
+The intent is the caller's own claim and nothing verifies it.
+Both activity views display intent without a task link and identify it as self-reported in the tooltip.
+A task link appears only when the token has a server-set task binding, so intent never implies a verified run.
+The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
+This applies to new activity rows; it does not recover intent that was discarded before the change.
 
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.

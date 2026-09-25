@@ -9,6 +9,8 @@ schema <tool_name> [field_path] — drill into a specific field schema (supports
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
+**One command per request.** `exec` has no batch syntax. A request that stacks several commands on separate lines is rejected before any of them run. To run several commands, send several `exec` calls. You can issue them in parallel.
+
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
 **SKILLS FIRST: HARD REQUIREMENT**
@@ -17,7 +19,7 @@ For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even 
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
-Syntax: `learn [skills|-s <query>|-d <name...>|(posthog|project):<skill> [path...] [-s <query>|--lines <start>:<end>]]`
+Syntax: `learn [skills|-s "<up to 8 keywords>"|-d <name...>|(posthog|project):<skill> [path...] [-s "<up to 8 keywords>"|--lines <start>:<end>]]`
 
 <example>
 User: Investigate why checkout conversion dropped this week.
@@ -33,7 +35,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -126,7 +128,7 @@ WRONG: Confirm the event with `call read-data-schema {"query":{"kind":"events"}}
 
 - If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
 - If a tool name doesn't exist, run `tools` again to find the correct name.
-- If no tool covers a capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md).
+- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new with `call docs-search <json_input>` or the changelog (https://posthog.com/changelog.md).
 
 ### Basic functionality
 
@@ -139,8 +141,6 @@ Created data (the user's business activity in PostHog): actions (unify multiple 
 IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
 
 If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
-
-If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
 
 ### Tool search
 
@@ -163,12 +163,10 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-dashboard|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
-Defined group types: organization, project
+### Active environment
 
-You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
-Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).
+Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range. For the project's group types, run `execute-sql` on `system.group_type_mappings`.

@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { DashboardPlacement, DashboardTile, InsightColor, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, InsightColor } from '~/types'
 
 import { DashboardImageTile } from 'products/dashboards/frontend/components/ImageTile/DashboardImageTile'
 
 const IMAGE_URL = 'https://imagedelivery.net/lvc9lblm6_VvsB0sE7lLrg/70-s-dance-hog/md'
 
-const transparentTile: DashboardTile<QueryBasedInsightModel> = {
+const transparentTile: DashboardTile = {
     id: 1,
     color: InsightColor.White,
     transparent_background: true,

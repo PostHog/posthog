@@ -359,6 +359,9 @@ const InteractiveWorkflow = ({ id, className }: { id: string; className?: string
 )
 
 export const CustomerOnboardingAndRetention: StoryFn = () => <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} />
+export const NarrowCustomerOnboardingAndRetention: StoryFn = () => (
+    <InteractiveWorkflow id={COMPLEX_WORKFLOW_ID} className="w-5xl max-w-full" />
+)
 export const NewWorkflow: StoryFn = () => <InteractiveWorkflow id="new" />
 export const NarrowWorkflow: StoryFn = () => <InteractiveWorkflow id="new" className="w-[40rem] max-w-full" />
 export const SupportSlaRouting: StoryFn = () => <InteractiveWorkflow id="example-support-sla-routing" />

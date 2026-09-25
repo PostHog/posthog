@@ -220,21 +220,31 @@ class TestFanOut:
         # The tasks level is fetched compact — story opt_fields must not leak onto the parent walk.
         assert not any("opt_fields" in url for url in sent if "project=P1" in url)
 
+    @pytest.mark.parametrize(
+        "endpoint, child_routes, expected_gids",
+        [
+            ("users", [], ["U1", "U2"]),
+            ("time_tracking_entries", [("user=U1", [{"gid": "e1"}]), ("user=U2", [])], ["e1"]),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_user_fan_out_filters_time_tracking_entries_per_user(self, MockSession) -> None:
+    def test_users_are_walked_per_workspace(self, MockSession, endpoint, child_routes, expected_gids) -> None:
         session = MockSession.return_value
         sent = _wire(
             session,
             [
+                ("/workspaces?", _page([{"gid": "W1"}])),
                 ("/users", _page([{"gid": "U1"}, {"gid": "U2"}])),
-                ("user=U1", _page([{"gid": "e1"}])),
-                ("user=U2", _page([])),
+                *[(substr, _page(items)) for substr, items in child_routes],
             ],
         )
 
-        rows = _rows(_source("time_tracking_entries", _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
-        assert [r["gid"] for r in rows] == ["e1"]
+        assert [r["gid"] for r in rows] == expected_gids
+        # Asana rejects an unscoped /users once the token can see more than one workspace.
+        user_urls = [url for url in sent if "/users" in url]
+        assert user_urls and all("workspace=W1" in url for url in user_urls)
         # Every entry request is scoped to a user; an unfiltered request would be rejected.
         assert all("user=" in url for url in sent if "/time_tracking_entries" in url)
 

@@ -116,8 +116,8 @@ class UntaggedFollowupMode(models.TextChoices):
     """What PostHog does with an untagged reply in a thread it already owns.
 
     Read from the thread creator's settings row, so it governs everyone
-    replying in a thread that user started. ``NEVER`` is what an unset row
-    resolves to, making untagged follow-ups opt-in per person.
+    replying in a thread that user started. An unset row resolves to ``ASK``,
+    so the person who replied can choose whether to send their message.
     """
 
     AUTO = "auto", "Always pick it up"
@@ -132,12 +132,12 @@ class SlackSettings(UUIDModel):
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.
-      Written by the Slack `@PostHog project <id>` directive or the user-level
+      Written by the Slack `/posthog project <id>` command or the user-level
       settings UI.
     - ``slack_user_id IS NULL`` → workspace-wide fallback, applied when an
       inbound event's Slack user has no personal row yet. Written via the
       PostHog project-level settings UI by a team admin, or via the Slack
-      `@PostHog project workspace <id>` directive by a Slack workspace
+      `/posthog project workspace <id>` command by a Slack workspace
       admin/owner.
 
     A user-specific row, if present, always wins over the workspace-wide row at
@@ -162,8 +162,7 @@ class SlackSettings(UUIDModel):
         null=True,
         help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
     )
-    # NULL means the user has never picked, which resolves to ``NEVER``: nothing
-    # is picked up in their threads until they turn it on from the Home tab.
+    # NULL means the user has never picked, which resolves to ``ASK``.
     untagged_followup_mode = models.CharField(
         max_length=16,
         null=True,

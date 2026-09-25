@@ -10,6 +10,9 @@ import { template as updateAccountTemplate } from './posthog-update-account.temp
 
 const REL_UUID = '0197f9f0-1111-0000-0000-000000000000'
 
+const sentBody = (tester: TemplateTester): any =>
+    parseJSON((tester.mockInternalFetch.mock.calls[0][1] as { body: string }).body)
+
 describe('posthog customer analytics account templates', () => {
     const cases = [
         {
@@ -65,26 +68,23 @@ describe('posthog customer analytics account templates', () => {
         })
 
         it('surfaces the API error body when the request fails', async () => {
-            let response = await tester.invoke(inputs)
-            expect(response.error).toBeUndefined()
-            expect(response.finished).toBe(false)
-
-            response = await tester.invokeFetchResponse(response.invocation, {
+            tester.mockInternalFetchResponse({
                 status: 400,
                 body: { error: 'CSM: no relationship definition with this name' },
             })
+
+            let response = await tester.invoke(inputs)
+            expect(response.error).toBeUndefined()
+            response = await tester.resumeInvocation(response.invocation)
 
             expect(response.error).toEqual(`${failurePrefix} CSM: no relationship definition with this name`)
         })
 
         it('prints a readable line on success', async () => {
-            let response = await tester.invoke(inputs)
-            expect(response.error).toBeUndefined()
+            tester.mockInternalFetchResponse({ status: 200, body: { id: 'account-id', external_id: 'acme-1' } })
 
-            response = await tester.invokeFetchResponse(response.invocation, {
-                status: 200,
-                body: { id: 'account-id', external_id: 'acme-1' },
-            })
+            let response = await tester.invoke(inputs)
+            response = await tester.resumeInvocation(response.invocation)
 
             expect(response.error).toBeUndefined()
             expect(response.finished).toBe(true)
@@ -108,9 +108,10 @@ describe('posthog customer analytics account templates', () => {
             ],
             ['non-JSON body', 503, 'upstream connect error', 'Failed to update account (503): upstream connect error'],
         ])('%s', async (_name, status, body, expected) => {
-            let response = await tester.invoke({ external_id: 'acme-1', tags: ['vip'] })
+            tester.mockInternalFetchResponse({ status, body })
 
-            response = await tester.invokeFetchResponse(response.invocation, { status, body })
+            let response = await tester.invoke({ external_id: 'acme-1', tags: ['vip'] })
+            response = await tester.resumeInvocation(response.invocation)
 
             expect(response.error).toEqual(expected)
         })
@@ -124,16 +125,12 @@ describe('posthog customer analytics account templates', () => {
         })
 
         it('logs the created line on 201', async () => {
+            tester.mockInternalFetchResponse({ status: 201, body: { id: 'account-id', external_id: 'acme-1' } })
+
             let response = await tester.invoke({ external_id: 'acme-1' })
+            response = await tester.resumeInvocation(response.invocation)
 
-            const body = parseJSON((response.invocation.queueParameters as any).body)
-            expect(body).toEqual({ external_id: 'acme-1' })
-
-            response = await tester.invokeFetchResponse(response.invocation, {
-                status: 201,
-                body: { id: 'account-id', external_id: 'acme-1' },
-            })
-
+            expect(sentBody(tester)).toEqual({ external_id: 'acme-1' })
             expect(response.error).toBeUndefined()
             expect(response.finished).toBe(true)
             expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toContain(
@@ -150,7 +147,7 @@ describe('posthog customer analytics account templates', () => {
         })
     })
 
-    describe('update account property queued fetch body', () => {
+    describe('update account property request body', () => {
         const tester = new TemplateTester(updateAccountPropertyTemplate)
 
         beforeEach(async () => {
@@ -158,16 +155,15 @@ describe('posthog customer analytics account templates', () => {
         })
 
         it('sends an explicit property clear as API null', async () => {
+            tester.mockInternalFetchResponse({ status: 200, body: { external_id: 'acme-1' } })
+
             const response = await tester.invoke({
                 external_id: 'acme-1',
                 properties: { '0197f9f0-0000-0000-0000-000000000000': { __posthog_clear_property: true } },
             })
 
             expect(response.error).toBeUndefined()
-            expect(response.finished).toBe(false)
-
-            const body = parseJSON((response.invocation.queueParameters as any).body)
-            expect(body.properties).toEqual({ '0197f9f0-0000-0000-0000-000000000000': null })
+            expect(sentBody(tester).properties).toEqual({ '0197f9f0-0000-0000-0000-000000000000': null })
         })
 
         it('rejects a property template that resolves to null', async () => {
@@ -177,11 +173,11 @@ describe('posthog customer analytics account templates', () => {
             })
 
             expect(response.error).toContain("received null for property '0197f9f0-0000-0000-0000-000000000000'")
-            expect(response.invocation.queueParameters).toBeUndefined()
+            expect(tester.mockInternalFetch).not.toHaveBeenCalled()
         })
     })
 
-    describe('update account relationships queued fetch body', () => {
+    describe('update account relationships request body', () => {
         const tester = new TemplateTester(updateAccountRelationshipsTemplate)
 
         beforeEach(async () => {
@@ -189,16 +185,15 @@ describe('posthog customer analytics account templates', () => {
         })
 
         it('sends relationship assignments keyed by UUID in the request body', async () => {
+            tester.mockInternalFetchResponse({ status: 200, body: { external_id: 'acme-1' } })
+
             const response = await tester.invoke({
                 external_id: 'acme-1',
                 relationships: { [REL_UUID]: { type: 'user', id: 42 } },
             })
 
             expect(response.error).toBeUndefined()
-            expect(response.finished).toBe(false)
-
-            const body = parseJSON((response.invocation.queueParameters as any).body)
-            expect(body.relationships).toEqual({ [REL_UUID]: { type: 'user', id: 42 } })
+            expect(sentBody(tester).relationships).toEqual({ [REL_UUID]: { type: 'user', id: 42 } })
         })
     })
 })

@@ -32,6 +32,7 @@ Integer handling notes:
   uniformity, and the position arithmetic stays inside Int64.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -40,6 +41,8 @@ import structlog
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.property import action_to_expr
+
+from posthog.dataclasses import frozen
 
 from products.actions.backend.models.action import Action
 
@@ -50,19 +53,6 @@ logger = structlog.get_logger(__name__)
 
 # Number of folds for hash-based train/holdout split. fold == 0 → holdout (20%).
 NUM_FOLDS = 5
-
-# Semantic population kinds produced by templates.py. Every kind listed here must have a
-# compiler branch in _build_population_kind_conditions below — the write-time validator in
-# presentation/views/serializers.py imports this set, so an uncompilable kind is rejected at creation.
-POPULATION_KINDS = frozenset(
-    {
-        "performed_event_within_days",
-        "person_first_seen_within_days",
-        "active_not_performed_target",
-        "ever_performed_event",
-        "ever_performed_target",
-    }
-)
 
 # Kinds whose membership is defined by the pipeline's own target rather than by a named event.
 TARGET_RELATIVE_KINDS = frozenset({"active_not_performed_target", "ever_performed_target"})
@@ -105,6 +95,12 @@ def _own_events_excluded_clause(alias: str = "") -> str:
     return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
 
 
+# The most persons one training or scoring run materializes. HogQL otherwise caps a query at its
+# default of 100 rows; the materializers fail a result that fills this bound, and validation
+# refuses a larger population before a run is spent on it.
+MATERIALIZE_ROW_LIMIT = 50_000
+
+
 @dataclass(frozen=True, kw_only=True)
 class _CompiledPopulationFilters:
     # Row-level fragments for an events scan whose ``person`` resolves through the lazy join.
@@ -127,6 +123,79 @@ def _numeric_threshold(value: Any) -> float | None:
     return None
 
 
+@frozen
+class _CompiledFilter:
+    """One compiled property filter. ``condition`` is None when the filter constrains nothing."""
+
+    condition: str | None
+    values: dict[str, Any] = field(default_factory=dict)
+
+
+# `IN ()` is not valid HogQL, so an empty allowlist needs a predicate that matches nobody.
+_MATCHES_NOBODY = "1 = 0"
+
+# Scalar comparison, and the list form, per operator.
+_MEMBERSHIP_SQL = {"exact": ("=", "IN"), "is_not": ("!=", "NOT IN")}
+_COMPARISON_SQL = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
+# The LIKE operator, and how a list of patterns joins.
+_SUBSTRING_SQL = {"icontains": ("ILIKE", " OR "), "not_icontains": ("NOT ILIKE", " AND ")}
+
+
+def _membership_filter(field_expr: str, operator: str, value: Any, *, param: str) -> _CompiledFilter:
+    """A list operand means IN / NOT IN. An empty denylist excludes nobody, so it drops out."""
+    comparison, membership = _MEMBERSHIP_SQL[operator]
+    if not isinstance(value, list):
+        return _CompiledFilter(condition=f"{field_expr} {comparison} {{{param}}}", values={param: value})
+    if not value:
+        return _CompiledFilter(condition=_MATCHES_NOBODY if operator == "exact" else None)
+    values = {f"{param}_{j}": v for j, v in enumerate(value)}
+    refs = ", ".join(f"{{{name}}}" for name in values)
+    return _CompiledFilter(condition=f"{field_expr} {membership} ({refs})", values=values)
+
+
+def _substring_filter(field_expr: str, operator: str, value: Any, *, param: str) -> _CompiledFilter:
+    """A list operand matches any of its values, or none of them for the negative operator."""
+    patterns = value if isinstance(value, list) else [value]
+    if not patterns:
+        return _CompiledFilter(condition=_MATCHES_NOBODY if operator == "icontains" else None)
+    like, joiner = _SUBSTRING_SQL[operator]
+    values = {f"{param}_{j}": f"%{v}%" for j, v in enumerate(patterns)}
+    clauses = joiner.join(f"{field_expr} {like} {{{name}}}" for name in values)
+    return _CompiledFilter(condition=f"({clauses})" if len(patterns) > 1 else clauses, values=values)
+
+
+def _comparison_filter(field_expr: str, operator: str, value: Any, *, key: str, param: str) -> _CompiledFilter:
+    # The property side is cast to Float64, so the bound must be numeric too or ClickHouse
+    # rejects the comparison. Filter payloads often carry it as a string.
+    threshold = _numeric_threshold(value)
+    if threshold is None:
+        raise ValueError(f"Population property filter '{key}' needs a numeric value for '{operator}'")
+    return _CompiledFilter(
+        condition=f"toFloat64OrNull({field_expr}) {_COMPARISON_SQL[operator]} {{{param}}}",
+        values={param: threshold},
+    )
+
+
+def _compile_filter_operator(field_expr: str, operator: str, value: Any, *, key: str, param: str) -> _CompiledFilter:
+    """
+    Compile one property filter's operator into a HogQL condition on ``field_expr``.
+
+    ``is_set`` means not null, as in the canonical property compiler, so an empty
+    string is a set value.
+    """
+    if operator == "is_set":
+        return _CompiledFilter(condition=f"isNotNull({field_expr})")
+    if operator == "is_not_set":
+        return _CompiledFilter(condition=f"isNull({field_expr})")
+    if operator in _MEMBERSHIP_SQL:
+        return _membership_filter(field_expr, operator, value, param=param)
+    if operator in _SUBSTRING_SQL:
+        return _substring_filter(field_expr, operator, value, param=param)
+    if operator in _COMPARISON_SQL:
+        return _comparison_filter(field_expr, operator, value, key=key, param=param)
+    raise ValueError(f"Unsupported population property operator '{operator}'")
+
+
 def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPopulationFilters:
     """
     Translate a list of PostHog property filter dicts into HogQL condition
@@ -137,8 +206,7 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
     - "event"   → properties[<key>]
 
     Operators: exact, is_not, icontains, not_icontains, gt, gte, lt, lte,
-               is_set, is_not_set. ``is_set`` means not null, as in the canonical
-               property compiler, so an empty string is a set value.
+               is_set, is_not_set.
 
     The property key is bound as a HogQL value (a parameterized subscript,
     ``properties[{param}]``) rather than interpolated into the query text, so any
@@ -157,11 +225,10 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
     for i, prop in enumerate(properties):
         key = prop.get("key")
         prop_type = prop.get("type")
-        operator = prop.get("operator", "exact")
-        value = prop.get("value")
 
         if not key:
             raise ValueError("Population property filter is missing a 'key'")
+        key = str(key)
         if not prop_type:
             raise ValueError(f"Population property filter '{key}' is missing a 'type'. Supported: event, person")
 
@@ -174,59 +241,26 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
         else:
             raise ValueError(f"Unsupported population property type '{prop_type}'. Supported: event, person")
 
+        operator = prop.get("operator", "exact")
+        if not isinstance(operator, str):
+            # The operator tables below are dicts, so an unhashable operator would raise
+            # TypeError before it reached the unsupported-operator path.
+            raise ValueError(f"Unsupported population property operator '{operator}'")
+
         # Bind the key as a value (parameterized subscript) — never interpolate it into SQL text.
         key_param = f"pop_k_{i}"
-        values[key_param] = str(key)
-        field_expr = f"{map_expr}[{{{key_param}}}]"
+        values[key_param] = key
 
-        param = f"pop_{i}"
-
-        if operator == "is_set":
-            parts.append(f"isNotNull({field_expr})")
-        elif operator == "is_not_set":
-            parts.append(f"isNull({field_expr})")
-        elif operator in ("exact", "is_not") and isinstance(value, list):
-            if not value:
-                # `IN ()` is not valid HogQL. An empty allowlist matches nobody and an
-                # empty denylist excludes nobody.
-                if operator == "exact":
-                    parts.append("1 = 0")
-                continue
-            for j, v in enumerate(value):
-                values[f"pop_{i}_{j}"] = v
-            in_refs = ", ".join(f"{{pop_{i}_{j}}}" for j in range(len(value)))
-            membership = "IN" if operator == "exact" else "NOT IN"
-            parts.append(f"{field_expr} {membership} ({in_refs})")
-        elif operator == "exact":
-            values[param] = value
-            parts.append(f"{field_expr} = {{{param}}}")
-        elif operator == "is_not":
-            values[param] = value
-            parts.append(f"{field_expr} != {{{param}}}")
-        elif operator in ("icontains", "not_icontains"):
-            # A list matches any of its values, or none of them for the negative operator.
-            patterns = value if isinstance(value, list) else [value]
-            if not patterns:
-                if operator == "icontains":
-                    parts.append("1 = 0")
-                continue
-            for j, v in enumerate(patterns):
-                values[f"pop_{i}_{j}"] = f"%{v}%"
-            like = "ILIKE" if operator == "icontains" else "NOT ILIKE"
-            joiner = " OR " if operator == "icontains" else " AND "
-            clauses = joiner.join(f"{field_expr} {like} {{pop_{i}_{j}}}" for j in range(len(patterns)))
-            parts.append(f"({clauses})" if len(patterns) > 1 else clauses)
-        elif operator in ("gt", "gte", "lt", "lte"):
-            op_sql = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
-            # The property side is cast to Float64, so the bound must be numeric too or
-            # ClickHouse rejects the comparison. Filter payloads often carry it as a string.
-            threshold = _numeric_threshold(value)
-            if threshold is None:
-                raise ValueError(f"Population property filter '{key}' needs a numeric value for '{operator}'")
-            values[param] = threshold
-            parts.append(f"toFloat64OrNull({field_expr}) {op_sql} {{{param}}}")
-        else:
-            raise ValueError(f"Unsupported population property operator '{operator}'")
+        compiled = _compile_filter_operator(
+            f"{map_expr}[{{{key_param}}}]",
+            operator,
+            prop.get("value"),
+            key=key,
+            param=f"pop_{i}",
+        )
+        values.update(compiled.values)
+        if compiled.condition is not None:
+            parts.append(compiled.condition)
 
     return _CompiledPopulationFilters(where_parts=person_parts, event_parts=event_parts, values=values)
 
@@ -271,6 +305,130 @@ def _performed_before_t0(predicate: str, *, days_param: str | None = None) -> st
     return f"max(({window}{predicate}))"
 
 
+@frozen
+class _PopulationKindSpec:
+    """One semantic population spec, plus the mode and target predicate it compiles against."""
+
+    kind: str
+    raw: dict[str, Any]
+    now_expr: str
+    anchor_mode: bool
+    target_cond: str | None
+
+    def positive_int(self, key: str) -> int:
+        value = self.raw.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f"Population kind '{self.kind}' requires a positive integer '{key}'")
+        return value
+
+    def event_clause(self) -> tuple[str, dict[str, Any]]:
+        """The scan predicate for the spec's named event, and the value it binds."""
+        value = self.raw.get("event")
+        if not value or not isinstance(value, str):
+            raise ValueError(f"Population kind '{self.kind}' requires an 'event'")
+        return " AND event = {popk_event}", {"popk_event": value}
+
+    def optional_event_clause(self) -> tuple[str, dict[str, Any]]:
+        """``event_clause`` for a kind whose event is optional, where naming none narrows nothing."""
+        if not self.raw.get("event"):
+            return "", {}
+        return self.event_clause()
+
+    def target_clause(self) -> str:
+        if self.target_cond is None:
+            raise ValueError(f"Population kind '{self.kind}' requires the pipeline's target predicate")
+        return f" AND ({self.target_cond})"
+
+
+def _kind_performed_event_within_days(spec: _PopulationKindSpec) -> _CompiledPopulationKind:
+    values: dict[str, Any] = {"popk_days": spec.positive_int("days")}
+    event_clause, event_values = spec.optional_event_clause()
+    values.update(event_values)
+    if not spec.anchor_mode:
+        return _CompiledPopulationKind(
+            where_parts=[_members_within(spec.now_expr, "popk_days", predicate=event_clause)],
+            values=values,
+        )
+    return _CompiledPopulationKind(
+        # A cheap superset that bounds the scan; the HAVING decides membership at each user's T0.
+        where_parts=[_members_within(spec.now_expr, "lookback", predicate=event_clause)] if event_clause else [],
+        values=values,
+        anchor_having_parts=[f"{_performed_before_t0(event_clause, days_param='popk_days')} = 1"],
+    )
+
+
+def _kind_person_first_seen_within_days(spec: _PopulationKindSpec) -> _CompiledPopulationKind:
+    values: dict[str, Any] = {"popk_days": spec.positive_int("days")}
+    # Deliberately not bounded above by the anchor: an imported or backdated event stream
+    # carries person rows created after their events, and an upper bound would empty the
+    # training population for exactly those teams.
+    if spec.anchor_mode:
+        return _CompiledPopulationKind(
+            values=values,
+            anchor_having_parts=[f"min(toInt(toUnixTimestamp(e.person.created_at))) >= {_T0} - {{popk_days}} * 86400"],
+        )
+    return _CompiledPopulationKind(
+        where_parts=[f"person.created_at >= {spec.now_expr} - toIntervalDay({{popk_days}})"],
+        values=values,
+    )
+
+
+def _kind_active_not_performed_target(spec: _PopulationKindSpec) -> _CompiledPopulationKind:
+    values: dict[str, Any] = {"popk_active_days": spec.positive_int("active_within_days")}
+    target_clause = spec.target_clause()
+    if spec.anchor_mode:
+        return _CompiledPopulationKind(
+            values=values,
+            anchor_having_parts=[
+                f"{_performed_before_t0('', days_param='popk_active_days')} = 1",
+                # A property-filtered action predicate is NULL on rows missing the property. max()
+                # skips NULLs, so a user whose every pre-T0 row is NULL would compare NULL = 0 and
+                # drop out, while the row-mode NOT IN keeps them. Read that NULL as "not performed".
+                f"ifNull({_performed_before_t0(target_clause)}, 0) = 0",
+            ],
+        )
+    return _CompiledPopulationKind(
+        where_parts=[
+            _members_within(spec.now_expr, "popk_active_days"),
+            _members_within(spec.now_expr, "lookback", predicate=target_clause, negate=True),
+        ],
+        values=values,
+    )
+
+
+def _kind_ever_performed_event(spec: _PopulationKindSpec) -> _CompiledPopulationKind:
+    event_clause, values = spec.event_clause()
+    # In anchor mode the row filter is a cheap superset (performed within the lookback as of
+    # now); the HAVING narrows it to "performed before this user's T0".
+    return _CompiledPopulationKind(
+        where_parts=[_members_within(spec.now_expr, "lookback", predicate=event_clause)],
+        values=values,
+        anchor_having_parts=[f"{_performed_before_t0(event_clause)} = 1"] if spec.anchor_mode else [],
+    )
+
+
+def _kind_ever_performed_target(spec: _PopulationKindSpec) -> _CompiledPopulationKind:
+    target_clause = spec.target_clause()
+    return _CompiledPopulationKind(
+        where_parts=[_members_within(spec.now_expr, "lookback", predicate=target_clause)],
+        anchor_having_parts=[f"{_performed_before_t0(target_clause)} = 1"] if spec.anchor_mode else [],
+    )
+
+
+# The registry of semantic population kinds produced by templates.py, and the single source of
+# truth for POPULATION_KINDS. The write-time validator in presentation/views/serializers.py
+# rejects any kind missing from it, so a kind cannot reach query time without a compiler.
+_POPULATION_KIND_COMPILERS: dict[str, Callable[[_PopulationKindSpec], _CompiledPopulationKind]] = {
+    "performed_event_within_days": _kind_performed_event_within_days,
+    "person_first_seen_within_days": _kind_person_first_seen_within_days,
+    "active_not_performed_target": _kind_active_not_performed_target,
+    "ever_performed_event": _kind_ever_performed_event,
+    "ever_performed_target": _kind_ever_performed_target,
+}
+
+POPULATION_KINDS = frozenset(_POPULATION_KIND_COMPILERS)
+
+
 def _build_population_kind_conditions(
     population: dict[str, Any] | None,
     *,
@@ -310,79 +468,22 @@ def _build_population_kind_conditions(
     population that cannot be compiled must fail loudly rather than silently
     widening to "all users".
     """
-    spec = population or {}
-    kind = spec.get("kind")
+    raw = population or {}
+    kind = raw.get("kind")
     if kind is None:
         return _CompiledPopulationKind()
-    if kind not in POPULATION_KINDS:
+    compiler = _POPULATION_KIND_COMPILERS.get(kind)
+    if compiler is None:
         raise ValueError(f"Unknown population kind '{kind}'. Supported: {', '.join(sorted(POPULATION_KINDS))}")
-
-    def _positive_int(key: str) -> int:
-        raw = spec.get(key)
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            raise ValueError(f"Population kind '{kind}' requires a positive integer '{key}'")
-        return raw
-
-    def _event_clause() -> str:
-        raw = spec.get("event")
-        if not raw or not isinstance(raw, str):
-            raise ValueError(f"Population kind '{kind}' requires an 'event'")
-        values["popk_event"] = raw
-        return " AND event = {popk_event}"
-
-    def _target_clause() -> str:
-        if target_cond is None:
-            raise ValueError(f"Population kind '{kind}' requires the pipeline's target predicate")
-        return f" AND ({target_cond})"
-
-    parts: list[str] = []
-    values: dict[str, Any] = {}
-    having: list[str] = []
-
-    if kind == "performed_event_within_days":
-        values["popk_days"] = _positive_int("days")
-        event_clause = _event_clause() if spec.get("event") else ""
-        if anchor_mode:
-            if event_clause:
-                parts.append(_members_within(now_expr, "lookback", predicate=event_clause))
-            having.append(f"{_performed_before_t0(event_clause, days_param='popk_days')} = 1")
-        else:
-            parts.append(_members_within(now_expr, "popk_days", predicate=event_clause))
-    elif kind == "person_first_seen_within_days":
-        values["popk_days"] = _positive_int("days")
-        # Deliberately not bounded above by the anchor: an imported or backdated event
-        # stream carries person rows created after their events, and an upper bound would
-        # empty the training population for exactly those teams.
-        if anchor_mode:
-            having.append(f"min(toInt(toUnixTimestamp(e.person.created_at))) >= {_T0} - {{popk_days}} * 86400")
-        else:
-            parts.append(f"person.created_at >= {now_expr} - toIntervalDay({{popk_days}})")
-    elif kind == "active_not_performed_target":
-        values["popk_active_days"] = _positive_int("active_within_days")
-        target_clause = _target_clause()
-        if anchor_mode:
-            having.append(f"{_performed_before_t0('', days_param='popk_active_days')} = 1")
-            # A property-filtered action predicate is NULL on rows missing the property. max()
-            # skips NULLs, so a user whose every pre-T0 row is NULL would compare NULL = 0 and
-            # drop out, while the row-mode NOT IN keeps them. Read that NULL as "not performed".
-            having.append(f"ifNull({_performed_before_t0(target_clause)}, 0) = 0")
-        else:
-            parts.append(_members_within(now_expr, "popk_active_days"))
-            parts.append(_members_within(now_expr, "lookback", predicate=target_clause, negate=True))
-    elif kind == "ever_performed_event":
-        event_clause = _event_clause()
-        # In anchor mode the row filter is a cheap superset (performed within the lookback
-        # as of now); the HAVING narrows it to "performed before this user's T0".
-        parts.append(_members_within(now_expr, "lookback", predicate=event_clause))
-        if anchor_mode:
-            having.append(f"{_performed_before_t0(event_clause)} = 1")
-    elif kind == "ever_performed_target":
-        target_clause = _target_clause()
-        parts.append(_members_within(now_expr, "lookback", predicate=target_clause))
-        if anchor_mode:
-            having.append(f"{_performed_before_t0(target_clause)} = 1")
-
-    return _CompiledPopulationKind(where_parts=parts, values=values, anchor_having_parts=having)
+    return compiler(
+        _PopulationKindSpec(
+            kind=kind,
+            raw=raw,
+            now_expr=now_expr,
+            anchor_mode=anchor_mode,
+            target_cond=target_cond,
+        )
+    )
 
 
 def _target_condition_for(
@@ -708,40 +809,47 @@ _LINE_COMMENT_STARTS = ("--", "//")
 _ANCHORS_PLACEHOLDER = "{anchors}"
 
 
+def _literal_end(sql: str, start: int) -> int:
+    """
+    The index just past the closing quote of the literal that opens at ``start``.
+
+    Honors both the doubled-quote and the backslash escape the HogQL lexer accepts.
+    An unterminated literal runs to the end of the text, where the parser rejects it.
+    """
+    quote = sql[start]
+    i = start + 1
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == quote:
+            if i + 1 < n and sql[i + 1] == quote:
+                i += 2
+                continue
+            return i + 1
+        i += 1
+    return n
+
+
 def _rewrite_outside_literals(sql: str, *, placeholder: str | None = None, replacement: str = "") -> str:
     """
     One quote-aware pass over HogQL text: drop ``--`` / ``//`` line comments and
     ``/* */`` block comments, and replace ``placeholder`` where it appears in code.
 
     Single-quoted strings, double-quoted and backtick identifiers are copied
-    verbatim, honoring both the doubled-quote and the backslash escape the HogQL
-    lexer accepts, so a comment marker or a placeholder inside a literal is left
-    alone: the literal is a feature value, not a table reference.
+    verbatim, so a comment marker or a placeholder inside a literal is left alone:
+    the literal is a feature value, not a table reference.
     """
     out: list[str] = []
     i = 0
     n = len(sql)
-    quote: str | None = None  # one of ' " ` when inside a literal
     while i < n:
-        ch = sql[i]
-        if quote is not None:
-            out.append(ch)
-            if ch == "\\" and i + 1 < n:
-                out.append(sql[i + 1])
-                i += 2
-                continue
-            if ch == quote:
-                if i + 1 < n and sql[i + 1] == quote:
-                    out.append(quote)
-                    i += 2
-                    continue
-                quote = None
-            i += 1
-            continue
-        if ch in ("'", '"', "`"):
-            quote = ch
-            out.append(ch)
-            i += 1
+        if sql[i] in ("'", '"', "`"):
+            end = _literal_end(sql, i)
+            out.append(sql[i:end])
+            i = end
             continue
         if sql.startswith(_LINE_COMMENT_STARTS, i):
             i += 2
@@ -757,7 +865,7 @@ def _rewrite_outside_literals(sql: str, *, placeholder: str | None = None, repla
             out.append(replacement)
             i += len(placeholder)
             continue
-        out.append(ch)
+        out.append(sql[i])
         i += 1
     return "".join(out)
 

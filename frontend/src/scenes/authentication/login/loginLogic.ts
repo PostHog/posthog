@@ -40,6 +40,7 @@ export interface AuthenticateResponseType {
 export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
+    oidc_available?: boolean
     status: 'pending' | 'completed'
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
     /**
@@ -483,6 +484,7 @@ export const loginLogic = kea<loginLogicType>([
 
                     breakpoint()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/precheck', { email })
                         return { status: 'completed', ...response, email }
                     } catch {
@@ -498,6 +500,7 @@ export const loginLogic = kea<loginLogicType>([
                 resendCodeBasedVerification: async (_, breakpoint) => {
                     breakpoint()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/code-based-verification/resend')
                         lemonToast.success('Verification email resent')
                         return response
@@ -540,6 +543,9 @@ export const loginLogic = kea<loginLogicType>([
                 }
                 if (precheckResponse.saml_available && !methods.includes('saml')) {
                     methods.push('saml')
+                }
+                if (precheckResponse.oidc_available && !methods.includes('oidc')) {
+                    methods.push('oidc')
                 }
                 if (precheckResponse.webauthn_credentials?.length) {
                     methods.push('passkey')
@@ -590,6 +596,7 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
@@ -641,6 +648,7 @@ export const loginLogic = kea<loginLogicType>([
                 breakpoint()
                 actions.clearGeneralError()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
                         email: values.login.email,

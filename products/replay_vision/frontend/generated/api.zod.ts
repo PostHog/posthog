@@ -796,6 +796,17 @@ export const VisionScannersAffectedCohortCreateBody = /* @__PURE__ */ zod
             .max(visionScannersAffectedCohortCreateBodyWindowDaysMax)
             .default(visionScannersAffectedCohortCreateBodyWindowDaysDefault)
             .describe('Trailing window of observations to count. Defaults to 30 days.'),
+        verdict: zod
+            .union([
+                zod
+                    .enum(['yes', 'no', 'inconclusive'])
+                    .describe('\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Monitor scanners only: count sessions with this verdict. Defaults to `yes`. Not applicable to other scanner types.\n\n\* `yes` - Yes\n\* `no` - No\n\* `inconclusive` - Inconclusive'
+            ),
         tag: zod
             .string()
             .max(visionScannersAffectedCohortCreateBodyTagMax)
@@ -944,6 +955,8 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
 /**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
+export const visionScannersScoutsCreateBodyDisplayNameMax = 200
+
 export const visionScannersScoutsCreateBodyNameMax = 64
 
 export const visionScannersScoutsCreateBodyDescriptionMax = 1024
@@ -977,11 +990,19 @@ export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(visionScannersScoutsCreateBodyDisplayNameMax)
+            .optional()
+            .describe(
+                "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead."
+            ),
         name: zod
             .string()
             .max(visionScannersScoutsCreateBodyNameMax)
+            .optional()
             .describe(
-                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
+                'Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -1256,6 +1277,10 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const visionScannersInlineScanCreateBodySessionIdsItemMax = 128
 
@@ -1287,7 +1312,7 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                'What the scan produces. Defaults to monitor, an open-ended observation against the prompt.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
             ),
         scanner_config: zod
             .unknown()

@@ -2379,6 +2379,34 @@ describe("CodexAppServerAgent", () => {
     stub.emit("turn/completed", { turn: { status: "completed" } });
   });
 
+  it("reports a failed ChatGPT token refresh as the turn's cause instead of Codex's generic code", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      refreshChatgptAuthTokens: () =>
+        Promise.reject(new Error("Your ChatGPT login stopped working.")),
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    await expect(
+      stub.invokeRequest("account/chatgptAuthTokens/refresh", {}),
+    ).rejects.toThrow("Your ChatGPT login stopped working.");
+    stub.emit("error", {
+      willRetry: false,
+      error: { message: "auth refresh request failed: code=-32000" },
+    });
+
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request: Your ChatGPT login stopped working.",
+    );
+  });
+
   it("rejects the prompt on a non-retried error notification", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();

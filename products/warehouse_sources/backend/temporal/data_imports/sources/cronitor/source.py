@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -44,13 +42,13 @@ class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CRONITOR,
+            name=ExternalDataSourceType.CRONITOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cronitor",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Import your Cronitor monitors, their recent job invocations, and time-series reliability metrics into the PostHog Data warehouse.
+            caption="""Import your Cronitor monitors, monitor groups, recent job invocations, time-series reliability metrics, issues, and RUM sites with their JavaScript errors into the PostHog Data warehouse.
 
-Create an API key with the `monitor:read` scope under **Settings → API keys** in your Cronitor account, and enter it here.""",
+Create an API key under **Settings → API keys** in your Cronitor account, and enter it here. The key needs `monitor:read` to connect. Add `issue:read` to sync issues, and `site:read` to sync sites and site errors.""",
             iconPath="/static/services/cronitor.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cronitor",
             fields=cast(
@@ -81,7 +79,10 @@ Create an API key with the `monitor:read` scope under **Settings → API keys** 
             # Retrying can never fix a credential/scope problem, so fail the sync. Match the stable
             # status text, not the per-request path.
             "401 Client Error: Unauthorized": "Your Cronitor API key is invalid or has been revoked. Create a new key in your Cronitor account's API settings, then reconnect.",
-            "403 Client Error: Forbidden": "Your Cronitor API key is missing the monitor:read scope needed to sync this data. Update the key's scopes, then reconnect.",
+            # A changed response shape cannot fix itself on retry, so fail with something the
+            # user can act on instead of looping.
+            "Cronitor returned an unexpected response shape": "Cronitor returned data PostHog could not read, so this table was not synced. The Cronitor API may have changed. Contact support so the connector can be updated.",
+            "403 Client Error: Forbidden": "Your Cronitor API key is missing a scope needed to sync this table. Monitors, groups, invocations and metrics need monitor:read, issues need issue:read, and sites and site errors need site:read. Update the key's scopes, then reconnect.",
         }
 
     def get_schemas(

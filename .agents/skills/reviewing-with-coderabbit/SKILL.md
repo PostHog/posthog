@@ -75,6 +75,16 @@ cr auth status                   # confirms the session and the organization
    cr review --agent --base master
    ```
 
+   Decide whether to add `--deep` before you run it, because the branch gets one run.
+   `--deep` applies the full pull request review policy, so the findings match what the bot would post, except the PR-only pre-merge checks.
+   Without it the CLI applies a narrower policy, and it does less work.
+
+   - **Add `--deep`** when the diff changes behavior a mistake would hurt: auth, permissions, tenant scoping, migrations, raw SQL or HogQL, money, data deletion, concurrency, or a public API contract.
+     Add it too for a large or cross-cutting diff, or when the person asks for a thorough or full review.
+   - **Leave it off** for docs, comments, skill text, config bumps, renames, generated files, and other small mechanical diffs.
+   - When you cannot tell, add it.
+
+   Record the choice with the findings in step 6.
    `--agent` emits structured findings for an agent to read.
    Drop it when a person reads the output.
    `cr review findings` reprints the last run's findings, so re-reading them costs no review.
@@ -84,7 +94,7 @@ cr auth status                   # confirms the session and the organization
    Findings can be false positives, and rejecting one with a reason is a valid outcome.
 5. Fix what holds, and commit the fixes.
 6. Record the outcome under Agent context in the PR description, as the PR template asks.
-   After a run, that is each finding's disposition.
+   After a run, that is whether it ran with `--deep`, and each finding's disposition.
    After a skip, that is why: the CLI was absent, signed out, rate limited, or the person chose to skip.
 7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
 

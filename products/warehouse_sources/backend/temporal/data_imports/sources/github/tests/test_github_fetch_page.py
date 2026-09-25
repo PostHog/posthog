@@ -5,6 +5,10 @@ from unittest import mock
 
 import requests
 from prometheus_client import REGISTRY
+from tenacity import (
+    Future as TenacityFuture,
+    RetryCallState,
+)
 
 from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
@@ -156,6 +160,20 @@ def test_fetch_page_retries_chunked_encoding_error():
     assert session.request.call_count == 2
 
 
+def test_fetch_page_treats_unmapped_4xx_as_retryable():
+    # GitHub's edge has been observed returning the nginx-style 499 ("client closed request") on an
+    # upstream hiccup. It's not a real denial, so it must retry like a 5xx rather than crash the sync
+    # on a raw, unclassified HTTPError.
+    session = mock.Mock()
+    session.request.return_value = _error_response(499, "Unknown")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubRetryableError):
+            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock())
+
+    assert session.request.call_count == 5
+
+
 def test_fetch_page_reraises_chunked_encoding_error_after_exhausting_retries():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken")] * 5
@@ -177,6 +195,53 @@ def test_fetch_page_reraises_chunked_encoding_error_after_exhausting_retries():
     # Every transport failure is recorded, so a GitHub outage doesn't silently zero warehouse telemetry.
     after = REGISTRY.get_sample_value("github_integration_api_requests_total", exception_labels) or 0
     assert after - before == session.request.call_count
+
+
+def _failed_retry_state(exc: BaseException) -> RetryCallState:
+    state = RetryCallState(retry_object=mock.Mock(), fn=mock.Mock(), args=(), kwargs={})
+    outcome: TenacityFuture = TenacityFuture(attempt_number=1)
+    outcome.set_exception(exc)
+    state.outcome = outcome
+    return state
+
+
+@pytest.mark.parametrize(
+    "pace,expected_floor,expected_ceiling",
+    [
+        # The limiter's own answer, which the blind exponential backoff (capped at 30s) cannot reach.
+        (120.0, 120.0, 121.0),
+        # Clamped to the same ceiling the GitHub-side Retry-After path honors.
+        (9999.0, github.GITHUB_MAX_RETRY_AFTER_SECONDS, github.GITHUB_MAX_RETRY_AFTER_SECONDS + 1.0),
+        # Budget already refilled: fall through to backoff rather than retrying with no wait at all.
+        (0.0, 0.0, 0.0),
+    ],
+    ids=["waits-the-limiters-pace", "clamped-to-ceiling", "refilled-falls-through"],
+)
+def test_retry_wait_asks_the_limiter_how_long_our_own_budget_needs(pace, expected_floor, expected_ceiling):
+    # Our budget, so the limiter knows when it frees. Leaving this on the 30s-capped exponential
+    # meant a shed page burned five attempts in ~2 minutes and failed the activity, letting Temporal
+    # restart the whole extraction.
+    exc = github.GitHubEgressBudgetExhausted(
+        "GitHub egress budget exhausted for installation 42; deferring", scope="42"
+    )
+
+    with mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as paced:
+        wait = github._github_retry_wait(_failed_retry_state(exc))
+
+    assert expected_floor <= wait <= expected_ceiling
+    assert paced.call_args.args[0] == "42"
+    assert paced.call_args.kwargs["priority"] == Priority.BATCH
+
+
+def test_retry_wait_falls_through_when_the_budget_error_carries_no_scope():
+    # An identity-blind caller has no budget key, so there is nothing to ask the limiter about.
+    exc = github.GitHubEgressBudgetExhausted("GitHub egress budget exhausted; deferring")
+
+    with mock.patch.object(github, "github_installation_pace_seconds") as paced:
+        wait = github._github_retry_wait(_failed_retry_state(exc))
+
+    assert wait == 0.0
+    paced.assert_not_called()
 
 
 def test_fetch_page_gates_on_egress_budget_when_installation_known():

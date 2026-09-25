@@ -16,6 +16,8 @@ import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -746,7 +748,10 @@ function buildMergedSubmissionsSubquery(
     survey: Survey,
     filters: SurveyQueryFilters,
     questions: QuestionWithIndex[],
-    { includeRespondentMetadata = false }: { includeRespondentMetadata?: boolean } = {}
+    {
+        includeRespondentMetadata = false,
+        includeCurrentUrl = false,
+    }: { includeRespondentMetadata?: boolean; includeCurrentUrl?: boolean } = {}
 ): string {
     const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
@@ -762,6 +767,10 @@ function buildMergedSubmissionsSubquery(
                   'person.properties AS person_properties',
               ]
             : []),
+        // Read only when the user turns its column on, because an unconditional read costs every
+        // responses query one more property read and one more argMax. The metadata columns above
+        // always reach a caller, so they stay unconditional.
+        ...(includeCurrentUrl ? ['properties.`$current_url` AS current_url'] : []),
         `${completedEventExpr} AS is_completed_event`,
         'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
@@ -784,6 +793,7 @@ function buildMergedSubmissionsSubquery(
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
               ]
             : []),
+        ...(includeCurrentUrl ? ['argMax(current_url, tuple(timestamp, event_uuid)) AS current_url'] : []),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
             return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
@@ -892,9 +902,34 @@ export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<S
     })
 }
 
-export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFilters): string {
+/**
+ * Respondent context the responses table can show. Both the table and the export select only the
+ * columns the user turned on, so the file carries the same context the table shows.
+ */
+export const SURVEY_RESPONSE_CONTEXT_COLUMNS = [
+    { key: 'person_id', label: 'Person ID' },
+    { key: 'session_id', label: 'Session ID' },
+    { key: 'current_url', label: 'Current URL' },
+] as const
+
+export type SurveyResponseContextColumn = (typeof SURVEY_RESPONSE_CONTEXT_COLUMNS)[number]['key']
+
+function selectedContextColumns(
+    contextColumns: SurveyResponseContextColumn[]
+): { key: SurveyResponseContextColumn; label: string }[] {
+    return SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => contextColumns.includes(column.key))
+}
+
+export function buildSurveyResponsesQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    contextColumns: SurveyResponseContextColumn[] = []
+): string {
     const questions = getAnswerableQuestions(survey)
-    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
+        includeRespondentMetadata: true,
+        includeCurrentUrl: contextColumns.includes('current_url'),
+    })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
     )
@@ -907,9 +942,57 @@ export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFi
         'outcome AS status',
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
+        ...selectedContextColumns(contextColumns).map((column) => `${column.key} AS ${column.key}`),
+        // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
     ]
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
+}
+
+export function buildSurveyResponsesExportQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    contextColumns: SurveyResponseContextColumn[] = []
+): DataTableNode & { source: HogQLQuery } {
+    const questions = getAnswerableQuestions(survey)
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
+        includeRespondentMetadata: true,
+        includeCurrentUrl: contextColumns.includes('current_url'),
+    })
+    const columns = ['Respondent ID', 'Email', 'Submitted at (UTC)', 'Status']
+    const expressions = [
+        'distinct_id',
+        "coalesce(nullIf(JSONExtractString(person_properties, '$email'), ''), nullIf(JSONExtractString(person_properties, 'email'), ''), '')",
+        "formatDateTime(submitted_at, '%Y-%m-%d %H:%i:%S', 'UTC')",
+        "multiIf(outcome = 'completed', 'Completed', outcome = 'dismissed', 'Dismissed', 'Abandoned')",
+    ]
+
+    for (const column of selectedContextColumns(contextColumns)) {
+        columns.push(column.label)
+        expressions.push(column.key)
+    }
+
+    for (const { question, index } of questions) {
+        const title = question.question.replace(/\s+/g, ' ').trim()
+        columns.push(`Q${index + 1}${title ? `: ${title}` : ''}`)
+        const answer = mergedAnswerAlias(index)
+        expressions.push(
+            question.type === SurveyQuestionType.MultipleChoice
+                ? `arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), ${answer}), ', ')`
+                : isScaleTwoRating(question)
+                  ? `multiIf(${answer} = '1', 'Thumbs up', ${answer} = '2', 'Thumbs down', ${answer})`
+                  : answer
+        )
+    }
+
+    return {
+        kind: NodeKind.DataTableNode,
+        columns,
+        source: {
+            kind: NodeKind.HogQLQuery,
+            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapePropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
+        },
+    }
 }
 
 export function buildSurveyResponseSQLQuery(

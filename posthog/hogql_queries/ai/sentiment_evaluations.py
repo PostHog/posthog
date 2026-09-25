@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from posthog.hogql.modifiers import HogQLQueryModifiers
     from posthog.hogql.timings import HogQLTimings
 
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 SentimentMessage = dict[str, Any]
@@ -114,6 +114,7 @@ def load_generation_sentiment_evaluations_for_traces(
     *,
     team: Team,
     trace_ids: Sequence[str],
+    user: User | None = None,
     generation_ids: Sequence[str] | None = None,
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
@@ -148,6 +149,7 @@ def load_generation_sentiment_evaluations_for_traces(
             ),
         },
         team=team,
+        user=user,
         query_type=query_type,
         fall_back_to_events=True,
         timings=timings,
@@ -180,6 +182,7 @@ def load_trace_sentiment_evaluations(
     *,
     team: Team,
     trace_ids: Sequence[str],
+    user: User | None = None,
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     limit_context: LimitContext | None = None,
@@ -197,6 +200,7 @@ def load_trace_sentiment_evaluations(
             "limit": ast.Constant(value=len(unique_trace_ids)),
         },
         team=team,
+        user=user,
         query_type=query_type,
         fall_back_to_events=True,
         timings=timings,

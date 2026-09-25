@@ -3,6 +3,7 @@ name: Lint workflows
 on:
     pull_request:
         paths:
+            - .depot/workflows/ci-backend.yml
             - .github/workflows/**
             - .github/actions/**
             - services/**
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
     lint-workflows:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -40,13 +41,14 @@ jobs:
 
     workflow-run-plans:
         name: Workflow run plans
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
                   sparse-checkout: |
+                      .depot/workflows/ci-backend*.yml
                       .github
                       tools/workflow-plan
                       patches

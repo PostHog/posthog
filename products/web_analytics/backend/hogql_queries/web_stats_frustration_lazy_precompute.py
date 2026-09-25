@@ -29,7 +29,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
-    LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
@@ -37,6 +36,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     floor_utc_day,
     handle_stale_served,
     host_filter_expr,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     test_account_filter_expr,
     web_ensure_precomputed,
@@ -273,7 +273,7 @@ def ensure_web_stats_frustration_precomputed(
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_frustration_lazy_insert",

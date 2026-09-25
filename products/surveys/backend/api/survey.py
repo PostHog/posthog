@@ -1701,7 +1701,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         }
                     )
 
+        self._reconcile_schedule_with_iterations(data)
         return data
+
+    @staticmethod
+    def _reconcile_schedule_with_iterations(validated_data: dict) -> None:
+        # The edit form reads `schedule` while update_survey_iteration reads the iteration columns,
+        # so the two must agree or the survey repeats while presenting itself as one-shot.
+        schedule = validated_data.get("schedule")
+        if (
+            schedule is None
+            and validated_data.get("iteration_count")
+            and validated_data.get("iteration_frequency_days")
+        ):
+            # Iteration fields alone have always configured repeats, so keep the caller's values.
+            validated_data["schedule"] = Survey.Schedule.RECURRING
+        elif "schedule" in validated_data and schedule != Survey.Schedule.RECURRING:
+            # An explicit null counts as non-recurring: the edit form reads it as "Once".
+            validated_data["iteration_count"] = None
+            validated_data["iteration_frequency_days"] = None
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
@@ -2664,6 +2682,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return Response(status.HTTP_200_OK)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])
     def archived_response_uuids(self, request: request.Request, **kwargs) -> Response:
         """
@@ -3752,7 +3771,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     # Build project config
     project_config = {
-        "api_host": request.build_absolute_uri("/").rstrip("/"),
         "token": survey.team.api_token,
     }
 

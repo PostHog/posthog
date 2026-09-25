@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -36,8 +36,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     _CATALOG_PICKLE_MODULE_PREFIXES,
     _CATALOG_PICKLE_MODULES,
+    _TEAM_FLAG_CACHE,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _cached_team_flag,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
@@ -93,6 +95,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -818,12 +821,14 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # Guards the deleted-source exclusion against the Django exclude()-with-NULL gotcha:
         # a self-managed table (no source) must still resolve.
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
-        self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
+        table = self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
 
         database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
         assert database.has_table("self_managed")
         assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
+        assert serialized["self_managed"].id == str(table.id)
 
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
@@ -1155,6 +1160,41 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    def test_event_modifier_fetch_is_one_query_for_all_names(self):
+        found = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="found", query={"query": "SELECT 1 AS id"}, columns={"id": "String"}
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="soft_deleted",
+            query={"query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+            deleted=True,
+        )
+
+        def modifier(name: str) -> DataWarehouseEventsModifier:
+            return DataWarehouseEventsModifier(
+                table_name=name, id_field="id", timestamp_field="created_at", distinct_id_field="id"
+            )
+
+        def fetch(names: list[str]) -> tuple[int, dict]:
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(dataWarehouseEventsModifiers=[modifier(n) for n in names])
+            )
+            with CaptureQueriesContext(connection) as context:
+                sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            return len(context.captured_queries), sources.event_modifier_saved_queries
+
+        fetch(["found"])  # warm per-process caches so the measured fetches differ only in name count
+        single_count, _ = fetch(["found"])
+        triple_count, saved_queries = fetch(["found", "soft_deleted", "missing"])
+
+        # One bulk query serves any number of modifier names.
+        assert triple_count == single_count
+        assert saved_queries["found"].id == found.id
+        assert saved_queries["soft_deleted"] is None
+        assert saved_queries["missing"] is None
+
     @staticmethod
     def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
         return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
@@ -1212,6 +1252,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-2"), use_cached_sources=True)
 
         assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_recompute_warehouse_access_control_flag(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="acl_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        # Evaluated on the fetch, then re-evaluated once per request (cold and warm alike).
+        acl_flag_values = iter([False, False, True])
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: (
+                    next(acl_flag_values) if key == "hogql-warehouse-access-control" else False
+                ),
+            ),
+            patch.object(Database, "_is_warehouse_table_denied", return_value=True),
+        ):
+            unenforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            # Warm cache hit: the enforcement flag must be re-evaluated per request, never
+            # served from the cached bundle, so this build sees the flag's new True.
+            enforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        assert unenforced.has_table("acl_table")
+        assert not enforced.has_table("acl_table")
 
     def _configure_revenue_events(self) -> None:
         config = self.team.revenue_analytics_config
@@ -3563,21 +3628,38 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
-        source = ExternalDataSource.objects.create(
+        synced_source = ExternalDataSource.objects.create(
             team=self.team,
-            source_id="source_id",
-            connection_id="connection_id",
+            source_id="synced_source",
+            connection_id="synced_connection",
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            prefix="ph3",
+            prefix="",
         )
-        DataWarehouseTable.objects.create(
-            name="analytics_platform_preaggregationjob",
+        synced_table = DataWarehouseTable.objects.create(
+            name="orders",
             format="Parquet",
             team=self.team,
             credential=credentials,
-            external_data_source=source,
+            external_data_source=synced_source,
+            url_pattern="s3://synthetic/orders/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        direct_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            connection_id="direct_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="managed",
+        )
+        DataWarehouseTable.objects.create(
+            name="postgres.orders",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=direct_source,
             url_pattern="direct://postgres",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
@@ -3585,9 +3667,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
-        assert not database.has_table("analytics_platform_preaggregationjob")
-        assert "analytics_platform_preaggregationjob" not in database.get_warehouse_table_names()
-        assert "analytics_platform_preaggregationjob" not in serialized
+        assert database.has_table("postgres.orders")
+        assert "postgres.orders" in database.get_warehouse_table_names()
+        assert cast(DatabaseSchemaDataWarehouseTable, serialized["postgres.orders"]).id == str(synced_table.id)
 
     def test_serialize_direct_postgres_table_uses_table_name_in_direct_mode(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -4462,6 +4544,43 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # A real user gets per-user access control computed rather than the anonymous all-deny path.
         assert user_access_control is not None
 
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, None, False),
+            ("organization_admin", OrganizationMembership.Level.ADMIN, None, True),
+            ("delegated_viewer", OrganizationMembership.Level.MEMBER, "viewer", True),
+        ]
+    )
+    def test_data_deletion_requests_system_table_visibility(
+        self,
+        _name: str,
+        membership_level: "OrganizationMembership.Level",
+        delegated_level: str | None,
+        expected_visible: bool,
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        if delegated_level:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="data_deletion",
+                access_level=delegated_level,
+                organization_member=self.organization_membership,
+            )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert ("system.data_deletion_requests" in database.get_system_table_names()) is expected_visible
+        if expected_visible:
+            database.get_table("system.data_deletion_requests")
+        else:
+            with pytest.raises(TableAccessDeniedError):
+                database.get_table("system.data_deletion_requests")
+
     def test_existing_saved_query_cannot_fill_denied_system_table_name(self) -> None:
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -4551,6 +4670,105 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestCachedTeamFlag(TestCase):
+    def setUp(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    def tearDown(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_evaluates_once_within_ttl_and_isolates_teams(self, _get_setting):
+        team_a = cast(Team, SimpleNamespace(uuid="team-a-uuid"))
+        team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
+        evaluate = Mock(side_effect=[True, False])
+
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert evaluate.call_count == 1
+
+        # A different team must not see team A's cached decision.
+        assert _cached_team_flag("managed-viewsets", team_b, evaluate) is False
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=0)
+    def test_zero_ttl_disables_caching(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_flags_outside_the_allowlist_are_never_cached(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        assert evaluate.call_count == 2
+        assert _TEAM_FLAG_CACHE == {}
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value="")
+    def test_unparseable_ttl_disables_caching_instead_of_raising(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+
+        assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_cap_sweeps_expired_entries_and_keeps_fresh_ones(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        now = time.monotonic()
+        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 100, True)
+        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now, True)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 2):
+            _cached_team_flag("managed-viewsets", team, Mock(return_value=True))
+
+        assert ("expired-team-uuid", "managed-viewsets") not in _TEAM_FLAG_CACHE
+        assert ("fresh-team-uuid", "managed-viewsets") in _TEAM_FLAG_CACHE
+        assert (str(team.uuid), "managed-viewsets") in _TEAM_FLAG_CACHE
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_lowering_the_ttl_applies_to_existing_entries(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        # Evaluated 61s ago: fresh under the mocked 30s TTL? No - so it must re-evaluate, even
+        # though a 3600s TTL was in force when the entry was written.
+        _TEAM_FLAG_CACHE[(str(team.uuid), "managed-viewsets")] = (time.monotonic() - 61, True)
+        evaluate = Mock(return_value=False)
+
+        assert _cached_team_flag("managed-viewsets", team, evaluate) is False
+        assert evaluate.call_count == 1
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_concurrent_inserts_during_cap_sweep_do_not_raise(self, _get_setting):
+        now = time.monotonic()
+        for index in range(64):
+            _TEAM_FLAG_CACHE[(f"expired-{index}", "managed-viewsets")] = (now - 100, True)
+
+        barrier = threading.Barrier(4)
+        errors: list[Exception] = []
+
+        def hammer(worker: int) -> None:
+            try:
+                barrier.wait()
+                for iteration in range(200):
+                    team = cast(Team, SimpleNamespace(uuid=f"team-{worker}-{iteration}"))
+                    assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+            except Exception as e:
+                errors.append(e)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 32):
+            threads = [threading.Thread(target=hammer, args=(worker,)) for worker in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
 
 
 class TestSourcesCacheConcurrency(TestCase):

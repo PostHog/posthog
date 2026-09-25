@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { PANEL_LOAD_TIMEOUT_MS } from '../utils/panelLoadTimeout'
 import {
     SCRATCHPAD_FETCH_LIMIT,
     SCRATCHPAD_PREVIEW_CHARS,
@@ -63,6 +64,7 @@ describe('scratchpadLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     it('asks for previews rather than full bodies on the list read', async () => {
@@ -543,6 +545,45 @@ describe('scratchpadLogic', () => {
                       },
                   ]
         expect(describeLoadedSpan(entries)).toEqual(expected)
+    })
+
+    it('fails the window read when it never settles', async () => {
+        useMocks({ get: { [SCRATCHPAD_URL]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        expect(logic.values.entriesLoading).toBe(true)
+
+        jest.advanceTimersByTime(PANEL_LOAD_TIMEOUT_MS)
+        await expectLogic(logic).toDispatchActions(['loadEntriesFailure'])
+
+        expect(logic.values.entriesLoading).toBe(false)
+        expect(logic.values.loadFailed).toBe(true)
+    })
+
+    // The span controls stay live through the first read, so a reader can change the span while
+    // that read hangs. Nothing clears the flag on its own, so a superseded read that fails late
+    // would leave the banner warning about rows that do answer the controls above.
+    it('keeps a read that times out late from failing the window that superseded it', async () => {
+        let reads = 0
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: () => {
+                    reads += 1
+                    return reads === 1 ? new Promise(() => {}) : [200, [WHOLE]]
+                },
+            },
+        })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+        logic.actions.setTimeFilter('1h')
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+
+        expect(reads).toEqual(2)
+        expect(logic.values.entries).toEqual([WHOLE])
+        expect(logic.values.loadFailed).toBe(false)
     })
 
     it('keeps the card usable when the body lookup fails', async () => {

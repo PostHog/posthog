@@ -487,9 +487,9 @@ def test_to_config_union_nested_configs_with_alias():
     "config_dict,expected_selection,expected_integration_id,expected_secret_key,expected_account_id",
     [
         # Flat select payload: the option value as a scalar with the option's fields as
-        # siblings. The scalar isn't mapped to `selection`, so it keeps its default and
-        # the siblings are parsed flat.
-        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, None, "acct_x"),
+        # siblings. The scalar names the branch, so it must pick the same one the nested
+        # form picks.
+        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "oauth", 123, None, "acct_x"),
         # Flat payload whose scalar sibling is a string field — it must survive the flat
         # fallback and land on the nested config (e.g. Stripe's `secret_key`).
         (
@@ -512,19 +512,18 @@ def test_to_config_union_nested_configs_with_alias():
 def test_to_config_scalar_under_nested_config_key(
     config_dict, expected_selection, expected_integration_id, expected_secret_key, expected_account_id
 ):
-    """A scalar under a nested-config key must not crash `to_config`.
+    """A scalar under a nested-config key names the branch and must not crash `to_config`.
 
     A flat select payload (e.g. `auth_method: "oauth"` with the option's fields as
     siblings, instead of the nested `auth_method: {"selection": "oauth", ...}`) puts a
-    scalar where a nested config dict is expected. `validate_config` already treats this
-    as a flat structure (it guards with `isinstance(..., dict)`), so `to_config` must do
-    the same and fall through to flat parsing instead of recursing into the scalar and
-    raising an unhandled `TypeError`.
+    scalar where a nested config dict is expected. `to_config` must read it as the
+    `selection` value instead of recursing into the scalar and raising an unhandled
+    `TypeError`, so the source API honors the branch the caller asked for.
     """
 
     @config.config
     class AuthMethod:
-        selection: str = "api_key"
+        selection: typing.Literal["api_key", "oauth"] = "api_key"
         integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
         secret_key: str | None = None
 
@@ -545,6 +544,22 @@ def test_to_config_scalar_under_nested_config_key(
     assert cfg.auth_method.integration_id == expected_integration_id
     assert cfg.auth_method.secret_key == expected_secret_key
     assert cfg.account_id == expected_account_id
+
+
+def test_validate_dict_rejects_unknown_scalar_under_nested_config_key():
+    @config.config
+    class AuthMethod:
+        selection: typing.Literal["api_key", "oauth"] = "api_key"
+        secret_key: str | None = None
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth_method: AuthMethod
+
+    is_valid, errors = SourceConfig.validate_dict({"auth_method": "oauth_v2"})
+
+    assert is_valid is False
+    assert errors == ["Field 'auth_method' must be one of: api_key, oauth"]
 
 
 @pytest.mark.parametrize("bad_input", ["not a mapping", '"scalar"', "[1, 2, 3]", b"bytes", 5, ["a", "b"], None])

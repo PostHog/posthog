@@ -240,6 +240,7 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
                 // matches what the rest of the app (and `isOnboardingRedirectSuppressed`) expects, and
                 // `onboarding_skipped_at` reliably lands in state before the scene change fires.
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                     const freshUser = await api.get<UserType>('api/users/@me/')
                     actions.loadUserSuccess(freshUser)
                 } catch {

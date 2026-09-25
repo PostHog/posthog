@@ -201,7 +201,22 @@ describe('replayObservationLogic', () => {
         try {
             await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
             const { breadcrumbs } = sceneLogic.values
-            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe('/replay-vision/scanner-9?tab=search&q=true')
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe('/replay-vision?tab=search&q=true')
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    // The watch feed lives on the home scene, not the scanner that owns the row, so an observation
+    // opened from it (carrying `from=watch`) must send back to the feed rather than the scanner.
+    it('back returns to the watch feed when the observation was opened from it', async () => {
+        router.actions.push('/replay-vision/observations/obs-1', { from: 'watch', t: 12 })
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            const { breadcrumbs } = sceneLogic.values
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe('/replay-vision?tab=watch')
         } finally {
             logic.unmount()
         }

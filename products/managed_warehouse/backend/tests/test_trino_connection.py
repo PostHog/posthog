@@ -1,12 +1,12 @@
+import os
+
 import pytest
 from unittest import mock
 
+import requests
 from rest_framework.response import Response
 
-from products.managed_warehouse.backend.facade.contracts import (
-    DuckgresQueryServerConfig,
-    ManagedWarehouseTrinoConnectionUnavailable,
-)
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 from products.managed_warehouse.backend.trino_connection import (
     connect_managed_warehouse_trino,
     resolve_managed_warehouse_trino_connection,
@@ -33,27 +33,16 @@ def _ready_response(**connection_overrides: object) -> Response:
     )
 
 
-def _root_connection(password: str = "root-secret") -> DuckgresQueryServerConfig:
-    return DuckgresQueryServerConfig(
-        host="duckgres.postwh.com",
-        port=5432,
-        flight_port=8815,
-        database="ducklake",
-        username="root",
-        password=password,
-    )
-
-
 class TestResolveManagedWarehouseTrinoConnection:
-    def test_combines_the_control_plane_target_with_the_existing_root_secret(self) -> None:
+    def test_combines_the_control_plane_target_with_the_stored_trino_secret(self) -> None:
         with (
             mock.patch(
                 "products.managed_warehouse.backend.presentation.views._request",
                 return_value=_ready_response(),
             ) as request,
             mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-                return_value=_root_connection(),
+                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+                return_value="trino-secret",
             ),
         ):
             connection = resolve_managed_warehouse_trino_connection("org-1")
@@ -62,8 +51,8 @@ class TestResolveManagedWarehouseTrinoConnection:
         assert connection.port == 8443
         assert connection.catalog == "org_catalog"
         assert connection.username == "org_database"
-        assert connection.password == "root-secret"
-        assert "root-secret" not in repr(connection)
+        assert connection.password == "trino-secret"
+        assert "trino-secret" not in repr(connection)
         request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
 
     @pytest.mark.parametrize(
@@ -104,15 +93,15 @@ class TestResolveManagedWarehouseTrinoConnection:
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="ready managed Trino connection"):
                 resolve_managed_warehouse_trino_connection("org-1")
 
-    def test_rejects_a_missing_stored_root_secret(self) -> None:
+    def test_rejects_a_missing_stored_trino_secret(self) -> None:
         with (
             mock.patch(
                 "products.managed_warehouse.backend.presentation.views._request",
                 return_value=_ready_response(),
             ),
             mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-                return_value=_root_connection(password=""),
+                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+                return_value="",
             ),
         ):
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="stored managed warehouse credential"):
@@ -150,5 +139,48 @@ def test_connect_managed_warehouse_trino_enforces_verified_https_and_closes() ->
         auth=authentication,
         request_timeout=60,
         verify=True,
+        http_session=mock.ANY,
     )
     driver_connection.close.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "host,port,bypass_proxy",
+    [
+        ("trino.dw.us.postwh.com", 443, True),
+        ("TRINO.DW.US.POSTWH.COM.", 443, True),
+        ("trino.dw.us.postwh.com", 8443, False),
+        ("trino.example.com", 443, False),
+    ],
+)
+def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
+    host: str, port: int, bypass_proxy: bool
+) -> None:
+    proxy_url = "http://proxy.example.com:4750"
+    with (
+        mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy_url, "NO_PROXY": ""}, clear=True),
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views._request",
+            return_value=_ready_response(host=host, port=port),
+        ),
+        mock.patch(
+            "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+            return_value="root-secret",
+        ),
+        mock.patch("requests.adapters.HTTPAdapter.send", side_effect=RuntimeError("network boundary")) as send,
+    ):
+        with pytest.raises(RuntimeError, match="network boundary"):
+            with connect_managed_warehouse_trino("org-1") as connection:
+                connection.cursor().execute("SELECT 1")
+
+        send.assert_called_once()
+        request = send.call_args.args[0]
+        assert request.url == f"https://{host.lower()}:{port}/v1/statement"
+        assert request.headers["Authorization"].startswith("Basic ")
+        assert send.call_args.kwargs["proxies"].get("https") == (None if bypass_proxy else proxy_url)
+        assert send.call_args.kwargs["verify"] is True
+        assert send.call_args.kwargs["timeout"] == 60
+
+        with requests.Session() as ordinary_session:
+            settings = ordinary_session.merge_environment_settings("https://example.com", {}, False, True, None)
+        assert settings["proxies"]["https"] == proxy_url

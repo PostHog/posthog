@@ -1836,6 +1836,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "AtlasSearchBot",
+    "name": "AtlasSearch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1898,6 +1904,18 @@
   {
     "pattern": "BenchRankBot",
     "name": "BenchRank",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "QlyzeBot",
+    "name": "Qlyze",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AutozellaBot",
+    "name": "Autozella",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -1988,6 +2006,12 @@
   {
     "pattern": "MrAnandPortfolio",
     "name": "MrAnandPortfolio",
+    "category": "http_client",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PostHogImageFetcherBot",
+    "name": "PostHog Image Fetcher",
     "category": "http_client",
     "traffic_type": "Bot"
   }

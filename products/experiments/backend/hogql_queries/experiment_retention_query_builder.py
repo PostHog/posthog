@@ -6,6 +6,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureNode,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -126,6 +127,31 @@ class RetentionQueryBuilder:
 
         return query_string, placeholders
 
+    def build_exposure_start_maturity_predicate(self) -> ast.Expr:
+        """
+        WHERE predicate applying the maturity gate to an exposure-anchored start:
+        the retention window must have fully elapsed since the first exposure.
+        Constant true when maturity filtering is off, so the projection CTE can
+        interpolate it unconditionally.
+        """
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+
+        if not self._b.only_count_matured_users:
+            return ast.Constant(value=True)
+
+        maturity_seconds = self.get_retention_maturity_seconds()
+        if maturity_seconds == 0:
+            return ast.Constant(value=True)
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            "exposures.first_exposure_time + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
+
     def build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
         """
         Returns a HAVING clause for the retention query's start_events CTE that
@@ -243,6 +269,31 @@ class RetentionQueryBuilder:
                 FROM events
                 WHERE {completion_event_predicate}"""
 
+        if isinstance(self._b.metric.start_event, ExperimentExposureNode):
+            # The start is the experiment's exposure itself, so there is no second
+            # events scan: project the anchor straight out of the exposures CTE.
+            # first_exposure_time and exposure_event_uuid exist on every exposure
+            # path (direct, precomputed, activation), so this composes with
+            # precomputed exposures unchanged. start_handling does not apply because
+            # the exposures CTE already resolves one first exposure per entity.
+            start_events_cte_sql = """start_events AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.first_exposure_time AS start_timestamp,
+                    exposures.exposure_event_uuid AS start_uuid
+                FROM exposures
+                WHERE {exposure_start_maturity_predicate}
+            )"""
+        else:
+            start_events_cte_sql = f"""start_events AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    {{start_timestamp_expr}} AS start_timestamp,
+                    {{start_uuid_expr}} AS start_uuid
+                {start_events_body}
+                GROUP BY exposures.entity_id
+            )"""
+
         # Build the CTEs
         common_ctes = (
             f"""
@@ -250,14 +301,7 @@ class RetentionQueryBuilder:
                 {{exposure_select_query}}
             ),
 
-            start_events AS (
-                SELECT
-                    exposures.entity_id AS entity_id,
-                    {{start_timestamp_expr}} AS start_timestamp,
-                    {{start_uuid_expr}} AS start_uuid
-                {start_events_body}
-                GROUP BY exposures.entity_id
-            ),
+            {start_events_cte_sql},
 
             completion_events AS (
                 {completion_events_body}
@@ -295,15 +339,11 @@ class RetentionQueryBuilder:
         placeholders = {
             "exposure_select_query": self._b._get_exposure_query(),
             "entity_key": parse_expr(self._b.entity_key),
-            "start_timestamp_expr": self.build_start_event_timestamp_expr(),
-            "start_uuid_expr": self.build_start_event_uuid_expr(),
-            "start_event_predicate": self.build_start_event_predicate(),
             "completion_event_predicate": self.build_completion_event_predicate(),
             "retention_window_start_interval": self.build_retention_window_interval(
                 self._b.metric.retention_window_start
             ),
             "retention_window_end_interval": self.build_retention_window_interval(self._b.metric.retention_window_end),
-            "start_after_exposure_predicate": self.build_start_after_exposure_predicate(),
             "completion_retention_window_predicate": self.build_completion_retention_window_predicate(),
             "truncated_start_timestamp": self.get_retention_window_truncation_expr(
                 parse_expr("start_events.start_timestamp")
@@ -312,6 +352,14 @@ class RetentionQueryBuilder:
                 parse_expr("completion_events.completion_timestamp")
             ),
         }
+
+        if isinstance(self._b.metric.start_event, ExperimentExposureNode):
+            placeholders["exposure_start_maturity_predicate"] = self.build_exposure_start_maturity_predicate()
+        else:
+            placeholders["start_timestamp_expr"] = self.build_start_event_timestamp_expr()
+            placeholders["start_uuid_expr"] = self.build_start_event_uuid_expr()
+            placeholders["start_event_predicate"] = self.build_start_event_predicate()
+            placeholders["start_after_exposure_predicate"] = self.build_start_after_exposure_predicate()
 
         if self._b.metric_events_preaggregation_job_ids:
             placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
@@ -348,8 +396,14 @@ class RetentionQueryBuilder:
 
         # Inject maturity HAVING clause into the start_events CTE, anchored on
         # the user's start_event timestamp so users whose retention window has
-        # not yet elapsed are excluded from the denominator.
-        retention_maturity = self.build_retention_maturity_having_clause()
+        # not yet elapsed are excluded from the denominator. An exposure-anchored
+        # start applies maturity as a WHERE in its projection CTE instead,
+        # because that CTE has no GROUP BY for a HAVING to act on.
+        retention_maturity = (
+            None
+            if isinstance(self._b.metric.start_event, ExperimentExposureNode)
+            else self.build_retention_maturity_having_clause()
+        )
         if retention_maturity is not None and query.ctes and "start_events" in query.ctes:
             start_events_cte = query.ctes["start_events"]
             if isinstance(start_events_cte, ast.CTE) and isinstance(start_events_cte.expr, ast.SelectQuery):
@@ -441,10 +495,15 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if isinstance(self._b.metric.start_event, ExperimentDataWarehouseNode):
-            event_filter = data_warehouse_node_to_filter(self._b.team, self._b.metric.start_event)
+        start_event = self._b.metric.start_event
+        # An exposure-anchored start never builds this predicate; the query
+        # projects the start from the exposures CTE instead.
+        assert not isinstance(start_event, ExperimentExposureNode)
+
+        if isinstance(start_event, ExperimentDataWarehouseNode):
+            event_filter = data_warehouse_node_to_filter(self._b.team, start_event)
         else:
-            event_filter = event_or_action_to_filter(self._b.team, self._b.metric.start_event)
+            event_filter = event_or_action_to_filter(self._b.team, start_event)
         conversion_window_seconds = self._b._get_conversion_window_seconds()
 
         return parse_expr(

@@ -1,18 +1,21 @@
 from typing import Any, Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+    HostNotAllowedError,
+    ValidateDatabaseHostMixin,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -37,6 +40,10 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
     "IP addresses are allowlisted in your database's network access settings."
 )
+
+# The same condition reached through a sync rather than the connect form. The schema keeps retrying
+# instead of being disabled, so nothing needs re-enabling and the copy has to say so.
+_MONGO_UNREACHABLE_RETRY_MESSAGE = f"{_MONGO_UNREACHABLE_MESSAGE} The next sync runs on schedule."
 
 # `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
 # wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
@@ -64,6 +71,20 @@ _MONGO_ATLAS_SQL_MESSAGE = (
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SERVER_TOO_OLD_MESSAGE = (
+    "This MongoDB server runs a version PostHog no longer supports. Upgrade the cluster to "
+    "MongoDB 4.2 or newer, then try again."
+)
+
+# pymongo drops a server from the topology when its replica set name differs from the one the
+# connection string asks for, so the cluster the user named is never selectable. The name has to be
+# corrected before any sync can run.
+_MONGO_REPLICA_SET_MISMATCH_MESSAGE = (
+    "The replica set name in your connection string doesn't match the one your cluster reports. "
+    "Check the replicaSet option in the connection string, or copy the current connection string "
+    "from your database provider, then re-enable this sync."
 )
 
 _MONGO_AUTHENTICATION_FAILED_MESSAGE = (
@@ -100,19 +121,31 @@ _MONGO_NO_COLLECTIONS_MESSAGE = (
     "your user has read access to that database's collections."
 )
 
-# Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
-_DNS_RESOLUTION_FAILURE_MARKERS = (
+# Substrings pymongo embeds in ServerSelectionTimeoutError when the resolver says the host name
+# does not exist (EAI_NONAME). The name never resolves until the user corrects it, so a sync that
+# fails this way is a connection-string mistake rather than an outage.
+_DNS_NAME_NOT_FOUND_MARKERS = (
     "No address associated with hostname",
     "nodename nor servname provided",
     "Name or service not known",
-    "Temporary failure in name resolution",
 )
+
+_DNS_TEMPORARY_FAILURE_MARKER = "Temporary failure in name resolution"
+
+# The markers above plus EAI_AGAIN, where the resolver itself did not answer. Validation reports
+# both the same way; only the permanent ones classify a sync failure as non-retryable.
+_DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_FAILURE_MARKER)
 
 # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
 # MongoClient constructor and wraps any dnspython exception as ConfigurationError. dnspython's
 # NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
+
+# pymongo raises ConfigurationError from server selection when every server's wire version is
+# below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
+# address and version numbers; this fragment stays fixed.
+_SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 
 @SourceRegistry.register
@@ -125,6 +158,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             "The DNS query name does not exist": None,
+            _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -163,22 +197,25 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # topology never leaves Unknown, and server selection times out (ServerSelectionTimeoutError,
             # frequently "connection closed"). This is a wrong-endpoint misconfiguration — the importer
             # needs a regular cluster connection string — so retrying never recovers. The host suffix
-            # is the stable signal here, and it must be matched before the generic "Topology Description:"
-            # entry below so Atlas SQL users get the wrong-endpoint message rather than the allowlist one.
+            # is the stable signal here. Non-retryable patterns are matched before retryable ones,
+            # so this still wins over the "Topology Description:" entry in `get_retryable_errors`
+            # and Atlas SQL users get the wrong-endpoint message.
             "query.mongodb.net": _MONGO_ATLAS_SQL_MESSAGE,
-            # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
-            # for the whole selection timeout. The reason varies — "No servers found yet" / "No
-            # replica set members found yet" when nothing was ever discovered, or a per-server
-            # "<host>: connection closed ... error=AutoReconnect(...)" when a host resolves but every
-            # connection attempt is dropped for the entire window. All of these carry the
-            # "Topology Description:" suffix that only ServerSelectionTimeoutError emits, so we key
-            # off that single marker. On a managed cluster this is a persistent connectivity problem
-            # — the worker IP isn't allowlisted, the cluster is paused/decommissioned, or the
-            # connection string points at an endpoint the driver can't speak to — not a momentary
-            # blip, so retrying the job won't recover it. A transient mid-sync drop surfaces
-            # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
-            # stays retryable.
-            "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # The resolver answered that the cluster host name does not exist. pymongo surfaces it
+            # as a ServerSelectionTimeoutError whose topology description carries the OS marker, so
+            # match the marker rather than the topology suffix, which a reachable-but-down cluster
+            # emits too. A name that does not resolve stays unresolved until the user fixes it.
+            **dict.fromkeys(_DNS_NAME_NOT_FOUND_MARKERS, _MONGO_HOST_UNRESOLVED_MESSAGE),
+            # pymongo removes every server whose replica set name differs from the `replicaSet` the
+            # connection string asks for, which empties the topology and names the set rather than a
+            # host in the selection error. A cluster that is merely down keeps its servers as Unknown
+            # and reports "No replica set members found yet" instead, so this wording only appears on
+            # a name mismatch. Both shapes are fixed literals in pymongo, so match them directly and
+            # let them beat the "Topology Description:" entry in `get_retryable_errors`.
+            "No replica set members available for replica set name": _MONGO_REPLICA_SET_MISMATCH_MESSAGE,
+            # The same mismatch on a direct connection: pymongo marks the node Unknown with a
+            # ConfigurationError naming both sets, and that text is what the selection timeout carries.
+            "client is configured to connect to a replica set named": _MONGO_REPLICA_SET_MISMATCH_MESSAGE,
             # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
             # valid key for the cursor's timestamp. pymongo formats the full server error response
             # as part of the exception message; the leading phrase before the variable parts
@@ -198,10 +235,18 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         #
         # pymongo also raises a bare AutoReconnect("<address>: connection pool paused ...") when a
         # connection checkout finds the pool not yet READY after an earlier network blip — the
-        # pool's background monitor clears this on its own once it reconnects, so it's distinct
-        # from the persistent "Topology Description:" server-selection failures above. Match the
-        # fixed "connection pool paused" phrase pymongo always uses for this state, not the
-        # surrounding host/timeout values.
+        # pool's background monitor clears this on its own once it reconnects. Match the fixed
+        # "connection pool paused" phrase pymongo always uses for this state, not the surrounding
+        # host/timeout values.
+        #
+        # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node for
+        # the whole selection timeout, and only that error carries the "Topology Description:"
+        # suffix. The suffix alone cannot tell a persistent problem (the worker IP isn't allowlisted,
+        # the cluster is decommissioned) from a cluster that is merely down for one selection window
+        # — a restart, a failover, a short provider outage — because both emit identical text. Treat
+        # the class as retryable so a blip does not disable the schema; the persistent shapes that
+        # can be named are matched above and still do. `get_retry_exhausted_errors` supplies the
+        # message once the retries run out.
         #
         # A cluster that is rotating its signing keys fails a command with OperationFailure code 211
         # (KeyNotFound), which it clears on its own, so Temporal retrying the activity recovers.
@@ -214,11 +259,49 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # maintenance. The driver reconnects to the newly-elected primary, so Temporal retrying the
         # whole activity is self-recovering. Match the stable errmsg phrase, not the volatile
         # topologyVersion/clusterTime blob pymongo appends.
+        #
+        # pymongo raises NetworkTimeout (a socket.timeout wrapped by _raise_connection_failure) when
+        # opening a fresh connection — to replace one the pool dropped, mid-sync — takes longer than
+        # connectTimeoutMS. This is the same class of momentary network blip as "connection pool
+        # paused" above, not a persistently unreachable cluster: it carries a host and configured
+        # timeouts but no "Topology Description:" dump, and the next connection attempt (this one,
+        # or a fresh one on the activity's Temporal retry) succeeds once the network recovers.
+        #
+        # pymongo wraps a bare ConnectionResetError in AutoReconnect the same way, when a socket a
+        # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
+        # connection) rather than timing out. Same recovery path as the timeout case above.
+        #
+        # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
+        # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
+        # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
+        # already resumes from last_id when this happens mid-stream, and only re-raises when a
+        # getMore was killed before yielding anything (resuming immediately would hit the same cap
+        # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
+        # it is self-recovering and must not flood error tracking on every no-progress getMore.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
             "the cluster's signing keys were briefly unavailable",
             "interrupted at shutdown",
+            "Topology Description:",
+            "timed out (configured timeouts:",
+            "Connection reset by peer",
+            "operation exceeded time limit",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # A server-selection timeout that outlived the retry budget leaves `latest_error` holding
+        # the raw topology dump: every seed host, port, and per-server driver exception. Replace it
+        # with the two things the user can act on, and say the schema is still enabled.
+        #
+        # A resolver that keeps answering EAI_AGAIN fails the same server selection, so its error
+        # carries the topology marker as well. The finalizer stores the first pattern that matches,
+        # so the resolver marker is listed first: without it the user reads the allowlist guidance
+        # and checks network access rules that are already correct. The shared resolver message
+        # names the lookup instead, and says the sync stays enabled.
+        return {
+            _DNS_TEMPORARY_FAILURE_MARKER: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            "Topology Description:": _MONGO_UNREACHABLE_RETRY_MESSAGE,
         }
 
     def get_schemas(
@@ -315,6 +398,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except HostNotAllowedError:
+            # An SRV URI skips the host check above, so a cluster whose members resolve to private
+            # addresses is only refused once `_make_safe_server_selector` sees them. Report the same
+            # guidance the sync path stores for this condition, and don't capture it: the host is
+            # the user's to fix, never our bug.
+            return False, DATABASE_HOST_NOT_ALLOWED_GUIDANCE
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,
@@ -337,6 +426,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SERVER_TOO_OLD_MARKER in message:
+                return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
             capture_exception(e)
@@ -368,7 +459,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MONGO_DB,
+            name=ExternalDataSourceType.MONGODB,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             keywords=["mongo"],

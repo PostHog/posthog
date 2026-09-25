@@ -37,9 +37,19 @@ Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
 # The side-mission calibration floor: templated into the prompt and enforced at emission.
 MIN_SIGNAL_CONFIDENCE = 0.4
 
+# The watch feed lists up to three headlines on one line, so an overlong one reflows the whole card.
+SIGNAL_HEADLINE_MAX_LENGTH = 80
+
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
+
+# Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
+# Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
+# its way to the provider default (65k) turns a 5-credit observation into a loss. Tight enough to stop that,
+# loose enough that dynamic thinking on a long video is not cut off, which would bill the thoughts and force
+# a re-prompt that bills them again.
+STEP_MAX_OUTPUT_TOKENS = 16_384
 
 
 class SignalFinding(BaseModel, frozen=True):
@@ -48,15 +58,23 @@ class SignalFinding(BaseModel, frozen=True):
     problem_type: Literal["bug", "crash", "design_flaw", "ux_friction"] = Field(
         description="The kind of issue: `bug`, `crash`, `design_flaw`, or `ux_friction`."
     )
+    headline: str = Field(
+        description=(
+            "The issue in 8 words or fewer, for a feed card that lists several findings side by side. Name the "
+            "control, the page, or the product step it happened on, so the line reads on its own without the "
+            "`description`. Never copy text the user typed and never name a person — unlike the description, "
+            "this line is shown to a whole team out of context. Sentence case, no final period."
+        )
+    )
     start_time: int = Field(
         ge=0,
         description=(
-            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
-            "video footer at that moment (`REC_T` is seconds since the recording started)."
+            "When the issue starts, in whole seconds of video time counted from the start of the video file — the "
+            "same scale you cite moments in, not the footer's `REC_T`."
         ),
     )
     end_time: int = Field(
-        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+        ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
@@ -67,7 +85,7 @@ class SignalFinding(BaseModel, frozen=True):
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
-            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."
         )
     )
@@ -84,6 +102,14 @@ class SignalFinding(BaseModel, frozen=True):
         # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
         # the removal (or the model) leaves so the prose stays clean.
         return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+
+    @field_validator("headline", mode="after")
+    @classmethod
+    def _shorten_headline(cls, value: str) -> str:
+        # Same timestamp-marker leak as the description, plus a hard length bound — the prompt asks for 8 words
+        # and the model sometimes answers with a sentence, which would reflow the card it lands on.
+        cleaned = re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+        return cleaned[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
 
 
 class SignalsResponse(BaseModel, frozen=True):
@@ -150,6 +176,21 @@ def notability_reason_field() -> Any:
     skipped it into a failed, already-paid observation. Readers fall back when it is absent.
     """
     return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
+
+
+_THUMBNAIL_DESCRIPTION = (
+    "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the video "
+    "file, the same scale you cite moments in, not the footer's `REC_T`."
+)
+
+
+def thumbnail_field() -> Any:
+    """`thumbnail_t` field for LLM-response schemas, declared last so the pick never precedes the answer.
+
+    Optional for the same reason as `notability`: a skipped pick must not fail a paid-for scan. Readers fall back
+    to a cited or signal moment when absent.
+    """
+    return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
 
 
 def notability_field() -> Any:
@@ -232,6 +273,7 @@ class BaseScanner(BaseModel, frozen=True):
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
+        network_state: Literal["available", "clean", "none"] = "none",
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -248,6 +290,7 @@ class BaseScanner(BaseModel, frozen=True):
             event_descriptions=event_descriptions or {},
             tool_budget=tool_budget,
             default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
+            network_state=network_state,
         )
 
     def core_steps(self) -> list[MissionStep]:

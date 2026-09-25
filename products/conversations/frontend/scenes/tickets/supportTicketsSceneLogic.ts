@@ -15,7 +15,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
@@ -24,7 +24,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
-import { conversationsViewsRetrieve } from '../../generated/api'
+import { conversationsTicketsBulkUpdateStatusCreate, conversationsViewsRetrieve } from '../../generated/api'
+import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -271,7 +272,7 @@ export interface supportTicketsSceneLogicActions {
         view: SavedTicketView | null
     }
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
-        results: AITriageFilterValue[]
+        results: AiTriageResultEnumApi[]
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
@@ -356,7 +357,7 @@ export interface supportTicketsSceneLogicMeta {
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
-            aiTriageResultFilter: AITriageFilterValue[],
+            aiTriageResultFilter: AiTriageResultEnumApi[],
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsExcludeFilter: string[],
@@ -368,7 +369,7 @@ export interface supportTicketsSceneLogicMeta {
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
-            aiTriageResultFilter: AITriageFilterValue[],
+            aiTriageResultFilter: AiTriageResultEnumApi[],
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsMatch: TicketTagsMatch,
@@ -918,7 +919,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
             try {
-                const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
+                // Match the scope api.conversationsTickets reads use below, so a bulk update actually
+                // touches the tickets the user selected instead of a same-named row in another environment.
+                const result = await conversationsTicketsBulkUpdateStatusCreate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    {
+                        ids,
+                        status,
+                    }
+                )
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()
                 actions.loadTickets()

@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   historyTabId: undefined as string | undefined,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
 }));

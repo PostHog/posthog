@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -449,6 +450,14 @@ META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
 # https://developers.facebook.com/docs/graph-api/overview/rate-limiting
 META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
+# Meta error code 2642: the `paging.next` cursor used to follow a page was rejected as invalid.
+# Terminal for this job — `_iter_time_range_pagination`/`_iter_simple_pagination` save that same
+# cursor to resumable state before fetching it, so a Temporal retry of this job would resume with
+# the identical cursor and fail the same way every time. A later sync run gets a fresh job id (and
+# so a fresh resumable-state key, see `ResumableSourceManager`), which starts pagination from
+# scratch with a new cursor.
+META_INVALID_CURSOR_ERROR_CODE = 2642
+
 META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
@@ -456,6 +465,8 @@ META_AUTH_ERROR_MESSAGE = (
 META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
+
+META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
 
 # Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
 # with the key there.
@@ -496,6 +507,12 @@ def _is_rate_limit_error(response: Response) -> bool:
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
+def _is_invalid_cursor_error(response: Response) -> bool:
+    """Return True for Meta's "Invalid cursors values" error (code 2642), which retrying this
+    job can't recover from — see `META_INVALID_CURSOR_ERROR_CODE`."""
+    return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
+
+
 def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     """Raise a descriptive exception for a non-200 Meta API response.
 
@@ -515,6 +532,10 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
+        )
+    if _is_invalid_cursor_error(response):
+        raise Exception(
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
         )
     if _is_transient_error(response) and not _should_shrink_request(response):
         raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
@@ -976,7 +997,7 @@ def meta_ads_source(
 ) -> SourceResponse:
     """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     sync_lookback_days = getattr(config, "sync_lookback_days", None)
     if sync_lookback_days is None or sync_lookback_days < 1:

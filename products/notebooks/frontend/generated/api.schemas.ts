@@ -177,6 +177,12 @@ export interface WidgetSecurityReviewApi {
 }
 
 export interface ReusableWidgetVersionDetailApi {
+    /**
+     * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    generation_cost_usd?: string | null
     /** Immutable widget version identifier. */
     id: string
     /** Title stored with this version. */
@@ -957,6 +963,97 @@ export interface NotebookKernelStatusResponseApi {
     preset_key?: string | null
 }
 
+export interface NotebookRunStartRequestApi {
+    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    include_prepared_insights?: boolean
+    /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
+    variables?: NotebookVariableApi[]
+}
+
+export interface NotebookRunStartResponseApi {
+    /** Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal. */
+    run_id: string
+    /** How many cells the run will execute, frozen when it started. */
+    cell_count: number
+    /** True when this run has to provision a sandbox because it holds a Python cell and none is live for the caller. Tell the user what that costs. */
+    starts_sandbox: boolean
+    /**
+     * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+     * @nullable
+     */
+    sandbox_hourly_price?: number | null
+}
+
+export interface NotebookRunCellApi {
+    /** Durable cell identity, the same id the cell run endpoints take. */
+    node_id: string
+    /** Cell kind: 'sql' or 'python'. */
+    cell_type: string
+    /** Name other cells reference this cell's result by; blank means display-only. */
+    dataframe_name: string
+    /**
+     * This cell's run in the whole-notebook run; null until the run reaches the cell.
+     * @nullable
+     */
+    run_id?: string | null
+    /**
+     * The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.
+     * @nullable
+     */
+    status?: string | null
+    /**
+     * Why this cell failed, when it did.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface NotebookRunStatusResponseApi {
+    /** Identifier of the whole-notebook run. */
+    run_id: string
+    /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
+    status: string
+    /** Which surface started the run: 'ui' or 'mcp'. */
+    trigger: string
+    /** The variable values this run bound, snapshotted when it started. */
+    variables: NotebookVariableApi[]
+    /** How many cells the run executes. */
+    cell_count: number
+    /** Position in the plan the run has reached, counting from 0. */
+    current_index: number
+    /**
+     * The cell the run is on; null once the plan is finished.
+     * @nullable
+     */
+    current_node_id?: string | null
+    /**
+     * The cell that stopped the run, when one did.
+     * @nullable
+     */
+    failed_node_id?: string | null
+    /**
+     * Why the run stopped, in one sentence a person can read.
+     * @nullable
+     */
+    error?: string | null
+    /** Every planned cell in run order, with the state of its run in this notebook run. */
+    cells: NotebookRunCellApi[]
+    /** When the run started. */
+    created_at: string
+    /**
+     * When the run reached a terminal state; null while running.
+     * @nullable
+     */
+    finished_at?: string | null
+}
+
+export interface NotebookRunInterruptResponseApi {
+    /** True when this call stopped the run. False when it had already finished, which is not an error. */
+    interrupted: boolean
+    /** The run's state after the call: 'done', 'failed', or 'interrupted'. */
+    status: string
+}
+
 /**
  * * `hogql` - hogql
  * * `local` - local
@@ -996,6 +1093,8 @@ export const NotebookSQLV2NodeTypeEnumApi = {
 } as const
 
 export interface NotebookSQLV2RunRequestApi {
+    /** Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs. */
+    reuse_results?: boolean
     /** ProseMirror node id of the SQLV2 node being run. */
     node_id: string
     /** Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.
@@ -1147,7 +1246,7 @@ export interface NotebookCellLastRunApi {
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
-    /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
+    /** Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
     cell_type: string
     /** Name other cells reference this cell's result by; blank means display-only. */
     dataframe_name: string
@@ -1193,6 +1292,88 @@ export interface NotebookSQLV2StateResponseApi {
     variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
+}
+
+export interface WidgetSnapshotRequestApi {
+    /**
+     * Notebook widget node to add to a dashboard.
+     * @maxLength 128
+     */
+    node_id: string
+    /** Immutable widget version to keep on the dashboard. */
+    version_id: string
+    /** Completed whole-notebook run supplying every input after refresh. */
+    notebook_run_id?: string
+    /** Snapshot being refreshed; its version and input mappings must match. */
+    previous_snapshot_id?: string
+}
+
+/**
+ * Frozen input mappings and Hog transforms.
+ */
+export type WidgetSnapshotApiInputBindings = {
+    [key: string]: {
+        source: string
+        hog?: string
+    }
+}
+
+export interface WidgetSnapshotApi {
+    /** Immutable snapshot containing the widget's saved dataframe results. */
+    id: string
+    /** Source widget node in the notebook. */
+    node_id: string
+    /** Pinned generated widget version. */
+    version_id: string
+    /** When all dataframe results were saved. */
+    created_at: string
+    /** Allowed dataframe slots. */
+    frame_names: string[]
+    /** Frozen input mappings and Hog transforms. */
+    input_bindings: WidgetSnapshotApiInputBindings
+    /** Pinned widget input schemas. */
+    input_contract: WidgetInputContractItemApi[]
+    /**
+     * Short-lived URL for the pinned widget build.
+     * @nullable
+     */
+    artifact_url: string | null
+    /**
+     * Exact build hash used for execution consent.
+     * @nullable
+     */
+    build_hash: string | null
+    /** Review of the pinned widget source. */
+    security_review: WidgetSecurityReviewApi | null
+}
+
+export interface WidgetSnapshotPublishApi {
+    /**
+     * Notebook widget node to add to a dashboard.
+     * @maxLength 128
+     */
+    node_id: string
+    /** Immutable widget version to keep on the dashboard. */
+    version_id: string
+    /** Completed whole-notebook run supplying every input after refresh. */
+    notebook_run_id?: string
+    /** Snapshot being refreshed; its version and input mappings must match. */
+    previous_snapshot_id?: string
+    /**
+     * Dashboard to add the widget to.
+     * @minimum 1
+     */
+    dashboard_id?: number
+    /**
+     * Existing dashboard tile to refresh.
+     * @minimum 1
+     */
+    tile_id?: number
+    /**
+     * Title for a new dashboard widget.
+     * @maxLength 400
+     */
+    name?: string
 }
 
 /**
@@ -1265,6 +1446,12 @@ export interface WidgetRevertRequestApi {
 }
 
 export interface WidgetVersionApi {
+    /**
+     * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    generation_cost_usd?: string | null
     /** Immutable widget version identifier. */
     id: string
     /**
@@ -1437,6 +1624,28 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string
 }
 
 export type NotebooksWidgetFrameParams = {

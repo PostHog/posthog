@@ -27,6 +27,9 @@ Poll `/tmp/posthog-preview/status.json` until `state` is `ready` or `failed`:
 `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled.
 Product and Storybook builds still run from source.
 
+In `products/desktop`, the backend starts `pnpm bootstrap:cloud-task` in the background while the agent boots.
+Run `pnpm bootstrap:cloud-task:wait` there before any other `pnpm` command, so a second install does not race it.
+
 ## Tests
 
 Scope every run to what you changed, with `hogli test --changed` or the test files that cover the touched code.
@@ -59,6 +62,11 @@ Loops can edit only their configured channel page, and read-only task tokens can
 Do not grant broader token scopes to work around a denied write.
 Ordinary tasks cannot publish commit bundles or use `scripts/publish` to bypass review.
 Server-owned nightly maintenance can publish a dated, content-only dream branch. The server verifies an active internal maintenance task in the organization, not just a branch name or token scope.
+Scheduled dreams run `scripts/publish --dream <summary-file>` from the mounted wiki after consolidation and lint.
+The helper uses the current UTC date for the branch, reuses that branch on retries, creates a local commit, and uploads a git bundle through the context layer API.
+The server records the authenticated maintenance run ID in the merge commit. Dream publication status matches this ID, not the commit time, so overlapping runs cannot hide a failed publication.
+GitHub signed-commit tools do not apply to this local bundle repository.
+The helper reports `publish: landed` only after a successful upload, reports `publish: no changes` for an unchanged wiki, and returns a nonzero exit for failures.
 Direct human page editing remains available.
 This review gate applies to server-minted task and loop tokens. Human/API credentials keep their existing permissions.
 

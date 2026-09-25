@@ -188,7 +188,11 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         // React to team changes - reset and re-fetch for new team
         currentTeam: (currentTeam, oldTeam) => {
             // Skip initial mount (oldTeam is undefined)
-            if (oldTeam === undefined) {
+            if (
+                oldTeam === undefined ||
+                (currentTeam?.id === oldTeam?.id &&
+                    currentTeam?.conversations_enabled === oldTeam?.conversations_enabled)
+            ) {
                 return
             }
 

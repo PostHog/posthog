@@ -72,6 +72,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
+
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
@@ -602,7 +604,7 @@ function SurveyStatusAction(): JSX.Element | null {
 function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void }): JSX.Element {
     const {
         survey,
-        dataTableQuery,
+        responsesExportQuery,
         isAnyResultsLoading,
         resultsRequeryInProgress,
         processedSurveyStats,
@@ -624,14 +626,15 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
             size="small"
             icon={<IconDownload />}
             buttonCopy="Export responses"
-            disabledReason={!dataTableQuery ? 'No responses to export yet.' : undefined}
+            disabledReason={!responsesExportQuery ? 'No responses to export yet.' : undefined}
             items={
-                dataTableQuery
+                responsesExportQuery
                     ? [ExporterFormat.CSV, ExporterFormat.XLSX].map((format) => ({
                           title: format === ExporterFormat.CSV ? 'Export as CSV' : 'Export as Excel',
                           export_format: format,
                           export_context: {
-                              source: dataTableQuery,
+                              source: responsesExportQuery,
+                              columns: responsesExportQuery.columns,
                               filename: `survey-${survey.name}-responses`,
                           },
                       }))
@@ -719,6 +722,7 @@ const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"
 function SurveyResponsesContent(): JSX.Element {
     const {
         dataTableQuery,
+        responsesExportQuery,
         survey,
         surveyLoading,
         archivedResponseUuids,
@@ -751,7 +755,10 @@ function SurveyResponsesContent(): JSX.Element {
                         query={dataTableQuery}
                         context={{
                             columns: surveyColumnRenderers,
+                            customActions: <SurveyResponseColumnsMenu key="survey-response-columns" />,
                             dataTableExportExcludedColumns: ['response', 'actions'],
+                            dataTableExportQuery: responsesExportQuery ?? undefined,
+                            fileNameForExport: `survey-${survey.name}-responses`,
                             dataTableRowsTransformer: (rows) => transformSurveyResponseRows(rows, survey),
                             rowProps: (record: unknown) => {
                                 if (typeof record !== 'object' || !record || !('result' in record)) {

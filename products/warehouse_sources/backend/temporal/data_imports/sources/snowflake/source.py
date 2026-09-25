@@ -5,28 +5,29 @@ from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError,
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
+    SnowflakeResumeState,
     get_connection_metadata as get_connection_metadata_snowflake,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -101,10 +102,23 @@ SnowflakeErrors = {
 
 
 @SourceRegistry.register
-class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
+class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SnowflakeResumeState]:
+        return ResumableSourceManager[SnowflakeResumeState](inputs, SnowflakeResumeState)
+
+    # The activity dispatch checks ResumableSource before SimpleSource, so the three-argument
+    # resumable signature is the one that runs; the SQLSource two-argument form is unreachable here.
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: SnowflakeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SnowflakeResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -113,7 +127,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SNOWFLAKE,
+            name=ExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",

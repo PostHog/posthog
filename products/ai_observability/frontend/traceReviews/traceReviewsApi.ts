@@ -32,7 +32,7 @@ function isDuplicateTraceReviewError(error: unknown): boolean {
 }
 
 function getTraceReviewsBaseUrl(teamId: number = ApiConfig.getCurrentTeamId()): string {
-    return `/api/environments/${teamId}/llm_analytics/trace_reviews/`
+    return `/api/projects/${teamId}/llm_analytics/trace_reviews/`
 }
 
 export interface TraceReviewListFilters {
@@ -81,7 +81,7 @@ export const traceReviewsApi = {
         params?: TraceReviewListParams,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<CountedPaginatedResponse<TraceReview>> {
-        // nosemgrep: prefer-codegen-api
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api
             .get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
             .then((response) => ({
@@ -96,7 +96,7 @@ export const traceReviewsApi = {
     },
 
     create(data: TraceReviewUpsertPayload, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api
             .create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
             .then(normalizeTraceReview)
@@ -107,7 +107,7 @@ export const traceReviewsApi = {
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api
             .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
                 `${getTraceReviewsBaseUrl(teamId)}${id}/`,
@@ -117,7 +117,7 @@ export const traceReviewsApi = {
     },
 
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {
-        // nosemgrep: prefer-codegen-api
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
         return api.delete(`${getTraceReviewsBaseUrl(teamId)}${id}/`)
     },
 

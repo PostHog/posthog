@@ -80,6 +80,10 @@ Choose typed queries or SQL from the required calculation and output, as describ
 
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
+### Knowledge source checks
+
+When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
@@ -105,6 +109,8 @@ A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not ena
 
 Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
 Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+Skill use is advisory: a product `call` is never rejected for skipping `learn`, so stateless and session-holding clients behave the same.
+Unknown learning topics and empty search queries return recovery instructions.
 The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
 Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
 
@@ -137,6 +143,18 @@ For proxy endpoints that can fail because of either user permissions or request 
 return distinct API-visible error details. Agents should stop on true authorization
 failures, but they can often recover from a bad project/team filter if the response says
 the requested scope is unavailable.
+
+The billing usage/spend proxy also returns recognized field-validation failures as
+standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps known
+codes and public request fields, replaces upstream messages with controlled text,
+and masks unrecognized failures. The shared MCP client handles these errors without
+a billing-specific tool wrapper.
+
+The billing usage/spend tools accept `usage_types` as an array of strings.
+Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
+The MCP client JSON-encodes the array for the HTTP API.
+The billing overview, usage, and spend tools do not need a rollout flag.
+API scopes and billing access checks still apply.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -434,6 +452,13 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 ## Testing
 
+The `query-llm-trace` and `query-llm-traces-list` wrappers bound the complete response to 80,000 characters for full detail and 60,000 characters for summary detail.
+The limit includes the echoed query, warnings, and serialization of the MCP text content blocks, in either TOON or JSON output.
+Summary previews use a 600-character budget per value.
+These character budgets reduce response size but do not guarantee a token count; client limits and tokenization vary, so clients may still truncate responses or save them to a file.
+Both modes can omit events, and large echoed filters or warnings can also be shortened.
+Omission markers direct the agent to narrow the query or open the complete trace in PostHog.
+
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
 
@@ -527,6 +552,14 @@ Runtime access still comes from the viewset's `scope_object`,
 `scope_object_read_actions`, `scope_object_write_actions`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
+
+### MCP-only endpoints
+
+An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.
+To generate MCP tools and frontend types for an endpoint without that contract, mark it with `@extend_schema(extensions={"x-internal": True})`.
+The codegen build (`hogli build:openapi`, which sets `OPENAPI_INCLUDE_INTERNAL=1`) keeps the operation.
+The served `/api/schema/` drops it, the same way `@extend_schema(exclude=True)` does.
+The marker only controls schema inclusion. The endpoint stays reachable, and auth and scopes still apply.
 
 ## HogQL query schemas (WIP)
 
