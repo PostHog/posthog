@@ -20,37 +20,38 @@ ENV = {
     "GITHUB_ACTOR": "octocat",
     "GITHUB_EVENT_NAME": "pull_request",
 }
-WORKFLOW = {
-    "runStartedAt": "2026-01-01T00:00:00Z",
+SHOWN = {
+    "workflow": {"started_at": "2026-01-01T00:00:00Z"},
     "jobs": [
         {
-            "jobKey": "ci-backend.yml:django_tests",
-            "jobDisplayName": "Django Tests Pass on Depot",
+            "job_key": "ci-backend.yml:django_tests",
+            "job_display_name": "Django Tests Pass on Depot",
             "status": "failed",
-            "attempts": [{"attempt": 1, "startedAt": "2026-01-01T00:20:00Z", "finishedAt": "2026-01-01T00:20:05Z"}],
+            "attempts": [{"attempt": 1, "started_at": "2026-01-01T00:20:00Z", "finished_at": "2026-01-01T00:20:05Z"}],
         },
         {
-            "jobKey": "ci-backend.yml:django:matrix-01",
-            "jobDisplayName": "Django tests - Core (1/2)",
+            "job_key": "ci-backend.yml:django:matrix-01",
+            "job_display_name": "Django tests - Core (1/2)",
             "status": "finished",
             "attempts": [
-                {"attempt": 1, "startedAt": "2026-01-01T00:01:00Z", "finishedAt": "2026-01-01T00:11:00Z"},
-                {"attempt": 2, "startedAt": "2026-01-01T00:12:00Z", "finishedAt": "2026-01-01T00:19:30Z"},
+                {"attempt": 1, "started_at": "2026-01-01T00:01:00Z", "finished_at": "2026-01-01T00:11:00Z"},
+                {"attempt": 2, "started_at": "2026-01-01T00:12:00Z", "finished_at": "2026-01-01T00:19:30Z"},
             ],
         },
         {
-            "jobKey": "ci-backend.yml:validate-product-yamls",
-            "jobDisplayName": "Validate product.yaml owners",
+            "job_key": "ci-backend.yml:validate-product-yamls",
+            "job_display_name": "Validate product.yaml owners",
             "status": "skipped",
-            "finishedAt": "2026-01-01T00:00:40Z",
+            "started_at": "",
+            "finished_at": "2026-01-01T00:00:40Z",
             "attempts": [],
         },
-        {"jobKey": "ci-backend.yml:django:_dynamicMatrix", "status": "skipped", "finishedAt": "2026-01-01T00:00:50Z"},
+        {"job_key": "ci-backend.yml:django:_dynamicMatrix", "status": "skipped", "finished_at": "2026-01-01T00:00:50Z"},
         {
-            "jobKey": "ci-backend.yml:calculate-running-time",
-            "jobDisplayName": "Calculate running time",
+            "job_key": "ci-backend.yml:calculate-running-time",
+            "job_display_name": "Calculate running time",
             "status": "running",
-            "attempts": [{"attempt": 1, "startedAt": "2026-01-01T00:20:10Z"}],
+            "attempts": [{"attempt": 1, "started_at": "2026-01-01T00:20:10Z", "finished_at": ""}],
         },
     ],
 }
@@ -59,7 +60,7 @@ WORKFLOW = {
 def test_build_events_matches_the_action_event_shape() -> None:
     now = dt.datetime(2026, 1, 1, 0, 21, 30, tzinfo=dt.UTC)
 
-    events = capture.build_events(WORKFLOW, "https://depot.dev/orgs/org/workflows/wf", "django_tests", ENV, now)
+    events = capture.build_events(SHOWN, "https://depot.dev/orgs/org/workflows/wf", "django_tests", ENV, now)
 
     group = {"workflow_run": "PostHog/posthog/42"}
     assert events[0] == {
