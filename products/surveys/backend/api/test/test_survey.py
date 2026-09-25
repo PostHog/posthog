@@ -32,6 +32,7 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -7513,6 +7514,53 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.survey.save()
         response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stop/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_resume_under_flag_update_policy_returns_approval_conflict(self, _mock_approvals_enabled):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Approval gated survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Q?"}],
+                "start_date": "2024-01-01T00:00:00Z",
+                "end_date": "2024-02-01T00:00:00Z",
+            },
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        survey = Survey.objects.get(id=create_response.json()["id"])
+        flag = survey.internal_targeting_flag
+        assert flag is not None
+        assert not flag.active
+
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            # A wait period adds a second group to the internal targeting flag, which changes its
+            # rollout and trips the feature_flag.update gate.
+            data={"end_date": None, "conditions": {"seenSurveyWaitPeriodInDays": 7}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["change_request_id"]
+        flag.refresh_from_db()
+        assert not flag.active
+        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
 
     def test_stop_is_idempotent_when_already_stopped(self):
         original_end = datetime(2024, 1, 1, tzinfo=UTC)
