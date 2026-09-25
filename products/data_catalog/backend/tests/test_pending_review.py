@@ -1,12 +1,18 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.team import Team
 
 from products.data_catalog.backend.facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
+from products.data_catalog.backend.logic.metrics import metrics_for_team
 from products.data_catalog.backend.logic.pending_review import (
     PendingKind,
     build_org_pending_reviews,
@@ -14,6 +20,19 @@ from products.data_catalog.backend.logic.pending_review import (
 )
 from products.data_catalog.backend.models import Metric, RelationshipProposal, TableCertification
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+_PENDING_REVIEW = "products.data_catalog.backend.logic.pending_review"
+
+
+@contextmanager
+def _failing_build_for(broken_team: Team) -> Iterator[None]:
+    def metrics_for_team_failing_one_team(team: Team) -> QuerySet[Metric]:
+        if team.id == broken_team.id:
+            raise RuntimeError("catalog unavailable")
+        return metrics_for_team(team)
+
+    with patch(f"{_PENDING_REVIEW}.metrics_for_team", side_effect=metrics_for_team_failing_one_team):
+        yield
 
 
 def _metric(team: Team, name: str, **kwargs) -> Metric:
@@ -107,7 +126,22 @@ class TestBuildOrgPendingReviews(BaseTest):
         quiet_team = Team.objects.create(organization=self.organization, name="Quiet")
         _metric(self.team, "proposed_one")
 
-        reviews = build_org_pending_reviews([self.team, quiet_team])
+        build = build_org_pending_reviews([self.team, quiet_team])
 
-        assert list(reviews) == [self.team.id]
-        assert reviews[self.team.id].total == 1
+        assert list(build.reviews) == [self.team.id]
+        assert build.reviews[self.team.id].total == 1
+        assert build.failed_team_ids == []
+
+    def test_reports_a_team_whose_build_raised_and_keeps_the_others(self) -> None:
+        broken_team = Team.objects.create(organization=self.organization, name="Broken")
+        _metric(self.team, "proposed_one")
+
+        with _failing_build_for(broken_team):
+            build = build_org_pending_reviews([self.team, broken_team])
+
+        assert list(build.reviews) == [self.team.id]
+        assert build.failed_team_ids == [broken_team.id]
+
+    def test_raises_when_every_team_failed(self) -> None:
+        with _failing_build_for(self.team), pytest.raises(RuntimeError):
+            build_org_pending_reviews([self.team])

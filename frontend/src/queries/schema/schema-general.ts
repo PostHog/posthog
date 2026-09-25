@@ -8397,6 +8397,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'SnapchatAds',
     'PinterestAds',
     'AppleSearchAds',
+    'OpenAIAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8578,12 +8579,22 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adsetTableName: 'ad_groups' as const,
         adsetStatsTableName: 'ad_group_report' as const,
     },
+    OpenAIAds: {
+        sourceType: 'OpenAIAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_insights',
+        defaultSources: ['openai', 'chatgpt', 'openai_ads'] as const,
+        primarySource: 'openai',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
+export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
