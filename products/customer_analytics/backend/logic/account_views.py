@@ -41,7 +41,7 @@ ACCOUNT_VIEW_IDENTITY_PROPS = {
 ACCOUNT_VIEW_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$")
 
 
-def get_account_identity_props(value: Any) -> set[str]:
+def get_account_identity_props(value: object) -> set[str]:
     if isinstance(value, dict):
         return ACCOUNT_VIEW_IDENTITY_PROPS.intersection(value) | set().union(
             *(get_account_identity_props(item) for item in value.values())

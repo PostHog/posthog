@@ -945,6 +945,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 view_id=UUID(self.kwargs["pk"]),
                 expected_version=request.validated_data["version"],
+                can_edit_team_views=self._can_edit_team_views(),
                 is_project_admin=self._is_project_admin(),
                 name=request.validated_data.get("name"),
                 content=request.validated_data.get("content"),

@@ -21,7 +21,7 @@ Usage:
 """
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -79,6 +79,10 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Report what would be created without writing.")
 
     def handle(self, *args: Any, **options: Any) -> None:
+        account_count = options["accounts_with_widget_data"]
+        if account_count < 0:
+            raise CommandError("--accounts-with-widget-data must be zero or greater.")
+
         team = self._get_team(options["team_id"])
         groups = self._read_account_groups(team, options["limit"])
         if not groups:
@@ -103,14 +107,15 @@ class Command(BaseCommand):
 
         self._set_config(team)
         user_pool = self._ensure_user_pool(team, options["users"])
-        accounts = self._create_accounts(team, groups, user_pool)
+        accounts, created_account_ids = self._create_accounts(team, groups, user_pool)
         self._create_notes(team, accounts, user_pool, options["accounts_with_notes"], options["notes_per_account"])
         seed_widget_data(
             team=team,
             accounts=accounts,
+            created_account_ids=created_account_ids,
             user_pool=user_pool,
             output=self.stdout.write,
-            account_count=options["accounts_with_widget_data"],
+            account_count=account_count,
         )
         self.stdout.write(self.style.SUCCESS("Done."))
 
@@ -174,10 +179,11 @@ class Command(BaseCommand):
     @transaction.atomic
     def _create_accounts(
         self, team: Team, groups: list[tuple[str, dict[str, Any]]], user_pool: list[User]
-    ) -> list[Account]:
+    ) -> tuple[list[Account], set[UUID]]:
         creator = team.organization.members.first()
         created = 0
         accounts: list[Account] = []
+        created_account_ids: set[UUID] = set()
         definitions = self._ensure_role_definitions(team, creator)
         with team_scope(team.pk):
             existing = {
@@ -195,10 +201,11 @@ class Command(BaseCommand):
                         properties=AccountProperties(stripe_customer_id=f"cus_{group_key[:14]}"),
                     )
                     self._assign_roles(team, account, definitions, user_pool, index, creator)
+                    created_account_ids.add(account.id)
                     created += 1
                 accounts.append(account)
         self.stdout.write(f"Created {created} account(s) ({len(groups) - created} already existed).")
-        return accounts
+        return accounts, created_account_ids
 
     @staticmethod
     def _ensure_role_definitions(team: Team, creator: User | None) -> list[AccountRelationshipDefinition]:

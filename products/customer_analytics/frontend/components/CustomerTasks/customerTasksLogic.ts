@@ -50,6 +50,7 @@ import type {
 import { getTileRecord, getTileString, type AccountViewTileLogicProps } from '../Accounts/accountViewTileConfig'
 import {
     CUSTOMER_TASK_FILTER_URL_KEYS,
+    CUSTOMER_TASK_ORDERINGS,
     CUSTOMER_TASK_URL_KEYS,
     customerTaskSearchParams,
     CustomerTaskEvents,
@@ -152,7 +153,7 @@ function getInitialFilters(props: CustomerTasksLogicProps): CustomerTaskFilters 
 
 function getInitialOrdering(props: CustomerTasksLogicProps): CustomerTaskOrdering {
     const ordering = getTileString(props.initialConfig, 'ordering')
-    return ordering ? (ordering as CustomerTaskOrdering) : DEFAULT_CUSTOMER_TASK_ORDERING
+    return CUSTOMER_TASK_ORDERINGS.find((candidate) => candidate === ordering) ?? DEFAULT_CUSTOMER_TASK_ORDERING
 }
 
 function taskConfig(values: customerTasksLogicValues): Record<string, unknown> {

@@ -175,7 +175,7 @@ Tables use borders in the detail scene and remain embedded in expanded rows.
 Configure tabs and New view sit in the scene header. They open the tab configurator and structured view editor.
 
 The active tab is path-backed at `/customer_analytics/accounts/:accountId/:tab`.
-The bare path, unknown tabs, and tabs hidden by feature flags render Notes.
+The bare path uses the user's default tab when available, then the first available system tab. Unavailable system tabs fall back the same way. A missing custom view keeps its unavailable-view placeholder. A hidden system tab remains available through its direct route.
 User tab changes preserve URL search and hash state and capture `TabViewed`; URL restoration does not capture that event.
 
 When `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` is off, the scene renders `CustomerAnalyticsScene` and preserves the filtered, expanded-row fallback.

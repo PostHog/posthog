@@ -8,7 +8,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.customer_analytics.backend.models import AccountView
+from products.customer_analytics.backend.models import Account, AccountView
 
 
 def account_view_content(*components: str) -> dict:
@@ -109,6 +109,64 @@ class TestAccountViews(APIBaseTest):
 
         denied_delete = self.client.delete(f"{self.endpoint}{view['id']}/?version={updated.json()['version']}")
         self.assertEqual(denied_delete.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_account_specific_editor_cannot_edit_team_views_but_can_edit_own_private_views(self) -> None:
+        team_view = self._create()
+        published = self.client.patch(
+            f"{self.endpoint}{team_view['id']}/",
+            {"visibility": "team", "version": team_view["version"]},
+            format="json",
+        )
+        self.assertEqual(published.status_code, status.HTTP_200_OK, published.json())
+
+        account_editor = User.objects.create_and_join(self.organization, "account-editor@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=account_editor, organization=self.organization)
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Restricted account")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(account.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        private_view = AccountView.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Private workspace",
+            content=account_view_content('<Usage nodeId="private-usage" />'),
+            created_by=account_editor,
+            last_modified_by=account_editor,
+        )
+
+        self.client.force_login(account_editor)
+        team_response = self.client.get(f"{self.endpoint}{team_view['id']}/")
+        self.assertEqual(team_response.status_code, status.HTTP_200_OK, team_response.json())
+        self.assertFalse(team_response.json()["can_edit"])
+
+        denied = self.client.patch(
+            f"{self.endpoint}{team_view['id']}/",
+            {"name": "Blocked edit", "version": published.json()["version"]},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.json())
+        self.assertEqual(AccountView.objects.for_team(self.team.id).get(id=team_view["id"]).name, "Account workspace")
+
+        private_response = self.client.get(f"{self.endpoint}{private_view.id}/")
+        self.assertEqual(private_response.status_code, status.HTTP_200_OK, private_response.json())
+        self.assertTrue(private_response.json()["can_edit"])
+
+        updated_private = self.client.patch(
+            f"{self.endpoint}{private_view.id}/",
+            {"name": "Updated private workspace", "version": private_view.version},
+            format="json",
+        )
+        self.assertEqual(updated_private.status_code, status.HTTP_200_OK, updated_private.json())
+        self.assertTrue(updated_private.json()["can_edit"])
 
     def test_stale_update_does_not_overwrite_newer_content(self) -> None:
         view = self._create()

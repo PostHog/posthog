@@ -66,6 +66,7 @@ export interface accountViewsLogicValues {
     editorDraft: AccountViewEditorDraft
     editorOpen: boolean
     editorSaving: boolean
+    tileConfigReloads: Record<string, number>
     tileEditor: AccountViewTileEditor | null
     tileSaving: boolean
     views: AccountViewApi[]
@@ -152,6 +153,9 @@ export interface accountViewsLogicActions {
     ) => {
         activeNodeId: string
         overNodeId: string
+    }
+    resetViewComponentConfig: (viewId: string) => {
+        viewId: string
     }
     saveConfig: () => {
         value: true
@@ -312,6 +316,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             savedContent,
         }),
         saveViewComponentConfigFailure: true,
+        resetViewComponentConfig: (viewId: string) => ({ viewId }),
         saveViewComponentFailure: true,
         saveEditor: true,
         saveEditorSuccess: (view: AccountViewApi) => ({ view }),
@@ -360,6 +365,15 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     ),
                 deleteViewSuccess: (state, { viewId }: { viewId: string }) =>
                     state.filter((view) => view.id !== viewId),
+            },
+        ],
+        tileConfigReloads: [
+            {} as Record<string, number>,
+            {
+                resetViewComponentConfig: (state, { viewId }: { viewId: string }) => ({
+                    ...state,
+                    [viewId]: (state[viewId] ?? 0) + 1,
+                }),
             },
         ],
         viewsLoading: [
@@ -542,6 +556,13 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         loadViews: async () => {
             try {
                 actions.loadViewsSuccess(await accountViewsList(String(props.projectId)))
+                const failedViewIds = cache.failedTileConfigViewIds as Set<string> | undefined
+                if (failedViewIds) {
+                    for (const viewId of failedViewIds) {
+                        actions.resetViewComponentConfig(viewId)
+                    }
+                    failedViewIds.clear()
+                }
             } catch (error) {
                 actions.loadViewsFailure(error)
             }
@@ -670,6 +691,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                             lemonToast.error("Couldn't save the tile settings. Try again.")
                         }
                         queue.requested = false
+                        ;(cache.failedTileConfigViewIds ??= new Set<string>()).add(viewId)
                         actions.saveViewComponentConfigFailure()
                         actions.loadViews()
                     }

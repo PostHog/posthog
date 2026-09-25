@@ -29,7 +29,7 @@ export function AccountViewTile({
     spanClassName,
 }: AccountViewTileProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
-    const { tileSaving } = useValues(logic)
+    const { tileSaving, tileConfigReloads } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
     const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
@@ -89,7 +89,7 @@ export function AccountViewTile({
                     kind={component.kind}
                     accountId={accountId}
                     externalId={externalId}
-                    instanceId={component.nodeId}
+                    instanceId={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
                     initialConfig={component.config}
                     onConfigChange={
                         view.can_edit

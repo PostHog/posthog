@@ -1296,6 +1296,7 @@ def update_account_view(
     user_id: int,
     view_id: UUID,
     expected_version: int,
+    can_edit_team_views: bool,
     is_project_admin: bool,
     name: str | None = None,
     content: dict[str, Any] | None = None,
@@ -1306,7 +1307,7 @@ def update_account_view(
         user_id=user_id,
         view_id=view_id,
         expected_version=expected_version,
-        can_edit_team_views=True,
+        can_edit_team_views=can_edit_team_views,
         is_project_admin=is_project_admin,
         name=name,
         content=content,
@@ -1316,7 +1317,7 @@ def update_account_view(
         _to_account_view(
             view,
             actor_user_id=user_id,
-            can_edit_team_views=True,
+            can_edit_team_views=can_edit_team_views,
             is_project_admin=is_project_admin,
         )
         if view is not None

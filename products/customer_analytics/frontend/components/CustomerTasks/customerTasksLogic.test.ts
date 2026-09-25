@@ -104,6 +104,15 @@ describe('customerTasksLogic', () => {
         )
     })
 
+    test('falls back to a supported task ordering for a saved tile', async () => {
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1', initialConfig: { ordering: 'wrong' } })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ordering).toBe('due_at')
+        expect(mockList).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ ordering: 'due_at' }))
+    })
+
     test('opens a linked task even when persisted filters exclude it', async () => {
         const linkedTask = task()
         ;(customerTasksRetrieve as jest.Mock).mockResolvedValue(linkedTask)

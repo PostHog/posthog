@@ -19,7 +19,8 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.ticket import Ticket
 from products.customer_analytics.backend.management.seed_widget_data import BILLING_INSIGHT_SHORT_IDS
 from products.customer_analytics.backend.models import AccountChannelSummary, Meeting, MeetingParticipant
-from products.customer_analytics.backend.models.account import Account
+from products.customer_analytics.backend.models.account import Account, AccountProperties
+from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 from products.customer_analytics.backend.models.relationship import AccountRelationship
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade.content import is_markdown_notebook_content
@@ -121,7 +122,32 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         self._make_group("globex-id", "Globex")
 
         self._run(users=3, accounts_with_notes=2, notes_per_account=1)
+
+        account = self._accounts()["acme-id"]
+        account.properties = AccountProperties(
+            website_domain="acme.example.com",
+            email_domains=["acme.example.com"],
+            known_emails=["contact@acme.example.com"],
+            slack_channel_id="CUSER0001",
+        )
+        account.slack_summary_cadence = SlackSummaryCadence.MONTHLY
+        account.save(update_fields=["_properties", "slack_summary_cadence", "updated_at"])
+        insight = Insight.objects.get(team=self.team, short_id=BILLING_INSIGHT_SHORT_IDS["usage"])
+        insight.name = "Custom billing usage"
+        insight.query = {"kind": "TrendsQuery", "series": []}
+        insight.save()
+
         self._run(users=3, accounts_with_notes=2, notes_per_account=1)
+
+        account.refresh_from_db()
+        insight.refresh_from_db()
+        assert account.properties.website_domain == "acme.example.com"
+        assert account.properties.email_domains == ["acme.example.com"]
+        assert account.properties.known_emails == ["contact@acme.example.com"]
+        assert account.properties.slack_channel_id == "CUSER0001"
+        assert account.slack_summary_cadence == SlackSummaryCadence.MONTHLY
+        assert insight.name == "Custom billing usage"
+        assert insight.query == {"kind": "TrendsQuery", "series": []}
 
         assert Account.objects.for_team(self.team.pk).count() == 2
         assert len(self._pool_emails()) == 3
@@ -141,6 +167,29 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         assert EmailThreadParticipant.objects.for_team(self.team.pk).count() == 4
         assert Ticket.objects.filter(team=self.team).count() == 2
         assert AccountChannelSummary.objects.for_team(self.team.pk).count() == 2
+
+    def test_preserves_colliding_soft_deleted_insight(self):
+        self._make_group("acme-id", "Acme")
+        short_id = BILLING_INSIGHT_SHORT_IDS["usage"]
+        insight = Insight.objects_including_soft_deleted.create(
+            team=self.team,
+            short_id=short_id,
+            name="Deleted billing usage",
+            query={"kind": "TrendsQuery", "series": []},
+            deleted=True,
+        )
+
+        self._run(accounts_with_widget_data=0)
+
+        insight.refresh_from_db()
+        assert insight.deleted
+        assert insight.name == "Deleted billing usage"
+        assert insight.query == {"kind": "TrendsQuery", "series": []}
+        assert Insight.objects_including_soft_deleted.filter(team=self.team, short_id=short_id).count() == 1
+
+    def test_rejects_negative_widget_account_count_before_dry_run(self):
+        with self.assertRaisesMessage(CommandError, "--accounts-with-widget-data must be zero or greater."):
+            self._run(dry_run=True, accounts_with_widget_data=-1)
 
     def test_dry_run_writes_nothing(self):
         self._make_group("acme-id", "Acme")

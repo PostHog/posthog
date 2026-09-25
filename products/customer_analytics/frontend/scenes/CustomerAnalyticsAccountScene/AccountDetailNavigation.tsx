@@ -14,7 +14,7 @@ import type { AccountDetailTabsConfigApi } from '../../generated/api.schemas'
 import {
     getAccountTabIdFromRoute,
     getAccountTabRoute,
-    getDefaultAccountTabId,
+    getActiveAccountTabId,
     listAccountTabs,
     listVisibleAccountTabs,
     type AccountTabDefinition,
@@ -48,11 +48,11 @@ export function AccountDetailNavigation({
     const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
     const requestedTabId =
         requestedTabIdFromRoute?.startsWith('view:') && !accountViewsEnabled ? undefined : requestedTabIdFromRoute
-    const activeTabId = requestedTabId ?? getDefaultAccountTabId(tabs, accountDetailTabs)
+    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, accountViewsEnabled)
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading && accountViewsEnabled
     const missingView = activeTabId.startsWith('view:') && !activeTab && !loadingView
-    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id)
+    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id, accountViewsEnabled)
     const tabDefinitions = loadingView
         ? [
               ...visibleTabs,
@@ -134,6 +134,7 @@ function getAccountTabLabel(tab: AccountTabDefinition): string | JSX.Element {
     return (
         <span className="flex items-center gap-1">
             <span>{tab.label}</span>
+            <span className="sr-only">Shared with team</span>
             <Tooltip title="This view is shared with the team.">
                 <IconGlobe className="shrink-0 text-muted" />
             </Tooltip>

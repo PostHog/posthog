@@ -6,7 +6,13 @@ import { LemonButton, LemonCheckbox, LemonModal, LemonSelect, LemonTag } from '@
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { listAccountTabs, listOrderedAccountTabs } from './accountTabs'
+import {
+    isAccountTabVisible,
+    listAccountTabs,
+    listOrderedAccountTabs,
+    moveAccountTab,
+    setAccountTabVisibility,
+} from './accountTabs'
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface ConfigureAccountTabsModalProps {
@@ -20,40 +26,20 @@ export function ConfigureAccountTabsModal({ projectId }: ConfigureAccountTabsMod
     const { configureOpen, configDraft, configSaving, views } = useValues(logic)
     const { setConfigureOpen, setConfigDraft, saveConfig, openCreateEditor } = useActions(logic)
     const tabs = listOrderedAccountTabs(listAccountTabs(featureFlags, views), configDraft)
-    const hidden = new Set(configDraft.hidden_tab_ids)
-
     const isTabVisible = (tabId: string): boolean => {
         const tab = tabs.find((candidate) => candidate.id === tabId)
-        const unselectedTeamView =
-            tab?.view?.visibility === 'team' &&
-            tab.view.created_by !== user?.id &&
-            !configDraft.ordered_tab_ids.includes(tabId)
-        return !hidden.has(tabId) && !unselectedTeamView
+        return tab ? isAccountTabVisible(tab, configDraft, user?.id) : false
     }
 
     const updateVisibility = (tabId: string, visible: boolean): void => {
-        setConfigDraft({
-            ...configDraft,
-            ordered_tab_ids:
-                visible && !configDraft.ordered_tab_ids.includes(tabId)
-                    ? [...configDraft.ordered_tab_ids, tabId]
-                    : configDraft.ordered_tab_ids,
-            hidden_tab_ids: visible
-                ? configDraft.hidden_tab_ids.filter((id) => id !== tabId)
-                : [...new Set([...configDraft.hidden_tab_ids, tabId])],
-            default_tab_id: !visible && configDraft.default_tab_id === tabId ? null : configDraft.default_tab_id,
-        })
+        const tab = tabs.find((candidate) => candidate.id === tabId)
+        if (tab) {
+            setConfigDraft(setAccountTabVisibility(tabs, tab, configDraft, user?.id, visible))
+        }
     }
 
     const moveTab = (tabId: string, direction: 'up' | 'down'): void => {
-        const orderedTabIds = tabs.map((tab) => tab.id)
-        const index = orderedTabIds.indexOf(tabId)
-        const nextIndex = direction === 'up' ? index - 1 : index + 1
-        if (index < 0 || nextIndex < 0 || nextIndex >= orderedTabIds.length) {
-            return
-        }
-        ;[orderedTabIds[index], orderedTabIds[nextIndex]] = [orderedTabIds[nextIndex], orderedTabIds[index]]
-        setConfigDraft({ ...configDraft, ordered_tab_ids: orderedTabIds })
+        setConfigDraft(moveAccountTab(tabs, configDraft, user?.id, tabId, direction))
     }
 
     return (

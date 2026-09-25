@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any
+from typing import TypedDict
+from uuid import UUID
 
 from django.utils import timezone
 
@@ -28,6 +29,13 @@ from products.product_analytics.backend.facade.enums import InsightVariableType
 from products.product_analytics.backend.facade.models import Insight
 
 WIDGET_ACCOUNT_COUNT = 5
+
+
+class InsightVariablePayload(TypedDict):
+    variableId: str
+    code_name: str
+    value: str
+
 
 BILLING_INSIGHT_SHORT_IDS = {
     "usage": "fiJDsKLp",
@@ -78,17 +86,22 @@ def seed_widget_data(
     *,
     team: Team,
     accounts: list[Account],
+    created_account_ids: set[UUID],
     user_pool: list[User],
-    output: Callable[[str], Any],
+    output: Callable[[str], None],
     account_count: int = WIDGET_ACCOUNT_COUNT,
 ) -> None:
+    if account_count < 0:
+        raise ValueError("account_count must not be negative")
+
     creator = team.organization.members.first()
     _seed_billing_insights(team=team, creator=creator, accounts=accounts)
 
     selected_accounts = accounts[:account_count]
     for index, account in enumerate(selected_accounts, start=1):
         manager = user_pool[(index - 1) % len(user_pool)] if user_pool else creator
-        _seed_account_contact_data(account=account, index=index)
+        if account.id in created_account_ids:
+            _seed_account_contact_data(account=account, index=index)
         _seed_meetings(team=team, account=account, manager=manager, index=index)
         _seed_email_thread(team=team, account=account, manager=manager, index=index)
         _seed_support_ticket(team=team, account=account, index=index)
@@ -97,9 +110,9 @@ def seed_widget_data(
     output(f"Seeded billing insights and widget data for {len(selected_accounts)} account(s).")
 
 
-def _ensure_billing_variables(team: Team, accounts: list[Account]) -> dict[str, dict[str, Any]]:
+def _ensure_billing_variables(team: Team, accounts: list[Account]) -> dict[str, InsightVariablePayload]:
     today = timezone.now().date()
-    default_org = accounts[0].external_id if accounts else "example-account"
+    default_org = accounts[0].external_id if accounts and accounts[0].external_id else "example-account"
     specs = {
         "billing_org_id": ("Billing organization", InsightVariableType.STRING, default_org),
         "billing_start_date": ("Billing start date", InsightVariableType.DATE, str(today - timedelta(days=365))),
@@ -110,7 +123,7 @@ def _ensure_billing_variables(team: Team, accounts: list[Account]) -> dict[str, 
         for variable in product_analytics.insight_variables_by_code_names(team.id, specs.keys())
         if variable.code_name
     }
-    variables: dict[str, dict[str, Any]] = {}
+    variables: dict[str, InsightVariablePayload] = {}
     for code_name, (name, variable_type, default_value) in specs.items():
         variable = existing.get(code_name)
         if variable is None:
@@ -193,7 +206,7 @@ def _seed_billing_insights(*, team: Team, creator: User | None, accounts: list[A
         ),
     ]
     for short_id, name, description, query in insight_specs:
-        Insight.objects_including_soft_deleted.update_or_create(
+        Insight.objects_including_soft_deleted.get_or_create(
             team=team,
             short_id=short_id,
             defaults={
