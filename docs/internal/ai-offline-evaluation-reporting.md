@@ -23,6 +23,8 @@ The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate report
 
 ## Live scout comparisons
 
+For a synthetic local environment, follow the [devbox setup and quality iteration handoff](scout-online-evals-devbox.md).
+
 Live scout trials use the production scout harness and live project reads, with private memory changes and captured reports.
 They do not use the offline evaluation reporter or its `no_send_logs` switch.
 Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED` and `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` are enabled.
