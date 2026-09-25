@@ -205,6 +205,11 @@ WORKDIR /tmp/workspace
 
 RUN python3 --version && \
     node --version && \
-    npm --version
+    npm --version && \
+    installed="$(node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")" && \
+    if [ "$installed" != "${AGENT_VERSION}" ]; then \
+      echo "installed @posthog/agent $installed, expected ${AGENT_VERSION}" >&2; exit 1; \
+    fi && \
+    /scripts/node_modules/.bin/agent-server --help >/dev/null
 
 CMD ["/bin/bash"]

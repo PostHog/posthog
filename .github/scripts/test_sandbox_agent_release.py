@@ -181,25 +181,12 @@ def test_gateway_rejects_image_runs_outside_the_bump_pr(
     assert not (tmp_path / "output").exists()
 
 
-def test_packaging_smoke_uses_each_platform_digest(tmp_path: Path) -> None:
-    image = "ghcr.io/posthog/posthog-sandbox-base"
-    digests = {"amd64": "sha256:" + "c" * 64, "arm64": "sha256:" + "d" * 64}
-    dockerfile = tmp_path / "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-    dockerfile.parent.mkdir(parents=True)
-    dockerfile.write_text("ARG AGENT_VERSION=2.0.1\n")
-    manifest = {
-        "manifests": [
-            {"platform": {"os": "linux", "architecture": arch}, "digest": digest} for arch, digest in digests.items()
-        ]
-    }
+@pytest.mark.parametrize("platforms,ok", [("linux/amd64\nlinux/arm64\n", True), ("linux/amd64\n", False)])
+def test_packaging_smoke_requires_both_platform_manifests(tmp_path: Path, platforms: str, ok: bool) -> None:
     docker = """
 docker() {
     case "$*" in
-        "manifest inspect "*) printf '%s' "$MANIFEST" ;;
-        "run "*)
-            printf '%s %s\\n' "$4" "$5" >> "$RUNNER_TEMP/containers"
-            printf '%s' "$PINNED"
-            ;;
+        "buildx imagetools inspect "*) printf '%s' "$PLATFORMS" ;;
         *) return 1 ;;
     esac
 }
@@ -207,11 +194,7 @@ docker() {
     result = run(
         tmp_path,
         docker + script(BUILD, "smoke", "sandbox_base_build"),
-        IMAGE=f"{image}@{DIGEST}",
-        MANIFEST=json.dumps(manifest),
-        PINNED="2.0.1",
+        IMAGE=f"ghcr.io/posthog/posthog-sandbox-base@{DIGEST}",
+        PLATFORMS=platforms,
     )
-    assert result.returncode == 0, result.stderr
-    assert (tmp_path / "containers").read_text().splitlines() == [
-        f"linux/{arch} {image}@{digest}" for arch, digest in digests.items() for _ in range(2)
-    ]
+    assert (result.returncode == 0) == ok, result.stderr
