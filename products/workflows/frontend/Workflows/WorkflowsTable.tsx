@@ -15,8 +15,10 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import type { DispatchSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { HogFlow } from './hogflows/types'
-import { WorkflowDispatch, WorkflowDispatchIcons } from './WorkflowDispatchIcons'
+import { WorkflowDispatchIcons } from './WorkflowDispatchIcons'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowRowMenuOverlay } from './WorkflowRowMenuOverlay'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
@@ -54,7 +56,7 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
 
 function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Element {
     const dispatches = useMemo(() => {
-        const byTemplate = new Map<string, WorkflowDispatch>()
+        const byTemplate = new Map<string, DispatchSummaryApi>()
         for (const action of workflow.actions) {
             if (!action.type.startsWith('function')) {
                 continue
@@ -62,8 +64,8 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
             const templateId = 'template_id' in action.config ? action.config.template_id : action.type
             const existing = byTemplate.get(templateId)
             byTemplate.set(templateId, {
-                actionType: existing?.actionType ?? action.type,
-                templateId,
+                action_type: existing?.action_type ?? action.type,
+                template_id: templateId,
                 count: (existing?.count ?? 0) + 1,
             })
         }

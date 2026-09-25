@@ -17,11 +17,14 @@ describe('buildWorkflowListRows', () => {
         ],
         [
             'every explicit owner counts, trailing dots and dashes trimmed',
-            'owner: @sam-  OWNER: @li.wei.',
+            'owner: @sam-; OWNER: @li.wei.',
             null,
             ['sam', 'li.wei'],
         ],
         ['any other mention does not count', 'Ask @maya first', FIXTURE_USERS.ada, ['ada']],
+        ['a co-owner is not the owner', 'Co-owner: @sam', FIXTURE_USERS.ada, ['ada']],
+        ['a previous owner is not the owner', 'Previous owner: @jo', FIXTURE_USERS.ada, ['ada']],
+        ['an owner in parentheses counts', 'Weekly digest (owner: @kim)', FIXTURE_USERS.ada, ['kim']],
         ['the creator without a first name gives their email name', '', FIXTURE_USERS.lin, ['lin.ops']],
         ['no owner and no creator gives nothing', '', null, []],
     ])('owner: %s', (_, description, createdBy, expected) => {

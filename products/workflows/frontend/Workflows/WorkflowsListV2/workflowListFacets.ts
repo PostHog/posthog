@@ -8,7 +8,7 @@ import {
     TRIGGER_LABELS,
     TYPE_LABELS,
 } from './workflowListLabels'
-import { WorkflowListRow, rowCreatedBy } from './workflowListRows'
+import { WorkflowListRow, rowCreatedBy, rowFromAddresses, rowSubjects } from './workflowListRows'
 
 const HEALTH_LABELS: Record<string, string> = Object.fromEntries(
     Object.entries(HEALTH_TAGS).map(([health, { label }]) => [health, label])
@@ -19,38 +19,13 @@ const labelFrom =
     (value: string): string =>
         labels[value] ?? value
 
-const unique = (values: string[]): string[] => [...new Set(values)]
-
-function rowSubjects(row: WorkflowListRow): string[] {
-    if (row.kind === 'email_template') {
-        return row.template.subject ? [row.template.subject] : []
-    }
-    return unique(row.workflow.email_steps.map((step) => step.subject).filter(Boolean))
-}
-
-function rowFromAddresses(row: WorkflowListRow): string[] {
-    if (row.kind === 'email_template') {
-        return unique([...row.template.from_addresses])
-    }
-    return unique(row.workflow.email_steps.flatMap((step) => step.from_addresses))
-}
-
 /** Every word of the text must appear in the name, description, email step names, subjects or From addresses. */
 export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
-    const haystack = [
-        row.name,
-        row.kind === 'workflow' ? row.workflow.description : row.template.description,
-        ...(row.kind === 'workflow' ? row.workflow.email_steps.map((step) => step.name) : []),
-        ...rowSubjects(row),
-        ...rowFromAddresses(row),
-    ]
-        .join('\n')
-        .toLowerCase()
     return text
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean)
-        .every((word) => haystack.includes(word))
+        .every((word) => row.searchText.includes(word))
 }
 
 /** The facets of the workflows list. `rows` supplies the names shown for creator uuids. */

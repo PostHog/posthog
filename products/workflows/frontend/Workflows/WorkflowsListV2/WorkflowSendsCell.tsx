@@ -23,19 +23,31 @@ function pickShownStep(steps: readonly EmailStepSummaryApi[], filters: FacetFilt
     }
     const sends = filters.filter((f) => !f.negated && f.facet === 'sends').map((f) => f.value.toLowerCase())
     const from = filters.filter((f) => !f.negated && f.facet === 'from').map((f) => f.value.toLowerCase())
+    const subjectMatches = (step: EmailStepSummaryApi): boolean => sends.includes(step.subject.toLowerCase())
     const matchedAddress = (step: EmailStepSummaryApi): string | undefined =>
         step.from_addresses.find((address) => from.includes(address.toLowerCase()))
-    const matches = (step: EmailStepSummaryApi): boolean =>
-        (!sends.length || sends.includes(step.subject.toLowerCase())) && (!from.length || !!matchedAddress(step))
+    const matchesAll = (step: EmailStepSummaryApi): boolean =>
+        (!sends.length || subjectMatches(step)) && (!from.length || !!matchedAddress(step))
+    const matchesAny = (step: EmailStepSummaryApi): boolean => subjectMatches(step) || !!matchedAddress(step)
 
-    const matching = sends.length || from.length ? steps.filter(matches) : []
+    if (!sends.length && !from.length) {
+        return {
+            step: steps[0],
+            address: steps[0].from_addresses[0] ?? null,
+            subjectMatched: false,
+            addressMatched: false,
+            moreMatches: 0,
+        }
+    }
+    // Facets match per workflow, so the subject and the sender can sit on different steps.
+    const matching = steps.filter(matchesAll).length ? steps.filter(matchesAll) : steps.filter(matchesAny)
     const step = matching[0] ?? steps[0]
-    const isMatch = matching.length > 0
+    const address = matchedAddress(step)
     return {
         step,
-        address: (isMatch && from.length ? matchedAddress(step) : undefined) ?? step.from_addresses[0] ?? null,
-        subjectMatched: isMatch && sends.length > 0,
-        addressMatched: isMatch && from.length > 0,
+        address: address ?? step.from_addresses[0] ?? null,
+        subjectMatched: matching.length > 0 && subjectMatches(step),
+        addressMatched: matching.length > 0 && !!address,
         moreMatches: Math.max(0, matching.length - 1),
     }
 }
@@ -99,13 +111,7 @@ export function WorkflowSendsCell({ row, filters }: { row: WorkflowListRow; filt
     const line = (
         <div className="flex items-center gap-2 min-w-0 max-w-120">
             <span className="shrink-0">
-                <WorkflowDispatchIcons
-                    dispatches={workflow.dispatches.map((dispatch) => ({
-                        actionType: dispatch.action_type,
-                        templateId: dispatch.template_id,
-                        count: dispatch.count,
-                    }))}
-                />
+                <WorkflowDispatchIcons dispatches={workflow.dispatches} />
             </span>
             {shown && (
                 <SendsLine

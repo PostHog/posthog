@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import userEvent from '@testing-library/user-event'
+import clsx from 'clsx'
 import { useState } from 'react'
 
 import { FacetDefinition, FacetSearchValue } from './facetQuery'
@@ -50,14 +51,14 @@ const ITEMS: Item[] = [
 
 interface HarnessProps {
     initial: FacetSearchValue
-    width?: number
+    narrow?: boolean
 }
 
-function Harness({ initial, width }: HarnessProps): JSX.Element {
+function Harness({ initial, narrow }: HarnessProps): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
-        // A fixed width shows how the bar holds up in a narrow scene.
-        <div className="p-4 min-h-120" style={width ? { width } : undefined}>
+        // 520px is the scene width with the side panel open on a 1280px window.
+        <div className={clsx('p-4 min-h-120', narrow && 'w-[520px]')}>
             <FacetSearchBar
                 facets={FACETS}
                 items={ITEMS}
@@ -110,7 +111,7 @@ export const NegatedDraft: Story = {
 
 export const ManyPillsNarrow: Story = {
     args: {
-        width: 520,
+        narrow: true,
         initial: {
             filters: [
                 { facet: 'status', value: 'active', negated: false },

@@ -12,6 +12,8 @@ export interface WorkflowRow {
     /** Explicit `Owner: @handle` names from the description, else the creator's handle. */
     owners: string[]
     health: WorkflowHealth
+    /** Lowercased name, description, step names, subjects and senders, built once for text search. */
+    searchText: string
 }
 
 export interface EmailTemplateRow {
@@ -20,11 +22,13 @@ export interface EmailTemplateRow {
     name: string
     updatedAt: string
     template: MessageTemplateListRowApi
+    searchText: string
 }
 
 export type WorkflowListRow = WorkflowRow | EmailTemplateRow
 
-const OWNER_PATTERN = /owner:\s*@([\w.-]+)/gi
+// `Owner:` must start the text, a line or a clause, so `Co-owner:` and `Previous owner:` don't count.
+const OWNER_PATTERN = /(?<=^|[.(,;|]\s*)owner:\s*@([\w.-]+)/gim
 
 function creatorHandle(user: UserBasicApi | null): string | null {
     if (!user) {
@@ -33,7 +37,7 @@ function creatorHandle(user: UserBasicApi | null): string | null {
     return (user.first_name || user.email.split('@')[0]).toLowerCase() || null
 }
 
-export function workflowOwners(workflow: HogFlowListRowApi): string[] {
+function workflowOwners(workflow: HogFlowListRowApi): string[] {
     const explicit = [...(workflow.description ?? '').matchAll(OWNER_PATTERN)]
         .map((match) => match[1].replace(/[.-]+$/, '').toLowerCase())
         .filter(Boolean)
@@ -44,7 +48,7 @@ export function workflowOwners(workflow: HogFlowListRowApi): string[] {
     return creator ? [creator] : []
 }
 
-export function workflowHealth(workflow: HogFlowListRowApi): WorkflowHealth {
+function workflowHealth(workflow: HogFlowListRowApi): WorkflowHealth {
     const totals = workflow.last_7_days
     if (totals && totals.failed > 0) {
         return 'failing'
@@ -53,6 +57,35 @@ export function workflowHealth(workflow: HogFlowListRowApi): WorkflowHealth {
         return 'healthy'
     }
     return 'idle'
+}
+
+const unique = (values: string[]): string[] => [...new Set(values)]
+
+type EmailSteps = HogFlowListRowApi['email_steps']
+
+function stepSubjects(steps: EmailSteps): string[] {
+    return unique(steps.map((step) => step.subject).filter(Boolean))
+}
+
+function stepAddresses(steps: EmailSteps): string[] {
+    return unique(steps.flatMap((step) => step.from_addresses))
+}
+
+export function rowSubjects(row: WorkflowListRow): string[] {
+    if (row.kind === 'email_template') {
+        return row.template.subject ? [row.template.subject] : []
+    }
+    return stepSubjects(row.workflow.email_steps)
+}
+
+export function rowFromAddresses(row: WorkflowListRow): string[] {
+    return row.kind === 'email_template'
+        ? unique([...row.template.from_addresses])
+        : stepAddresses(row.workflow.email_steps)
+}
+
+function searchTextOf(parts: (string | null | undefined)[]): string {
+    return parts.filter(Boolean).join('\n').toLowerCase()
 }
 
 export function rowCreatedBy(row: WorkflowListRow): UserBasicApi | null {
@@ -74,6 +107,13 @@ export function buildWorkflowListRows(
                 workflow,
                 owners: workflowOwners(workflow),
                 health: workflowHealth(workflow),
+                searchText: searchTextOf([
+                    workflow.name,
+                    workflow.description,
+                    ...workflow.email_steps.map((step) => step.name),
+                    ...stepSubjects(workflow.email_steps),
+                    ...stepAddresses(workflow.email_steps),
+                ]),
             })
         ),
         ...templates.map(
@@ -83,6 +123,12 @@ export function buildWorkflowListRows(
                 name: template.name,
                 updatedAt: template.updated_at,
                 template,
+                searchText: searchTextOf([
+                    template.name,
+                    template.description,
+                    template.subject,
+                    ...template.from_addresses,
+                ]),
             })
         ),
     ]

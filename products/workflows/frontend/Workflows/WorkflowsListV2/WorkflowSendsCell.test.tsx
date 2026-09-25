@@ -55,6 +55,16 @@ describe('WorkflowSendsCell', () => {
             '+1',
         ],
         [
+            'marks what matched when no single step matches every email pill',
+            [
+                { facet: 'sends', value: 'Welcome aboard', negated: false },
+                { facet: 'from', value: 'billing@example.com', negated: false },
+            ],
+            'Welcome aboard',
+            'Welcome aboard',
+            '+2',
+        ],
+        [
             'ignores a negated pill',
             [{ facet: 'from', value: 'hello@example.com', negated: true }],
             'Welcome aboard',

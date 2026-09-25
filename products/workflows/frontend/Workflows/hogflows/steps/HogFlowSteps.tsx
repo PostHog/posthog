@@ -299,9 +299,7 @@ export function getHogFlowStep<T extends HogFlowAction['type']>(
 /** Icon and color of a dispatch step, from its action type and function template id alone. */
 export function getHogFlowDispatchAppearance(
     actionType: string,
-    templateId: string,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
-    isDarkModeOn = false
+    templateId: string
 ): { icon: JSX.Element; color: string } | undefined {
     if (!actionType.startsWith('function')) {
         return undefined
@@ -314,7 +312,8 @@ export function getHogFlowDispatchAppearance(
     }
     // The icon and color builders of function steps read only the type and the template id.
     const action = { type: actionType, config: { template_id: templateId } } as unknown as HogFlowAction
-    return { icon: builder.icon(action, hogFunctionTemplatesById), color: builder.color(action, isDarkModeOn) }
+    // Light-mode colors and no template lookup, as the flag-off list has always drawn these chips.
+    return { icon: builder.icon(action, {}), color: builder.color(action, false) }
 }
 
 export function useHogFlowStep<T extends HogFlowAction['type']>(
