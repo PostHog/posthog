@@ -108,13 +108,13 @@ TERMINAL_RUNS = [
     _run("r1", dt.timedelta(hours=5)),
     _run("r0", dt.timedelta(days=6)),
 ]
-WATERMARK = NOW - dt.timedelta(hours=4)
+# Between r3 and r2, so no run can tie it.
+WATERMARK = NOW - dt.timedelta(hours=3, minutes=30)
 RECENT_IN_FLIGHT = {**_run("in-flight", dt.timedelta(minutes=90)), "status": "queued"}
 STALE_QUEUED = {**_run("stale", dt.timedelta(days=30)), "status": "queued"}
 LONG_RUNNING = {**_run("long", dt.timedelta(minutes=150)), "status": "running"}
 # Older than the queued cutoff, and still running, so it holds the horizon.
 VERY_LONG_RUNNING = {**_run("very-long", dt.timedelta(hours=7)), "status": "running"}
-# Depot reports some runs as running for months. One must not stop every sync at its creation time.
 STUCK_RUNNING = {**_run("stuck", dt.timedelta(days=30)), "status": "running"}
 
 
@@ -144,9 +144,7 @@ class TestDepotSource:
         "created_after, expected_run_ids, expected_terminal_pages",
         [
             (WATERMARK, ["r3", "r4", "r5", "r6"], 5),
-            # A watermark in a run's own second reads that run again, because a sync that stopped
-            # partway through the second may not have read it.
-            (_iso(WATERMARK), ["r2", "r3", "r4", "r5", "r6"], 5),
+            (TERMINAL_RUNS[4]["createdAt"], ["r2", "r3", "r4", "r5", "r6"], 5),
             (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 7),
         ],
         # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
@@ -177,7 +175,6 @@ class TestDepotSource:
     def test_a_second_walk_returns_runs_a_page_end_skips(
         self, page_sizes: tuple[int, ...], expected_run_ids: list[str]
     ) -> None:
-        # The first page of 3 ends inside the second the three tied runs share.
         runs = [
             _run("newest", dt.timedelta(minutes=10)),
             *[_run(f"tied-{index}", dt.timedelta(hours=1)) for index in range(3)],
@@ -203,7 +200,6 @@ class TestDepotSource:
         assert API_TOKEN in make_session.call_args.kwargs["redact_values"]
         # Every Depot RPC is a POST, which the shared retry leaves out, so a 429 must still retry.
         assert make_session.call_args.kwargs["retry"].is_retry("POST", 429)
-        # The in-flight listing fits in one page, so no page end can skip a run and one walk is enough.
         assert _requests(session)[:5] == [
             ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 2}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 2}),

@@ -247,7 +247,6 @@ class CuratedGitHubSource:
 
     @property
     def has_depot_ci(self) -> bool:
-        """Whether the repository's Depot CI job attempts are synced and read with its GitHub CI."""
         return self._depot_job_attempts() is not None
 
     def _runs_table(self) -> str:

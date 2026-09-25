@@ -1210,7 +1210,6 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         aggregates = api.list_job_aggregates(team=self.team, workflow_name="CI", branch="feature/depot")
 
-        # Depot job rows carry no branch, so the filter must match the job through its run's branch.
         assert [aggregate.job_name for aggregate in aggregates] == ["ci.yml:lint"]
 
     def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:

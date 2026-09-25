@@ -21,15 +21,13 @@ JSONObject = dict[str, Any]
 
 DEPOT_CI_SERVICE_URL = "https://api.depot.dev/depot.ci.v1.CIService"
 REQUEST_TIMEOUT_SECONDS = 60
-# ListRuns pages on the run's creation second: when a page ends inside a second, the next page skips
-# the rest of that second's runs. A second walk with another page size ends its pages at other runs,
-# so it returns most of what the first walk skipped. A run that both walks skip is still lost, and
-# only a fix to Depot's page cursor closes that. Depot caps pages at 100.
+# When a ListRuns page ends inside a second, the next page skips that second's other runs. A walk with
+# another page size ends its pages elsewhere and returns most of them; a run both walks skip is lost
+# until Depot fixes its cursor. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run in `queued` or `running` and never finish it. An in-flight run older than its
-# cutoff counts as stuck, so it does not hold the sync horizon back. A running run gets the longer
-# cutoff because a real run can take hours, while a real queued run starts within minutes.
+# Depot can leave a run queued or running forever. Past its cutoff an in-flight run counts as stuck and
+# stops holding the sync horizon back. A real run can take hours, but a real queued run starts in minutes.
 IN_FLIGHT_MAX_AGE = {"queued": dt.timedelta(hours=6), "running": dt.timedelta(hours=24)}
 IN_FLIGHT_STATUSES = list(IN_FLIGHT_MAX_AGE)
 
@@ -77,11 +75,8 @@ def _walk_runs(session: Session, repository: str, statuses: list[str], page_size
 def _list_runs(
     session: Session, repository: str, statuses: list[str], created_after: dt.datetime | None = None
 ) -> list[tuple[dt.datetime, JSONObject]]:
-    """The runs in ``statuses`` with their creation time, oldest first, created at or after ``created_after``.
-
-    ListRuns has no time filter but returns runs newest first, so each walk stops at the first older run.
-    A run both walks return keeps the second walk's copy, which is the more recent status.
-    """
+    """Oldest first. ListRuns has no time filter, but it lists newest first, so each walk stops at the
+    first run older than ``created_after``. The second walk's copy of a run wins, as the fresher status."""
     runs: dict[str, tuple[dt.datetime, JSONObject]] = {}
     for page_size in LIST_RUNS_PAGE_SIZES:
         listed = 0
@@ -92,14 +87,13 @@ def _list_runs(
             runs[run["runId"]] = (created_at, run)
             listed += 1
         if listed < page_size:
-            # The walk ended inside its first page, so no page end skipped a run.
+            # No page end inside the listing, so nothing was skipped.
             break
     return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
 
 
-# The sync only takes runs created before every recent in-flight run, so the watermark does not pass a
-# run that is still going. A stuck run past its cutoff is the exception: if it finishes later, no sync
-# reads it. A job that is retried after its run was synced is not picked up either.
+# The watermark stays behind every run still going, except a stuck one: if a stuck run finishes later,
+# no sync reads it. A job retried after its run synced is not read again either.
 def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
     horizon = now
     oldest_that_counts = now - max(IN_FLIGHT_MAX_AGE.values())
@@ -112,9 +106,8 @@ def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> d
 def _runs_to_sync(
     session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
 ) -> list[JSONObject]:
-    # Runs created in the lower bound's own second are read again. Depot stamps runs in whole seconds,
-    # and a sync that stopped partway through a second saved that second as the watermark, so its other
-    # runs would otherwise never be read. The merge on attempt_id drops the rows read twice.
+    # Depot stamps runs in whole seconds, and a sync that stopped partway through a second saved it as
+    # the watermark, so that second is read again. The merge on attempt_id drops the repeats.
     runs = _list_runs(session, repository, TERMINAL_STATUSES, created_after)
     return [run for created_at, run in runs if created_at < created_before]
 
@@ -211,8 +204,7 @@ def depot_source(
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],
         sort_mode="asc",
-        # The pipeline saves the watermark after each chunk. The default chunk holds a whole first
-        # sync of a busy repository, so a restart during that sync would start it over.
+        # The watermark saves per chunk, and the default chunk holds a whole first sync of a busy repository.
         chunk_size=5_000,
     )
 

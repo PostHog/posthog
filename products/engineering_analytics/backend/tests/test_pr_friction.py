@@ -185,7 +185,6 @@ class TestPRFrictionView(_WarehouseMixin):
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
     def _seed_depot_ci(self) -> None:
-        # PR 36 has no GitHub CI; one Depot CI run failed on it before it merged.
         start, end = _span(0, 15)
         self._create_depot_table(
             [
@@ -248,7 +247,6 @@ class TestPRFrictionView(_WarehouseMixin):
         assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39}
         assert view_figures == timeline_figures
         if with_depot_ci:
-            # The equality alone would pass if both paths dropped the Depot run.
             assert view_figures[36]["ci_running"] > 0
 
     def test_view_counts_what_the_author_went_through(self) -> None:

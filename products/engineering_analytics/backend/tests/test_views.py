@@ -354,7 +354,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
             (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
         ]
-        # Depot job rows carry no branch, so the job views take the run's.
         assert self._select(
             "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch "
             f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890"

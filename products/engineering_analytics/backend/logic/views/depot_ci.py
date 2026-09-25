@@ -202,9 +202,8 @@ def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_reques
 def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Depot job rows carry no branch. The jobs builder scans its source twice, so a PR snapshot lookup
-    here would add two full PR scans to every jobs read. A reader that needs a job's branch takes its
-    run's instead.
+    Depot job rows carry no branch: the jobs builder scans its source twice, so a PR snapshot lookup here
+    would cost two PR scans per jobs read. A reader that needs the branch takes the run's.
     """
     if depot is None:
         return jobs_table
