@@ -96,6 +96,7 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
+from products.replay_vision.backend.jev_friction import friction_mode
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -2284,7 +2285,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        # Stored Jev probabilities rank the feed only once the team's flag graduates past shadow.
+        ranked = rank_watch_feed_candidates(candidate_rows, use_jev_friction=friction_mode(self.team_id) == "jev-only")[
+            : params["limit"]
+        ]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row

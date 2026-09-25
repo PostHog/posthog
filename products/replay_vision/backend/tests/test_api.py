@@ -4734,6 +4734,56 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
 
+    def test_stored_jev_probability_ranks_friction_only_for_graduated_teams(self) -> None:
+        # A shadow-stored probability must not move a feed until the team's flag reaches jev-only.
+        # Once it does, the probability orders friction rows, the regex stays the fallback for rows
+        # without one, and a monitor non-event's stored value is ignored.
+        summarizer = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        monitor = self._create_scanner(name="m")
+
+        def summary_result(title: str, summary: str, probability: float | None) -> dict[str, Any]:
+            result: dict[str, Any] = {
+                "model_output": {"scanner_type": "summarizer", "title": title, "summary": summary, "confidence": 0.9},
+                "signals_count": 0,
+            }
+            if probability is not None:
+                result["friction_probability"] = probability
+            return result
+
+        self._succeeded_observation(
+            summarizer, "jev-high", 40, summary_result("Slow start", "The user waited on the dashboard.", 0.9)
+        )
+        self._succeeded_observation(
+            summarizer, "jev-low", 30, summary_result("Quick visit", "The user skimmed the pricing page.", 0.2)
+        )
+        self._succeeded_observation(
+            summarizer, "regex", 20, summary_result("Upload trouble", "The user hit an error and retried.", None)
+        )
+        non_event = self._monitor_result("no")
+        non_event["friction_probability"] = 0.9
+        self._succeeded_observation(monitor, "non-event", 10, non_event)
+
+        with patch("products.replay_vision.backend.api.scanners.friction_mode", return_value="regex-only"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["regex", "non-event", "jev-low"],
+        )
+        self.assertEqual(items[0]["reason"], {"kind": "friction"})
+        self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
+
+        with patch("products.replay_vision.backend.api.scanners.friction_mode", return_value="jev-only"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["regex", "jev-high", "jev-low"],
+        )
+        self.assertEqual([item["reason"]["kind"] for item in items], ["friction", "friction", "friction"])
+
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
         # still outranks unviewed routine rows, while among plain rows unviewed comes first.

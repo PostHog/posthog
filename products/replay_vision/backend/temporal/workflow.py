@@ -410,6 +410,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         signal_problem_types=signal_problem_types,
                         signal_summaries=signal_summaries,
                         verification=call_output.verification,
+                        friction_probability=call_output.friction_probability,
+                        friction_model=call_output.friction_model,
                     ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),

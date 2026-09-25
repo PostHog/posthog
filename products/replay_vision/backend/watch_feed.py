@@ -1,7 +1,9 @@
 """Ranking for the What to watch feed: which succeeded observations in a window are worth a look.
 
-Deterministic v1, no model calls. Baselines come from the candidate rows themselves (the scanner's
-own window), so "outlier" and "rare" mean unusual for that scanner lately, not against all history.
+Deterministic, no model calls at read time. Baselines come from the candidate rows themselves (the
+scanner's own window), so "outlier" and "rare" mean unusual for that scanner lately, not against
+all history. The one model-derived input is the stored Jev friction probability, judged once at
+scan time (see `jev_friction.py`); a caller opts into ranking on it per team.
 """
 
 import re
@@ -84,6 +86,13 @@ _FRICTION_RE = re.compile(
 )
 
 
+def friction_regex_hit(prose_parts: list[str]) -> bool:
+    """Whether the friction keyword vocabulary matches any of the prose parts. Shared with the
+    scan-time Jev judgment, so shadow-mode disagreement is measured against the exact rule the
+    probability would replace."""
+    return bool(_FRICTION_RE.search(" ".join(prose_parts)))
+
+
 @frozen
 class WatchFeedEntry:
     observation_id: UUID
@@ -106,6 +115,9 @@ class _Candidate:
     tags: tuple[str, ...]
     summary_tokens: frozenset[str]
     friction: bool
+    # Jev's stored scan-time judgment; None on rows scanned without it. Ranks instead of `friction`
+    # only when the caller opts in (the team's flag reached `jev-only`).
+    friction_probability: float | None
     notability: float | None
     notability_reason: str | None
 
@@ -156,7 +168,10 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
     verdict = output.get("verdict") if isinstance(output.get("verdict"), str) else None
     # A no-verdict monitor's reasoning restates its question in the negative ("did not struggle"),
     # so keyword matching there reads negations as friction; the scan already judged it a non-event.
+    # The same gate holds the stored probability out: the scan skips these rows, so a value here is
+    # malformed data rather than a judgment.
     friction_eligible = not (scanner_type == "monitor" and verdict == "no")
+    friction_probability = result.get("friction_probability") if isinstance(result, dict) else None
     return _Candidate(
         observation_id=row["id"],
         scanner_id=row["scanner_id"],
@@ -170,7 +185,15 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         score=float(score) if isinstance(score, int | float) else None,
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
-        friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
+        friction=friction_eligible and friction_regex_hit([prose, *tags]),
+        # Clamped like `notability` below, because a stored row can carry anything.
+        friction_probability=(
+            min(1.0, max(0.0, float(friction_probability)))
+            if friction_eligible
+            and isinstance(friction_probability, int | float)
+            and not isinstance(friction_probability, bool)
+            else None
+        ),
         # The LLM-response schema bounds this to 0-1, but a stored row (or a bool, since bool is an int
         # subclass) can carry anything, so clamp defensively — an out-of-range value would outrank its tier.
         notability=(
@@ -302,22 +325,31 @@ def _signal_strength(candidate: _Candidate) -> float:
     return SIGNAL_LEGACY_STRENGTH if candidate.signals_count > 0 else 0.0
 
 
-def _contributions(candidate: _Candidate, hit_strength: float) -> dict[str, float]:
+def _friction_strength(candidate: _Candidate, use_jev_friction: bool) -> float:
+    """The row's friction evidence: Jev's stored probability once the caller opts in and the row
+    carries one, the regex boolean otherwise. The fallback keeps rows scanned before the judgment
+    shipped, and rows scanned through a Jev outage, ranking exactly as before."""
+    if use_jev_friction and candidate.friction_probability is not None:
+        return candidate.friction_probability
+    return 1.0 if candidate.friction else 0.0
+
+
+def _contributions(candidate: _Candidate, hit_strength: float, use_jev_friction: bool) -> dict[str, float]:
     """The weighted evidence this row carries, one entry per source. `_watchability` sums these and the
     displayed reason names the largest of them, so the order and the copy read the same numbers."""
     return {
         "signal": WATCH_WEIGHT_SIGNAL * _signal_strength(candidate),
         "hit": WATCH_WEIGHT_HIT * hit_strength,
         "notability": WATCH_WEIGHT_NOTABILITY * (candidate.notability if candidate.notability is not None else 0.0),
-        "friction": WATCH_WEIGHT_FRICTION * (1.0 if candidate.friction else 0.0),
+        "friction": WATCH_WEIGHT_FRICTION * _friction_strength(candidate, use_jev_friction),
     }
 
 
-def _watchability(candidate: _Candidate, hit_strength: float) -> float:
+def _watchability(candidate: _Candidate, hit_strength: float, use_jev_friction: bool) -> float:
     """Blend the row's signal, type hit, notability, and friction into one score, then dock a row the
     reader already opened. Every source contributes at once, so a row wins on the sum of its evidence
     rather than on a single dominant flag."""
-    score = sum(_contributions(candidate, hit_strength).values())
+    score = sum(_contributions(candidate, hit_strength, use_jev_friction).values())
     if candidate.viewed:
         score -= WATCH_SEEN_PENALTY
     return score
@@ -391,9 +423,11 @@ def _trim_filler(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
     return kept
 
 
-def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
+def rank_watch_feed_candidates(rows: list[dict[str, Any]], *, use_jev_friction: bool = False) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `scanner_result`, `feed_viewed`) most
-    watchable first by a blended score, then newest.
+    watchable first by a blended score, then newest. With `use_jev_friction`, a row's friction part
+    is its stored scan-time Jev probability rather than the keyword-regex boolean; see
+    `_friction_strength` for the fallback rules.
 
     The score adds four sources at once — emitted signals, a type-specific hit, the scan's own
     notability judgment, and prose that reads as friction — each weighted, so a row wins on the sum of
@@ -423,7 +457,7 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         hit_result = _type_hit(candidate, baselines[candidate.scanner_id], by_scanner[candidate.scanner_id])
         hit = hit_result[0] if hit_result is not None else None
         hit_strength = hit_result[1] if hit_result is not None else 0.0
-        contributions = _contributions(candidate, hit_strength)
+        contributions = _contributions(candidate, hit_strength, use_jev_friction)
         strongest = _strongest_reason_part(candidate, contributions)
         if strongest == "signal":
             reason: dict[str, Any] = {"kind": "signal_emitted", "signals_count": candidate.signals_count}
@@ -451,7 +485,7 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         # score, and gating on `notable` alone would attach the sentence over the copy that row earned.
         if candidate.notability_reason and reason["kind"] == "notable":
             reason["notability_reason"] = candidate.notability_reason
-        sort_key = (_watchability(candidate, hit_strength), candidate.created_at)
+        sort_key = (_watchability(candidate, hit_strength, use_jev_friction), candidate.created_at)
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
     scored.sort(key=lambda item: item[0], reverse=True)
     return _cap_signal_share(_trim_filler([entry for _, entry in scored]))

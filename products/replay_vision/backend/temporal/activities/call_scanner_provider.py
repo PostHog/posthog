@@ -36,6 +36,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.jev_friction import judge_scan_friction
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
@@ -197,7 +198,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
-    return await run_scan(
+    output = await run_scan(
         snapshot=snapshot,
         scanner=scanner,
         llm_inputs=llm_inputs,
@@ -209,6 +210,10 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
     )
+    # Attached here rather than inside run_scan, so the eval suite (which calls run_scan directly)
+    # never triggers a decision call. Fail-soft: the judgment returns the output unchanged on any
+    # error, so it can only miss, never fail the paid-for scan.
+    return await asyncio.to_thread(judge_scan_friction, inputs.team_id, inputs.observation_id, output)
 
 
 # A render cuts whole inactive stretches, so anything under this is encoder rounding rather than a cut.

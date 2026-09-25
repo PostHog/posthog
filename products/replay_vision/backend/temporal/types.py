@@ -59,6 +59,12 @@ class ScannerResult(BaseModel, frozen=True):
     # this shipped; `signal_problem_types` stays because those older rows carry only it.
     signal_summaries: list[EmittedSignal] = Field(default_factory=list)
     verification: VerificationRecord | None = None
+    # Jev's probability that the scan prose describes user friction, judged at scan time when the
+    # team's `vision-jev-friction-mode` flag asks for it (see jev_friction.py). None on regex-only
+    # teams, on rows scanned before this shipped, and on rows scanned through a Jev outage.
+    friction_probability: float | None = Field(default=None, ge=0, le=1)
+    # The versioned model that judged it, so thresholds can be tuned per model version.
+    friction_model: str | None = None
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -292,6 +298,10 @@ class ScannerCallOutput(BaseModel, frozen=True):
     thumbnail_video_s: int | None = None
     # Signal spans on the video clock, which `signals` no longer carries once they move to session time.
     signal_video_spans: list[tuple[int, int]] = Field(default_factory=list)
+    # Jev's friction judgment, attached by the activity after the scan; see `ScannerResult` for the
+    # semantics of both fields.
+    friction_probability: float | None = Field(default=None, ge=0, le=1)
+    friction_model: str | None = None
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
