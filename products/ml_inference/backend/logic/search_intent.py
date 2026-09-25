@@ -16,6 +16,7 @@ import structlog
 from ..facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest, SearchIntent, SearchIntentRequest
 from ..facade.enums import DecisionQuestionType, SearchIntentSource
 from . import decisions
+from .search_intent_prompt import SearchIntentPrompt, current_search_intent_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -23,31 +24,9 @@ MIN_QUERY_CHARS = 2
 MAX_QUERY_CHARS = 64
 # The picker waits for no answer, so a late answer is worth nothing and a short timeout frees the worker.
 SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
-# The frontend acts on an answer only above this confidence. Tune it from the eval suite, not by feel.
-CONFIDENT_THRESHOLD = 0.6
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
 CACHE_KEY_PREFIX = "ml_inference:search_intent:v2"
-
-# The tabs the model can choose from, with the meaning the model reads. A tab the picker does not show is not offered.
-SEARCH_INTENT_OPTIONS: dict[str, str] = {
-    "events": "An event: something a person did, such as a pageview, a signup, a purchase or a click.",
-    "actions": "A saved action: a named combination of events.",
-    "event_properties": (
-        "A property of one event, such as the current URL, path, browser, device, UTM tags, referrer "
-        "or the country the event came from."
-    ),
-    "person_properties": (
-        "A property of a person, such as their email address, name, company, plan or the date they signed up."
-    ),
-    "session_properties": "A property of a whole session, such as its duration, entry URL, exit URL or channel type.",
-    "cohorts": "A saved cohort: a named group of people.",
-    "feature_flags": "A feature flag, or the people who match a feature flag.",
-    "event_feature_flags": "The value of a feature flag that was active when an event happened.",
-    "pageview_urls": "One specific page URL.",
-    "email_addresses": "One specific person's email address.",
-    "elements": "An element on the page, such as a button, a link or a form field.",
-}
 
 _EMAIL_VALUE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
@@ -59,7 +38,6 @@ _OPAQUE_TOKEN = re.compile(r"^(?=\S*[a-z])(?=\S*\d\S*\d)\S{8,}$", re.IGNORECASE)
 _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _QUESTION_ID = "tab"
-_INSTRUCTIONS = "Which tab of the filter picker holds the thing this person searches for?"
 
 
 def _skipped() -> SearchIntent:
@@ -97,8 +75,12 @@ def search_intent_state(query: str, active_group_type: str, scene: str | None) -
     return "\n".join(lines)
 
 
-def _cache_key(team_id: int, model: str, state: str, options: dict[str, str]) -> str:
-    digest = hashlib.sha256("\n".join([model, state, *sorted(options)]).encode()).hexdigest()
+def _cache_key(
+    team_id: int, model: str, state: str, instructions: str, options: dict[str, str], threshold: float
+) -> str:
+    # The prompt text is in the key, not its version, so a new managed version and the bundled copy never share answers.
+    parts = [model, state, instructions, str(threshold), *(f"{k}={v}" for k, v in sorted(options.items()))]
+    digest = hashlib.sha256("\n".join(parts).encode()).hexdigest()
     return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
 
 
@@ -117,12 +99,15 @@ def with_switch_suggestion(intent: SearchIntent, active_group_type: str) -> Sear
     return dataclasses.replace(intent, suggests_switch=suggests_switch)
 
 
-def classify_search_intent(request: SearchIntentRequest, *, use_cache: bool = True) -> SearchIntent:
+def classify_search_intent(
+    request: SearchIntentRequest, *, use_cache: bool = True, prompt: SearchIntentPrompt | None = None
+) -> SearchIntent:
     """Raises the decision gateway errors; the caller decides whether a failed answer matters."""
-    return with_switch_suggestion(_classify(request, use_cache=use_cache), request.active_group_type)
+    prompt = prompt or current_search_intent_prompt()
+    return with_switch_suggestion(_classify(request, prompt, use_cache=use_cache), request.active_group_type)
 
 
-def _classify(request: SearchIntentRequest, *, use_cache: bool) -> SearchIntent:
+def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_cache: bool) -> SearchIntent:
     query = " ".join(request.query.split())
     if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
         return _skipped()
@@ -132,7 +117,7 @@ def _classify(request: SearchIntentRequest, *, use_cache: bool) -> SearchIntent:
 
     options = {
         group_type: meaning
-        for group_type, meaning in SEARCH_INTENT_OPTIONS.items()
+        for group_type, meaning in prompt.options.items()
         if group_type in request.available_group_types
     }
     if len(options) < 2:
@@ -143,11 +128,13 @@ def _classify(request: SearchIntentRequest, *, use_cache: bool) -> SearchIntent:
         state=search_intent_state(query, request.active_group_type, request.scene),
         questions={
             _QUESTION_ID: DecisionQuestion(
-                type=DecisionQuestionType.CHOICE, instructions=_INSTRUCTIONS, criteria=options
+                type=DecisionQuestionType.CHOICE, instructions=prompt.instructions, criteria=options
             )
         },
     )
-    key = _cache_key(request.team_id, decision.model, decision.state, options)
+    key = _cache_key(
+        request.team_id, decision.model, decision.state, prompt.instructions, options, prompt.confident_threshold
+    )
     if use_cache:
         cached = cache.get(key)
         if isinstance(cached, SearchIntent):
@@ -161,8 +148,9 @@ def _classify(request: SearchIntentRequest, *, use_cache: bool) -> SearchIntent:
     intent = SearchIntent(
         group_type=answer.choice,
         confidence=answer.confidence,
-        is_confident=answer.confidence >= CONFIDENT_THRESHOLD,
+        is_confident=answer.confidence >= prompt.confident_threshold,
         source=SearchIntentSource.MODEL,
+        prompt_version=prompt.version,
     )
     if use_cache:
         cache.set(key, intent, CACHE_TTL_SECONDS)

@@ -1,3 +1,7 @@
+import threading
+import dataclasses
+from concurrent.futures import Future
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,6 +9,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from posthoganalytics.ai.prompts import PromptResult
 from rest_framework import status
 
 from products.ml_inference.backend.facade.contracts import (
@@ -17,6 +22,12 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.ml_inference.backend.facade.enums import SearchIntentSource
 from products.ml_inference.backend.logic.search_intent import classify_search_intent
+from products.ml_inference.backend.logic.search_intent_prompt import (
+    BUNDLED_SEARCH_INTENT_PROMPT,
+    SearchIntentPrompt,
+    _PromptRefresher,
+    parse_search_intent_prompt,
+)
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 
@@ -111,16 +122,111 @@ class TestClassifySearchIntent(SimpleTestCase):
 
         assert classify_search_intent(_search("paying users")).source == SearchIntentSource.SKIPPED
 
-    def test_the_same_search_is_answered_once_per_team(self, decide: MagicMock) -> None:
+    def test_asks_with_the_managed_prompt(self, decide: MagicMock) -> None:
+        decide.return_value = _answer("person_properties", 0.9)
+        prompt = SearchIntentPrompt(
+            instructions="Which tab?",
+            options={"events": "An event.", "person_properties": "A person property."},
+            confident_threshold=0.95,
+            version=7,
+        )
+
+        intent = classify_search_intent(_search("email"), prompt=prompt)
+
+        assert (intent.is_confident, intent.prompt_version) == (False, 7)
+        question = decide.call_args.args[0].questions["tab"]
+        assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
+
+    @parameterized.expand(
+        [
+            ("same_team_and_prompt", 7, BUNDLED_SEARCH_INTENT_PROMPT, 1),
+            ("other_team", 8, BUNDLED_SEARCH_INTENT_PROMPT, 2),
+            ("new_wording", 7, dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?"), 2),
+            ("new_threshold", 7, dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, confident_threshold=0.9), 2),
+        ]
+    )
+    def test_the_same_search_is_answered_once_per_team_and_prompt(
+        self, decide: MagicMock, _name: str, second_team: int, second_prompt: SearchIntentPrompt, expected_calls: int
+    ) -> None:
         decide.return_value = _answer("event_properties", 0.8)
 
-        first = classify_search_intent(_search("current url"))
-        second = classify_search_intent(_search("  current   url "))
-        assert first == second
-        assert decide.call_count == 1
+        classify_search_intent(_search("current url"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
+        classify_search_intent(_search("  current   url ", team_id=second_team), prompt=second_prompt)
 
-        classify_search_intent(_search("current url", team_id=8))
-        assert decide.call_count == 2
+        assert decide.call_count == expected_calls
+
+
+MANAGED_OPTIONS = {"events": "An event.", "person_properties": "A person property."}
+
+
+class TestSearchIntentPrompt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "valid",
+                {"options": MANAGED_OPTIONS, "confident_threshold": 0.7},
+                MANAGED_OPTIONS,
+                0.7,
+            ),
+            (
+                "options_not_a_dict",
+                {"options": ["events"], "confident_threshold": 0.7},
+                BUNDLED_SEARCH_INTENT_PROMPT.options,
+                0.7,
+            ),
+            (
+                "blank_meaning",
+                {"options": {"events": " "}, "confident_threshold": 0.7},
+                BUNDLED_SEARCH_INTENT_PROMPT.options,
+                0.7,
+            ),
+            (
+                "threshold_out_of_range",
+                {"options": MANAGED_OPTIONS, "confident_threshold": 60},
+                MANAGED_OPTIONS,
+                BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold,
+            ),
+            ("no_config", None, BUNDLED_SEARCH_INTENT_PROMPT.options, BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold),
+        ]
+    )
+    def test_a_malformed_config_part_falls_back_to_the_bundled_part(
+        self, _name: str, config: dict | None, options: dict[str, str], threshold: float
+    ) -> None:
+        prompt = parse_search_intent_prompt(
+            PromptResult(source="api", prompt="Which tab?", name="n", version=4, config=config)
+        )
+
+        assert prompt == SearchIntentPrompt(
+            instructions="Which tab?", options=options, confident_threshold=threshold, version=4
+        )
+
+    def test_the_sdk_fallback_is_the_bundled_prompt(self) -> None:
+        result = PromptResult(source="code_fallback", prompt=BUNDLED_SEARCH_INTENT_PROMPT.instructions)
+
+        assert parse_search_intent_prompt(result) is BUNDLED_SEARCH_INTENT_PROMPT
+
+    def test_a_request_never_waits_for_the_prompt_fetch(self) -> None:
+        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, instructions="Which tab?", version=3)
+        release = threading.Event()
+        fetches: list[Future] = []
+
+        def slow_fetch(**_kwargs: object) -> SearchIntentPrompt:
+            assert release.wait(timeout=5)
+            return managed
+
+        refresher = _PromptRefresher()
+        submit = refresher._executor.submit
+        with (
+            patch("products.ml_inference.backend.logic.search_intent_prompt.fetch_search_intent_prompt", slow_fetch),
+            patch.object(refresher._executor, "submit", side_effect=lambda fn: fetches.append(submit(fn))),
+        ):
+            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
+            assert refresher.current() is BUNDLED_SEARCH_INTENT_PROMPT
+            release.set()
+            fetches[0].result(timeout=5)
+
+            assert refresher.current() == managed
+            assert len(fetches) == 1
 
 
 class TestSearchIntentEndpoint(APIBaseTest):
@@ -146,6 +252,7 @@ class TestSearchIntentEndpoint(APIBaseTest):
             "is_confident": True,
             "suggests_switch": True,
             "method": "model",
+            "prompt_version": None,
         }
         assert decide.call_args.args[0].team_id == self.team.id
 

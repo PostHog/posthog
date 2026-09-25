@@ -123,3 +123,5 @@ class SearchIntent:
     is_confident: bool
     source: SearchIntentSource
     suggests_switch: bool = False
+    # The managed prompt version the model read, or None for a rule match, a skip or the bundled prompt.
+    prompt_version: int | None = None

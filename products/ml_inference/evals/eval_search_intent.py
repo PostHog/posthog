@@ -13,9 +13,10 @@ The cases come from the shapes the picker's own telemetry shows, not from any pe
 - The same word means a different tab on a different page: flag targeting has no event properties.
 
 `SwitchWhenNeeded` and `NoWrongSwitch` read as the recall and the precision of the banner variant.
-Precision is the number to protect: a wrong suggestion is worse than none. Retune
-`CONFIDENT_THRESHOLD` in `backend/logic/search_intent.py` against these two, and expect the
-baseline to step when the prompt, the options or the model change.
+Precision is the number to protect: a wrong suggestion is worse than none. The question, the tab
+meanings and `confident_threshold` live in the managed `taxonomic-filter-search-intent` prompt
+(see `backend/logic/search_intent_prompt.py`). Score a new version here before the `production`
+label moves to it, and expect the baseline to step when the prompt or the model change.
 
 Public rather than private: the value is the comparison across runs, and every case is synthetic.
 
@@ -23,10 +24,15 @@ No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_AP
 decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_search_intent
     hogli evals eval_search_intent --eval email_in_events_tab
+
+It scores the `production` version of the managed prompt. Set SEARCH_INTENT_PROMPT_VERSION to score
+another version. Fetching it needs POSTHOG_PERSONAL_API_KEY with read access to the PostHog project;
+without it the suite scores the bundled copy, and the output reports `prompt_version: None`.
 """
 
 from __future__ import annotations
 
+import os
 import time
 import asyncio
 import dataclasses
@@ -35,6 +41,10 @@ from posthog.llm.gateway_client import resolve_ai_gateway_config
 
 from products.ml_inference.backend.facade.contracts import DEFAULT_DECISION_MODEL, SearchIntentRequest
 from products.ml_inference.backend.logic.search_intent import classify_search_intent
+from products.ml_inference.backend.logic.search_intent_prompt import (
+    SEARCH_INTENT_PROMPT_LABEL,
+    fetch_search_intent_prompt,
+)
 from products.ml_inference.evals.scorers import SEARCH_INTENT_KEY, NoWrongSwitch, SearchIntentMatch, SwitchWhenNeeded
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -300,6 +310,12 @@ async def eval_search_intent(ctx: EvalContext) -> None:
     # Without a gateway every case errors and scores 0, which reads as a model regression instead of a setup gap.
     if resolve_ai_gateway_config() is None:
         raise RuntimeError("eval_search_intent needs AI_GATEWAY_URL and AI_GATEWAY_API_KEY to reach the decision model")
+    version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
+    prompt = await asyncio.to_thread(
+        fetch_search_intent_prompt,
+        label=None if version else SEARCH_INTENT_PROMPT_LABEL,
+        version=int(version) if version else None,
+    )
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:
@@ -314,12 +330,18 @@ async def eval_search_intent(ctx: EvalContext) -> None:
         started = time.monotonic()
         try:
             # Sync and blocking on the gateway, so keep it off the event loop. No cache: every run asks the model.
-            intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False)
+            intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False, prompt=prompt)
         except Exception as error:
-            return {"model": DEFAULT_DECISION_MODEL, "intent": None, "error": f"{type(error).__name__}: {error}"}
+            return {
+                "model": DEFAULT_DECISION_MODEL,
+                "prompt_version": prompt.version,
+                "intent": None,
+                "error": f"{type(error).__name__}: {error}",
+            }
         answer = dataclasses.asdict(intent)
         return {
             "model": DEFAULT_DECISION_MODEL,
+            "prompt_version": prompt.version,
             "intent": answer,
             "latency_ms": round((time.monotonic() - started) * 1000),
             "last_message": f"{case.prompt!r} in {request.active_group_type}: {answer}",

@@ -142,6 +142,7 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "is_confident": intent.is_confident,
                     "suggests_switch": intent.suggests_switch,
                     "method": intent.source,
+                    "prompt_version": intent.prompt_version,
                 }
             ).data
         )

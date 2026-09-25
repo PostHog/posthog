@@ -89617,6 +89617,11 @@ export namespace Schemas {
        * * `model` - Asked the decision model
        * * `skipped` - Not classified */
       method: SearchIntentSourceEnum;
+      /**
+         * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+         * @nullable
+         */
+      prompt_version: number | null;
     }
 
     export interface SearchSuggestionsQuery {
