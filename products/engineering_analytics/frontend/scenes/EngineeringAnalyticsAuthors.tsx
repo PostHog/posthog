@@ -172,7 +172,6 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
                             rowClassName="cursor-pointer"
                             onRow={(row) => rowNavigationProps(authorUrl(row.author, sourceId))}
                             loading={frictionLoading}
-                            pagination={{ pageSize: 50 }}
                             useURLForSorting={false}
                             emptyState={
                                 githubTeam
