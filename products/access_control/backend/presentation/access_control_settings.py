@@ -882,18 +882,14 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         role_id = role.id if role else None
         try:
             if access_level is None:
-                try:
-                    access_control_api.delete_property_access_control(
-                        team_id=team.id,
-                        input=DeletePropertyAccessControlInput(
-                            property_definition_id=property_definition_id,
-                            organization_member_id=membership_id,
-                            role_id=role_id,
-                        ),
-                    )
-                except access_control_api.PropertyAccessControlRuleNotFoundError:
-                    # Nothing to clear, including a rule a concurrent clear removed first
-                    pass
+                access_control_api.delete_property_access_control(
+                    team_id=team.id,
+                    input=DeletePropertyAccessControlInput(
+                        property_definition_id=property_definition_id,
+                        organization_member_id=membership_id,
+                        role_id=role_id,
+                    ),
+                )
                 return Response(status=status.HTTP_204_NO_CONTENT)
             rule = access_control_api.upsert_property_access_control(
                 team_id=team.id,
@@ -905,6 +901,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                     role_id=role_id,
                 ),
             )
+        except access_control_api.PropertyAccessControlRuleNotFoundError:
+            # Nothing to clear, including a rule a concurrent clear removed first
+            return Response(status=status.HTTP_204_NO_CONTENT)
         except access_control_api.PropertyDefinitionNotFoundError:
             raise exceptions.NotFound("Property definition not found.")
         except access_control_api.InvalidPropertyAccessControlTargetError as exc:
