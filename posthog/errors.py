@@ -375,7 +375,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     7: ErrorCodeMeta("INCORRECT_NUMBER_OF_COLUMNS"),
     8: ErrorCodeMeta("THERE_IS_NO_COLUMN"),
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
-    10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
+    # Fixed message: the raw CH text embeds the planner block, which echoes the query text and the
+    # literals in it, so a fixed string keeps those out of the response while still returning a 400.
+    10: ErrorCodeMeta(
+        "NOT_FOUND_COLUMN_IN_BLOCK",
+        user_safe="Could not resolve a column in your query. Check the column names and aliases, and any window functions in the query.",
+    ),
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
     12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND"),
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
