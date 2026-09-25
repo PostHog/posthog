@@ -849,9 +849,9 @@ CREATE TABLE posthog.trace_spans (
   PROJECTION projection_index_span_id (SELECT _part_offset
 ORDER BY span_id),
   PROJECTION projection_index_team_span_id (SELECT _part_offset
-ORDER BY team_id, span_id) WITH SETTINGS (index_granularity = 512),
+ORDER BY team_id, span_id),
   PROJECTION projection_index_team_trace_id (SELECT _part_offset
-ORDER BY team_id, trace_id) WITH SETTINGS (index_granularity = 512),
+ORDER BY team_id, trace_id),
   PROJECTION projection_aggregate_counts (SELECT
   team_id,
   time_bucket,

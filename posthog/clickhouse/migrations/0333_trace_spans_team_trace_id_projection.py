@@ -16,14 +16,14 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 operations = [
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.trace_spans ADD PROJECTION IF NOT EXISTS projection_index_team_span_id "
-        "(SELECT _part_offset ORDER BY team_id, span_id) WITH SETTINGS (index_granularity = 512)",
+        "(SELECT _part_offset ORDER BY team_id, span_id)",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         f"ALTER TABLE {DB}.trace_spans ADD PROJECTION IF NOT EXISTS projection_index_team_trace_id "
-        "(SELECT _part_offset ORDER BY team_id, trace_id) WITH SETTINGS (index_granularity = 512)",
+        "(SELECT _part_offset ORDER BY team_id, trace_id)",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
