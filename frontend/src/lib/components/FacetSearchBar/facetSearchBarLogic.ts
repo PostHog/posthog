@@ -28,7 +28,7 @@ export interface FacetSearchBarLogicProps {
 }
 /* oxlint-enable @typescript-eslint/no-explicit-any */
 
-export type FacetSuggestionKind = 'facet' | 'value' | 'search' | 'none'
+type FacetSuggestionKind = 'facet' | 'value' | 'search' | 'none'
 
 export interface FacetSuggestion {
     id: string

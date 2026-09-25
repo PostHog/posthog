@@ -96,8 +96,9 @@ export function buildWorkflowsListV2Columns(visibleColumns: OptionalColumn[], fi
         {
             title: 'Sends',
             key: 'sends',
-            // Takes the leftover width and lets the cell truncate, so Updated and the menu stay in view.
-            className: 'w-full max-w-0',
+            // Takes the leftover width and truncates, so Updated and the menu stay in view. With optional
+            // columns on a narrow scene it keeps a readable minimum and the table scrolls sideways.
+            className: 'w-full max-w-0 min-w-20',
             render: (_, row) => <WorkflowSendsCell row={row} filters={filters} />,
         },
         ...visibleColumns.filter((column) => column !== 'type').map(optionalColumn),

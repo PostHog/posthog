@@ -9,7 +9,7 @@ import {
     FacetFilter,
     FacetSearchValue,
     MatchesText,
-    matchesFacetQuery,
+    createFacetMatcher,
     parseFacetQuery,
     serializeFacetQuery,
 } from 'lib/components/FacetSearchBar/facetQuery'
@@ -424,7 +424,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 value: FacetSearchValue,
                 facets: FacetDefinition<WorkflowListRow>[],
                 matchesText: MatchesText<WorkflowListRow>
-            ): WorkflowListRow[] => rows.filter((row) => matchesFacetQuery(row, value, facets, matchesText)),
+            ): WorkflowListRow[] => rows.filter(createFacetMatcher(value, facets, matchesText)),
         ],
         shownColumns: [
             (s) => [s.visibleColumns],
