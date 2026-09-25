@@ -123,6 +123,8 @@ and Shift runs. Use Capture mouse to turn with the mouse; left-click fires.
 
 Saving a .sql insight updates its query and preserves its query options.
 Use run report.sql to execute SQL, or run --help for JSON, CSV, and TSV exports.
+Use hogql "select 1" for a query, echo "select 1" | hogql for piped SQL, or hogql
+for an interactive prompt. Run hogql --help for formats, connections, and query options.
 The terminal follows the current resource's folder while its prompt is empty. Active commands and typed input stay intact.
 
 Saving an existing .md notebook updates PostHog using your current permissions.

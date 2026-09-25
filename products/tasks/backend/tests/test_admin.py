@@ -11,6 +11,7 @@ from django.urls import reverse
 from parameterized import parameterized
 
 from posthog.admin import register_all_admin
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 
 from products.tasks.backend.models import Channel, Loop, Task, TaskRun, TeamTasksConfig, UserTasksConfig
@@ -213,9 +214,9 @@ class TestTasksConfigAdminForms(BaseTest):
         assert "ai_run_preferences" in form.errors
 
     def test_accepts_a_valid_payload_on_both_admin_forms(self) -> None:
-        # The extension row is auto-created with the team, so the admin flow is a change form.
+        # Pass an existing row so that the admin flow is a change form.
         team_form = self.team_form_class(
-            instance=TeamTasksConfig.objects.get(team=self.team),
+            instance=get_or_create_team_extension(self.team, TeamTasksConfig),
             data={
                 "team": self.team.pk,
                 "ai_run_preferences": {"runtime_adapter": "claude", "model": "claude-opus-4-8"},

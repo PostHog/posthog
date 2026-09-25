@@ -304,7 +304,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             {
                 loadMigrations: async () => {
                     const projectId = ApiConfig.getCurrentProjectId()
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use managedMigrationsList() from 'products/managed_migrations/frontend/generated/api' instead.
                     const response = await api.get(`api/projects/${projectId}/managed_migrations`)
                     return response.results
                 },
@@ -474,7 +474,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     }
                 }
                 try {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use managedMigrationsCreate() from 'products/managed_migrations/frontend/generated/api' instead.
                     const response = await api.create(`api/projects/${projectId}/managed_migrations`, payload)
                     return response
                 } catch (error: any) {
@@ -511,7 +511,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         pauseMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. managedMigrationsPauseCreate() from 'products/managed_migrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/pause/`)
                 lemonToast.success('Migration paused successfully')
                 actions.loadMigrations()
@@ -522,7 +522,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         resumeMigration: async ({ id }) => {
             try {
                 const projectId = ApiConfig.getCurrentProjectId()
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. managedMigrationsResumeCreate() from 'products/managed_migrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/projects/${projectId}/managed_migrations/${id}/resume/`)
                 lemonToast.success('Migration resumed successfully')
                 actions.loadMigrations()

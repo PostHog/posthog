@@ -32,6 +32,52 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    def test_future_window_requires_refresh_when_it_starts(self) -> None:
+        self.team.timezone = "America/Los_Angeles"
+        start = datetime(2026, 9, 11, tzinfo=UTC)
+        end = start + timedelta(hours=7)
+        with time_machine.travel(start - timedelta(minutes=25), tick=False) as clock:
+            warmed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert warmed.ready, warmed.errors
+            assert warmed.job_ids
+            cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+            assert cached.ready
+            assert cached.job_ids == warmed.job_ids
+
+            clock.shift(timedelta(minutes=25))
+            for grace in (None, 6 * 60 * 60):
+                cached = ensure_marketing_sessions_precomputed(
+                    self.team, start, end, run_inserts=False, stale_while_revalidate_seconds=grace
+                )
+                assert not cached.ready
+                assert not cached.job_ids
+
+            clock.shift(timedelta(minutes=1))
+            timestamp = datetime.now(UTC)
+            session_id = uuid7(int(timestamp.timestamp() * 1000))
+            create_person(team=self.team, distinct_ids=["new-window-visitor"])
+            _create_event(
+                team=self.team,
+                distinct_id="new-window-visitor",
+                event="$pageview",
+                timestamp=timestamp,
+                properties={"$session_id": str(session_id)},
+            )
+            flush_persons_and_events()
+            refreshed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert refreshed.ready, refreshed.errors
+            assert set(refreshed.job_ids).isdisjoint(warmed.job_ids)
+            cached = ensure_marketing_sessions_precomputed(
+                self.team, start, end, run_inserts=False, stale_while_revalidate_seconds=6 * 60 * 60
+            )
+            assert cached.ready
+            assert cached.job_ids == refreshed.job_ids
+            assert sync_execute(
+                "SELECT session_id_v7 FROM web_sessions_dimensional_preaggregated "
+                "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
+                {"team_id": self.team.pk, "job_ids": cached.job_ids},
+            ) == [(session_id.int,)]
+
     @parameterized.expand(
         [
             (version, legacy_value)

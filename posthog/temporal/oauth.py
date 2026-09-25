@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -584,8 +584,13 @@ def create_oauth_access_token_for_user(
     include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    resolved = [
+        scope
+        for scope in resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+        if scope not in withhold_scopes
+    ]
     if include_mcp_builtin_agent_scope:
         # Provenance marker: the MCP Store uses it to deny the human/member
         # surface and route the agent through its explicit gateway grants. It

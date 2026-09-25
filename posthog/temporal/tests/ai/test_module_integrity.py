@@ -235,6 +235,7 @@ class TestAIObservabilityModuleIntegrity:
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",
+            "check_ai_data_processing_consent_activity",
             "fetch_all_clustering_filters_activity",
             "fetch_all_clustering_jobs_activity",
             "perform_clustering_compute_activity",

@@ -228,7 +228,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const results = await Promise.all(
                     validKeys.map(async (key: LLMProviderKey) => {
                         try {
-                            // nosemgrep: prefer-codegen-api
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                             const rawModels = (await api.get(
                                 `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
                             )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
@@ -264,7 +264,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         playgroundModels: {
             __default: [] as ModelOption[],
             loadPlaygroundModels: async (): Promise<ModelOption[]> => {
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const rawModels = (await api.get('/api/llm_proxy/models/')) as (Omit<ModelOption, 'isRecommended'> & {
                     is_recommended?: boolean
                 })[]

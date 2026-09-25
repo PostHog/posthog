@@ -673,13 +673,54 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+const taskAgentRunOptions = {
+    // Use a pattern because JSON Schema's date-time format requires a timezone offset.
+    scheduled_at: z
+        .string()
+        .regex(z.regexes.datetime({ offset: true, local: true }))
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.'
+        ),
+    model: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.'
+        ),
+    // Mirrors the run serializer's choices, unlike the deliberately loose `model`, so the tool
+    // cannot offer a depth the API rejects.
+    reasoning_effort: z
+        .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+        .optional()
+        .describe('Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.'),
+}
+
+// Mirrors the run serializer's runtime-selection rule. Its 400 also names runtime_adapter, which
+// these tools do not expose, so fail here naming only the field the caller can set.
+function validateTaskAgentRunOptions(
+    data: { model?: string | undefined; reasoning_effort?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if (data.reasoning_effort && !data.model) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['model'],
+            message: 'Required when reasoning_effort is set. Call tasks-models-retrieve to choose a model.',
+        })
+    }
+}
+
 export const TaskAgentCreateSchema = z
     .object({
         title: z.string().max(255).optional(),
         description: z.string().min(1).describe('Instructions for the agent.'),
         repository: z.string().nullish().describe('Repository in organization/repo format.'),
         branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+        ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, start_run: true as const }))
 
 export const TaskAgentRunCreateSchema = z
@@ -688,7 +729,9 @@ export const TaskAgentRunCreateSchema = z
         branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
         resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
         pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+        ...taskAgentRunOptions,
     })
+    .superRefine(validateTaskAgentRunOptions)
     .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
 // Debug MCP UI Apps
@@ -699,6 +742,12 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    context: z
+        .string()
+        .optional()
+        .describe(
+            'Why this query runs, and the governed-catalog outcome behind it: state "governed catalog consulted: no match" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
+        ),
     truncate: z
         .boolean()
         .optional()
