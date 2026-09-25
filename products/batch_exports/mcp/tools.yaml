@@ -25,7 +25,9 @@ tools:
             team-scoped Integration for credentials (use integrations-list to find one). Other destination types are
             permitted by the API but typically must be created via the PostHog UI because their credentials are stored
             in the destination config. Always specify the model field (events, persons, sessions, or hogql). Omitting it
-            defaults to events. For the hogql model, provide hogql_query.
+            defaults to events. For the hogql model, provide hogql_query. Optionally provide hogql_modifiers, which
+            override the project HogQL modifiers with the same names for this export only, for example
+            {"convertToProjectTimezone": false} to export timestamps in UTC.
         exclude_params:
             - id
             - team_id
@@ -75,9 +77,10 @@ tools:
         title: Update batch export
         description: >
             Partially update a batch export. Top-level fields (name, paused, interval, schema, filters) work for any
-            destination type. Destination config updates are only typed for Databricks and AzureBlob destinations. Do
-            not change the model field on an existing export — the destination table schema is created on the first run,
-            so switching models causes errors unless the table name is also changed.
+            destination type. For the hogql model, hogql_query and hogql_modifiers can also change; send hogql_modifiers
+            as null to remove them. Destination config updates are only typed for Databricks and AzureBlob destinations.
+            Do not change the model field on an existing export — the destination table schema is created on the first
+            run, so switching models causes errors unless the table name is also changed.
         exclude_params:
             - id
             - team_id
@@ -205,9 +208,9 @@ tools:
             contact PostHog support to request access. Counting runs the full query on ClickHouse, so it can take a
             while and can fail with a timeout for heavy unbounded queries. If the user wishes to estimate the size of an
             export, use it before file-download-batch-exports-create to check a hogql_query returns the amount of data
-            the user expects, and tighten its WHERE clause when the count is much larger than expected. Running count
-            queries is potentially as expensive as running the actual export query, so consider whether this is worth
-            it.
+            the user expects, and tighten its WHERE clause when the count is much larger than expected. Pass the same
+            hogql_modifiers as the export, so that the count resolves the query the same way. Running count queries is
+            potentially as expensive as running the actual export query, so consider whether this is worth it.
     file-download-batch-exports-create:
         operation: file_download_batch_exports_create
         enabled: true
@@ -223,14 +226,16 @@ tools:
             results of a HogQL query. For events, persons and sessions, provide data_interval_start and
             data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and
             exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a
-            hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the
-            team does not have it enabled, in which case tell the user they can contact PostHog support to request
-            access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user
-            queries run under stricter resource limits than the other models. The export splits into files of about 1024
-            MiB by default, and a file can go a little over; set file.max_size_mb to change that size, or to null to
-            write a single file of any size. Use file-download-batch-exports-retrieve with the returned id to poll until
-            status is Completed, then follow the downloading-batch-export-files skill to download the files through the
-            existing REST download endpoint.
+            hogql_query, which can reference the {data_interval_start} and {data_interval_end} placeholders filled from
+            data_interval_start and data_interval_end, and optional hogql_modifiers, which override the project HogQL
+            modifiers with the same names. It returns a permission error naming HogQL batch exports when the team does
+            not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit
+            hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under
+            stricter resource limits than the other models. The export splits into files of about 1024 MiB by default,
+            and a file can go a little over; set file.max_size_mb to change that size, or to null to write a single file
+            of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is
+            Completed, then follow the downloading-batch-export-files skill to download the files through the existing
+            REST download endpoint.
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false
