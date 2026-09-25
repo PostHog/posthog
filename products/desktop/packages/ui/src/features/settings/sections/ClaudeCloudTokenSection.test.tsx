@@ -87,6 +87,7 @@ describe("ClaudeCloudTokenSection", () => {
     vi.clearAllMocks();
     tokenStore.has.mockResolvedValue(false);
     tokenStore.clear.mockResolvedValue(undefined);
+    tokenStore.save.mockResolvedValue(undefined);
     client.getClaudeUserIntegration.mockResolvedValue(
       integration("not_connected"),
     );
@@ -129,7 +130,7 @@ describe("ClaudeCloudTokenSection", () => {
       pasted: "\tsk-ant-oat01-fake-\r\n  test-token-\r\n  00000000000000 ",
     },
   ])(
-    "sends a pasted token to PostHog and then deletes the local copy (case %#)",
+    "sends a pasted token to PostHog and then keeps a local copy for the relay (case %#)",
     async ({ replacing, pasted }) => {
       const user = userEvent.setup();
       client.getClaudeUserIntegration.mockResolvedValue(
@@ -156,11 +157,11 @@ describe("ClaudeCloudTokenSection", () => {
       expect(
         client.connectClaudeUserIntegration,
       ).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
-      expect(tokenStore.save).not.toHaveBeenCalled();
-      expect(tokenStore.clear).toHaveBeenCalledOnce();
+      expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
+      expect(tokenStore.clear).not.toHaveBeenCalled();
       expect(
         client.connectClaudeUserIntegration.mock.invocationCallOrder[0],
-      ).toBeLessThan(tokenStore.clear.mock.invocationCallOrder[0]);
+      ).toBeLessThan(tokenStore.save.mock.invocationCallOrder[0]);
       expect(track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED,
       );
@@ -209,6 +210,7 @@ describe("ClaudeCloudTokenSection", () => {
       }),
     );
     expect(tokenStore.clear).not.toHaveBeenCalled();
+    expect(tokenStore.save).not.toHaveBeenCalled();
     expect(track).not.toHaveBeenCalled();
   });
 
