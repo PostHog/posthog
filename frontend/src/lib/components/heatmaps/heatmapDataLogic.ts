@@ -94,8 +94,14 @@ export interface HeatmapDataLogicProps {
 async function fetchHeatmapData(
     props: HeatmapDataLogicProps,
     apiURL: string,
-    options: { authenticateOn403?: boolean } = {}
+    options: { authenticateOnAuthFailure?: boolean } = {}
 ): Promise<Response> {
+    if (props.context === 'in-app' && props.exportToken === '') {
+        // The export renderer gets an empty token when the exported asset has no owner to mint one
+        // for. An unauthenticated request can then only come back 401, so name the real cause.
+        throw new Error('This heatmap export is missing its access token. Create the export again to view it.')
+    }
+
     let response: Response
     try {
         response = await (props.context === 'toolbar'
@@ -110,7 +116,13 @@ async function fetchHeatmapData(
         throw e
     }
 
-    if (props.context === 'toolbar' && response.status === 403 && options.authenticateOn403) {
+    // 401 and 403 both mean the toolbar cannot read this data with the token it holds, so both need
+    // the user back through OAuth. `authenticate()` is a no-op while a handshake is already running.
+    if (
+        props.context === 'toolbar' &&
+        (response.status === 401 || response.status === 403) &&
+        options.authenticateOnAuthFailure
+    ) {
         toolbarConfigLogic.actions.authenticate()
     }
 
@@ -494,6 +506,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     if (!values.heatmapFilters.enabled) {
                         return null
                     }
+                    // The OAuth handshake can still be in flight when the overlay opens. A request now
+                    // fails with the transport's stub 401 and leaves the user a dead error, so wait for
+                    // the token instead: heatmapToolbarMenuLogic reloads once it arrives.
+                    if (props.context === 'toolbar' && !toolbarConfigLogic.findMounted()?.values.isAuthenticated) {
+                        return null
+                    }
 
                     actions.setIsReady(false)
 
@@ -520,7 +538,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     )}`
 
                     // if we export the heatmap, we need to add the export token to the headers
-                    const response = await fetchHeatmapData(props, apiURL, { authenticateOn403: true })
+                    const response = await fetchHeatmapData(props, apiURL, { authenticateOnAuthFailure: true })
                     breakpoint()
 
                     const data = await response.json()

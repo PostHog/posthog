@@ -459,6 +459,15 @@ export interface heatmapToolbarMenuLogicActions {
     setHrefMatchType: (matchType: HrefMatchType) => {
         matchType: HrefMatchType
     } // heatmapDataLogic
+    setOAuthTokens: (
+        accessToken: string,
+        refreshToken: string | null,
+        clientId: string
+    ) => {
+        accessToken: string
+        clientId: string
+        refreshToken: string | null
+    } // toolbarConfigLogic
     cancelAreaSelection: () => {
         value: true
     }
@@ -674,6 +683,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         actions: [
             currentPageLogic,
             ['setHref', 'setWildcardHref'],
+            toolbarConfigLogic,
+            ['setOAuthTokens'],
             heatmapDataLogic,
             [
                 'setHeatmapColorPalette',
@@ -1071,6 +1082,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }
     }),
     listeners(({ actions, values, cache }) => ({
+        // heatmapDataLogic skips a request made before the toolbar holds a token, so replay it as
+        // soon as the OAuth handshake lands instead of leaving an empty overlay.
+        setOAuthTokens: () => {
+            actions.maybeLoadHeatmap()
+        },
         processElements: async ({ trigger }, breakpoint) => {
             const startedAt = performance.now()
 

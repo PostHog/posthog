@@ -29,6 +29,36 @@ function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
     } as ElementsEventType
 }
 
+function mountHeatmapMenu(tokens?: {
+    accessToken: string
+    refreshToken: string
+    clientId: string
+}): ReturnType<typeof heatmapToolbarMenuLogic.build> {
+    global.IntersectionObserver = class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+    } as any
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ results: [] }),
+        } as any as Response)
+    )
+    jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { results: [], next: null, previous: null },
+    } as any)
+
+    initKeaTests()
+    toolbarConfigLogic.build({ apiURL: 'http://localhost', ...tokens }).mount()
+    const logic = heatmapToolbarMenuLogic()
+    logic.mount()
+    return logic
+}
+
 describe('heatmapToolbarMenuLogic', () => {
     // These suites intentionally reject requests to exercise error states; the
     // failures are asserted via authStatus/values, so skip the global loader logging.
@@ -282,41 +312,37 @@ describe('heatmapToolbarMenuLogic', () => {
         })
     })
 
+    describe('heatmap loading after authentication', () => {
+        let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
+
+        beforeEach(() => {
+            logic = mountHeatmapMenu()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('loads the heatmap once the OAuth handshake produces a token', async () => {
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['loadHeatmapSuccess'])
+
+            await expectLogic(logic, () => {
+                toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id')
+            }).toDispatchActions(['maybeLoadHeatmap', 'loadHeatmap'])
+        })
+    })
+
     describe('clickmap loading', () => {
         let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
 
         afterEach(resumeKeaLoadersErrors)
 
         beforeEach(() => {
-            global.IntersectionObserver = class {
-                observe(): void {}
-                unobserve(): void {}
-                disconnect(): void {}
-            } as any
-            global.fetch = jest.fn(() =>
-                Promise.resolve({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve({ results: [] }),
-                } as any as Response)
-            )
-            jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
-                ok: true,
-                status: 200,
-                data: { results: [], next: null, previous: null },
-            } as any)
-
-            initKeaTests()
-            toolbarConfigLogic
-                .build({
-                    apiURL: 'http://localhost',
-                    accessToken: 'test-token',
-                    refreshToken: 'test-refresh',
-                    clientId: 'test-client',
-                })
-                .mount()
-            logic = heatmapToolbarMenuLogic()
-            logic.mount()
+            logic = mountHeatmapMenu({
+                accessToken: 'test-token',
+                refreshToken: 'test-refresh',
+                clientId: 'test-client',
+            })
         })
 
         afterEach(() => {
