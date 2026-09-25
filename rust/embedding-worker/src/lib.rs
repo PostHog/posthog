@@ -16,7 +16,7 @@ use crate::{
     metrics_utils::{
         RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
         EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
-        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED,
+        MESSAGE_TRUNCATED, REQUESTS_SENT, RESPONSES_RECEIVED, RESPONSE_DECODE_FAILED,
     },
     organization::apply_ai_opt_in,
 };
@@ -109,6 +109,23 @@ fn retry_backoff_ms(attempt: usize) -> u64 {
     (base_ms as i64 + jitter_ms).max(0) as u64
 }
 
+// Sleep before the next attempt, unless this was the last one.
+async fn back_off(attempt: usize, cause: &str, error: &reqwest::Error) {
+    if attempt >= MAX_RETRY_ATTEMPTS - 1 {
+        return;
+    }
+    let sleep_ms = retry_backoff_ms(attempt);
+    warn!(
+        "{} ({}), retrying in {}ms (attempt {}/{})",
+        cause,
+        error,
+        sleep_ms,
+        attempt + 1,
+        MAX_RETRY_ATTEMPTS - 1
+    );
+    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+}
+
 pub async fn generate_embedding(
     context: Arc<AppContext>,
     model: EmbeddingModel,
@@ -142,17 +159,7 @@ pub async fn generate_embedding(
                 // Transport errors (timeouts, connection resets, etc.) are transient.
                 // Retry them with backoff like a 5xx rather than aborting the whole
                 // batch, which would panic and restart the worker.
-                if attempt < MAX_RETRY_ATTEMPTS - 1 {
-                    let sleep_ms = retry_backoff_ms(attempt);
-                    warn!(
-                        "Request to embedding provider failed ({}), retrying in {}ms (attempt {}/{})",
-                        e,
-                        sleep_ms,
-                        attempt + 1,
-                        MAX_RETRY_ATTEMPTS - 1
-                    );
-                    tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
-                }
+                back_off(attempt, "Request to embedding provider failed", &e).await;
                 last_status = None;
                 last_transport_error = Some(e);
                 continue;
@@ -168,8 +175,28 @@ pub async fn generate_embedding(
         if status.is_success() {
             context.update_rate_limits(model, &response).await;
 
+            // The client timeout covers the body read as well as the headers, so a
+            // provider that stalls part way through the body fails here rather than
+            // at `execute`. That is the same transient fault, so retry it instead of
+            // aborting the whole batch.
+            let body = match response.json().await {
+                Ok(body) => body,
+                Err(e) => {
+                    counter!(RESPONSE_DECODE_FAILED, labels.render()).increment(1);
+                    back_off(
+                        attempt,
+                        "Failed to read response body from embedding provider",
+                        &e,
+                    )
+                    .await;
+                    last_status = None;
+                    last_transport_error = Some(e);
+                    continue;
+                }
+            };
+
             let embedding = model
-                .extract_embedding_from_response_body(&response.json().await?)
+                .extract_embedding_from_response_body(&body)
                 .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
 
             request_time.label("outcome", "success").fin();
@@ -215,7 +242,7 @@ pub async fn generate_embedding(
         }
         None => {
             error!(
-                "Failed to generate embeddings, no response from {}: {}",
+                "Failed to generate embeddings, no usable response from {}: {}",
                 model.provider(),
                 last_transport_error
                     .map(|e| e.to_string())
