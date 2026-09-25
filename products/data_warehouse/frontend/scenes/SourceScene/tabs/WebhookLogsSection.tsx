@@ -89,7 +89,7 @@ export function WebhookLogsSection({ hogFunctionId }: { hogFunctionId: string })
     )
 }
 
-type WebhookLogStatusType = 'success' | 'failure' | 'running'
+type WebhookLogStatusType = 'success' | 'skipped' | 'failure' | 'running'
 
 function WebhookLogStatus({ record, hogFunctionId }: { record: GroupedLogEntry; hogFunctionId: string }): JSX.Element {
     const logicProps: LogsViewerLogicProps = {
@@ -105,6 +105,11 @@ function WebhookLogStatus({ record, hogFunctionId }: { record: GroupedLogEntry; 
     const status = useMemo<WebhookLogStatusType>((): WebhookLogStatusType => {
         if (thisRetry === 'pending') {
             return 'running'
+        }
+        // A retry outcome describes this request better than the entries it appended, and a skipped
+        // retry appends no completion line at all.
+        if (thisRetry === 'skipped' || thisRetry === 'failure') {
+            return thisRetry
         }
         if (
             record.entries.some(
@@ -129,7 +134,10 @@ function WebhookLogStatus({ record, hogFunctionId }: { record: GroupedLogEntry; 
                     onChange={(checked) => setSelectedForRetry({ [record.instanceId]: checked })}
                 />
             ) : null}
-            <LemonTag type={status === 'success' ? 'success' : status === 'failure' ? 'danger' : 'warning'}>
+            <LemonTag
+                type={status === 'success' ? 'success' : status === 'failure' ? 'danger' : 'warning'}
+                title={status === 'skipped' ? 'The event did not match the filters on this destination' : undefined}
+            >
                 {capitalizeFirstLetter(status)}
             </LemonTag>
             <LemonMenu

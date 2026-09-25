@@ -11,7 +11,7 @@ import { LogEntryLevel } from '~/types'
 
 import { GroupedLogEntry, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
 
-export type RetryInvocationState = 'pending' | 'success' | 'failure'
+export type RetryInvocationState = 'pending' | 'success' | 'skipped' | 'failure'
 
 const eventIdMatchers = [/Event: ([A-Za-z0-9-]+)/, /\/events\/([A-Za-z0-9-]+)\//, /event ([A-Za-z0-9-]+)/]
 
@@ -126,6 +126,9 @@ export interface hogFunctionLogsLogicActions {
     retryInvocationStarted: (groupedLogEntry: GroupedLogEntry) => {
         groupedLogEntry: GroupedLogEntry
     }
+    retryInvocationSkipped: (groupedLogEntry: GroupedLogEntry) => {
+        groupedLogEntry: GroupedLogEntry
+    }
     retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => {
         groupedLogEntry: GroupedLogEntry
     }
@@ -162,6 +165,30 @@ export type hogFunctionLogsLogicType = MakeLogicType<
     hogFunctionLogsLogicMeta
 >
 
+const RETRY_SKIPPED_MESSAGE =
+    'Retry skipped. The event did not match the filters on this destination, so nothing was sent.'
+
+function retryOutcomeMessage(
+    groupedLogEntries: GroupedLogEntry[],
+    retries: Record<string, RetryInvocationState>
+): string {
+    const outcomes = groupedLogEntries.map((x) => retries[x.instanceId])
+    const skipped = outcomes.filter((x) => x === 'skipped').length
+    const failed = outcomes.filter((x) => x === 'failure').length
+
+    if (!skipped && !failed) {
+        return 'Retries complete!'
+    }
+
+    const parts = [
+        `${outcomes.length - skipped - failed} of ${outcomes.length} retried`,
+        skipped ? `${skipped} skipped by filters` : null,
+        failed ? `${failed} failed` : null,
+    ].filter(Boolean)
+
+    return parts.join(', ')
+}
+
 export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogfunctions', 'logs', 'hogFunctionLogsLogic', key]),
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
@@ -178,6 +205,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         retryInvocations: (groupedLogEntries: GroupedLogEntry[]) => ({ groupedLogEntries }),
         retryInvocationStarted: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
+        retryInvocationSkipped: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationFailure: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retrySelectedInvocations: true,
     }),
@@ -224,6 +252,13 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     return {
                         ...state,
                         [groupedLogEntry.instanceId]: 'success',
+                    }
+                },
+
+                retryInvocationSkipped: (state, { groupedLogEntry }) => {
+                    return {
+                        ...state,
+                        [groupedLogEntry.instanceId]: 'skipped',
                     }
                 },
 
@@ -336,22 +371,38 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                                 invocation_id: groupedLogEntry.instanceId,
                             })
 
-                            const newLogGroup: GroupedLogEntry = {
-                                ...groupedLogEntry,
-                                entries: [
-                                    ...groupedLogEntry.entries,
-                                    ...res.logs.map((x) => ({
-                                        timestamp: dayjs(x.timestamp),
-                                        level: x.level.toUpperCase() as LogEntryLevel,
-                                        message: x.message,
-                                        instanceId: groupedLogEntry.instanceId,
-                                        rawTimestamp: x.timestamp,
-                                    })),
-                                ],
+                            const entries = [
+                                ...groupedLogEntry.entries,
+                                ...res.logs.map((x) => ({
+                                    timestamp: dayjs(x.timestamp),
+                                    level: x.level.toUpperCase() as LogEntryLevel,
+                                    message: x.message,
+                                    instanceId: groupedLogEntry.instanceId,
+                                    rawTimestamp: x.timestamp,
+                                })),
+                            ]
+
+                            if (res.status === 'skipped') {
+                                // The worker reports a filtered retry at info level only, which reads as a normal run.
+                                const now = dayjs()
+                                entries.push({
+                                    timestamp: now,
+                                    level: 'WARN',
+                                    message: RETRY_SKIPPED_MESSAGE,
+                                    instanceId: groupedLogEntry.instanceId,
+                                    rawTimestamp: now.toISOString(),
+                                })
                             }
 
-                            actions.addLogGroups([newLogGroup])
-                            actions.retryInvocationSuccess(groupedLogEntry)
+                            actions.addLogGroups([{ ...groupedLogEntry, entries }])
+
+                            if (res.status === 'skipped') {
+                                actions.retryInvocationSkipped(groupedLogEntry)
+                            } else if (res.status === 'error') {
+                                actions.retryInvocationFailure(groupedLogEntry)
+                            } else {
+                                actions.retryInvocationSuccess(groupedLogEntry)
+                            }
                         } catch {
                             actions.retryInvocationFailure(groupedLogEntry)
                         }
@@ -360,7 +411,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                     actions.setSelectingMany(false)
                 })(),
                 {
-                    success: 'Retries complete!',
+                    success: () => retryOutcomeMessage(groupedLogEntries, values.retries),
                     error: 'Retry failed!',
                     pending: 'Retrying...',
                 }
