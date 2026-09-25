@@ -41,7 +41,12 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canResolveReport,
+    hasOpenImplementationPr,
+    requiresSafetyOverride,
+} from '../../utils/reportActions'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
@@ -131,10 +136,29 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason, isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
+
+    const onCreatePr = (): void => {
+        if (isCreatingPr) {
+            return
+        }
+        captureInboxReportAction({
+            report,
+            actionType: 'create_pr',
+            surface: 'context_menu',
+            extra: { has_feedback: false },
+        })
+        if (requiresSafetyOverride(report)) {
+            // The kickoff listener confirms the override in a dialog, so the menu's close must skip
+            // its focus restore the same way the dismiss and resolve dialogs make it skip.
+            onOpenDialog()
+        }
+        // Self-guards on AI consent (toast) and navigates to the created run.
+        createPrFromReport(report)
+    }
 
     // The row's own selection gestures (hold, Shift-click) are easy to miss, so the menu names
     // the feature outright.
@@ -255,22 +279,31 @@ function ReportContextMenuItems({
         </>
     )
 
-    const onCreatePr = (): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'create_pr',
-            surface: 'context_menu',
-            extra: { has_feedback: false },
-        })
-        // Self-guards on AI consent (toast) and navigates to the created run.
-        createPrFromReport(report)
-    }
+    // A blocked report's flow spans an artefact fetch, a confirmation and two writes, so the menu
+    // can be reopened and clicked again while the first one is still going. The detail pane and
+    // triage already read this state; without it here a second click starts a duplicate run.
+    const createPrBusyReason = isCreatingPr ? 'Already starting a pull request for this report' : null
+    const createPrReason = createPrDisabledReason ?? createPrBusyReason
+    const createPrItem = canCreateImplementationPr(report) ? (
+        <ContextMenuItem asChild disabled={!!createPrReason}>
+            <ButtonPrimitive
+                menuItem
+                onClick={onCreatePr}
+                disabledReasons={createPrReason ? { [createPrReason]: true } : undefined}
+                data-attr="inbox-report-context-menu-create-pr"
+            >
+                <IconPullRequest />
+                Create PR
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : null
 
     if (isDismissed) {
         return (
             <>
                 <ContextMenuGroup>
                     {selectItem}
+                    {createPrItem}
                     <ContextMenuItem asChild>
                         <ButtonPrimitive
                             menuItem
@@ -291,21 +324,9 @@ function ReportContextMenuItems({
         <>
             <ContextMenuGroup>
                 {selectItem}
-                {canCreateImplementationPr(report) && (
+                {createPrItem && (
                     <>
-                        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={onCreatePr}
-                                disabledReasons={
-                                    createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined
-                                }
-                                data-attr="inbox-report-context-menu-create-pr"
-                            >
-                                <IconPullRequest />
-                                Create PR
-                            </ButtonPrimitive>
-                        </ContextMenuItem>
+                        {createPrItem}
                         {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
                         <ContextMenuSeparator />
                     </>

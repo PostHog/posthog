@@ -1,4 +1,4 @@
-import { waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -34,6 +34,8 @@ describe('inboxTaskKickoffLogic', () => {
         let createdTasks: Record<string, unknown>[]
         let startedRuns: Record<string, unknown>[]
         let warmRequests: Record<string, unknown>[]
+        let overrideRequests: Record<string, unknown>[]
+        let overrideStatus: number
         let cancelledRuns: { taskId: string; runId: string; body: Record<string, unknown> }[]
         let warmResponse: Record<string, unknown>
         let warmResponses: Record<string, unknown>[]
@@ -68,6 +70,8 @@ describe('inboxTaskKickoffLogic', () => {
             createdTasks = []
             startedRuns = []
             warmRequests = []
+            overrideRequests = []
+            overrideStatus = 200
             cancelledRuns = []
             warmResponse = {}
             warmResponses = []
@@ -80,6 +84,17 @@ describe('inboxTaskKickoffLogic', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/signals/reports/:id/': report,
+                    '/api/projects/:team/signals/reports/:id/artefacts/': {
+                        count: 1,
+                        results: [
+                            {
+                                id: 'artefact-1',
+                                type: 'safety_judgment',
+                                content: { choice: false, explanation: 'Unsafe instruction.' },
+                                created_at: '2026-06-11T10:00:00Z',
+                            },
+                        ],
+                    },
                     '/api/projects/:team/tasks/@me/config/': async () => {
                         if (runDefaultsGate) {
                             await runDefaultsGate
@@ -88,6 +103,13 @@ describe('inboxTaskKickoffLogic', () => {
                     },
                 },
                 post: {
+                    '/api/projects/:team/signals/reports/:id/safety_override/': async ({ request }) => {
+                        overrideRequests.push((await request.json()) as Record<string, unknown>)
+                        if (overrideStatus !== 200) {
+                            return [overrideStatus, { error: "Refunded reports can't be implemented again." }]
+                        }
+                        return [200, { id: 'report-blocked', status: 'ready' }]
+                    },
                     '/api/projects/:team/tasks/': async ({ request }) => {
                         createdTasks.push((await request.json()) as Record<string, unknown>)
                         if (createStatus !== 201) {
@@ -425,6 +447,35 @@ describe('inboxTaskKickoffLogic', () => {
                 taskId: 'report-task',
                 runId: 'report-run',
             })
+        })
+
+        // A blocked report needs its override recorded before the run exists, and the override is a
+        // separate call that can fail. Starting the run anyway would open a pull request that can
+        // never resolve the report, because it would still be sitting where the safety judge left it.
+        it.each([
+            { name: 'starts the run once the override is recorded', status: 200, expectedTasks: 1 },
+            { name: 'starts no run when the override is refused', status: 409, expectedTasks: 0 },
+        ])('$name', async ({ status, expectedTasks }) => {
+            overrideStatus = status
+            const blocked = makeReport({ id: 'report-blocked', status: SignalReportStatus.SUPPRESSED })
+
+            const kickoff = expectLogic(logic, () => logic.actions.createPrFromReport(blocked)).toFinishAllListeners()
+            fireEvent.click(await screen.findByText('Implement anyway'))
+            await kickoff
+
+            expect(overrideRequests).toHaveLength(1)
+            expect(createdTasks).toHaveLength(expectedTasks)
+        })
+
+        it('records nothing when the person backs out of the confirmation', async () => {
+            const blocked = makeReport({ id: 'report-blocked', status: SignalReportStatus.SUPPRESSED })
+
+            const kickoff = expectLogic(logic, () => logic.actions.createPrFromReport(blocked)).toFinishAllListeners()
+            fireEvent.click(await screen.findByText('Cancel'))
+            await kickoff
+
+            expect(overrideRequests).toEqual([])
+            expect(createdTasks).toEqual([])
         })
 
         it('keeps the optimistic stream when View task opens the run already shown in the panel', () => {

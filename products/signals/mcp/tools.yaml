@@ -1231,6 +1231,9 @@ tools:
     signals-reports-reviewers-update:
         operation: signals_reports_reviewers_update
         enabled: false
+    signals-reports-safety-override-create:
+        operation: signals_reports_safety_override_create
+        enabled: false
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve
         enabled: false

@@ -1,11 +1,24 @@
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
 // Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
-// the list row context menu, so the surfaces cannot drift apart. Mirrors desktop `reportActions.ts`.
-import { primaryReportPullRequest, hasActiveReportPullRequest } from './reportPullRequests'
+// the list row context menu, so the surfaces cannot drift apart. The desktop app's own
+// `reportActions.ts` deliberately stays narrower: it has no confirmation surface for the override.
+
+import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
+import { hasActiveReportPullRequest, primaryReportPullRequest } from './reportPullRequests'
 
 /**
- * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
- * the server-side autostart rules: only when ready & actionable, or blocked on user input.
+ * Statuses a report sits in when PostHog declined to implement it on its own: the safety judge
+ * rejected it (born suppressed, or failed), or the pipeline has not researched it yet.
+ */
+export const SAFETY_OVERRIDE_STATUSES: readonly SignalReportStatus[] = [
+    SignalReportStatus.POTENTIAL,
+    SignalReportStatus.CANDIDATE,
+    SignalReportStatus.FAILED,
+    SignalReportStatus.SUPPRESSED,
+]
+
+/**
+ * Should the Create PR action be offered? A report the pipeline approved (ready & actionable, or
+ * blocked on user input) offers it directly; a blocked one offers it behind a confirmation.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
     if (primaryReportPullRequest(report).url) {
@@ -14,13 +27,29 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.already_addressed === true) {
         return false
     }
+    // A refunded report can never be billed again, so the server refuses to put it back where the
+    // pipeline acts on it. Offering the button anyway would be a dead end.
+    if (report.refund) {
+        return false
+    }
     if (report.status === 'pending_input') {
         return true
     }
     if (report.status === 'ready') {
         return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
     }
-    return false
+    return requiresSafetyOverride(report)
+}
+
+/**
+ * Does pressing Create PR on this report overrule a decision PostHog already made? Such a report
+ * needs the confirmation and the recorded override before the run starts.
+ *
+ * `not_actionable` is excluded even here, because that judgment says the report holds no work to
+ * do, which is a different claim from "we would not risk it".
+ */
+export function requiresSafetyOverride(report: SignalReport): boolean {
+    return SAFETY_OVERRIDE_STATUSES.includes(report.status) && report.actionability !== 'not_actionable'
 }
 
 export function canResolveReport(report: SignalReport): boolean {

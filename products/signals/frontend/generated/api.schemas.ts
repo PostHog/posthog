@@ -1434,6 +1434,14 @@ export interface SignalReportSuggestedReviewersArtefactApi {
     readonly task_id: string | null
 }
 
+export interface SignalReportSafetyOverrideRequestApi {
+    /**
+     * Optional instructions the person gave the run when they overruled the judgment. Recorded on the override so the work log says what they asked for, and passed to the agent separately as the task's prompt. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
 /**
  * * `session_replay` - session_replay
  * * `llm_analytics` - llm_analytics

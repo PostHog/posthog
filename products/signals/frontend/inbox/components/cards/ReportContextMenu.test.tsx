@@ -48,12 +48,25 @@ function menuRowText(): (string | null)[] {
 
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+    let overrideRequests: { reportId: string; body: Record<string, unknown> }[]
 
     beforeEach(() => {
         stateRequests = []
+        overrideRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/signals/reports/:report_id/artefacts/': {
+                    count: 1,
+                    results: [
+                        {
+                            id: 'artefact-1',
+                            type: 'safety_judgment',
+                            content: { choice: false, explanation: "Unsafe instruction in the report's signals." },
+                            created_at: '2026-06-11T10:00:00Z',
+                        },
+                    ],
+                },
             },
             post: {
                 '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
@@ -63,6 +76,15 @@ describe('ReportContextMenu', () => {
                     })
                     return [200, {}]
                 },
+                '/api/projects/:team_id/signals/reports/:report_id/safety_override/': async ({ request, params }) => {
+                    overrideRequests.push({
+                        reportId: params.report_id as string,
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [200, { id: params.report_id, status: 'ready' }]
+                },
+                '/api/projects/:team_id/tasks/': { id: 'task-1' },
+                '/api/projects/:team_id/tasks/:task_id/run/': { id: 'run-1' },
             },
         })
         initKeaTests()
@@ -91,9 +113,39 @@ describe('ReportContextMenu', () => {
             expected: ['Select', 'Dismiss', 'Reviewers'],
         },
         {
-            name: 'a dismissed report only offers restore',
+            name: 'a dismissed report offers restore, and creating a PR anyway',
             report: makeReport({ status: SignalReportStatus.SUPPRESSED }),
+            expected: ['Select', 'Create PR', 'Restore'],
+        },
+        // The statuses PostHog declined to implement from. Create PR is offered behind a
+        // confirmation; the verdict submenus stay hidden because those transitions still 409.
+        {
+            name: 'an unresearched report offers creating a PR anyway',
+            report: makeReport({ status: SignalReportStatus.POTENTIAL, actionability: null }),
+            expected: ['Select', 'Create PR', 'Dismiss', 'Reviewers'],
+        },
+        {
+            name: 'a failed report offers creating a PR anyway',
+            report: makeReport({ status: SignalReportStatus.FAILED, actionability: null }),
+            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers'],
+        },
+        // The product's own reading is that this report holds no work, which is a different claim
+        // from "we would not risk it" — so the escape hatch does not apply to it.
+        {
+            name: 'a not-actionable dismissed report offers only restore',
+            report: makeReport({ status: SignalReportStatus.SUPPRESSED, actionability: 'not_actionable' }),
             expected: ['Select', 'Restore'],
+        },
+        // A refunded report can never be billed again, so the server refuses to implement it. The
+        // button would 409, and the refunded-dismissed row renders no menu at all.
+        {
+            name: 'a refunded report does not offer creating a PR anyway',
+            report: makeReport({
+                status: SignalReportStatus.POTENTIAL,
+                actionability: null,
+                refund: { id: 'refund-1' } as unknown as SignalReport['refund'],
+            }),
+            expected: ['Select', 'Dismiss', 'Reviewers'],
         },
     ])('$name', ({ report, expected }) => {
         openMenu(report)
@@ -197,5 +249,29 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+    })
+
+    // Create PR on a report PostHog declined to implement must state the reason and wait, and the
+    // person's decision has to be recorded before a run exists — without the recorded override the
+    // merged PR would leave the report sitting where the safety judge left it.
+    it('routes Create PR on a blocked report through the confirmation', async () => {
+        openMenu(makeReport({ status: SignalReportStatus.SUPPRESSED }))
+
+        fireEvent.click(screen.getByText('Create PR'))
+
+        expect(await screen.findByText('Implement "Report one" anyway?')).toBeInTheDocument()
+        expect(await screen.findByText(/Unsafe instruction in the report's signals/)).toBeInTheDocument()
+        expect(overrideRequests).toEqual([])
+    })
+
+    it('records the override and starts the run once the person confirms', async () => {
+        openMenu(makeReport({ status: SignalReportStatus.SUPPRESSED }))
+
+        fireEvent.click(screen.getByText('Create PR'))
+        fireEvent.click(await screen.findByText('Implement anyway'))
+
+        await waitFor(() => {
+            expect(overrideRequests).toEqual([{ reportId: 'report-1', body: {} }])
+        })
     })
 })

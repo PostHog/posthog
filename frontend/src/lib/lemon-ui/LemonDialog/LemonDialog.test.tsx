@@ -10,7 +10,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 import { initKeaTests } from '~/test/init'
 
-import { LemonFormDialog } from './LemonDialog'
+import { LemonDialog, LemonFormDialog } from './LemonDialog'
 
 describe('LemonFormDialog', () => {
     let captureException: jest.SpyInstance
@@ -94,5 +94,26 @@ describe('LemonFormDialog', () => {
         await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    // `openForm` owns the dialog's React root and has to tear it down when the dialog closes, which
+    // is easy to do by replacing the caller's `onAfterClose` instead of running it first. A caller
+    // that awaits the dialog's outcome (`onAfterClose: () => resolve(null)`) then never hears about
+    // a dismissal, and whatever it is holding open stays open forever.
+    it.each([
+        ['confirmed', 'Submit'],
+        ['dismissed', 'Cancel'],
+    ])('tells the caller when an imperatively opened dialog is %s', async (_outcome, button) => {
+        const onAfterClose = jest.fn()
+
+        LemonDialog.openForm({
+            title: 'Imperative dialog',
+            initialValues: {},
+            onSubmit: () => undefined,
+            onAfterClose,
+        })
+        await userEvent.click(await screen.findByText(button))
+
+        await waitFor(() => expect(onAfterClose).toHaveBeenCalled())
     })
 })
