@@ -27,6 +27,7 @@ from posthog.schema import HogQLAlertConfig, HogQLAlertEvaluation, HogQLQueryMod
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.paginators import get_query_limit
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -48,14 +49,19 @@ INCREMENTAL_DETECTOR_HISTORY_FLAG = "alerts-incremental-detector-history"
 DEFAULT_MARGIN_HOURS = 3
 # Buckets older than the window plus this are dropped on write, so the table stays a fixed size
 # per alert while leaving headroom for a window that grows.
+# Two days of headroom past the window, so buckets a widened gap scan could still reuse
+# survive missed checks; mirrors lazy_computation's 48h retention buffer.
 PRUNE_EXTRA_HOURS = 48
 
 # The app clock and the ClickHouse clock can disagree. An hour of headroom on the narrowed scan
 # means a disagreement makes that scan slightly wider, never leaves a bucket unread.
+# App clock vs warehouse clock slack, same caution as data_freshness.py's skew ceiling.
 _CLOCK_SKEW_HOURS = 1
-# One full scan a day bounds the drift the insert probe cannot see: person merges, dedup
-# collapses and partition attaches change old buckets without inserting a single event row.
+# Bounds the drift no insert signal reveals (person merges, dedup collapses, partition
+# attaches). The whole cache path, this included, goes away with the feature flag.
 RESEED_INTERVAL_HOURS = 24
+# One day inside events_recent's 9-day TTL, so the probe never trusts a horizon it cannot see.
+_PROBE_HORIZON_HOURS = 8 * 24
 
 # One result row: the bucket cell as the query returned it, then the value.
 _Row = list[Any]
@@ -67,10 +73,9 @@ RunQuery = Callable[..., tuple[list, list[str] | None]]
 def _shadow_compare(
     rows: list[_Row], matched: DetectorSeriesQuery, team: Team, anchor: datetime, run_query: RunQuery
 ) -> dict[str, object]:
-    """Sampled observe-only check that a cache-served series matches what the full scan returns.
+    """Sampled, observe-only: does the cache-served series match a full scan right now?
 
-    Beyond the refresh margin history is as measured, so a person merge can move an old bucket;
-    the event reports the divergence so the rollout can watch its size, rather than failing.
+    Divergence is reported, never raised — it is the measurement of accepted identity drift.
     """
     rate = settings.ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE
     if not rate or random.random() >= rate:
@@ -90,7 +95,7 @@ def _shadow_compare(
 
 
 def _capture_outcome(alert: AlertConfiguration, outcome: str, **props: object) -> None:
-    """One event per served detector check, so the flag rollout has a cache-engagement signal."""
+    """One event per flagged check: the rollout's cache-engagement funnel."""
     ph_background_capture()(
         distinct_id=str(alert.id),
         event="alert detector cache outcome",
@@ -159,6 +164,10 @@ def detector_rows_from_history(
         return rebuild("no_watermark")
     if now - state.seeded_at >= timedelta(hours=RESEED_INTERVAL_HOURS):
         return rebuild("scheduled_reseed")
+    if now - state.watermark >= timedelta(hours=_PROBE_HORIZON_HOURS):
+        # events_recent only holds ~9 days; a watermark older than that could have missed
+        # inserts the probe can no longer see.
+        return rebuild("stale_watermark")
 
     window_start = anchor - timedelta(hours=matched.window_hours)
     probed = _changed_buckets(team, team_id, state.watermark, window_start, anchor)
@@ -202,6 +211,11 @@ def detector_rows_from_history(
     rows = _assemble(merged, matched, anchor)
     if len(rows) < min_samples:
         return rebuild("short_assembly")
+    explicit_limit = get_query_limit(matched.parsed)
+    if explicit_limit is not None and len(rows) >= explicit_limit:
+        # Tail scans never trip the query's own LIMIT, so an assembly at it may hold rows a
+        # full run would report as truncated. The full scan's completeness guard decides.
+        return rebuild("beyond_limit")
     shadow = _shadow_compare(rows, matched, team, anchor, run_query)
     _capture_outcome(
         alert,
@@ -316,13 +330,11 @@ def _load_state(team_id: int, alert_id: Any, fingerprint: str) -> AlertSeriesSta
 def _changed_buckets(
     team: Team, team_id: int, watermark: datetime, window_start: datetime, anchor: datetime
 ) -> list[datetime] | None:
-    """Event-hours inside the window that received rows after ``watermark``.
+    """Event-hours in the window that received rows after ``watermark``, from events_recent.
 
-    ``events_recent`` is fed by a materialized view off the events table itself and is keyed by
-    insert time, so any insert that can change a bucket is visible here whatever the event
-    timestamp's age, and reading it costs megabytes where the same question against ``events``
-    reads the whole window. An error returns None, so a probe outage degrades to the margin scan
-    instead of failing the check.
+    That table sees every insert (a materialized view off the events table) keyed by insert
+    time, so lateness of any age is visible at megabytes of read instead of the full window.
+    None on error: a probe outage degrades to the margin scan, never fails the check.
     """
     try:
         rows = sync_execute(
@@ -394,13 +406,11 @@ def _write(
     watermark: datetime | None = None,
     seeded_at: datetime | None = None,
 ) -> None:
-    """Store what the scan read, drop what it proved is gone, and prune what aged out.
+    """Store what the scan read, drop what it proved gone, prune what aged out.
 
-    ``authoritative_buckets`` are the buckets the scan actually read, so one of them that the
-    scan did not return holds no rows any more and its cached value has to go. A bucket with no
-    rows is never written as a zero — it is a bucket with no row here, which is what the full
-    scan reports too. The probe bookkeeping advances in the same transaction as the buckets it
-    vouches for, so a crash between the two re-detects instead of silently skipping.
+    A scanned bucket the scan did not return has no rows any more, so its cached value goes
+    (never a zero — the full scan omits it too). The watermark advances in the same
+    transaction as the buckets it vouches for: a crash re-detects, never skips.
     """
     with transaction.atomic():
         _points(team_id, alert_id).filter(bucket__lt=prune_before).delete()
