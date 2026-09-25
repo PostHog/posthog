@@ -50,6 +50,7 @@ WRITABLE_METRICS4_ATTRIBUTES_TABLE_NAME = "writable_metrics4_attributes"
 METRICS4_MAX_SAMPLES_PER_SERIES_HOUR = 10_000
 METRICS4_VIEW_NAME = "metrics4_view"
 # metrics2 serves the hours before the cut-over. metrics4_samples serves the cut-over hour and later.
+# The view is temporary. After 2026-10-14, the 30-day retention removes all metrics2 data.
 METRICS4_VIEW_METRICS2_START = "2026-08-25 00:00:00"
 METRICS4_VIEW_CUTOVER = "2026-09-14 00:00:00"
 
@@ -499,6 +500,8 @@ SELECT
 FROM {db}.metrics2
 WHERE time_bucket > toDateTime('{METRICS4_VIEW_METRICS2_START}')
     AND time_bucket < toDateTime('{METRICS4_VIEW_CUTOVER}')
+    AND timestamp > toDateTime('{METRICS4_VIEW_METRICS2_START}')
+    AND timestamp < toDateTime('{METRICS4_VIEW_CUTOVER}')
 UNION ALL
 SELECT
     team_id,
