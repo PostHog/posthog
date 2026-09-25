@@ -11600,6 +11600,10 @@ snapshots:
         hash: v1.k794b7964.d4169f92563f1a61588ba823f6be7392267558bfbb86124b6e53ec9b18056418.iKEx9vQEw72HqX58dUDsyxmsH-qtEXIeb6MqQMByB8Y
     scenes-app-tasks--ai-task-selected--light:
         hash: v1.k794b7964.e0a6374da2da7262d08d1992bea3898259837679f5676f4330400d27559ac5d2.68EwF3z0RoO2K9aUGYr1XiQ_dRiNa6XtreqmKjXsfVg
+    scenes-app-tasks--cloud-task-selected--dark:
+        hash: v1.k794b7964.43949ecd391d896158383c255c88db2141b340fbd58f93849550f8474772c98c.73jTyE13P_BrAYaxpfekunmwxSV2Vgm43Ht3gth2QNg
+    scenes-app-tasks--cloud-task-selected--light:
+        hash: v1.k794b7964.55d4a76eafe772911f2d3aa43363f0a4f3a09fe6b791d17ab041c33869d45d16.gniKz4VTPvIxV1ivUZxennv6AmcTsx2UDsIwrTwUHL4
     scenes-app-tasks--composer--dark:
         hash: v1.k794b7964.7eef9b267cd20f210bf5f20c395acbd04f412df23a4e5591fb5513ffd82334e8.IPg6Br9tL3KbGN-SdYcgmmoT8ftICA72iN4UafDeT_8
     scenes-app-tasks--composer--light:
