@@ -2337,6 +2337,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
 
+    def test_order_by_with_fill_takes_a_date_bound(self):
+        query = (
+            "SELECT _toDate('2024-01-01') + toIntervalDay(number) AS day FROM numbers(1) "
+            "ORDER BY day WITH FILL FROM toDate('2024-01-01') TO toDate('2024-01-04') STEP toIntervalDay(1)"
+        )
+
+        response = execute_hogql_query(query, team=self.team)
+
+        self.assertEqual(
+            [row[0] for row in response.results],
+            [datetime.date(2024, 1, 1), datetime.date(2024, 1, 2), datetime.date(2024, 1, 3)],
+        )
+
     def test_metadata_handles_lazy_joins(self):
         query = "SELECT events.session.id from events"
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
