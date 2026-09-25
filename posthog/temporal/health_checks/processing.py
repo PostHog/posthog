@@ -4,6 +4,7 @@ import structlog
 
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
+from posthog.temporal.health_checks.live_gate import partition_teams_by_posture
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
@@ -13,13 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def run_check_for_team(kind: str, team_id: int) -> BatchResult:
-    """Run one registered check for one team, honoring the check's `dry_run`.
-
-    The one entry point for manual single-team paths (the Health page refresh task, agent
-    tools), so no caller can forget to forward the registration's `dry_run` again.
-
-    Raises KeyError for an unregistered kind.
-    """
+    """Run a registered check for one team with its configured dry-run default."""
     ensure_registry_loaded()
     return _process_batch_detection(
         team_ids=[team_id],
@@ -48,26 +43,35 @@ def _process_batch_detection(
     result.teams_with_issues = len(issues_by_team)
     result.teams_healthy = len(team_ids) - len(issues_by_team) - teams_dropped
 
-    if dry_run:
-        issue_count = sum(len(v) for v in issues_by_team.values())
+    live_team_ids, dry_team_ids = partition_teams_by_posture(kind, team_ids, default_dry_run=dry_run)
+
+    if dry_team_ids:
+        dry_issues_by_team = {t: issues_by_team[t] for t in dry_team_ids if t in issues_by_team}
         logger.info(
             "dry run complete, skipping DB writes",
             kind=kind,
-            teams_with_issues=result.teams_with_issues,
-            issue_count=issue_count,
-            teams_healthy=result.teams_healthy,
+            teams_dry=len(dry_team_ids),
+            teams_live=len(live_team_ids),
+            teams_with_issues=len(dry_issues_by_team),
+            issue_count=sum(len(v) for v in dry_issues_by_team.values()),
         )
+
+    if not live_team_ids:
         return result
 
+    live_ids = set(live_team_ids)
+    # A dry team passed to resolution would lose its active issues and emit resolved alerts.
+    live_issues_by_team = {t: results for t, results in issues_by_team.items() if t in live_ids}
+
     start = time.monotonic()
-    newly_active = upsert_issues_with_deltas(kind, issues_by_team)
+    newly_active = upsert_issues_with_deltas(kind, live_issues_by_team)
     result.issues_upserted = len(newly_active)
     result.db_write_duration = time.monotonic() - start
 
-    healthy_team_ids = set(team_ids) - set(issues_by_team.keys())
+    healthy_team_ids = live_ids - set(live_issues_by_team.keys())
 
     start = time.monotonic()
-    newly_resolved = resolve_stale_issues_with_deltas(kind, issues_by_team, healthy_team_ids)
+    newly_resolved = resolve_stale_issues_with_deltas(kind, live_issues_by_team, healthy_team_ids)
     result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
 

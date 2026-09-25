@@ -97,17 +97,17 @@ class HealthCheck:
         raise NotImplementedError
 ```
 
-| Attribute                 | Type                    | Default                    | Description                                                                                                                       |
-| ------------------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                         |
-| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                    |
-| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                |
-| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                               |
-| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                |
-| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |
-| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                |
-| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI |
-| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams        |
+| Attribute                 | Type                    | Default                    | Description                                                                                                                                                                            |
+| ------------------------- | ----------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                                                                              |
+| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                                                                         |
+| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                                                                     |
+| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                                                                                    |
+| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                                                                     |
+| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                                                                           |
+| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                                                                     |
+| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). The default posture only: a per-team feature flag overrides it (see [Live gate](#live-gate)), and the admin UI overrides it per run |
+| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams                                                             |
 
 ## `HealthCheckResult`
 
@@ -143,6 +143,36 @@ On each check run, for every team in the batch:
 
 1. **Upsert** — Issues returned by the detector are written (or updated) as `status=active`.
 2. **Resolve** — Active issues for checked teams that were _not_ returned by the detector are marked `status=resolved`.
+
+## Live gate
+
+`dry_run` is a class attribute, so it is frozen at import and baked into the Temporal schedule at deploy time.
+A feature flag decides the posture per team instead, read once per team between detection and the write.
+
+The flag key is a convention, so every check has one without a registry change: `health-check-<kind>-live`, with the kind's underscores written as hyphens.
+The `stale_feature_flags` check reads `health-check-stale-feature-flags-live`.
+
+| Flag reads | Posture for that team                  |
+| ---------- | -------------------------------------- |
+| `true`     | Live. The team's issues are written    |
+| `false`    | Dry. The team's issues are logged only |
+| nothing    | The check's own `dry_run` decides      |
+
+"Nothing" covers a flag that does not exist, a flag the local evaluation cache has not loaded, an evaluation that raised, and a flag whose conditions cannot be decided locally.
+A kind with no flag therefore behaves exactly as its `dry_run` says, and an unreadable flag never turns a dry check live.
+
+Both writes are scoped to the live teams, the resolve as well as the upsert.
+A dry team keeps its existing active issues, and alerts follow the write, so a dry team produces no `firing` and no `resolved` event.
+
+### Configuring the flag
+
+Evaluation is local-only, because a batch is hundreds of teams and a remote read would be one HTTP call each.
+Local evaluation can only decide conditions it can compute from what the gate sends, which is the team id under two shapes:
+
+- `team_<id>` as the distinct id, so a percentage rollout works.
+- the `project` group with `id` set to the team id, so a single team is targetable by `project.id`.
+
+A release condition on any other property is inconclusive and reads as nothing, which leaves the check on its own posture.
 
 ## Execution policies
 
@@ -233,7 +263,7 @@ The `get_team_id_batches` activity returns an empty list, and the workflow compl
 
 Health checks can be triggered manually from the Django admin at `/admin/health_checks/`. Staff access is required. The trigger form allows overriding:
 
-- **dry_run** — run detection without writing to the database
+- **dry_run** — run detection without writing to the database, for every team the [live gate](#live-gate) does not enable
 - **batch_size** — teams per batch (1–10,000)
 - **max_concurrent** — concurrent batch activities (1–20)
 - **rollout_percentage** — fraction of teams to process (0.01–1.0)

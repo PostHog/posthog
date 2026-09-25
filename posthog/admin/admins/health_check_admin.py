@@ -18,7 +18,10 @@ logger = structlog.get_logger(__name__)
 
 
 class HealthCheckTriggerForm(forms.Form):
-    dry_run = forms.BooleanField(required=False, help_text="Run without writing changes to the database")
+    dry_run = forms.BooleanField(
+        required=False,
+        help_text="Skip database writes unless the health-check-<kind>-live feature flag enables a team.",
+    )
     batch_size = forms.IntegerField(min_value=1, max_value=10000, help_text="Number of teams per batch")
     max_concurrent = forms.IntegerField(min_value=1, max_value=20, help_text="Max concurrent batch activities")
     rollout_percentage = forms.FloatField(
