@@ -1,22 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import * as partyPng from '@posthog/brand/hoggies/png/party'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { pluralize } from 'lib/utils/strings'
 
 import { ReputationActionRow } from './ReputationActionRow'
-import { SEVERITY_STYLE } from './reputationUtils'
-import { workflowsReputationLogic } from './workflowsReputationLogic'
-
-const HedgehogParty = pngHoggie(partyPng)
+import { ReputationNothingToFixState } from './ReputationNothingToFixState'
+import { actionStyle } from './reputationUtils'
+import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 const COLLAPSED_COUNT = 5
 
 export function ReputationActionList(): JSX.Element {
-    const { reputationActions, showAllActions, awsReputation, ispSendingHealth } = useValues(workflowsReputationLogic)
-    const { toggleShowAllActions } = useActions(workflowsReputationLogic)
+    const { reputationActions, showAllActions } = useValues(workflowsReputationActionsLogic)
+    const { toggleShowAllActions } = useActions(workflowsReputationActionsLogic)
     // Collapse only when at least two rows would be hidden. Hiding one row saves no space over
     // showing it.
     const canCollapse = reputationActions.length > COLLAPSED_COUNT + 1
@@ -25,22 +22,7 @@ export function ReputationActionList(): JSX.Element {
     const hiddenCount = reputationActions.length - COLLAPSED_COUNT
 
     if (reputationActions.length === 0) {
-        return (
-            <LemonCard
-                hoverEffect={false}
-                className="flex flex-col items-center text-center gap-2 px-4 py-8"
-                data-attr="workflows-reputation-nothing-to-fix"
-            >
-                <HedgehogParty className="w-32" />
-                <h2 className="text-base font-semibold mb-0">Nothing to fix right now</h2>
-                <p className="text-secondary max-w-120 mb-0">
-                    {awsReputation
-                        ? 'Your email provider has not flagged anything, and no workflow is over the bounce or spam complaint lines.'
-                        : 'No workflow is over the bounce or spam complaint lines.'}
-                    {ispSendingHealth.length > 0 && ' Every mailbox provider is under the bounce line too.'}
-                </p>
-            </LemonCard>
-        )
+        return <ReputationNothingToFixState />
     }
 
     return (
@@ -48,7 +30,7 @@ export function ReputationActionList(): JSX.Element {
             <div className="px-4 py-3 border-b">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-base font-semibold mb-0">Improve your sending reputation</h2>
-                    <LemonTag type={SEVERITY_STYLE[reputationActions[0].severity].tagType}>
+                    <LemonTag type={actionStyle(reputationActions[0]).tagType}>
                         {pluralize(reputationActions.length, 'item')}
                     </LemonTag>
                 </div>

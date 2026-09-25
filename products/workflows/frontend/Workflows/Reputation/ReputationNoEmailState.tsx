@@ -6,12 +6,12 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 
 import { REPUTATION_DOCS_URL } from './reputationUtils'
-import { workflowsReputationLogic } from './workflowsReputationLogic'
+import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 const HedgehogMailbox = pngHoggie(mailboxPng)
 
 export function ReputationNoEmailState(): JSX.Element {
-    const { tabUrl } = useValues(workflowsReputationLogic)
+    const { tabUrl } = useValues(workflowsReputationActionsLogic)
     return (
         <LemonCard
             hoverEffect={false}

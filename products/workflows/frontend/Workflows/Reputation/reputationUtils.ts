@@ -4,11 +4,14 @@ import { percentage } from 'lib/utils/numbers'
 
 import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { ReputationActionSeverity } from './reputationActions'
+import type { ReputationAction, ReputationActionSeverity } from './reputationActions'
 
 export const REPUTATION_DOCS_URL = 'https://posthog.com/docs/workflows/sending-reputation'
+// pinned: the anchors below are headings on posthog.com, so renaming a heading breaks its link
 export const SENDING_TIERS_DOCS_URL = `${REPUTATION_DOCS_URL}#sending-allowance-tiers`
-export const CONFIGURE_CHANNELS_DOCS_URL = 'https://posthog.com/docs/workflows/configure-channels'
+export const LOWER_RATES_DOCS_URL = `${REPUTATION_DOCS_URL}#how-do-i-keep-my-bounce-and-complaint-rates-low`
+export const CHANNEL_SETUP_DOCS_URL =
+    'https://posthog.com/docs/workflows/configure-channels#create-a-new-workflows-channel'
 
 // Must match the endpoint's window (HogFlowViewSet.REPUTATION_WINDOW_DAYS) and cap
 // (HogFlowViewSet.WORKFLOW_REPUTATION_LIMIT).
@@ -26,13 +29,23 @@ export const RATE_KINDS: Record<RateKind, { event: string; events: string; findi
     complaint: { event: 'spam complaint', events: 'spam complaints', findingType: 'COMPLAINT' },
 }
 
-export const SEVERITY_STYLE: Record<
-    ReputationActionSeverity,
-    { label: string; tagType: LemonTagType; border: string }
-> = {
-    high: { label: 'Fix now', tagType: 'danger', border: 'border-l-danger' },
-    medium: { label: 'Needs attention', tagType: 'warning', border: 'border-l-warning' },
-    low: { label: 'Worth a look', tagType: 'muted', border: 'border-l-muted' },
+type ReputationActionTone = 'blocking' | ReputationActionSeverity
+
+// Red is only for items that stop email going out. The rest step down from a warning to plain
+// tones, so the order of the list, not its color, says what is worst.
+const ACTION_STYLE: Record<ReputationActionTone, { label: string; tagType: LemonTagType; border: string }> = {
+    blocking: { label: 'Sending paused', tagType: 'danger', border: 'border-l-danger' },
+    high: { label: 'Fix now', tagType: 'warning', border: 'border-l-warning' },
+    medium: { label: 'Needs attention', tagType: 'default', border: 'border-l-transparent' },
+    low: { label: 'Worth a look', tagType: 'muted', border: 'border-l-transparent' },
+}
+
+export function actionStyle(action: Pick<ReputationAction, 'blocksSending' | 'severity'>): {
+    label: string
+    tagType: LemonTagType
+    border: string
+} {
+    return ACTION_STYLE[action.blocksSending ? 'blocking' : action.severity]
 }
 
 /** An unnamed workflow shows its id, so the action list and the table name it the same way. */
