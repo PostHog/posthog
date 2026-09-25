@@ -574,7 +574,6 @@ class PostgreSQLClient:
         self,
         merge_query: sql.Composed,
         schema: str,
-        timeout: float | int | None,
         lock_timeout: float | int,
     ) -> None:
         """Run one merge attempt in its own transaction."""
@@ -594,8 +593,7 @@ class PostgreSQLClient:
                 except psycopg.Error:
                     self.logger.warning("Failed to set lock_timeout for merge", exc_info=True)
 
-                async with asyncio.timeout(timeout):
-                    await cursor.execute(merge_query)
+                await cursor.execute(merge_query)
 
     async def amerge_mutable_tables(
         self,
@@ -635,7 +633,8 @@ class PostgreSQLClient:
         )
 
         try:
-            await merge_with_retries(merge_query, schema, timeout, lock_timeout)
+            async with asyncio.timeout(timeout):
+                await merge_with_retries(merge_query, schema, lock_timeout)
         except psycopg.errors.InvalidColumnReference:
             raise MissingPrimaryKeyError(final_table, _join_field_names(merge_key))
         except TimeoutError as e:
