@@ -15,23 +15,19 @@ import DataGrid, {
 } from 'react-data-grid'
 
 import {
-    IconCode,
     IconColumns,
     IconCopy,
     IconDownload,
     IconExpand45,
     IconGear,
     IconGraph,
-    IconMinus,
-    IconPlus,
     IconShare,
     IconScreen,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -43,7 +39,6 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -61,6 +56,7 @@ import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisua
 import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
+import { RowDetailsModal } from '~/queries/nodes/DataVisualization/Components/RowDetailsModal'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -101,14 +97,6 @@ import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
-
-interface RowDetailsModalProps {
-    isOpen: boolean
-    onClose: () => void
-    row: Record<string, any> | null
-    columns: string[]
-    columnKeys: string[]
-}
 
 const ONE_DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000
 
@@ -224,137 +212,6 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
 const isDateTimeType = (type: string | undefined): boolean => {
     const cleanedType = cleanClickhouseType(type)
     return cleanedType === 'DateTime' || cleanedType === 'DateTime32' || cleanedType === 'DateTime64'
-}
-
-function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
-    const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
-    const [wordWrap, setWordWrap] = useState<Record<string, boolean>>({})
-
-    if (!row) {
-        return <></>
-    }
-
-    const isJsonString = (str: string): boolean => {
-        try {
-            const parsed = JSON.parse(str)
-            return typeof parsed === 'object' && parsed !== null
-        } catch {
-            return false
-        }
-    }
-
-    const tableData = columns.map((column, index) => {
-        const columnKey = columnKeys[index]
-        const value = row[columnKey]
-        const isStringifiedJson = typeof value === 'string' && isJsonString(value)
-        const isJson = typeof value === 'object' || isStringifiedJson
-        const jsonValue = isStringifiedJson ? JSON.parse(value) : value
-
-        return {
-            column,
-            isJson,
-            rawValue:
-                value === null
-                    ? 'null'
-                    : typeof value === 'object' || isStringifiedJson
-                      ? JSON.stringify(value, null, 2)
-                      : String(value),
-            value:
-                value === null ? (
-                    <span className="text-muted">null</span>
-                ) : isJson ? (
-                    <div className="flex gap-2 w-full">
-                        <div className="w-full overflow-hidden">
-                            {showRawJson[column] ? (
-                                <pre
-                                    className={clsx(
-                                        'm-0 font-mono',
-                                        wordWrap[column]
-                                            ? 'whitespace-pre-wrap break-all'
-                                            : 'overflow-x-auto hide-scrollbar'
-                                    )}
-                                >
-                                    {String(value)}
-                                </pre>
-                            ) : (
-                                <div className="overflow-x-auto max-w-full">
-                                    <JSONViewer src={jsonValue} name={null} collapsed={1} sortKeys={true} />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
-                    </div>
-                ),
-        }
-    })
-
-    return (
-        <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
-            <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
-                <LemonTable
-                    dataSource={tableData}
-                    className="w-full table-fixed"
-                    columns={[
-                        {
-                            title: 'Column',
-                            dataIndex: 'column',
-                            className: 'font-semibold',
-                            width: '35%',
-                            render: (_, record) => <span title={record.column}>{record.column}</span>,
-                        },
-                        {
-                            title: 'Value',
-                            dataIndex: 'value',
-                            className: 'px-4 overflow-hidden',
-                            width: '65%',
-                            render: (_, record) => (
-                                <div className="flex items-center gap-2 w-full">
-                                    <div className="flex-1 overflow-x-auto pr-2">{record.value}</div>
-                                    <div className="flex flex-row gap-1 flex-shrink-0 ml-auto">
-                                        {record.isJson && record.rawValue && record.rawValue != 'null' && (
-                                            <LemonButton
-                                                size="small"
-                                                icon={<IconCode />}
-                                                onClick={() =>
-                                                    setShowRawJson((prev) => ({
-                                                        ...prev,
-                                                        [record.column]: !prev[record.column],
-                                                    }))
-                                                }
-                                                tooltip={showRawJson[record.column] ? 'Show formatted' : 'Show raw'}
-                                            />
-                                        )}
-                                        {showRawJson[record.column] && (
-                                            <LemonButton
-                                                size="small"
-                                                icon={wordWrap[record.column] ? <IconMinus /> : <IconPlus />}
-                                                onClick={() =>
-                                                    setWordWrap((prev) => ({
-                                                        ...prev,
-                                                        [record.column]: !prev[record.column],
-                                                    }))
-                                                }
-                                                tooltip={wordWrap[record.column] ? 'Collapse' : 'Expand'}
-                                            />
-                                        )}
-                                        <LemonButton
-                                            size="small"
-                                            icon={<IconCopy />}
-                                            onClick={() => void copyToClipboard(record.rawValue, 'value')}
-                                            tooltip="Copy value"
-                                        />
-                                    </div>
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
-            </div>
-        </LemonModal>
-    )
 }
 
 interface OutputTabLabelProps {
@@ -975,9 +832,14 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <RowDetailsModal
                 isOpen={!!selectedRow}
                 onClose={() => setSelectedRow(null)}
-                row={selectedRow}
                 columns={response?.columns || []}
-                columnKeys={response?.columns?.map((column: string, index: number) => `${column}_${index}`) || []}
+                values={
+                    selectedRow
+                        ? (response?.columns || []).map(
+                              (column: string, index: number) => selectedRow[`${column}_${index}`]
+                          )
+                        : null
+                }
             />
             <LemonModal title="JSON" isOpen={selectedJson !== null} onClose={() => setSelectedJson(null)} width={800}>
                 <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words font-mono">
