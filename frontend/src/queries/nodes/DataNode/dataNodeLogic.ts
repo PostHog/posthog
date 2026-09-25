@@ -1086,6 +1086,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     actions.abortAnyRunningQuery()
                     actions.setPollResponse(null)
+                    const responseGenerationAtStart = cache.responseGeneration ?? 0
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
@@ -1132,6 +1133,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                        }
+                        if ((cache.responseGeneration ?? 0) !== responseGenerationAtStart) {
+                            // `setResponse` landed a result while this request was in flight, so the
+                            // request is superseded. Failing here would null that result and put the
+                            // node in an error state over data it holds.
+                            breakpoint()
+                            return values.response
                         }
                         breakpoint()
                         throw error
@@ -1304,6 +1312,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataSuccess: () => false,
                 loadDataFailure: () => false,
                 cancelQuery: () => false,
+                // `setResponse` carries a final result, so it ends the load the same way a success
+                // does. Without this a dashboard tile whose results arrive from the dashboard's own
+                // refresh, while the tile's load is still in flight, keeps its spinner over the data
+                // it already holds. `responseLoading` already resets here.
+                setResponse: () => false,
             },
         ],
         queryId: [
@@ -1387,6 +1400,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadDataFailure: (_, { errorObject }) => errorObject,
                 loadDataSuccess: () => null,
+                setResponse: () => null,
             },
         ],
         queryScanResult: [
@@ -1401,6 +1415,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 loadData: () => null,
                 loadNewData: () => null,
+                setResponse: () => null,
                 loadDataFailure: (_, { error, errorObject }) => {
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error ?? 'Error loading data'
@@ -2112,6 +2127,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
             actions.resetLoadingTimer()
+        },
+        setResponse: () => {
+            cache.responseGeneration = (cache.responseGeneration ?? 0) + 1
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)

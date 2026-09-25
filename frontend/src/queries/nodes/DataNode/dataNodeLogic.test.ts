@@ -904,6 +904,83 @@ describe('dataNodeLogic', () => {
         }
     })
 
+    it('resolves an in-flight load when a dashboard refresh delivers results for the same query', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        // A dashboard tile mounts with its insight but no chart numbers yet, so the tile starts its
+        // own load while the dashboard runs its refresh cycle for the same tile.
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockReturnValueOnce(new Promise(() => {}))
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toMatchValues({ dataLoading: true })
+
+        // The dashboard cycle finishes first and pushes its results in through the cachedResults prop.
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+
+        // `dataLoading` is what InsightVizDisplay reads, so leaving it set holds the tile on a
+        // spinner even though the tile already has the results.
+        await expectLogic(logic).toMatchValues({
+            dataLoading: false,
+            responseError: null,
+            response: partial({ result: results }),
+        })
+    })
+
+    it('keeps delivered results when the superseded load rejects afterwards', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        let rejectPending: (error: Error) => void = () => {}
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockReturnValueOnce(
+            new Promise((_resolve, reject) => {
+                rejectPending = reject
+            })
+        )
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toMatchValues({ dataLoading: true })
+
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+        await expectLogic(logic).toMatchValues({ dataLoading: false })
+
+        // The tile's own request loses the race and fails. Its failure must not null the results
+        // the dashboard already delivered.
+        rejectPending(new Error('Query failed'))
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            responseError: null,
+            response: partial({ result: results }),
+        })
+    })
+
+    it('clears the error when a dashboard refresh delivers results after a failed load', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockRejectedValueOnce(new Error('Query failed'))
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ responseError: 'Query failed' })
+
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+
+        // Otherwise the tile renders the error state over results it already has.
+        await expectLogic(logic).toMatchValues({
+            responseError: null,
+            responseErrorObject: null,
+            response: partial({ result: results }),
+        })
+    })
+
     it('stops polling when the scan endpoint 404s', async () => {
         jest.useFakeTimers()
         try {
