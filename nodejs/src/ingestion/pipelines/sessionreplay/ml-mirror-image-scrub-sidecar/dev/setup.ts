@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
  * /splits discovers a valid config+split, /rows returns rows whose image cells carry a `src` URL.
  * The dataset list below is just defaults — swap in whatever faces/text sources you want.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import sharp from 'sharp'
 
@@ -105,7 +105,13 @@ async function downloadModels(): Promise<void> {
         const bytes = fromS3Mirror ?? (await getBuf(model.upstreamUrl))
         assertPinnedSha256(model, bytes, fromS3Mirror ? s3Url : model.upstreamUrl)
         await mkdir(dirname(dest), { recursive: true })
-        await writeFile(dest, bytes)
+        const partial = `${dest}.partial`
+        try {
+            await writeFile(partial, bytes)
+            await rename(partial, dest)
+        } finally {
+            await rm(partial, { force: true })
+        }
     }
 }
 
