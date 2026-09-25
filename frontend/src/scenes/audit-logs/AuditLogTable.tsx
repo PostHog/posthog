@@ -25,9 +25,9 @@ export interface AuditLogTableProps {
     teamsById?: Record<number, string>
 }
 
-const SANDBOX_IP_TOOLTIP = 'An agent made this change in a PostHog sandbox task.'
+const SANDBOX_IP_TOOLTIP = 'This change used a token that PostHog issued for a sandbox task.'
 const SANDBOX_TAG_TOOLTIP =
-    'PostHog recognized the sandbox task from the token the agent used, so it is not self-reported'
+    'This change used a token that PostHog issued for a sandbox task. PostHog records this, so it is not self-reported.'
 
 const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
     {
