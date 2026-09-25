@@ -3295,6 +3295,9 @@ jobs:
                                       --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
+                      # The recording lists the tests that read the JSON tables, for pruning the rest.
+                      # A head without the recorder ignores the variable.
+                      export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
                           "${JSON_SPLIT[@]}" \
@@ -3498,6 +3501,15 @@ jobs:
                   path: |
                       junit-*.xml
                       !junit-*-retry-failures.xml
+
+            - name: Upload events schema recording
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && matrix.json-targets) }}
+              with:
+                  name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: events-schema-record.json
+                  if-no-files-found: ignore
+                  retention-days: 14
 
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

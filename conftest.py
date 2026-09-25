@@ -5,6 +5,7 @@ import atexit
 import warnings
 import contextlib
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 import time_machine
@@ -221,6 +222,12 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
+    if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
+        from posthog.test.events_schema_recorder import (  # noqa: PLC0415 — keeps the Temporal client off other runs
+            EventsSchemaRecorder,
+        )
+
+        config.pluginmanager.register(EventsSchemaRecorder(Path(record_path)), "posthog-events-schema-recorder")
 
 
 def pytest_collection_finish() -> None:
