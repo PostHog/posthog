@@ -1,4 +1,5 @@
 import { Liquid } from 'liquidjs'
+import { Counter } from 'prom-client'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 
@@ -43,13 +44,35 @@ export class LiquidRenderBudget {
     }
 }
 
+// An entity the decoder does not know survives into the expression, so the tag resolves to nothing and
+// the recipient reads a blank where a name should be. Nothing throws, so this counter is the only signal.
+const counterLiquidUndecodedEntity = new Counter({
+    name: 'cdp_liquid_undecoded_entity',
+    help: 'A liquid tag held an HTML entity the decoder does not know, so the tag renders as an empty string',
+})
+
+// One pass over the tag, so `&amp;lt;` decodes to `&lt;` rather than to `<`.
+const LIQUID_ENTITIES: Record<string, string> = {
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#34;': '"',
+    '&#x22;': '"',
+    '&#x27;': "'",
+    '&#39;': "'",
+    '&amp;': '&',
+}
+const ENTITY_REGEX = /&#?[0-9a-z]+;/gi
+
 const decodeEntities = (tag: string): string => {
-    return tag
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#x27;/g, "'")
-        .replace(/&amp;/g, '&') // NOTE: This should always be last
+    return tag.replace(ENTITY_REGEX, (entity) => {
+        const decoded = LIQUID_ENTITIES[entity]
+        if (decoded === undefined) {
+            counterLiquidUndecodedEntity.inc()
+            return entity
+        }
+        return decoded
+    })
 }
 
 // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
