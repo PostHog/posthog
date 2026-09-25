@@ -357,6 +357,8 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         const canvas = within(canvasElement)
         const dock = canvasElement.querySelector<HTMLElement>('[data-attr="terminal-dock"]')!
         const main = canvas.getByRole('main')
+        const nav = canvasElement.querySelector<HTMLElement>('#project-panel-layout nav')!
+        const navSettings = canvasElement.querySelector<HTMLElement>('[data-attr="navbar-settings"]')!
         await canvas.findByText('End of panel')
         const panel = canvasElement.querySelector<HTMLElement>('#side-panel')!
         const panelScroll = panel.querySelector<HTMLElement>('.ScrollableShadows__inner')!
@@ -365,6 +367,8 @@ export const Docked: StoryObj<typeof TerminalScene> = {
                 const dockTop = dock.getBoundingClientRect().top
                 expect(main.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
                 expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(nav.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+                expect(navSettings.getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
                 main.scrollTop = main.scrollHeight
                 panelScroll.scrollTop = panelScroll.scrollHeight
                 for (const label of ['End of page', 'End of panel']) {
@@ -383,6 +387,7 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         await expectContentAboveDock()
         await userEvent.click(canvas.getByRole('button', { name: 'Hide terminal' }))
         await waitFor(() => expect(main.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight - 16))
+        await waitFor(() => expect(nav.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight - 16))
         terminalDockLogic.actions.setDockOpen(true)
         await expectContentAboveDock()
     },
@@ -391,6 +396,7 @@ export const DockedWide: StoryObj<typeof TerminalScene> = {
     ...Docked,
     parameters: {
         ...Docked.parameters,
+        featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL, FEATURE_FLAGS.SIMPLE_SIDEPANEL],
         testOptions: { viewport: { width: 1440, height: 900 }, includeNavigationInSnapshot: true },
     },
 }
