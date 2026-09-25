@@ -1,10 +1,12 @@
 from collections.abc import Callable
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -37,6 +39,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -44,10 +47,12 @@ from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
+    OrganizationAdminReadPermissions,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
+    get_authenticator_scoped_organization_ids,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -483,6 +488,38 @@ class OrganizationDataFreshnessSerializer(serializers.Serializer):
     )
 
 
+# A departure is only worth reporting while the person who lost the project is still looking for it
+DEPARTED_PROJECTS_WINDOW = timedelta(days=30)
+DEPARTED_PROJECTS_LIMIT = 5
+# A project can move out several times in the window, so read more rows than we report
+DEPARTED_PROJECTS_SCAN_LIMIT = 20
+
+
+def _recorded_target_organization_id(entry: ActivityLog, source_organization_id: str) -> str | None:
+    """The organization a departure row says the project moved to, as recorded at move time."""
+    for change in (entry.detail or {}).get("changes") or []:
+        if change.get("field") == "organization_id" and change.get("before") == source_organization_id:
+            return str(change["after"]) if change.get("after") else None
+    return None
+
+
+class DepartedProjectSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(help_text="ID of the project that left this organization.")
+    project_name = serializers.CharField(help_text="Name the project had when it left this organization.")
+    target_organization_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="ID of the organization the project moved to, or null when the requester cannot reach it.",
+    )
+    target_organization_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the organization the project moved to, or null when the requester cannot reach it.",
+    )
+    target_project_accessible = serializers.BooleanField(
+        help_text="Whether the requester can open the project in the organization it moved to."
+    )
+    moved_at = serializers.DateTimeField(help_text="When the project left this organization.")
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
@@ -785,3 +822,101 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 }
             ).data
         )
+
+    @extend_schema(request=None, responses={200: DepartedProjectSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="departed_projects",
+        pagination_class=None,
+        # Admin only, matching the organization-wide activity endpoint these rows also feed: a
+        # departure names a project a plain member may never have been allowed to see.
+        permission_classes=[OrganizationAdminReadPermissions],
+        # A scope is only derived for `list` and `retrieve`, so without this the action reaches
+        # APIScopePermission with no required scope and every personal API key is rejected.
+        required_scopes=["organization:read"],
+    )
+    def departed_projects(self, request: Request, **kwargs) -> Response:
+        """Projects that moved out of this organization recently, and where they went.
+
+        An organization that just lost its last project shows no trace of the move, because activity
+        views sit behind a project route. This answers "where did it go?" from the organization the
+        project left.
+
+        Every value describing a departure comes from this organization's own activity row. Following
+        the project into its new organization would instead disclose a later rename, or a further
+        move, to people this organization can no longer vouch for.
+        """
+        organization = self.organization
+        organization_id = str(organization.id)
+        user = cast(User, request.user)
+
+        entries = ActivityLog.objects.filter(
+            organization_id=organization.id,
+            team_id__isnull=True,
+            scope="Project",
+            activity="updated",
+            created_at__gte=timezone.now() - DEPARTED_PROJECTS_WINDOW,
+            # Matches the org-scoped partial indexes, which only cover rows that carry a detail object
+            detail__isnull=False,
+            detail__contains={"changes": [{"field": "organization_id", "before": organization_id}]},
+        ).order_by("-created_at")[:DEPARTED_PROJECTS_SCAN_LIMIT]
+
+        newest_by_project_id: dict[int, ActivityLog] = {}
+        for entry in entries:
+            if entry.item_id is None or not str(entry.item_id).isdigit():
+                continue
+            # Entries come newest first, so the first one seen is the most recent departure
+            newest_by_project_id.setdefault(int(entry.item_id), entry)
+
+        # A project that came back is not a departure. This reads only our own projects, so it drops
+        # those rows without touching the organization a project moved to.
+        returned_project_ids = set(
+            organization.projects.filter(id__in=newest_by_project_id).values_list("id", flat=True)
+        )
+        departed = [
+            (project_id, entry, _recorded_target_organization_id(entry, organization_id))
+            for project_id, entry in newest_by_project_id.items()
+            if project_id not in returned_project_ids
+            # The move always records the name, so a row without one cannot be described
+            if (entry.detail or {}).get("name")
+            # `newest_by_project_id` is already newest first, so the response needs no sorting
+        ][:DEPARTED_PROJECTS_LIMIT]
+
+        # Resolve the destination only among organizations this credential actually reaches, so the
+        # response never introduces an organization the requester has no relationship with, and a
+        # token scoped to this organization stays inside that scope.
+        target_organization_ids = {target_id for _, _, target_id in departed if target_id is not None}
+        reachable = user.organizations.filter(id__in=target_organization_ids)
+        scoped_organization_ids = get_authenticator_scoped_organization_ids(request.successful_authenticator)
+        if scoped_organization_ids is not None:
+            reachable = reachable.filter(id__in=scoped_organization_ids)
+        reachable_by_id = {str(reached.id): reached for reached in reachable}
+
+        # Organization membership alone does not make the project openable, so ask the destination
+        # what this user can actually see there before offering to send them into it.
+        user_permissions = UserPermissions(user=user)
+        visible_project_ids: set[int] = set()
+        for reached in reachable_by_id.values():
+            visible_project_ids.update(
+                visible_teams_for_user(
+                    reached,
+                    UserAccessControl(user=user, organization_id=str(reached.id)),
+                    user_permissions,
+                ).values_list("project_id", flat=True)
+            )
+
+        departures = []
+        for project_id, entry, target_id in departed:
+            destination = reachable_by_id.get(target_id or "")
+            departures.append(
+                {
+                    "project_id": project_id,
+                    "project_name": (entry.detail or {})["name"],
+                    "target_organization_id": destination.id if destination else None,
+                    "target_organization_name": destination.name if destination else None,
+                    "target_project_accessible": project_id in visible_project_ids,
+                    "moved_at": entry.created_at,
+                }
+            )
+        return Response(DepartedProjectSerializer(departures, many=True).data)

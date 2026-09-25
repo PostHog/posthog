@@ -244,6 +244,27 @@ export interface PatchedOrganizationApi {
     readonly uses_most_specific_access_resolution?: boolean | null
 }
 
+export interface DepartedProjectApi {
+    /** ID of the project that left this organization. */
+    project_id: number
+    /** Name the project had when it left this organization. */
+    project_name: string
+    /**
+     * ID of the organization the project moved to, or null when the requester cannot reach it.
+     * @nullable
+     */
+    target_organization_id: string | null
+    /**
+     * Name of the organization the project moved to, or null when the requester cannot reach it.
+     * @nullable
+     */
+    target_organization_name: string | null
+    /** Whether the requester can open the project in the organization it moved to. */
+    target_project_accessible: boolean
+    /** When the project left this organization. */
+    moved_at: string
+}
+
 export interface OrganizationRemoveBlockedMembersResponseApi {
     /** Whether verified-domain enforcement was turned on. */
     success: boolean

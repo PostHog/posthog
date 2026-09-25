@@ -31665,6 +31665,27 @@ export namespace Schemas {
       push_count: number;
     }
 
+    export interface DepartedProject {
+      /** ID of the project that left this organization. */
+      project_id: number;
+      /** Name the project had when it left this organization. */
+      project_name: string;
+      /**
+         * ID of the organization the project moved to, or null when the requester cannot reach it.
+         * @nullable
+         */
+      target_organization_id: string | null;
+      /**
+         * Name of the organization the project moved to, or null when the requester cannot reach it.
+         * @nullable
+         */
+      target_organization_name: string | null;
+      /** Whether the requester can open the project in the organization it moved to. */
+      target_project_accessible: boolean;
+      /** When the project left this organization. */
+      moved_at: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;

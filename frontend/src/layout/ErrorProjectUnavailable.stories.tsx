@@ -31,6 +31,9 @@ const meta: Meta = {
                         detail: 'You do not have access to this project',
                     },
                 ],
+                // Neither story is about a departed project, and an unmocked lookup leaves the
+                // scene on its loading state past the snapshot
+                '/api/organizations/:organization_id/departed_projects/': [],
             },
         }),
     ],
