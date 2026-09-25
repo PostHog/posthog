@@ -37,9 +37,11 @@ const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined
- *  on the handler side. */
+ *  on the handler side. `destructiveHint` stays false because every read goes
+ *  through `exec` too: Claude Code asks for approval on each call to a tool
+ *  marked destructive, even when the user set it to always allow. */
 export const EXEC_TOOL_ANNOTATIONS = {
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
     readOnlyHint: false,
