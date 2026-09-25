@@ -13,6 +13,7 @@ import type { HogQLQueryString } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
 import { surveyLogic } from '../surveyLogic'
+import { getExactUrlSchemeError } from '../utils'
 
 export const URL_AUDIENCE_ESTIMATE_DAYS = 30
 const URL_AUDIENCE_ESTIMATE_DEBOUNCE_MS = 500
@@ -49,8 +50,7 @@ export function getUrlAudienceEstimateParams(
     if (!operator) {
         return null
     }
-    // $current_url always includes protocol and host, so an exact match against a bare path never matches
-    if (matchType === SurveyMatchType.Exact && url.startsWith('/')) {
+    if (getExactUrlSchemeError(url, matchType)) {
         return null
     }
     if (matchType === SurveyMatchType.Regex) {
@@ -156,9 +156,9 @@ export function SurveyUrlAudienceEstimate({ className }: { className?: string })
         )
     } else if (estimate.count === 0) {
         content = (
-            <p className={cn('text-xs text-muted', className)}>
-                No pageviews matched this URL condition in the last {URL_AUDIENCE_ESTIMATE_DAYS} days. Double-check the
-                pattern if you expected matches.
+            <p className={cn('text-xs text-warning', className)}>
+                No pageviews matched this URL condition in the last {URL_AUDIENCE_ESTIMATE_DAYS} days. Nobody will see
+                this survey until the condition matches a page your users visit.
             </p>
         )
     } else {

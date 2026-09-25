@@ -36,6 +36,7 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyRates,
@@ -607,6 +608,22 @@ export function getRecurringSurveyScheduleInfo(
     const totalDurationDays = effectiveCount * frequency
     const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
     return { totalDurationDays, autoCloseDate }
+}
+
+const URL_SCHEME_PREFIXES = ['http://', 'https://']
+
+/** The SDK compares an exact URL condition against the browser's full URL, which always carries a
+ * scheme. A value without one, such as a bare host or a bare path, can never be equal to it, so the
+ * survey never shows. */
+export function getExactUrlSchemeError(url: string | undefined, matchType: SurveyMatchType | undefined): string | null {
+    const trimmedUrl = url?.trim()
+    if (matchType !== SurveyMatchType.Exact || !trimmedUrl) {
+        return null
+    }
+    if (URL_SCHEME_PREFIXES.some((prefix) => trimmedUrl.toLowerCase().startsWith(prefix))) {
+        return null
+    }
+    return 'Exact match compares the whole page URL, which always starts with http:// or https://. Add the protocol and host, or use "contains" instead.'
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {

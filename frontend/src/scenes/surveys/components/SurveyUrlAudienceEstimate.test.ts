@@ -28,6 +28,11 @@ describe('getUrlAudienceEstimateParams', () => {
             expected: null,
         },
         {
+            name: 'exact with a bare host never matches, so no estimate',
+            conditions: { url: 'example.com', urlMatchType: SurveyMatchType.Exact },
+            expected: null,
+        },
+        {
             name: 'valid regex',
             conditions: { url: '^https://example.com/docs/.*', urlMatchType: SurveyMatchType.Regex },
             expected: { url: '^https://example.com/docs/.*', operator: PropertyOperator.Regex },
