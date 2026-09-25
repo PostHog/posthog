@@ -74,7 +74,7 @@ describe("artefacts", () => {
     ).toBe("Ben W.");
   });
 
-  it("groups repeated reviewer reasons within the same source category", () => {
+  it("groups reviewers by reason and source, including single reviewers", () => {
     const sharedReason = "Maintains the request execution parser.";
     const reviewer = (
       id: string,
@@ -123,12 +123,18 @@ describe("artefacts", () => {
         "reason-group",
         JSON.stringify(["reason-group", sharedReason, "other", "Code history"]),
       ],
-      ["person", "rowan"],
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", `${sharedReason} `, "scout", null]),
+      ],
       ["person", "casey"],
     ]);
     expect(items[0]?.kind === "reason-group" && items[0].reviewers).toEqual([
       expect.objectContaining({ github_login: "avery" }),
       expect.objectContaining({ github_login: "morgan" }),
+    ]);
+    expect(items[2]?.kind === "reason-group" && items[2].reviewers).toEqual([
+      expect.objectContaining({ github_login: "rowan" }),
     ]);
   });
 

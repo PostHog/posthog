@@ -233,6 +233,7 @@ export class ToolDomainExtractor {
         'show',
         'start',
         'test',
+        'transfer',
         'unarchive',
         'unfreeze',
     ])

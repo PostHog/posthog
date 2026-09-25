@@ -21,6 +21,7 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
+from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -31,6 +32,8 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    SCOUT_GRANTABLE_WRITE_SCOPES,
+    SCOUT_SCOPE_PRESETS,
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
@@ -4115,6 +4118,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
 
 _METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+
+
+class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
+    """The read-only MCP tool catalogue a per-scout tool picker is built on."""
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/tool_catalogue/"
+
+    def _tools(self) -> dict[str, dict]:
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {tool["name"]: tool for tool in response.json()["tools"]}
+
+    def test_returns_the_catalogue_with_the_scout_scope_postures(self) -> None:
+        body = self.client.get(self._url()).json()
+
+        assert len(body["tools"]) > 500
+        assert [preset["name"] for preset in body["presets"]] == list(SCOUT_SCOPE_PRESETS)
+        assert set(body["grantable_write_scopes"]) == set(SCOUT_GRANTABLE_WRITE_SCOPES)
+
+    def test_leaves_out_the_tools_a_successor_replaced(self) -> None:
+        # A picker that offered a superseded tool would configure a scout for a tool on its way out.
+        superseded = {name for name, definition in get_mcp_tool_definitions().items() if definition.is_superseded}
+        assert superseded, "expected the catalogue to hold at least one superseded tool"
+
+        assert not superseded & set(self._tools())
+
+    def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
+        # `holdable` has to be measured against the scout postures, not against the full MCP scope
+        # set: a picker built on the wrong set offers tools a scout is refused for at call time.
+        tools = self._tools()
+
+        # Read scopes ride every scout token.
+        assert tools["insight-get"]["holdable"] is True
+        assert tools["insight-get"]["missing_scopes"] == []
+        # Scout tokens carry `signal_scout_internal:write` only, and a write scope satisfies its read scope.
+        assert tools["scout-members-list"]["holdable"] is True
+        assert tools["scout-members-list"]["missing_scopes"] == []
+        # Grantable from the scout's own settings, so it is reachable but not by default.
+        assert tools["dashboard-create"]["holdable"] is True
+        assert tools["dashboard-create"]["missing_scopes"] == ["dashboard:write"]
+        # Flag writes change what end users see, so no scout grant can ever cover them.
+        assert tools["create-feature-flag"]["holdable"] is False
+        assert tools["create-feature-flag"]["missing_scopes"] == ["feature_flag:write"]
+
+    def test_read_scope_is_enough_to_read_the_catalogue(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="k", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:read"]
+        )
+        self.client.logout()
+
+        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
 
 class TestScoutHarnessMetadataAPI(APIBaseTest):
