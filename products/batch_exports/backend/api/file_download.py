@@ -464,7 +464,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         BatchExportRun.objects.select_related("batch_export_on_demand__destination", "batch_export_on_demand__team")
         .exclude(batch_export_on_demand__deleted=True)
         .filter(batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD)
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .all()
     )
     serializer_class = FileDownloadBatchExportOnDemandSerializer

@@ -10,6 +10,7 @@ import time_machine
 import unittest.mock
 
 from django.conf import settings
+from django.db import connection
 from django.test import AsyncClient, override_settings
 
 import aiohttp
@@ -503,6 +504,63 @@ async def test_file_download_list_returns_run_ids_and_statuses(
         {"id": str(completed_run.id), "status": BatchExportRun.Status.COMPLETED},
         {"id": str(running_run.id), "status": BatchExportRun.Status.RUNNING},
     ]
+
+
+@sync_to_async
+def _set_planner_scan_methods(enabled: bool) -> None:
+    """Turn index scans on or off for the connection that serves the test requests."""
+    value = "on" if enabled else "off"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SET enable_indexscan = {value}")
+        cursor.execute(f"SET enable_bitmapscan = {value}")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_list_pages_are_stable_when_created_at_ties(
+    async_client: AsyncClient,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+
+    # Ids descend in insertion order, so a page ordered only by `created_at` cannot
+    # accidentally return them in the expected order.
+    run_ids = [uuid.UUID(f"0000000{index}-0000-0000-0000-000000000000") for index in range(5, 0, -1)]
+    for run_id in run_ids:
+        await BatchExportRun.objects.acreate(
+            id=run_id,
+            batch_export_on_demand=batch_export,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            status=BatchExportRun.Status.COMPLETED,
+        )
+
+    # `update` bypasses `auto_now_add`, so every run keeps the same creation timestamp.
+    await BatchExportRun.objects.filter(id__in=run_ids).aupdate(created_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC))
+
+    await async_client.aforce_login(user)
+
+    # Without this the planner can read the small table in a stable physical order and
+    # hide the missing tie-breaker.
+    await _set_planner_scan_methods(enabled=False)
+    try:
+        paged_ids = []
+        for offset in range(0, len(run_ids), 2):
+            response = await async_client.get(
+                f"/api/projects/{team.pk}/file_download_batch_exports?limit=2&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            paged_ids.extend(result["id"] for result in response.json()["results"])
+    finally:
+        await _set_planner_scan_methods(enabled=True)
+
+    assert paged_ids == [str(run_id) for run_id in sorted(run_ids, reverse=True)]
 
 
 @requires_aws_credentials
