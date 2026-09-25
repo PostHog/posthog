@@ -341,16 +341,34 @@ describe('sessionRecordingPlayerLogic', () => {
 
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
-        // otherwise the affected range buffers forever with no error shown.
+        // otherwise the affected range buffers forever with no error shown. Each also has to leave
+        // the buffering state, or the re-evaluation cadence clears the error and retries a source
+        // that has run out of attempts.
         it.each(['snapshotProcessingFailed', 'snapshotSourceLoadExhausted'] as const)(
-            '%s sets a player error',
+            '%s sets a player error that survives re-evaluation',
             (action) => {
                 const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
                 logic.actions[action]()
                 expect(logic.values.playerError).toBe(action)
+                expect(logic.values.isBuffering).toBe(false)
+
+                logic.actions.syncPlayerState()
+
+                expect(logic.values.playerError).toBe(action)
                 consoleError.mockRestore()
             }
         )
+
+        it('re-enters buffering when the user retries after a terminal failure', () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            logic.actions.snapshotSourceLoadExhausted()
+
+            logic.actions.retryLoadingSnapshots()
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.isBuffering).toBe(true)
+            consoleError.mockRestore()
+        })
     })
 
     describe('currentPlayerTime clamping', () => {
@@ -964,7 +982,7 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
-            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs syncPlayerState;
+            // The BUFFERING_REEVALUATION_DELAYS_MS cadence re-runs syncPlayerState;
             // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
             // transitions to the terminal error the next time syncPlayerState runs after the grace
             // period has elapsed — without any new snapshot data arriving.
@@ -986,6 +1004,66 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
                 graceSpy.mockRestore()
+            }
+        })
+
+        it('keeps re-evaluating a stuck buffer in seconds and then offers a retry', () => {
+            // A viewer abandons a buffering recording after a few seconds, so the cadence has to
+            // re-evaluate the verdict inside that window and surface the retry action.
+            jest.useFakeTimers()
+            try {
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                // re-arm the cadence on the fake clock, since mount armed it on the real one
+                logic.actions.endBuffer()
+                logic.actions.startBuffer()
+                expect(logic.values.isBufferingStalled).toBe(false)
+
+                // long enough for several backing-off re-evaluations, far short of a flat safety interval
+                jest.advanceTimersByTime(6000)
+
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isBufferingStalled).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('measures the retry delay from the buffering overlay, not from an earlier hidden wait', () => {
+            // The cadence can run while another state outranks BUFFER, so the overlay is not on
+            // screen. That stretch must not consume the delays, or the retry action appears at the
+            // same moment as the overlay and the next re-evaluation is seconds away.
+            jest.useFakeTimers()
+            try {
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                // re-arm the cadence on the fake clock, since mount armed it on the real one
+                logic.actions.endBuffer()
+                logic.actions.startBuffer()
+
+                // scrubbing shows the play state, so the viewer waits without a buffering overlay
+                logic.actions.startScrub()
+                jest.advanceTimersByTime(6000)
+                expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.BUFFER)
+                expect(logic.values.isBufferingStalled).toBe(true)
+
+                // the overlay appears now, so its own five seconds start here
+                logic.actions.endScrub()
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.BUFFER)
+                expect(logic.values.isBufferingStalled).toBe(false)
+
+                // and the restarted cadence still reaches the retry action
+                jest.advanceTimersByTime(6000)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isBufferingStalled).toBe(true)
+            } finally {
+                jest.useRealTimers()
             }
         })
 
