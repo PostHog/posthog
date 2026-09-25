@@ -30,7 +30,9 @@ describe('SceneName', () => {
 
     // Guards a duplicate rename request: Enter saves the value straight away, and the name prop
     // only catches up once that save round-trips, so the blur right after it used to save again.
-    test('saves an Enter-then-blur rename once', () => {
+    // The second half guards the over-correction — a rejected save must stay retryable, so the
+    // field may not treat the value as saved for good.
+    test('saves an Enter-then-blur rename once, and still saves it again on a later blur', () => {
         jest.useFakeTimers()
         try {
             const onChange = jest.fn()
@@ -48,6 +50,15 @@ describe('SceneName', () => {
 
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(onChange).toHaveBeenCalledWith('New name')
+
+            // The save was rejected, so the name prop still holds the old title.
+            fireEvent.click(screen.getByRole('button'))
+            fireEvent.blur(screen.getByRole('textbox'))
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+
+            expect(onChange).toHaveBeenCalledTimes(2)
         } finally {
             jest.useRealTimers()
         }
