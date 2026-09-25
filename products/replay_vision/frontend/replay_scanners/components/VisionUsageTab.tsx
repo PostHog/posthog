@@ -6,6 +6,8 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
+import { usageByProjectUrl } from 'scenes/billing/billing-utils'
+import { REPLAY_VISION_USAGE_TYPE } from 'scenes/billing/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -29,6 +31,7 @@ import { SpendTrajectoryChart } from './SpendTrajectoryChart'
 
 const ORG_WIDE_NOTE = 'Spend and limits are shared by every project in the organization.'
 const BILLING_URL = urls.organizationBilling([ProductKey.REPLAY_VISION])
+const USAGE_BY_PROJECT_URL = usageByProjectUrl(REPLAY_VISION_USAGE_TYPE)
 
 function TilePlaceholder({ loading }: { loading: boolean }): JSX.Element {
     return <span className="text-2xl font-semibold">{loading ? <Spinner /> : '—'}</span>
@@ -192,6 +195,17 @@ export function VisionUsageTab(): JSX.Element {
                             ≈ {creditsToUsd(billedCredits)} billed
                         </span>
                     )}
+                    <span className="text-xs text-secondary" data-attr="vision-usage-org-wide-note">
+                        Across every project in this organization.
+                        {USAGE_BY_PROJECT_URL ? (
+                            <>
+                                {' '}
+                                <Link to={USAGE_BY_PROJECT_URL} data-attr="vision-usage-by-project-link">
+                                    See usage by project
+                                </Link>
+                            </>
+                        ) : null}
+                    </span>
                     <span className="text-xs text-secondary">
                         <CreditPriceNote dataAttr="vision-pricing-link-usage" />
                     </span>

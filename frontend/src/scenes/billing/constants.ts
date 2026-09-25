@@ -32,6 +32,9 @@ export const BILLING_TABLE_PAGE_SIZE = 100
  */
 export const MAX_CHARTED_BILLING_SERIES = 50
 
+/** Named because the Replay vision scene links to its own usage breakdown. */
+export const REPLAY_VISION_USAGE_TYPE = 'replay_vision_credits_used_in_period'
+
 // Labels mirror ee/billing/billing_types.py::USAGE_TYPE_OPTIONS.
 // Values are sent to the `billing` repo as `usage_types`; keep in sync with `billing/billing/types/usage.py::SupportedUsageType`.
 export const SPEND_TYPES = [
@@ -53,7 +56,7 @@ export const SPEND_TYPES = [
     { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
     { label: 'Self-driving inbox credits', value: 'signals_credits_used_in_period' },
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
-    { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
+    { label: 'Replay vision credits', value: REPLAY_VISION_USAGE_TYPE },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
