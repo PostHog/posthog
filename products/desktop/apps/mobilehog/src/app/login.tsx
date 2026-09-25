@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -111,13 +111,15 @@ export default function LandingScreen() {
   const loginWithOAuth = useAuth((s) => s.loginWithOAuth);
   const [region, setRegion] = useState<CloudRegion>("us");
   const [busy, setBusy] = useState<"cloud" | "local" | null>(null);
+  const loginPending = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (
     kind: "cloud" | "local",
     attempt: () => Promise<void>,
   ): Promise<void> => {
-    if (busy) return;
+    if (loginPending.current) return;
+    loginPending.current = true;
     setBusy(kind);
     setError(null);
     try {
@@ -125,6 +127,7 @@ export default function LandingScreen() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      loginPending.current = false;
       setBusy(null);
     }
   };

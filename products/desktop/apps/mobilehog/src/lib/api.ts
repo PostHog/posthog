@@ -1,5 +1,5 @@
 import { fetch } from "expo/fetch";
-import { requireSession, useAuth } from "@/lib/auth";
+import { requireSession, sessionIdentity, useAuth } from "@/lib/auth";
 
 export type FetchInit = NonNullable<Parameters<typeof fetch>[1]>;
 
@@ -7,19 +7,22 @@ export function getBaseUrl(): string {
   return requireSession().host;
 }
 
-let pendingRefresh: Promise<string> | null = null;
+let pendingRefresh: { identity: string; promise: Promise<string> } | null =
+  null;
 
 // One refresh at a time, so parallel 401s do not race each other's tokens.
 export function refreshAccessTokenOnce(): Promise<string> {
-  if (!pendingRefresh) {
-    pendingRefresh = useAuth
+  const identity = sessionIdentity();
+  if (!pendingRefresh || pendingRefresh.identity !== identity) {
+    const promise = useAuth
       .getState()
       .refresh()
       .finally(() => {
-        pendingRefresh = null;
+        if (pendingRefresh?.promise === promise) pendingRefresh = null;
       });
+    pendingRefresh = { identity, promise };
   }
-  return pendingRefresh;
+  return pendingRefresh.promise;
 }
 
 export function getProjectId(): number {
@@ -59,6 +62,11 @@ export async function authedFetch(
   url: string,
   init?: FetchInit,
 ): Promise<Response> {
+  const identity = sessionIdentity();
+  const assertCurrent = (): void => {
+    if (sessionIdentity() !== identity)
+      throw new Error("Session changed. Sign in again.");
+  };
   const headers = mergeHeaders(
     {
       Authorization: `Bearer ${getAccessToken()}`,
@@ -70,13 +78,17 @@ export async function authedFetch(
   // The login session cookie must not ride along, or Django takes the session
   // path and rejects the POST for a missing CSRF token.
   const response = await fetch(url, { ...init, headers, credentials: "omit" });
+  assertCurrent();
   if (response.status !== 401 || !requireSession().refreshToken) {
     return response;
   }
   const token = await refreshAccessTokenOnce();
-  return fetch(url, {
+  assertCurrent();
+  const retried = await fetch(url, {
     ...init,
     headers: { ...headers, Authorization: `Bearer ${token}` },
     credentials: "omit",
   });
+  assertCurrent();
+  return retried;
 }
