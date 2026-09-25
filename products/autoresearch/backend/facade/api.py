@@ -685,6 +685,25 @@ def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None 
     return _run_to_contract(row) if row else None
 
 
+def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
+    """Refuse an action target whose action was deleted or lost its steps since training.
+
+    Not every scoring path resolves the action, so a stale one must be caught here rather than
+    left to whichever runner happens to read it.
+    """
+    definition = pipeline.target_definition or {}
+    if definition.get("type") != "action":
+        return
+    action_id = definition.get("action_id")
+    action = (
+        Action.objects.filter(id=action_id, team__project_id=pipeline.team.project_id, deleted=False).first()
+        if isinstance(action_id, int)
+        else None
+    )
+    if action is None or not action.get_step_events():
+        raise AutoresearchConflict("The pipeline's target action no longer exists or has no steps.")
+
+
 def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_action_target: bool = True) -> Run:
     """Score the inference population with the champion model and emit prediction events.
 
@@ -700,6 +719,7 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_a
         raise AutoresearchConflict("The pipeline is paused. Resume it before scoring.")
     if not allow_action_target and pipeline.target_definition.get("type") == "action":
         raise InvalidTarget("An action target needs the action:read scope.")
+    _require_resolvable_target(pipeline)
     champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -729,6 +749,7 @@ def validate_pipeline_online(
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if not allow_action_target and pipeline.target_definition.get("type") == "action":
         raise InvalidTarget("An action target needs the action:read scope.")
+    _require_resolvable_target(pipeline)
     try:
         runs = run_online_validation_for_pipeline(pipeline=pipeline, user=user)
     except Action.DoesNotExist:

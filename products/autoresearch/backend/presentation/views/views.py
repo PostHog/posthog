@@ -777,6 +777,9 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The training agent works inside the run /train opened for it, so it never opens one itself.
+        if is_sandbox_origin_request(request):
+            raise PermissionDenied("Training runs cannot be opened from inside a sandbox.")
         try:
             training_run = api.open_training_run(
                 self.team_id,

@@ -249,6 +249,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.refresh_from_db()
         assert (pipeline.status, pipeline.name) == (start, "Test Pipeline")
 
+    def test_sandbox_origin_cannot_open_a_training_run(self):
+        pipeline = self._make_pipeline()
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/training_runs/", {}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
     def test_sandbox_origin_can_still_read_pipelines(self):
         pipeline = self._make_pipeline()
         with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
@@ -529,6 +536,35 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with patch(runner, side_effect=Action.DoesNotExist):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("score_deleted", "score", "deleted"),
+            ("score_no_steps", "score", "no_steps"),
+            ("validate_deleted", "validate_online", "deleted"),
+            ("validate_no_steps", "validate_online", "no_steps"),
+        ]
+    )
+    def test_scoring_actions_refuse_a_stale_target_action(self, _name: str, path: str, staleness: str):
+        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        pipeline = self._make_trained_pipeline()
+        pipeline.target_definition = {"type": "action", "action_id": action.id}
+        pipeline.save(update_fields=["target_definition"])
+        if staleness == "deleted":
+            action.deleted = True
+        else:
+            action.steps_json = []
+        action.save()
+        with (
+            patch("products.autoresearch.backend.inference.scoring.run_inference_for_pipeline") as mock_score,
+            patch(
+                "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline"
+            ) as mock_validate,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_score.assert_not_called()
+        mock_validate.assert_not_called()
 
     def test_start_training_with_a_deleted_target_action_returns_400(self):
         action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
