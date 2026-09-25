@@ -40,6 +40,7 @@ export interface logsSourcesLogicValues {
     healthBySourceIdLoading: boolean
     healthUnavailable: boolean
     setup: LogsSourceSetupApi | null
+    setupLoadFailed: boolean
     setupLoading: boolean
     sources: LogsSourceApi[]
     sourcesLoadFailed: boolean
@@ -240,6 +241,14 @@ export const logsSourcesLogic = kea<logsSourcesLogicType>([
             {
                 loadSources: () => false,
                 loadSourcesFailure: () => true,
+            },
+        ],
+        setupLoadFailed: [
+            false,
+            {
+                loadSetup: () => false,
+                loadSetupSuccess: () => false,
+                loadSetupFailure: () => true,
             },
         ],
         healthUnavailable: [

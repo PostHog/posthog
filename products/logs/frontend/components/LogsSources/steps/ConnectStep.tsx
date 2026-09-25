@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,7 +8,23 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { logsSourcesLogic } from '../logsSourcesLogic'
 
 export function ConnectStep(): JSX.Element {
-    const { setup, setupLoading } = useValues(logsSourcesLogic)
+    const { setup, setupLoading, setupLoadFailed, wizardSourceId } = useValues(logsSourcesLogic)
+    const { loadSetup } = useActions(logsSourcesLogic)
+    if (setupLoadFailed && wizardSourceId) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    onClick: () => loadSetup(wizardSourceId),
+                    loading: setupLoading,
+                    'data-attr': 'logs-source-retry-setup',
+                }}
+            >
+                Couldn't load the setup values for this source. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
     if (setupLoading || !setup) {
         return (
             <div className="flex items-center gap-2 text-secondary">
