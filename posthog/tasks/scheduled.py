@@ -288,8 +288,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="query performance heartbeat",
     )
 
+    # Just after the hour. The task then starts each team at its own point in the next ten minutes.
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="2"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
     )

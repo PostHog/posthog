@@ -1,12 +1,21 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
+from posthog.caching.warming import (
+    WARMING_CHAIN_LIFETIME,
+    WARMING_START_WINDOW,
+    insights_to_keep_fresh,
+    schedule_warming_for_teams_task,
+    warm_insight_cache_task,
+)
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.query_cache.freshness_index import update_target_age
+from posthog.scheduling.jitter import deterministic_offset
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -143,22 +152,48 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         mock_insights_to_keep_fresh.assert_called()
         mock_warm_insight_cache_task_si.assert_not_called()
 
-    @patch("posthog.caching.warming.largest_teams")
-    @patch("posthog.caching.warming.insights_to_keep_fresh")
-    @patch("posthog.caching.warming.warm_insight_cache_task.si")
-    def test_schedule_warming_for_teams_task_with_non_empty_insight_tuples(
-        self, mock_warm_insight_cache_task_si, mock_insights_to_keep_fresh, mock_largest_teams
-    ):
-        mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
-        mock_insights_to_keep_fresh.return_value = iter([("1234", "5678"), ("2345", None)])
+    def test_schedule_warming_for_teams_task_with_non_empty_insight_tuples(self) -> None:
+        dispatched_at = datetime.now(UTC)
+        team_by_insight: dict[int, int] = {}
+        with time_machine.travel(dispatched_at, tick=False) as clock:
+            for team in (self.team1, self.team2):
+                team.extra_settings = {"insights_cache_warming": True}
+                team.save(update_fields=["extra_settings"])
+                dashboard = Dashboard.objects.create(team=team, last_accessed_at=dispatched_at)
+                for _ in range(2):
+                    insight = Insight.objects.create(team=team)
+                    DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+                    team_by_insight[insight.pk] = team.pk
+                    update_target_age(
+                        team_id=team.pk,
+                        insight_id=insight.pk,
+                        dashboard_id=dashboard.pk,
+                        target_age=dispatched_at - timedelta(minutes=1),
+                    )
 
-        schedule_warming_for_teams_task()
+            celery_config = warm_insight_cache_task.app.conf
+            self.addCleanup(setattr, celery_config, "task_always_eager", celery_config.task_always_eager)
+            celery_config.task_always_eager = False
+            with (
+                patch("posthog.caching.utils.sync_execute", return_value=[]),
+                patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=False),
+                patch.object(warm_insight_cache_task.app, "send_task") as send_task,
+            ):
+                send_task.side_effect = lambda *args, **kwargs: clock.shift(timedelta(minutes=2))
+                schedule_warming_for_teams_task()
 
-        mock_insights_to_keep_fresh.assert_called()
-        self.assertEqual(mock_warm_insight_cache_task_si.call_count, 2)
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][0], "1234")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[0][0][1], "5678")
-        self.assertEqual(mock_warm_insight_cache_task_si.call_args_list[1][0][0], "2345")
+        self.assertEqual(send_task.call_count, 2)
+        for call in send_task.call_args_list:
+            insight_id, _ = call.args[1]
+            expected_start = dispatched_at + deterministic_offset(
+                str(team_by_insight[insight_id]), WARMING_START_WINDOW
+            )
+            self.assertEqual(call.kwargs["eta"], expected_start)
+            self.assertEqual(call.kwargs["expires"], expected_start + WARMING_CHAIN_LIFETIME)
+            remaining_tasks = call.kwargs["chain"]
+            self.assertEqual(len(remaining_tasks), 1)
+            self.assertNotIn("eta", remaining_tasks[0].options)
+            self.assertEqual(remaining_tasks[0].options["expires"], expected_start + WARMING_CHAIN_LIFETIME)
 
 
 class TestWarmInsightCacheTask(APIBaseTest):
