@@ -63,6 +63,7 @@ import {
     openRenameSkillDialog,
     publishToCommunityDisabledReason,
 } from './skillSceneComponents'
+import { SkillTags } from './SkillTags'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
@@ -470,6 +471,8 @@ function SkillViewDetails(): JSX.Element {
             </div>
 
             <SkillOwners />
+
+            <SkillTags />
 
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>

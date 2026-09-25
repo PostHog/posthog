@@ -75,6 +75,7 @@ const SKILL: LLMSkillApi = {
     allowed_tools: ['read', 'shell'],
     metadata: {},
     category: '',
+    tags: ['pdf', 'extraction'],
     files: [
         {
             path: 'scripts/extract.sh',
@@ -128,6 +129,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     allowed_tools: SKILL.allowed_tools,
     metadata: {},
     category: SKILL.category,
+    tags: SKILL.tags,
     outline: SKILL.outline,
     spec_problems: [],
     version: SKILL.version,
@@ -149,6 +151,7 @@ const UNOWNED_SKILL_LIST_ENTRY: LLMSkillListApi = {
     name: 'invoice-parser',
     description: 'Parse invoices into structured line items. Use when reconciling billing exports.',
     owners: [],
+    tags: [],
     version_count: 1,
     version: 1,
     latest_version: 1,
@@ -174,6 +177,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/llm_skills/resolve/name/:name/': RESOLVE_RESPONSE,
                 // Backs the share dialog's file manifest.
                 '/api/projects/:team_id/llm_skills/name/:name/': SKILL,
+                '/api/projects/:team_id/llm_skills/tags/': { tags: ['extraction', 'growth', 'pdf'] },
             },
         }),
     ],

@@ -90,6 +90,18 @@ export interface SkillFilters {
     group_by_prefix: boolean
     created_by_id?: number
     owner_id?: number
+    tags: string[]
+}
+
+/** Tag filters travel as one comma-separated URL and query param, so a tag name can't contain a comma. */
+function parseTags(value: unknown): string[] {
+    if (Array.isArray(value)) {
+        return value.map(String).filter(Boolean)
+    }
+    if (typeof value === 'string') {
+        return value.split(',').filter(Boolean)
+    }
+    return []
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -110,6 +122,7 @@ function cleanFilters(values: Partial<SkillFilters>): SkillFilters {
         group_by_prefix: parseBoolean(values.group_by_prefix),
         created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
         owner_id: values.owner_id ? Number(values.owner_id) : undefined,
+        tags: parseTags(values.tags),
     }
 }
 
@@ -121,6 +134,7 @@ function cleanFilterUrlParams(filters: SkillFilters): Record<string, unknown> {
         group_by_prefix: filters.group_by_prefix ? 'true' : undefined,
         created_by_id: filters.created_by_id,
         owner_id: filters.owner_id,
+        tags: filters.tags.length > 0 ? filters.tags.join(',') : undefined,
     }
 }
 
@@ -471,6 +485,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     // Always send `category` (even as ""): the default tab shows uncategorized skills,
                     // each category tab shows its own category. Presence of the param is the filter.
                     const category = values.activeCategory
+                    const tags = filters.tags.length > 0 ? filters.tags.join(',') : undefined
                     const params = filters.group_by_prefix
                         ? {
                               search: filters.search,
@@ -479,6 +494,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
                               owner_id: filters.owner_id,
+                              tags,
                               category,
                           }
                         : {
@@ -488,6 +504,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
                               owner_id: filters.owner_id,
+                              tags,
                               category,
                           }
 
