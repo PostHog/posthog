@@ -89,11 +89,17 @@ export const authorFrictionLogic = kea<authorFrictionLogicType>([
             null as AuthorFrictionListApi | null,
             {
                 // A fixed 30-day window from the materialized view, so the date picker does not move this list.
-                loadFriction: async (): Promise<AuthorFrictionListApi> =>
-                    await engineeringAnalyticsAuthorFriction(projectId(), {
-                        source_id: values.sourceId ?? undefined,
-                        repo: values.scopeRepo ?? undefined,
-                    }),
+                loadFriction: async (_: void, breakpoint): Promise<AuthorFrictionListApi> => {
+                    try {
+                        return await engineeringAnalyticsAuthorFriction(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                            repo: values.scopeRepo ?? undefined,
+                        })
+                    } finally {
+                        // A scope change starts a new request, so a slower answer for the old scope must not land.
+                        breakpoint()
+                    }
+                },
             },
         ],
     })),

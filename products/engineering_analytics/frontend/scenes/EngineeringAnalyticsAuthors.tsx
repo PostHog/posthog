@@ -127,7 +127,15 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
                 { value: null, label: 'All teams' },
                 ...teamOptions.map((team) => ({ value: team, label: team })),
             ]}
-            disabledReason={teamOptions.length === 0 ? 'Team membership is not synced for this source.' : undefined}
+            disabledReason={
+                !friction
+                    ? 'Teams load with the friction list.'
+                    : !friction.has_membership_data
+                      ? 'Team membership is not synced for this source.'
+                      : teamOptions.length === 0
+                        ? 'No team has a member with a friction score yet.'
+                        : undefined
+            }
             data-attr="engineering-analytics-friction-team-filter"
         />
     )

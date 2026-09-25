@@ -21,7 +21,13 @@ export function FrictionGroupBar({ groups, max }: { groups: FrictionGroupShareAp
     )
     return (
         <Tooltip title={tooltip}>
-            <div className="h-2 w-full rounded-sm bg-fill-secondary">
+            <div
+                className="h-2 w-full rounded-sm bg-fill-secondary"
+                tabIndex={0}
+                aria-label={FRICTION_GROUP_ORDER.map(
+                    (group) => `${FRICTION_GROUP_LABELS[group]} ${timesTypical(byGroup.get(group) ?? 0)}`
+                ).join(', ')}
+            >
                 <div
                     className="flex h-full overflow-hidden rounded-sm"
                     style={{ width: `${max > 0 ? (total / max) * 100 : 0}%` }}
