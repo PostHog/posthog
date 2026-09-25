@@ -24,6 +24,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
+from common.hogvm.python.utils import HogVMException
+
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
 
 # Query kinds a metric definition may take (the facade enums are the public split). Node kinds are
@@ -42,6 +44,9 @@ MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
 
 # A description is a few sentences of business meaning; a narrated query walkthrough blows past this.
 MAX_DESCRIPTION_LENGTH = 1_000
+
+# The Hog VM reports an unsupplied placeholder as a missing global, and the name follows this text.
+_MISSING_PLACEHOLDER_PREFIX = "Global variable not found: "
 
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse
 # passthrough, an arbitrary DB connection). A metric definition may only set these.
@@ -187,6 +192,18 @@ def _parse_hogql_definition(definition: dict) -> ast.SelectQuery | ast.SelectSet
         return parse_select(definition["query"], placeholders=placeholders)
     except ExposedHogQLError as e:
         _fail(f"Invalid HogQL query: {e}", "Fix the SQL syntax.")
+    except HogVMException as e:
+        # Placeholder replacement runs each placeholder through the Hog VM, so a name that `values`
+        # does not supply reads as a missing VM global, not a HogQL error. That is a typo in the
+        # writer's query, so name it instead of reporting an internal exception.
+        message = str(e)
+        if message.startswith(_MISSING_PLACEHOLDER_PREFIX):
+            name = message.removeprefix(_MISSING_PLACEHOLDER_PREFIX)
+            _fail(
+                f"The query uses a placeholder '{{{name}}}' that the definition does not supply.",
+                f"Add '{name}' to 'values', or remove the placeholder from the query.",
+            )
+        _fail("Could not expand a query placeholder.", "Check the query's placeholders against 'values'.")
     except ResolutionError as e:
         capture_exception(e)
         _fail("Could not resolve a table or field in the query.", "Check table and column names.")
