@@ -19,8 +19,9 @@ export function ConnectStep(): JSX.Element {
     return (
         <div className="space-y-4">
             <p className="m-0 text-secondary">
-                In the AWS console, create an Amazon Data Firehose stream with source Direct PUT and destination HTTP
-                endpoint, then subscribe your CloudWatch log groups to it. Use these values.
+                In the AWS console, create an Amazon Data Firehose stream. Set the source to Direct PUT and the
+                destination to HTTP endpoint, then subscribe your CloudWatch log groups to the stream. Use the values
+                below.
             </p>
             <LemonField.Pure label="HTTP endpoint URL">
                 <CodeSnippet language={Language.Text} compact wrap>
@@ -38,11 +39,11 @@ export function ConnectStep(): JSX.Element {
             <LemonField.Pure label="Stream settings">
                 <ul className="m-0 pl-4 text-sm text-secondary">
                     <li>
-                        Buffer size {setup.buffering_size_mb} MB, buffer interval {setup.buffering_interval_seconds}{' '}
-                        seconds
+                        Buffer size: {setup.buffering_size_mb} MB. Buffer interval: {setup.buffering_interval_seconds}{' '}
+                        seconds.
                     </li>
-                    <li>Content encoding {setup.content_encoding}</li>
-                    <li>Retry duration {setup.retry_duration_seconds} seconds, back up failed data only to S3</li>
+                    <li>Content encoding: {setup.content_encoding}</li>
+                    <li>Retry duration: {setup.retry_duration_seconds} seconds. S3 backup: failed data only.</li>
                 </ul>
             </LemonField.Pure>
         </div>

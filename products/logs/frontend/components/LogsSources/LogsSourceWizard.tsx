@@ -8,7 +8,8 @@ import { DetailsStep } from './steps/DetailsStep'
 import { WaitingStep } from './steps/WaitingStep'
 
 export function LogsSourceWizard(): JSX.Element {
-    const { wizardOpen, wizardStep, wizardSource, canCreate, createPending, wizardHealth } = useValues(logsSourcesLogic)
+    const { wizardOpen, wizardStep, wizardSource, canCreate, createPending, wizardSourceIsReceiving } =
+        useValues(logsSourcesLogic)
     const { closeWizard, createSource, setWizardStep } = useActions(logsSourcesLogic)
     const sourceName = wizardSource?.name ?? 'this source'
 
@@ -25,7 +26,7 @@ export function LogsSourceWizard(): JSX.Element {
                         type="primary"
                         onClick={createSource}
                         loading={createPending}
-                        disabledReason={canCreate ? undefined : 'Enter a name and choose a region'}
+                        disabledReason={canCreate ? undefined : 'Enter a name for the source'}
                         data-attr="logs-source-create"
                     >
                         Create source
@@ -60,7 +61,7 @@ export function LogsSourceWizard(): JSX.Element {
                         Back to setup values
                     </LemonButton>
                     <LemonButton type="primary" onClick={closeWizard} data-attr="logs-source-wizard-done">
-                        {wizardHealth?.status === 'receiving' ? 'Done' : 'Close'}
+                        {wizardSourceIsReceiving ? 'Done' : 'Close'}
                     </LemonButton>
                 </>
             ),

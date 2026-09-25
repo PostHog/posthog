@@ -2,19 +2,24 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import type { LogsSourceHealthStatusEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
-const STATUS_CONFIG: Record<LogsSourceHealthStatusEnumApi, { label: string; type: LemonTagType }> = {
+type StatusTag = { label: string; type: LemonTagType }
+
+const STATUS_CONFIG: Record<LogsSourceHealthStatusEnumApi, StatusTag> = {
     receiving: { label: 'Receiving', type: 'success' },
-    stale: { label: 'No data in the last 2 hours', type: 'warning' },
+    stale: { label: 'No recent data', type: 'warning' },
     disabled: { label: 'Disabled', type: 'muted' },
     waiting: { label: 'Waiting for first delivery', type: 'default' },
 }
 
-const CHECKING = { label: 'Checking', type: 'default' } as const
+const CHECKING: StatusTag = { label: 'Checking', type: 'default' }
+const UNAVAILABLE: StatusTag = { label: 'Status unavailable', type: 'muted' }
 
-export function logsSourceStatusLabel(status: LogsSourceHealthStatusEnumApi | undefined): string {
-    return (status ? STATUS_CONFIG[status] : CHECKING).label
-}
-
-export function logsSourceStatusTagType(status: LogsSourceHealthStatusEnumApi | undefined): LemonTagType {
-    return (status ? STATUS_CONFIG[status] : CHECKING).type
+export function logsSourceStatusTag(
+    status: LogsSourceHealthStatusEnumApi | undefined,
+    healthUnavailable: boolean
+): StatusTag {
+    if (status) {
+        return STATUS_CONFIG[status]
+    }
+    return healthUnavailable ? UNAVAILABLE : CHECKING
 }

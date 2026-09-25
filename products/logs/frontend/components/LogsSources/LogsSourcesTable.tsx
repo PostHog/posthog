@@ -9,7 +9,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import type { LogsSourceApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsSourcesLogic } from './logsSourcesLogic'
-import { logsSourceStatusLabel, logsSourceStatusTagType } from './logsSourceStatus'
+import { logsSourceStatusTag } from './logsSourceStatus'
 
 export function LogsSourcesTable(): JSX.Element {
     const {
@@ -28,7 +28,7 @@ export function LogsSourcesTable(): JSX.Element {
         LemonDialog.open({
             title: `Delete ${source.name}?`,
             description:
-                'Deliveries that name this source will be dropped. The Firehose stream in your AWS account keeps running until you delete it there.',
+                "Logs sent to this source's endpoint will no longer be stored. The Firehose stream in your AWS account keeps running until you delete it there.",
             primaryButton: {
                 children: 'Delete source',
                 status: 'danger',
@@ -54,7 +54,12 @@ export function LogsSourcesTable(): JSX.Element {
             {sourcesLoadFailed && (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: loadSources, 'data-attr': 'logs-sources-retry-load' }}
+                    action={{
+                        children: 'Try again',
+                        onClick: loadSources,
+                        loading: sourcesLoading,
+                        'data-attr': 'logs-sources-retry-load',
+                    }}
                 >
                     Couldn't load your sources. Try again, and if it keeps happening contact support.
                 </LemonBanner>
@@ -65,8 +70,8 @@ export function LogsSourcesTable(): JSX.Element {
                 rowKey="id"
                 emptyState={
                     sourcesLoadFailed
-                        ? 'Sources could not be loaded.'
-                        : 'No cloud provider sources yet. Add one to stream CloudWatch logs into this environment.'
+                        ? 'No sources to show.'
+                        : 'No sources yet. Add one to stream CloudWatch logs into this environment.'
                 }
                 columns={[
                     {
@@ -85,15 +90,11 @@ export function LogsSourcesTable(): JSX.Element {
                         title: 'Status',
                         key: 'status',
                         render: (_, source) => {
-                            const status = healthBySourceId[source.id]?.status
-                            if (!status && healthUnavailable) {
-                                return <LemonTag type="muted">Status unavailable</LemonTag>
-                            }
-                            return (
-                                <LemonTag type={logsSourceStatusTagType(status)}>
-                                    {logsSourceStatusLabel(status)}
-                                </LemonTag>
+                            const { label, type } = logsSourceStatusTag(
+                                healthBySourceId[source.id]?.status,
+                                healthUnavailable
                             )
+                            return <LemonTag type={type}>{label}</LemonTag>
                         },
                     },
                     {
@@ -116,7 +117,7 @@ export function LogsSourcesTable(): JSX.Element {
                             <LemonSwitch
                                 checked={source.enabled ?? true}
                                 onChange={(checked) => setSourceEnabled(source.id, checked)}
-                                disabledReason={togglePendingId === source.id ? 'Saving…' : undefined}
+                                disabledReason={togglePendingId === source.id ? 'Saving your change' : undefined}
                                 data-attr="logs-source-enabled-switch"
                             />
                         ),
@@ -132,7 +133,7 @@ export function LogsSourcesTable(): JSX.Element {
                                     onClick={() => openWizardForSource(source.id)}
                                     data-attr="logs-source-open-setup"
                                 >
-                                    Setup
+                                    View setup
                                 </LemonButton>
                                 <LemonButton
                                     size="small"

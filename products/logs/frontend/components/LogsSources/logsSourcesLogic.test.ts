@@ -13,7 +13,6 @@ const mockSetup = jest.fn()
 const mockPartialUpdate = jest.fn()
 
 jest.mock('products/logs/frontend/generated/api', () => ({
-    ...jest.requireActual<Record<string, unknown>>('products/logs/frontend/generated/api'),
     logsSourcesList: (...args: unknown[]) => mockList(...args),
     logsSourcesCreate: (...args: unknown[]) => mockCreate(...args),
     logsSourcesHealthRetrieve: (...args: unknown[]) => mockHealth(...args),

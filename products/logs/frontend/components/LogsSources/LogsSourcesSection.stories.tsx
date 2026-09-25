@@ -80,7 +80,7 @@ WithSources.decorators = [
     }),
 ]
 
-export const ConnectStep: StoryFn = () => {
+export const WizardConnectStep: StoryFn = () => {
     useEffect(() => {
         const unmount = logsSourcesLogic.mount()
         logsSourcesLogic.actions.openWizardForSource(sources[0].id)
@@ -88,7 +88,7 @@ export const ConnectStep: StoryFn = () => {
     }, [])
     return <LogsSourcesSection />
 }
-ConnectStep.decorators = WithSources.decorators
+WizardConnectStep.decorators = WithSources.decorators
 
 export const Empty: StoryFn = () => <LogsSourcesSection />
 Empty.decorators = [

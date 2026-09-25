@@ -17,9 +17,8 @@ export function LogsSourcesSection(): JSX.Element | null {
         <BindLogic logic={logsSourcesLogic} props={{}}>
             <div className="space-y-3">
                 <p className="text-muted m-0">
-                    Stream logs from Amazon CloudWatch into this environment. PostHog gives you an endpoint for an
-                    Amazon Data Firehose stream, and subscription filters on your log groups deliver into it. Your AWS
-                    account is billed for Firehose usage.
+                    PostHog gives you an endpoint for an Amazon Data Firehose stream, and subscription filters on your
+                    log groups deliver into it. Your AWS account is billed for Firehose usage.
                 </p>
                 <LogsSourcesTable />
                 <LogsSourceWizard />
