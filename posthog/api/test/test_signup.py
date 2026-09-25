@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, cast
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -3042,8 +3043,19 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["code"], "account_exists")
 
-        # AND then
-        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+        # AND then the redirect carries what the login scene needs to explain the bounce
+        detail = response.json()["detail"]
+        path, _, query = detail.partition("?")
+        self.assertEqual(path, "/login")
+        self.assertEqual(
+            parse_qs(query),
+            {
+                "email": [user.email],
+                "reason": ["invite_account_exists"],
+                "next": [f"/signup/{invite.id}"],
+                "organization_name": [self.organization.name],
+            },
+        )
 
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)

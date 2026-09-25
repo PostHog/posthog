@@ -199,6 +199,7 @@ export interface loginLogicValues {
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
     isLoginValid: boolean
+    invitingOrganizationName: string | null
     isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
@@ -385,6 +386,7 @@ export interface loginLogicMeta {
         ) => SSOProvider[] | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
+        invitingOrganizationName: (searchParams: Record<string, any>) => string | null
     }
 }
 
@@ -580,6 +582,12 @@ export const loginLogic = kea<loginLogicType>([
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
+        ],
+        // Set when an invite link bounced the person here because their email already has an account.
+        invitingOrganizationName: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string | null =>
+                searchParams['reason'] === 'invite_account_exists' ? searchParams['organization_name'] || null : null,
         ],
     })),
     forms(({ actions, values }) => ({

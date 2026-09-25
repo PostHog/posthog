@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
+from urllib.parse import urlencode
 
 from django.db import models, transaction
 from django.db.models.functions import Upper
@@ -100,6 +101,18 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             models.Index(Upper("target_email"), name="orginvite_upper_email_idx"),
         ]
 
+    def _login_redirect_path(self, invite_email: str, request_path: Optional[str]) -> str:
+        # The login scene reads these parameters to prefill the email and explain why the invite
+        # link landed the person on a login form instead of a signup form.
+        params: dict[str, str] = {
+            "email": invite_email,
+            "reason": "invite_account_exists",
+            "organization_name": self.organization.name,
+        }
+        if request_path:
+            params["next"] = request_path
+        return f"/login?{urlencode(params)}"
+
     def validate(
         self,
         *,
@@ -124,7 +137,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             raise InviteExpiredException()
 
         if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
-            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
+            raise exceptions.ValidationError(
+                self._login_redirect_path(invite_email, request_path), code="account_exists"
+            )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(

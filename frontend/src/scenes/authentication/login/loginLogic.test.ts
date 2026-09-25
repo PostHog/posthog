@@ -58,6 +58,36 @@ describe('loginLogic', () => {
         }
     })
 
+    describe('invitingOrganizationName', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        const cases: [string, string | null][] = [
+            ['/login?reason=invite_account_exists&organization_name=Hedgebox', 'Hedgebox'],
+            ['/login?reason=invite_account_exists', null],
+            ['/login?organization_name=Hedgebox', null],
+            ['/login?reason=session_risk&organization_name=Hedgebox', null],
+            ['/login', null],
+        ]
+
+        for (const [url, expected] of cases) {
+            it(`for "${url}" it returns ${JSON.stringify(expected)}`, () => {
+                router.actions.push(url)
+                expect(logic.values.invitingOrganizationName).toEqual(expected)
+            })
+        }
+
+        it('prefills the email the invite redirect carries', () => {
+            router.actions.push('/login?reason=invite_account_exists&email=test%40posthog.com')
+            expect(logic.values.login.email).toEqual('test@posthog.com')
+        })
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 
