@@ -238,6 +238,12 @@ export function readableErrorMessage(error: unknown): string | undefined {
 }
 
 export class ApiError extends Error {
+    /**
+     * The kind of query that failed, for a request to the query endpoint. Set by the request path,
+     * which is the only frame that still knows the URL. Every `ApiError` is built in `lib/api.ts`,
+     * so a reported one otherwise carries that file's stack and nothing that names the surface.
+     */
+    queryKind: string | null = null
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
     /** Django REST Framework `code` - used in downstream error handling. */

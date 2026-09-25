@@ -239,7 +239,15 @@ export function initKea({
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
-                    posthog.captureException(error)
+                    // Every `ApiError` is built in one place, so they share one stack and group
+                    // into one issue whose message is the server's generic detail. These
+                    // properties are what tells one failing surface from another on its events.
+                    posthog.captureException(error, {
+                        kea_action: actionKey,
+                        kea_reducer: reducerKey,
+                        api_status: error?.status ?? null,
+                        api_query_kind: error?.queryKind ?? null,
+                    })
                 }
             },
         }),

@@ -438,7 +438,9 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        const failure = new ApiError(`Malformed JSON response ${requestContext()}`)
+        failure.queryKind = queryKindFromUrl(url)
+        throw failure
     }
 }
 
@@ -7201,6 +7203,22 @@ function requestPathname(url: string): string {
     }
 }
 
+const KNOWN_QUERY_KINDS = new Set<string>(Object.values(NodeKind))
+
+/**
+ * The kind of query a request ran, which the query endpoint carries in its path. Only a kind the
+ * schema declares is returned, because every other path segment is a value from the request - a
+ * team id, a uuid, a short id, a person key - and an exception report must carry none of them.
+ */
+function queryKindFromUrl(url: string): string | null {
+    const segments = requestPathname(url).split('/').filter(Boolean)
+    const kind = segments[segments.length - 1]
+    if (segments[segments.length - 2] === 'query' && kind && KNOWN_QUERY_KINDS.has(kind)) {
+        return kind
+    }
+    return null
+}
+
 /**
  * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
  * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
@@ -7366,6 +7384,7 @@ async function handleFetch(
         // this one.
         const failure = new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
         failure.cause = error
+        failure.queryKind = queryKindFromUrl(url)
         throw failure
     }
 
@@ -7403,7 +7422,9 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        const failure = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        failure.queryKind = queryKindFromUrl(url)
+        throw failure
     }
 
     return response
