@@ -12,7 +12,10 @@ import pytest
 import time_machine
 from unittest.mock import MagicMock, call, patch
 
+from django.db import connection
+
 import psycopg
+from psycopg.conninfo import make_conninfo
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
@@ -582,11 +585,16 @@ async def test_activity_expires_old_default_partition_rows_instead_of_dropping(a
     assert result["success"] is True
 
 
-def _test_database_url() -> str:
-    from django.db import connection
-
-    s = connection.settings_dict
-    return f"postgres://{s['USER']}:{s['PASSWORD']}@{s['HOST'] or 'localhost'}:{s['PORT'] or '5432'}/{s['NAME']}"
+def _test_database_conninfo() -> str:
+    settings_dict = connection.settings_dict
+    params = {
+        "host": settings_dict["HOST"],
+        "port": str(settings_dict["PORT"] or ""),
+        "user": settings_dict["USER"],
+        "password": settings_dict["PASSWORD"],
+        "dbname": settings_dict["NAME"],
+    }
+    return make_conninfo(**{key: value for key, value in params.items() if value})
 
 
 @pytest.mark.django_db
@@ -595,7 +603,7 @@ def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_ba
     cutoff = date(2026, 9, 15)
     errors: list[str] = []
 
-    with psycopg.Connection.connect(_test_database_url(), autocommit=True) as conn:
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
         try:
             conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
             conn.execute(f"CREATE TABLE {table}_default PARTITION OF {table} DEFAULT")
