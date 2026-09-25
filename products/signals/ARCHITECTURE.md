@@ -664,6 +664,20 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                                                                                                                                                                                                                       |
 
+#### Scout rubrics
+
+The nullable `rubrics` JSON field stores a scout's evaluation criteria and revision, plus its latest suggestion request and result.
+Until the first save, the editor supplies enabled shared defaults for evidence, clarity, actionability, priority, instructions, and memory use.
+Each criterion contains an identifier, description, passing condition, applicability, and enabled state.
+These are definitions for later evaluations; saving them does not score runs or change scout execution.
+
+The rubric editor and `/api/projects/{team_id}/signals/scout/rubrics/{config_id}/` endpoints require a staff user in project 2.
+`PUT` replaces the criteria only when the supplied revision matches, returning `409` for stale edits.
+`POST .../generate/` queues the `generate-scout-rubrics` Temporal workflow and returns the active request when one already exists.
+The background agent inspects instructions and recent runs through read-only access and returns structured suggestions.
+Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
+Completion preserves saved criteria, rejects results from replaced requests, and requires explicit user selection and saving to adopt suggestions.
+
 ### `SignalScoutRun`
 
 Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one scout-domain row per scheduled agent run that links its `TaskRun` to the skill it executed. Status, timing, error context, and the full chat log live on the `TaskRun`; emitted findings are `Signal` / `SignalReport` rows written by `emit_signal()`. This row carries only the scout-specific fields that need to be queryable as real columns.

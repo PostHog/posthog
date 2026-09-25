@@ -2296,6 +2296,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    rubrics = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Saved evaluation criteria and the latest background rubric proposal.",
+    )
     # What a person calls this scout, kept exactly as typed — spaces, capitalization, acronyms.
     # `skill_name` above stays the identity every other row keys on, so a rename touches only this
     # column. Blank means "no name of its own": every surface then derives a label from the slug.

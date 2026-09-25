@@ -293,6 +293,13 @@ await session.end()
 
 ### Reference implementation
 
+The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` uses a single background session to inspect a scout's instructions and recent runs.
+Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
+The worker saves validated suggestions on the scout config and ends the session.
+The browser can close during generation and retrieve the result later without restoring a sandbox.
+Suggestions remain separate from the saved rubric until a person selects and saves them.
+Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.
+
 See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
 researches each one, and produces output in the shape Signals consumes:

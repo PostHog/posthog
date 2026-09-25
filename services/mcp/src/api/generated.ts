@@ -87717,6 +87717,134 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - Default
+     * * `custom` - Custom
+     */
+    export type ScoutRubricSourceEnum = typeof ScoutRubricSourceEnum[keyof typeof ScoutRubricSourceEnum];
+
+
+    export const ScoutRubricSourceEnum = {
+      Default: 'default',
+      Custom: 'custom',
+    } as const;
+
+    export interface ScoutRubricCriterion {
+      /**
+         * Stable criterion identifier.
+         * @maxLength 80
+         * @pattern ^[a-z][a-z0-9_-]{0,79}$
+         */
+      id: string;
+      /**
+         * Short name for the criterion.
+         * @maxLength 120
+         */
+      title: string;
+      /**
+         * What this criterion measures.
+         * @maxLength 1000
+         */
+      description: string;
+      /**
+         * The evidence needed to pass this criterion.
+         * @maxLength 2000
+         */
+      pass_condition: string;
+      /**
+         * When this criterion applies or cannot be assessed.
+         * @maxLength 1000
+         */
+      applicability: string;
+      /** Whether future evaluations should use this criterion. */
+      enabled: boolean;
+      /** Shared default or scout-specific criterion.
+       *
+       * * `default` - Default
+       * * `custom` - Custom */
+      source: ScoutRubricSourceEnum;
+    }
+
+    /**
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ScoutRubricGenerationStatusEnum = typeof ScoutRubricGenerationStatusEnum[keyof typeof ScoutRubricGenerationStatusEnum];
+
+
+    export const ScoutRubricGenerationStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ScoutRubricGeneration {
+      /** Identifier for this generation attempt. */
+      id: string;
+      /** Background generation status.
+       *
+       * * `queued` - Queued
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: ScoutRubricGenerationStatusEnum;
+      /** When generation was requested. */
+      requested_at: string;
+      /**
+         * When generation completed or failed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Task performing the investigation, once created.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Task run performing the investigation, once created.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Failure message and suggested next step.
+         * @nullable
+         */
+      error: string | null;
+      /** Draft criteria awaiting review and explicit saving. */
+      suggestions: ScoutRubricCriterion[];
+      /** Investigation summary and limitations. */
+      summary: string;
+    }
+
+    export interface ScoutRubricDocument {
+      /** Scout config that owns this rubric. */
+      config_id: string;
+      /** Scout skill name. */
+      skill_name: string;
+      /**
+         * Saved rubric revision. Zero means it has not been saved.
+         * @minimum 0
+         */
+      revision: number;
+      /** Saved criteria, or enabled defaults before the first save. */
+      criteria: ScoutRubricCriterion[];
+      /** Latest background generation, if any. */
+      generation: ScoutRubricGeneration | null;
+    }
+
+    export interface ScoutRubricSave {
+      /**
+         * Revision read by the editor; stale saves return 409.
+         * @minimum 0
+         */
+      revision: number;
+      /** Complete set of criteria to save. */
+      criteria: ScoutRubricCriterion[];
+    }
+
+    /**
      * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
      * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
      * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.

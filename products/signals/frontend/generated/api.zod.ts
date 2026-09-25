@@ -1276,6 +1276,60 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request body for `notes-create`.')
 
+export const signalsScoutRubricsUpdateBodyRevisionMin = 0
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemIdMax = 80
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemIdRegExp = new RegExp('^[a-z][a-z0-9_-]{0,79}$')
+export const signalsScoutRubricsUpdateBodyCriteriaItemTitleMax = 120
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemDescriptionMax = 1000
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemPassConditionMax = 2000
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemApplicabilityMax = 1000
+
+export const SignalsScoutRubricsUpdateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(signalsScoutRubricsUpdateBodyRevisionMin)
+        .describe('Revision read by the editor; stale saves return 409.'),
+    criteria: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemIdMax)
+                    .regex(signalsScoutRubricsUpdateBodyCriteriaItemIdRegExp)
+                    .describe('Stable criterion identifier.'),
+                title: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemTitleMax)
+                    .describe('Short name for the criterion.'),
+                description: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemDescriptionMax)
+                    .describe('What this criterion measures.'),
+                pass_condition: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemPassConditionMax)
+                    .describe('The evidence needed to pass this criterion.'),
+                applicability: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemApplicabilityMax)
+                    .describe('When this criterion applies or cannot be assessed.'),
+                enabled: zod.boolean().describe('Whether future evaluations should use this criterion.'),
+                source: zod
+                    .enum(['default', 'custom'])
+                    .describe('\* `default` - Default\n\* `custom` - Custom')
+                    .describe(
+                        'Shared default or scout-specific criterion.\n\n\* `default` - Default\n\* `custom` - Custom'
+                    ),
+            })
+        )
+        .describe('Complete set of criteria to save.'),
+})
+
 /**
  * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
  * @summary Record the verdict on a report check

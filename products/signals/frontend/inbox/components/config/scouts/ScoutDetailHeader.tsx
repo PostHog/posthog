@@ -21,6 +21,7 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutHealthStrip } from './ScoutHealthStrip'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
 import { ScoutOwners } from './ScoutOwners'
+import { ScoutRubricsButton } from './ScoutRubricsButton'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
 /**
@@ -147,6 +148,7 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                <ScoutRubricsButton config={config} />
                 {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
                     those opens count too. */}
                 <span
