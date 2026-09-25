@@ -13,7 +13,7 @@
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 
-import { buildInParallel, copySnappyWASMFile } from '@posthog/esbuilder'
+import { buildInParallel, commonConfig, copySnappyWASMFile } from '@posthog/esbuilder'
 
 import { WORKER_ENTRIES } from '../workers.config.mjs'
 
@@ -43,6 +43,6 @@ await buildInParallel(
         bundle: true,
         format: 'esm',
         writeMetaFile: false,
-        ...(define ? { define } : {}),
+        ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
     }))
 )
