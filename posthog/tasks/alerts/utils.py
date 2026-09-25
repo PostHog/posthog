@@ -321,8 +321,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
             # The template drops its "review the alert settings" advice for this code, because
-            # a provider PostHog could not reach is not something the alert's owner can fix.
-            "provider_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            # a check the AI detector could not complete is not something the owner can fix.
+            "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
     accepted_at = datetime.now(UTC).isoformat()
@@ -654,6 +654,16 @@ def disable_invalid_alert(
     as an exception. Returns the recorded ERRORED AlertCheck so callers can reference it.
     """
     logger.warning("check_alert.auto_disabling", alert_id=alert.id, reason=reason)
+    ph_background_capture()(
+        distinct_id=str(alert.id),
+        event="alert auto disabled",
+        properties={
+            "team_id": alert.team_id,
+            "alert_id": str(alert.id),
+            "error_code": error_code,
+            "reason": reason,
+        },
+    )
     state_fields = apply_invalid_configuration(alert)
     alert.last_checked_at = datetime.now(UTC)
     alert.save(update_fields=[*state_fields, "last_checked_at"])

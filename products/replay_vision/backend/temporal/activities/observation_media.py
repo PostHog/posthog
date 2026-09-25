@@ -31,8 +31,8 @@ from products.replay_vision.backend.temporal.video_clock import VideoClock, vide
 logger = structlog.get_logger(__name__)
 
 _MEDIA_EXPIRY = timedelta(days=90)
-# ffmpeg writes no frame when the seek lands past the end of the video.
-_END_MARGIN_S = 0.5
+# The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
+_EDGE_MARGIN_S = 3.0
 
 
 def _media_key_prefix(team_id: int, observation_id: Any) -> str:
@@ -63,7 +63,9 @@ def _pick_video_time_s(
         picked = (start + end) / 2
     if picked is None:
         picked = duration_s * FALLBACK_THUMBNAIL_FRACTION
-    return max(0.0, min(picked, max(0.0, duration_s - _END_MARGIN_S)))
+    if duration_s <= 2 * _EDGE_MARGIN_S:
+        return duration_s / 2
+    return min(max(picked, _EDGE_MARGIN_S), duration_s - _EDGE_MARGIN_S)
 
 
 @activity.defn
@@ -71,7 +73,12 @@ def _pick_video_time_s(
 async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
     """Pick the frame to cut and create the `is_system` PNG asset the Node activity uploads into."""
     media_inputs = inputs
-    asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    try:
+        asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+    except ExportedAsset.DoesNotExist as error:
+        raise ApplicationError(
+            f"Analysis asset {media_inputs.analysis_asset_id} is gone", non_retryable=True
+        ) from error
     if not asset.content_location:
         # The analysis render is long finished by now, so an empty location is a lost object, not a race.
         raise ApplicationError(f"Analysis asset {asset.id} has no rendered object", non_retryable=True)

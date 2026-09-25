@@ -191,6 +191,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersVerifyEmailCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create(`api/users/verify_email/`, { uuid, code })
                         actions.closeModal()
                         lemonToast.success('Email address verified.')
@@ -212,6 +213,7 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersRequestEmailVerificationCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create(`api/users/request_email_verification/`, { uuid })
                         lemonToast.success('We sent a new code to the address pending verification.')
                         return true

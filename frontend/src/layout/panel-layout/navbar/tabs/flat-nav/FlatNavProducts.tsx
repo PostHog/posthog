@@ -95,7 +95,7 @@ export function FlatNavProducts(): JSX.Element {
                                 // A product can register an icon that carries live state, such as the
                                 // support unread counter. iconForType supplies the color wrapper itself,
                                 // so a registered icon needs that wrapper added around it.
-                                const CustomIcon = getCustomIcon(item.type)
+                                const CustomIcon = getCustomIcon(item.type, item.href)
                                 return (
                                     <NavLink
                                         key={item.path}

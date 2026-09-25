@@ -8,7 +8,9 @@ from pydantic.dataclasses import dataclass
 
 from .enums import DecisionQuestionType
 
-DEFAULT_DECISION_MODEL = "posthog/posthog/decision-4b"
+DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 
 
 class DecisionsDisabledError(Exception):
@@ -33,6 +35,8 @@ class DecisionGatewayError(Exception):
 
 
 MAX_QUESTIONS_PER_REQUEST = 32
+# JevK5 answers with one letter per option, A to P.
+MAX_OPTIONS_PER_QUESTION = 16
 
 
 @dataclass(frozen=True)
@@ -50,14 +54,19 @@ class DecisionQuestion:
             raise ValueError("a choice question needs its options as criteria, keyed by name")
         if self.type == DecisionQuestionType.NOUL and isinstance(self.criteria, list):
             raise ValueError("a yes/no question takes criteria keyed by name, not a list")
+        if self.criteria is not None and len(self.criteria) > MAX_OPTIONS_PER_QUESTION:
+            raise ValueError(f"a question takes at most {MAX_OPTIONS_PER_QUESTION} options")
 
 
 @dataclass(frozen=True)
 class DecisionRequest:
     team_id: int
-    state: str
+    state: JsonValue
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
+    ai_product: str = "ml_inference"
+    trace_id: str | None = None
+    properties: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
@@ -91,4 +100,4 @@ class DecisionResult:
     model: str
     answers: dict[str, DecisionAnswer]
     input_tokens: int
-    latency_ms: int | None = None
+    latency_ms: float | None = None

@@ -2,6 +2,7 @@ import {
   CLOUD_USAGE_LIMIT_ERROR_MESSAGE,
   type TaskSessionStorageAccess,
 } from "@posthog/api-client/posthog-client";
+import { cloudAccessFor } from "@posthog/core/sessions/cloudModelAccess";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -153,18 +154,19 @@ export class TaskService {
       }
     }
 
-    if (
-      input.workspaceMode === "cloud" &&
-      input.runtime !== "pi" &&
-      (input.adapter ?? "claude") === "claude"
-    ) {
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
       try {
+        const access = await this.sessionService.resolveCloudModelAccess(
+          adapter,
+          adapter === "claude"
+            ? input.claudeCloudModelAccess
+            : input.codexCloudModelAccess,
+        );
         input = {
           ...input,
-          claudeCloudModelAccess:
-            await this.sessionService.resolveClaudeCloudModelAccess(
-              input.claudeCloudModelAccess,
-            ),
+          claudeCloudModelAccess: cloudAccessFor(access, "claude"),
+          codexCloudModelAccess: cloudAccessFor(access, "codex"),
         };
       } catch (error) {
         return {
@@ -173,7 +175,7 @@ export class TaskService {
           error:
             error instanceof Error
               ? error.message
-              : "Could not check Claude plan billing.",
+              : "Could not check subscription billing.",
         };
       }
     }

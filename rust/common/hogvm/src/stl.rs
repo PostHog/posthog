@@ -116,6 +116,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "values")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    // A null array reads as empty, so the bytecode array helpers built on values()
+                    // see no elements instead of failing the whole program.
+                    HogLiteral::Null => Ok(HogLiteral::Array(vec![]).into()),
                     // Arrays and tuples both yield a plain array of their elements (reference: [...obj]).
                     HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
                         Ok(HogLiteral::Array(a.clone()).into())
@@ -141,6 +144,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "length")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         Ok(HogLiteral::Number(arr.len().into()).into())
                     }
@@ -160,14 +164,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.push(value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushBack() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -178,14 +180,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 let value = args[1].clone();
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.insert(0, value);
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPushFront() only supports arrays".to_string(),
-                    )),
+                    _ => Ok(HogLiteral::Array(vec![value]).into()),
                 }
             }),
         ),
@@ -195,14 +195,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopBack")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.pop();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopBack() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -212,16 +211,15 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayPopFront")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         if !arr.is_empty() {
                             arr.remove(0);
                         }
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayPopFront() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -231,13 +229,12 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arraySort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arraySort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -247,14 +244,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverse")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut arr = arr.clone();
                         arr.reverse();
                         Ok(HogLiteral::Array(arr).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverse() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -264,14 +260,13 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "arrayReverseSort")?;
                 let array = args[0].deref(&vm.heap)?;
                 match array {
-                    HogLiteral::Array(arr) => {
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                         let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
                         nums.reverse();
                         Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
-                    _ => Err(VmError::NativeCallFailed(
-                        "arrayReverseSort() only supports arrays".to_string(),
-                    )),
+                    // A non-array reads as empty, matching the Node VM.
+                    _ => Ok(HogLiteral::Array(vec![]).into()),
                 }
             }),
         ),
@@ -281,10 +276,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 2, "arrayStringConcat")?;
                 let vals = args[0].deref(&vm.heap)?;
                 let sep = args[1].deref(&vm.heap)?.try_as::<str>()?;
-                let HogLiteral::Array(vals) = vals else {
-                    return Err(VmError::NativeCallFailed(
-                        "arrayStringConcat() only supports arrays".to_string(),
-                    ));
+                let (HogLiteral::Array(vals) | HogLiteral::Tuple(vals)) = vals else {
+                    return Ok(HogLiteral::from(String::new()).into());
                 };
                 let mut parts = Vec::with_capacity(vals.len());
                 for val in vals.iter() {
@@ -491,7 +484,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "upper",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "upper")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 Ok(HogLiteral::from(s.to_uppercase()).into())
             }),
         ),
@@ -500,6 +497,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             native_func(|vm, args| {
                 assert_argc(&args, 1, "reverse")?;
                 match args[0].deref(&vm.heap)? {
+                    HogLiteral::Null => Ok(HogLiteral::Null.into()),
                     HogLiteral::String(s) => {
                         Ok(HogLiteral::from(s.chars().rev().collect::<String>()).into())
                     }
@@ -769,7 +767,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceOne",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceOne")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replacen(from, to, 1)).into())
@@ -779,7 +781,11 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "replaceAll",
             native_func(|vm, args| {
                 assert_argc(&args, 3, "replaceAll")?;
-                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let subject = args[0].deref(&vm.heap)?;
+                if matches!(subject, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
+                let s: &str = subject.try_as()?;
                 let from: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let to: &str = args[2].deref(&vm.heap)?.try_as()?;
                 Ok(HogLiteral::from(s.replace(from, to)).into())
@@ -794,6 +800,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     ));
                 }
                 // splitByString(separator, string[, max])
+                if matches!(args[1].deref(&vm.heap)?, HogLiteral::Null) {
+                    return Ok(HogLiteral::Null.into());
+                }
                 let sep: &str = args[0].deref(&vm.heap)?.try_as()?;
                 let s: &str = args[1].deref(&vm.heap)?.try_as()?;
                 let parts: Vec<HogValue> = if args.len() > 2 {
@@ -2005,7 +2014,11 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
             "trim takes 1 or 2 arguments".to_string(),
         ));
     }
-    let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+    let subject = args[0].deref(&vm.heap)?;
+    if matches!(subject, HogLiteral::Null) {
+        return Ok(HogLiteral::Null.into());
+    }
+    let s: &str = subject.try_as()?;
     let result = if args.len() == 2 {
         let chars: Vec<char> = match args[1].deref(&vm.heap)? {
             HogLiteral::String(c) => c.chars().collect(),

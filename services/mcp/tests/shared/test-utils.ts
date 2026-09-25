@@ -685,6 +685,7 @@ export function makeToolExecutorState(
             isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
+            isAnthropicConnector: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
@@ -701,9 +702,6 @@ export function makeToolExecutorState(
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
         ...overrides,
     }
 }

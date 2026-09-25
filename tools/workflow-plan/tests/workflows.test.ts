@@ -228,11 +228,64 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
+        { name: 'routing record unreadable', steps: { changes: { route: { outcome: 'failure' } } } },
+        {
+            runs: ['django_tests'],
+            results: { changes: 'failure' },
+            skipped: [
+                'hand-off-to-depot',
+                'django',
+                'turbo-tests',
+                'check-migrations',
+                'handle-snapshots',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+            ],
+        }
+    ),
+    backend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
             skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
+    ),
+    // A product change that reaches no legacy code skips the Django suite, but the events_json
+    // rows still run the changed products' listed paths, because product jobs read the legacy
+    // events table only.
+    backend(
+        {
+            name: 'product-only PR whose products have events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":"products/web_analytics/backend/hogql_queries"}',
+                        },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django', 'django_tests'] }
+    ),
+    backend(
+        {
+            name: 'product-only PR without events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
     ),
     backend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
@@ -437,6 +490,33 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
+        ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
+        ['failed gateway', workflowDispatch(), 'bump', 'success', 'broken', false, false],
+        ['nightly with open PR', schedule(), 'current', 'success', 'pass', false, true],
+    ] as const)('sandbox agent release: %s', (name, github, action, imageOutcome, result, enqueue, nightly) => {
+        const plan = planWorkflow(workflow('update-sandbox-agent-version.yml'), {
+            name,
+            github,
+            steps: {
+                'update-sandbox-agent-version': {
+                    state: { outputs: { action } },
+                    smoke: { outputs: { conclusion: 'success' } },
+                    image: { outcome: imageOutcome },
+                    'gateway-smoke': { outputs: { result } },
+                    'Stop when the gateway smoke did not pass': { outcome: 'failure' },
+                    'nightly-smoke': { outputs: { result: 'pass' } },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
+        expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
+        expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
+    })
+
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)

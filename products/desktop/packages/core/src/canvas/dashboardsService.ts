@@ -19,6 +19,8 @@ import {
   type CanvasView,
   canvasSourceProjectSchema,
   type DashboardRecord,
+  type PublishProjectInput,
+  type PublishProjectResult,
 } from "./dashboardSchemas";
 import {
   type CanvasAgentRequestResult,
@@ -567,6 +569,54 @@ export class DashboardsService {
 
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
+  }
+
+  async publishProject(
+    input: PublishProjectInput,
+  ): Promise<PublishProjectResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/publish/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project: input.project,
+          prompt: input.prompt ?? "Edited blocks",
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      attr?: string | null;
+      current_version_id?: string | null;
+      diagnostics?: Array<{
+        severity?: string;
+        message?: string;
+        path?: string;
+      }>;
+    };
+    if (res.status === 409) {
+      return {
+        status: "conflict",
+        currentVersionId: body.current_version_id ?? null,
+      };
+    }
+    if (!res.ok || !body.current_version_id) {
+      const firstError = body.diagnostics?.find(
+        (diagnostic) => diagnostic.severity === "error" && diagnostic.message,
+      );
+      const reason = firstError
+        ? `${firstError.path ? `${firstError.path}: ` : ""}${firstError.message}`
+        : body.attr
+          ? `${body.attr}: ${body.detail}`
+          : body.detail;
+      throw new ProjectApiError(
+        reason ?? `Failed to save the canvas (${res.status})`,
+        res.status,
+      );
+    }
+    return { status: "saved", currentVersionId: body.current_version_id };
   }
 
   // Read the canvas's source project — the head, or a historical version.

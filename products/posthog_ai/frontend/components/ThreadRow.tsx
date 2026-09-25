@@ -15,6 +15,7 @@ import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { Activity } from './ActivityPrimitives'
 import { RunErrorRow } from './RunErrorRow'
+import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
@@ -122,6 +123,7 @@ export const ThreadRow = memo(function ThreadRow({
         return (
             <MessageTemplate type="human">
                 <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )
     }

@@ -2,7 +2,15 @@ from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
+from posthog.api import (
+    data_color_theme,
+    data_deletion_request,
+    metalytics,
+    my_notifications,
+    project,
+    user_integration,
+    user_push_token,
+)
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
@@ -257,6 +265,12 @@ projects_router.register(
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
+projects_router.register(
+    r"data_deletion_requests",
+    data_deletion_request.DataDeletionRequestViewSet,
+    "project_data_deletion_requests",
+    ["team_id"],
+)
 
 
 # Organizations nested endpoints
@@ -355,11 +369,13 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(
     r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
 )
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
@@ -388,6 +404,7 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
@@ -543,6 +560,7 @@ projects_router.register(
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
@@ -551,6 +569,7 @@ projects_router.register(
 )
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 

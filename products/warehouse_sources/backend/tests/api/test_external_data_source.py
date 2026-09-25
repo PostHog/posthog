@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
 from django.db import connection
@@ -1223,6 +1223,33 @@ class TestExternalDataSource(APIBaseTest):
         for schema in schemas:
             schema.refresh_from_db()
             assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_full_refresh_interval(self, _mock_workflow_exists):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["full_refresh_interval_days"] == 7
+        schema.refresh_from_db()
+        assert schema.full_refresh_interval_days == 7
+        assert schema.next_full_refresh_at is not None
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2458,8 +2485,7 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
         assert response.json()["message"].startswith("Invalid source config")
-        assert "'private_key'" in response.json()["message"]
-        assert "'private_key_id'" in response.json()["message"]
+        assert "not a complete Google Cloud service account key" in response.json()["message"]
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_create_external_data_source_bigquery_returns_400_on_credentials_rejected_during_schema_discovery(
@@ -3112,6 +3138,8 @@ class TestExternalDataSource(APIBaseTest):
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
+                    "full_refresh_interval_days": None,
+                    "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
@@ -11243,7 +11271,14 @@ class TestDisableCDC(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
-    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, _cleanup) -> None:
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.is_external_data_schedule_paused",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.pause_external_data_schedule"
+    )
+    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, mock_pause_schedule, _is_paused, _cleanup) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
 
         cdc_schema = ExternalDataSchema.objects.create(
@@ -11283,6 +11318,92 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
+        mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.unpause_external_data_schedule"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.is_external_data_schedule_paused",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.pause_external_data_schedule",
+        side_effect=RuntimeError("temporal unavailable"),
+    )
+    def test_disable_cdc_changes_nothing_when_a_table_schedule_cannot_be_paused(
+        self, _pause, _is_paused, mock_unpause, cleanup
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+
+        assert response.status_code == 503, response.content
+        cleanup.assert_not_called()
+        source.refresh_from_db()
+        assert "cdc_enabled" in (source.job_inputs or {})
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert cdc_schema.should_sync is True
+        # No pause succeeded, so there is nothing to resume.
+        mock_unpause.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.unpause_external_data_schedule"
+    )
+    def test_disable_cdc_resumes_only_the_schedules_it_paused_when_a_later_pause_fails(
+        self, mock_unpause, _cleanup
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        for name in ("cdc_one", "cdc_two", "cdc_three"):
+            ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source_id=source.pk,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            )
+
+        pause_attempts: list[str] = []
+
+        def fake_is_paused(schedule_id: str) -> bool:
+            # The first table reached stands in for a schedule that was paused before the request.
+            return not pause_attempts
+
+        def fake_pause(schedule_id: str) -> None:
+            pause_attempts.append(schedule_id)
+            if len(pause_attempts) == 3:
+                raise RuntimeError("temporal unavailable")
+
+        view = "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture"
+        with (
+            patch(f"{view}.is_external_data_schedule_paused", side_effect=fake_is_paused),
+            patch(f"{view}.pause_external_data_schedule", side_effect=fake_pause),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
+
+        assert response.status_code == 503, response.content
+        # The first table was already paused and the third never paused, so only the second resumes.
+        assert mock_unpause.call_args_list == [call(pause_attempts[1])]
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.purge_buffer_prefix")
     @patch(
@@ -11701,6 +11822,30 @@ class TestRepairCDC(APIBaseTest):
         mock_unpause_schema.assert_not_called()
         mock_trigger.assert_not_called()
         mock_unpause_extraction.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
+    )
+    def test_repair_cdc_table_ownership_failure_is_not_captured(self, _mock_recreate, mock_capture) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 400
+        message = response.json()["message"]
+        assert "must be owner of table orders" in message
+        assert "Incremental sync" in message
+        # A missing grant on the customer's database is not a PostHog exception.
+        mock_capture.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
@@ -12154,10 +12299,12 @@ class TestResumeCDC(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/resume_cdc/",
         )
 
-    def _cdc_schema(self, source: ExternalDataSource, *, broken: bool = False) -> ExternalDataSchema:
+    def _cdc_schema(
+        self, source: ExternalDataSource, *, broken_marker: dict[str, str] | None = None
+    ) -> ExternalDataSchema:
         config: dict[str, t.Any] = {"cdc_mode": "streaming"}
-        if broken:
-            config["cdc_broken"] = BROKEN_MARKER
+        if broken_marker:
+            config["cdc_broken"] = broken_marker
         return ExternalDataSchema.objects.create(
             name="orders",
             team_id=self.team.pk,
@@ -12211,23 +12358,37 @@ class TestResumeCDC(APIBaseTest):
         assert "cdc_extraction_paused" not in schema.sync_type_config
         assert schema.sync_halted is False
 
+    @parameterized.expand(
+        [
+            # A lost slot/publication: resume must route to Repair, and not even probe the source.
+            ("slot_lost", BROKEN_MARKER, 400),
+            ("marker_without_a_reason", {"at": "2026-06-29T10:40:00+00:00"}, 400),
+            # The slot is intact, and the marker clears only once capture runs and the lag drops.
+            ("self_managed_lag", {"reason": "critical_lag_self_managed", "at": "2026-09-22T15:02:21+00:00"}, 200),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.sync_cdc_extraction_schedule"
+    )
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.unpause_cdc_extraction_schedule"
     )
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
     )
-    def test_resume_cdc_rejected_when_broken_marker(self, mock_get_status, mock_unpause) -> None:
-        # A lost slot/publication is marked cdc_broken — resume must route to Repair, not unpause
-        # (and must not even probe, since the source is known-broken).
+    def test_resume_cdc_with_a_broken_marker(
+        self, _name, marker, expected_status, mock_get_status, mock_unpause, _mock_sync
+    ) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
-        self._cdc_schema(source, broken=True)
+        self._cdc_schema(source, broken_marker=marker)
 
         response = self._resume(source)
-        assert response.status_code == 400
-        assert "Repair CDC" in response.json()["message"]
-        mock_unpause.assert_not_called()
-        mock_get_status.assert_not_called()
+        assert response.status_code == expected_status, response.content
+        if expected_status == 400:
+            assert "Repair CDC" in response.json()["message"]
+        assert mock_unpause.called is (expected_status == 200)
+        assert mock_get_status.called is (expected_status == 200)
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.unpause_cdc_extraction_schedule"

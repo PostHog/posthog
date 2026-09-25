@@ -130,10 +130,13 @@ describe('IntegrationChoice', () => {
         expect(onChangeSecond).not.toHaveBeenCalled()
     })
 
-    it('disables connecting for a member who cannot create integrations', async () => {
-        // Creating an integration needs project admin, which is stricter than the access a product
-        // needs to reach this picker. Members used to be sent through the provider's whole OAuth
-        // flow only to have the callback fail to save the connection.
+    it.each([
+        // An OAuth connect can land on an account that is already connected. That is an overwrite,
+        // which the backend rejects for members after the whole provider flow.
+        { kind: 'google-ads', kindName: 'Google Ads', connectLabel: 'Connect to Google Ads', disabled: true },
+        // A setup-modal kind like S3 creates a new named integration, which members are allowed to do.
+        { kind: 'aws-s3', kindName: 'AWS S3', connectLabel: 'Configure new AWS S3 connection', disabled: false },
+    ])('for a member, connecting $kind is disabled: $disabled', async ({ kind, kindName, connectLabel, disabled }) => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: OrganizationMembershipLevel.Member,
@@ -141,13 +144,13 @@ describe('IntegrationChoice', () => {
 
         render(
             <Provider>
-                <IntegrationChoice integration="google-ads" onChange={jest.fn()} />
+                <IntegrationChoice integration={kind} onChange={jest.fn()} />
             </Provider>
         )
 
-        fireEvent.click(await screen.findByText('Choose Google Ads connection'))
-        const connect = await screen.findByText('Connect to Google Ads')
-        expect(connect.closest('[aria-disabled]')).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(await screen.findByText(`Choose ${kindName} connection`))
+        const connect = await screen.findByText(connectLabel)
+        expect(connect.closest('[aria-disabled="true"]') !== null).toBe(disabled)
     })
 
     it('still warns when the stored id matches no integration', async () => {

@@ -21,6 +21,7 @@ from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
+from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -31,6 +32,8 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    SCOUT_GRANTABLE_WRITE_SCOPES,
+    SCOUT_SCOPE_PRESETS,
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
@@ -58,7 +61,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_RUN_NOTE_CHARS,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
@@ -1244,6 +1251,35 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert response.json()["structured_output_schema"] == _STRUCTURED_OUTPUT_SCHEMA
         config.refresh_from_db()
         assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
+
+    @parameterized.expand(
+        [
+            ("custom_scout_clears", "signals-scout-judge", _STRUCTURED_OUTPUT_SCHEMA, status.HTTP_200_OK, None),
+            (
+                "canonical_shipped_schema_refused",
+                "signals-scout-mcp-tool-calls",
+                _STRUCTURED_OUTPUT_SCHEMA,
+                status.HTTP_400_BAD_REQUEST,
+                _STRUCTURED_OUTPUT_SCHEMA,
+            ),
+            ("canonical_null_to_null_is_a_no_op", "signals-scout-mcp-tool-calls", None, status.HTTP_200_OK, None),
+        ]
+    )
+    def test_patch_null_clears_a_custom_schema_but_not_a_shipped_one(
+        self, _name: str, skill_name: str, stored: dict | None, expected_status: int, expected_schema: dict | None
+    ) -> None:
+        # The per-tick reconcile refills a null schema on a canonical scout, so accepting the clear
+        # would turn recording back on within the hour with nothing in the response saying so. A
+        # patch that sends null over a null column is not a clear and must not be refused.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name=skill_name, structured_output_schema=stored
+        )
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"structured_output_schema": None}, format="json"
+        )
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert config.structured_output_schema == expected_schema
 
     def test_patch_rejects_invalid_schema(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
@@ -3847,7 +3883,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.output_destinations["slack"]["thread_reports"] is False
 
-    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+    _CAP_PATCH = "products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM"
 
     def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
         self._make_skill("signals-scout-first")
@@ -3882,6 +3918,84 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "enabled scouts" in response.json()["detail"]
+        second.refresh_from_db()
+        assert second.enabled is False
+
+    @parameterized.expand(
+        [
+            # A project given more capacity in the flag may enable past the code fallback.
+            ("raised", {"max_enabled_scouts": 2}, status.HTTP_200_OK, True),
+            # Lowering it below current usage blocks the next enable without touching what runs.
+            ("lowered", {"max_enabled_scouts": 1}, status.HTTP_400_BAD_REQUEST, False),
+        ]
+    )
+    def test_enable_is_gated_by_the_flag_configured_cap(
+        self, _name: str, team_config: dict, expected_status: int, expected_enabled: bool
+    ) -> None:
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"team_configs": {str(self.team.id): team_config}}):
+            response = self.client.patch(self._detail_url(str(second.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == expected_status
+        second.refresh_from_db()
+        assert second.enabled is expected_enabled
+        # A lowered cap never pauses what is already running.
+        first.refresh_from_db()
+        assert first.enabled is True
+
+    def test_cap_rejection_names_the_resolved_cap(self) -> None:
+        # The number a person reads must be the number enforcement used, or the message sends
+        # them looking for scouts that are not there.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has 1 enabled scouts" in response.json()["detail"]
+
+    def test_cap_rejection_above_a_lowered_cap_names_the_count_and_the_scouts_to_disable(self) -> None:
+        # A lowered cap leaves every running scout enabled, so the count can sit above the cap.
+        # Reporting the cap as the count, or asking for one disable, leaves the next enable refused.
+        for name in ("signals-scout-first", "signals-scout-second", "signals-scout-third"):
+            self._make_skill(name)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=True)
+        self._make_skill("signals-scout-fourth")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fourth", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "This project already has 3 enabled scouts, and its limit is 1. Disable 3 scouts before you enable another."
+        )
+
+    def test_disabling_and_editing_stay_allowed_below_a_lowered_cap(self) -> None:
+        # Lowering the cap must leave a project able to dig itself out: disabling frees a slot,
+        # and tuning an enabled scout is not a net-new enable.
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=True)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            tuned = self.client.patch(
+                self._detail_url(str(first.id)), data={"run_interval_minutes": 120}, format="json"
+            )
+            disabled = self.client.patch(self._detail_url(str(second.id)), data={"enabled": False}, format="json")
+
+        assert tuned.status_code == status.HTTP_200_OK
+        assert disabled.status_code == status.HTTP_200_OK
         second.refresh_from_db()
         assert second.enabled is False
 
@@ -4006,6 +4120,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 _METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 
 
+class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
+    """The read-only MCP tool catalogue a per-scout tool picker is built on."""
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/tool_catalogue/"
+
+    def _tools(self) -> dict[str, dict]:
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {tool["name"]: tool for tool in response.json()["tools"]}
+
+    def test_returns_the_catalogue_with_the_scout_scope_postures(self) -> None:
+        body = self.client.get(self._url()).json()
+
+        assert len(body["tools"]) > 500
+        assert [preset["name"] for preset in body["presets"]] == list(SCOUT_SCOPE_PRESETS)
+        assert set(body["grantable_write_scopes"]) == set(SCOUT_GRANTABLE_WRITE_SCOPES)
+
+    def test_leaves_out_the_tools_a_successor_replaced(self) -> None:
+        # A picker that offered a superseded tool would configure a scout for a tool on its way out.
+        superseded = {name for name, definition in get_mcp_tool_definitions().items() if definition.is_superseded}
+        assert superseded, "expected the catalogue to hold at least one superseded tool"
+
+        assert not superseded & set(self._tools())
+
+    def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
+        # `holdable` has to be measured against the scout postures, not against the full MCP scope
+        # set: a picker built on the wrong set offers tools a scout is refused for at call time.
+        tools = self._tools()
+
+        # Read scopes ride every scout token.
+        assert tools["insight-get"]["holdable"] is True
+        assert tools["insight-get"]["missing_scopes"] == []
+        # Scout tokens carry `signal_scout_internal:write` only, and a write scope satisfies its read scope.
+        assert tools["scout-members-list"]["holdable"] is True
+        assert tools["scout-members-list"]["missing_scopes"] == []
+        # Grantable from the scout's own settings, so it is reachable but not by default.
+        assert tools["dashboard-create"]["holdable"] is True
+        assert tools["dashboard-create"]["missing_scopes"] == ["dashboard:write"]
+        # Flag writes change what end users see, so no scout grant can ever cover them.
+        assert tools["create-feature-flag"]["holdable"] is False
+        assert tools["create-feature-flag"]["missing_scopes"] == ["feature_flag:write"]
+
+    def test_read_scope_is_enough_to_read_the_catalogue(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="k", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:read"]
+        )
+        self.client.logout()
+
+        response = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+
 class TestScoutHarnessMetadataAPI(APIBaseTest):
     """Scout metadata endpoint: enrollment, the alpha banner, and the enforced run limits, all
     resolved from the `signals-scout` flag payload so the UI shows the throttle dispatch applies."""
@@ -4029,7 +4201,33 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "max_runs_per_day",
             "runs_today",
             "runs_remaining_today",
+            "max_enabled_scouts",
         }
+
+    @parameterized.expand(
+        [
+            ("no_override", {}, MAX_ENABLED_SCOUTS_PER_TEAM),
+            ("fleet_default", {"default_team_config": {"max_enabled_scouts": 400}}, 400),
+            (
+                "project_override_wins",
+                {
+                    "default_team_config": {"max_enabled_scouts": 400},
+                    "team_configs": {"__team__": {"max_enabled_scouts": 500}},
+                },
+                500,
+            ),
+        ]
+    )
+    def test_metadata_reports_the_enforced_enabled_cap(self, _name: str, extra: dict, expected: int) -> None:
+        # The endpoint exists to show the enforced number, so the cap it reports must be the one
+        # the write surfaces apply — the same three layers, resolved the same way.
+        payload = {"guaranteed_team_ids": [self.team.id], **extra}
+        if "team_configs" in payload:
+            payload["team_configs"] = {str(self.team.id): payload["team_configs"]["__team__"]}
+
+        body = self._get(payload).json()
+
+        assert body["limits"]["max_enabled_scouts"] == expected
 
     @parameterized.expand([("listed", True), ("not_listed", False)])
     def test_enrolled_reflects_guaranteed_team_ids(self, _name: str, listed: bool) -> None:

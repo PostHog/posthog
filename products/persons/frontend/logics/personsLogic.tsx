@@ -415,7 +415,7 @@ export const personsLogic = kea<personsLogicType>([
                             if (props.cohort) {
                                 result = {
                                     // This reads the cohorts API, whose generated client belongs to another product.
-                                    // nosemgrep: prefer-codegen-api
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPersonsRetrieve() from 'products/cohorts/frontend/generated/api' instead.
                                     ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
                                     offset: 0,
                                 }
@@ -424,7 +424,7 @@ export const personsLogic = kea<personsLogicType>([
                             }
                         } else {
                             // The URL is the pagination link from the previous response.
-                            // nosemgrep: prefer-codegen-api
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                         }
                         return result

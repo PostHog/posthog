@@ -39,6 +39,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -457,41 +458,6 @@ def execute_task_processing_workflow(
         )
 
 
-def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
-    ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
-    ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down.
-
-    Signals scout runs are the exception. Their posture (``signal_scout_internal:*`` +
-    ``signal_scout_report:write``) is carried by neither ``"full"`` nor ``"read_only"``, so a scout
-    re-dispatched on this fallback with a generic posture loses every ``signals-scout-*`` tool — they
-    drop out of the MCP catalog and surface to the agent as "Unknown tool", burning the whole run
-    (it investigates, then can't emit a report, write scratchpad, or build its profile). Pin
-    scout-origin runs to the most-capable scout posture so a reconciled scout stays fully functional.
-    Over-granting the report scope to a non-report scout is harmless: the report endpoints
-    independently gate on the skill's ``allowed_tools`` opt-in.
-    """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
-        RunSource,
-        parse_run_state,
-    )
-
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
-        return "signals_scout_reports"
-    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
-        return "read_only"
-
-    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
-    # degrade to read_only, never escalate to the full write surface the generic fallback
-    # below grants (loop runs carry no run_source).
-    if task_run.task.origin_product == Task.OriginProduct.LOOP:
-        return "read_only"
-
-    run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
-
-
 def redispatch_orphaned_task_run(run_id: str) -> str:
     """Re-dispatch a run stuck in QUEUED whose create-time on_commit dispatch never fired.
 
@@ -545,7 +511,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         run_id=run_id,
         create_pr=dispatch_params.get("create_pr", default_create_pr),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
-        posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
+        posthog_mcp_scopes=dispatched_run_scopes(task, task_run.state),
     )
 
     # A loop run's skill bundles are seeded by the same on_commit callback whose loss

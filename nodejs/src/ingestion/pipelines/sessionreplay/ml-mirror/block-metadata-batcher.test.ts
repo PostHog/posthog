@@ -5,14 +5,14 @@ import { Message } from 'node-rdkafka'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
+import { BlockMetadataBatcher, KeyedRecordReader, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlDataKey } from './keys/crypto'
 import { decryptEnvelope } from './keys/envelope-testing'
 import { MlKeyReader } from './keys/reader'
 import { sessionKeyId, tableKeyString } from './keys/schema'
-import { MlKafkaTransport, mlKafkaRecord } from './keys/transport'
+import { MlDecodedMessage, MlKafkaTransport, mlKafkaRecord } from './keys/transport'
 
 const row = (sessionId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
@@ -48,6 +48,15 @@ const msg = (offset: number, partition = 0, value: Buffer = Buffer.from(JSON.str
 const skippedMsg = (offset: number, partition = 0): Message =>
     msg(offset, partition, Buffer.from(JSON.stringify({ session_id: `s${offset}` })))
 
+// Starts at 2026-09-22T12:00:00Z, after the v3 cutoff.
+const V3_SESSION = '01a0c8fc-b600-7000-8000-000000000003'
+
+const v3Msg = (offset: number, value: unknown = { ...row(V3_SESSION), team_id: '7', format_version: 2 }): Message =>
+    ({
+        ...msg(offset, 0, Buffer.from(JSON.stringify(value))),
+        headers: [{ ai_research_ingestion_version: Buffer.from('2') }],
+    }) as unknown as Message
+
 describe('BlockMetadataBatcher', () => {
     let store: jest.Mocked<BlockMetadataParquetStore>
     let offsets: jest.Mocked<OffsetStore>
@@ -56,7 +65,10 @@ describe('BlockMetadataBatcher', () => {
         new BlockMetadataBatcher(store, offsets, { flushIntervalMs, maxRows }, startMs)
 
     beforeEach(() => {
-        store = { write: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<BlockMetadataParquetStore>
+        store = {
+            write: jest.fn().mockResolvedValue(undefined),
+            writePlainV3: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<BlockMetadataParquetStore>
         offsets = { offsetsStore: jest.fn() }
     })
 
@@ -103,11 +115,141 @@ describe('BlockMetadataBatcher', () => {
         ])
     })
 
-    it('does not store offsets when the write fails (so the window replays)', async () => {
-        store.write.mockRejectedValueOnce(new Error('s3 down'))
-        const batcher = makeBatcher(60_000, 1)
-        await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('s3 down')
-        expect(offsets.offsetsStore).not.toHaveBeenCalled()
+    it.each([
+        { storage: 'legacy', message: msg(0), write: 'write' as const },
+        { storage: 'plain v3', message: v3Msg(0), write: 'writePlainV3' as const },
+    ])(
+        'does not store offsets when the $storage write fails, and the retry writes the same rows',
+        async ({ message, write }) => {
+            store[write].mockRejectedValueOnce(new Error('s3 down'))
+            const batcher = makeBatcher(60_000, 1)
+            await expect(batcher.handleBatch([message], 0)).rejects.toThrow('s3 down')
+            expect(offsets.offsetsStore).not.toHaveBeenCalled()
+
+            await batcher.flush(1)
+            expect(store[write]).toHaveBeenCalledTimes(2)
+            expect(store[write].mock.calls[1][0]).toHaveLength(1)
+            expect(offsets.offsetsStore).toHaveBeenCalledWith([{ topic: 'ml_block_metadata', partition: 0, offset: 1 }])
+        }
+    )
+
+    it('keeps the offsets for the next flush when storing them fails, without writing or counting the rows again', async () => {
+        offsets.offsetsStore.mockImplementationOnce(() => {
+            throw new Error('Local: Erroneous state')
+        })
+        const batcher = new BlockMetadataBatcher(
+            store,
+            offsets,
+            { flushIntervalMs: 60_000, maxRows: 1_000, maxBytes: msg(0).value!.length * 2 },
+            0
+        )
+        await expect(batcher.handleBatch([msg(0), msg(1)], 0)).rejects.toThrow('Local: Erroneous state')
+
+        await batcher.handleBatch([msg(2, 1)], 0)
+        expect(store.write).toHaveBeenCalledTimes(1)
+        await batcher.flush(1)
+        expect(store.write.mock.calls.map(([rows]) => rows.map((stored) => stored.session_id))).toEqual([
+            ['s0', 's1'],
+            ['s2'],
+        ])
+        expect(offsets.offsetsStore.mock.calls).toEqual([
+            [[{ topic: 'ml_block_metadata', partition: 0, offset: 2 }]],
+            [
+                [
+                    { topic: 'ml_block_metadata', partition: 0, offset: 2 },
+                    { topic: 'ml_block_metadata', partition: 1, offset: 3 },
+                ],
+            ],
+        ])
+    })
+
+    it('counts the bytes of a batch whose key read overlaps a flush toward the flush that takes its rows', async () => {
+        const asLegacyRows = (messages: Message[]): MlDecodedMessage[] =>
+            messages.map((message) => ({ message, original: message }))
+        const firstKeyRead = Promise.withResolvers<MlDecodedMessage[]>()
+        const keyManager: KeyedRecordReader = {
+            read: jest
+                .fn()
+                .mockReturnValueOnce(firstKeyRead.promise)
+                .mockImplementation((messages: Message[]) => Promise.resolve(asLegacyRows(messages))),
+        }
+        const batcher = new BlockMetadataBatcher(
+            store,
+            offsets,
+            { flushIntervalMs: 60_000, maxRows: 1_000, maxBytes: msg(0).value!.length * 2 },
+            0,
+            keyManager
+        )
+
+        const batchInKeyRead = batcher.handleBatch([msg(0)], 0)
+        await batcher.flush(0)
+        firstKeyRead.resolve(asLegacyRows([msg(0)]))
+        await batchInKeyRead
+        await batcher.handleBatch([msg(1)], 0)
+        expect(store.write).toHaveBeenCalledTimes(1)
+        expect(store.write.mock.calls[0][0].map((stored) => stored.session_id)).toEqual(['s0', 's1'])
+    })
+
+    describe.each([
+        { storage: 'legacy', write: 'write' as const, message: (offset: number) => msg(offset) },
+        { storage: 'plain v3', write: 'writePlainV3' as const, message: (offset: number) => v3Msg(offset) },
+    ])('while a $storage flush is writing', ({ write, message }) => {
+        let firstWriteStarted: PromiseWithResolvers<void>
+        let firstWrite: PromiseWithResolvers<void>
+        let writtenRowCounts: number[]
+
+        beforeEach(() => {
+            firstWriteStarted = Promise.withResolvers<void>()
+            firstWrite = Promise.withResolvers<void>()
+            writtenRowCounts = []
+            store[write].mockImplementation((rows) => {
+                writtenRowCounts.push(rows.length)
+                if (writtenRowCounts.length > 1) {
+                    return Promise.resolve()
+                }
+                firstWriteStarted.resolve()
+                return firstWrite.promise
+            })
+        })
+
+        it('keeps a batch that arrives, and stores only the offsets of the rows it wrote', async () => {
+            const batcher = makeBatcher(60_000, 1_000)
+            await batcher.handleBatch([message(0)], 0)
+
+            const shutdownFlush = batcher.flush(0)
+            await firstWriteStarted.promise
+            await batcher.handleBatch([message(1)], 0)
+            firstWrite.resolve()
+            await shutdownFlush
+            expect(offsets.offsetsStore.mock.calls).toEqual([
+                [[{ topic: 'ml_block_metadata', partition: 0, offset: 1 }]],
+            ])
+
+            await batcher.flush(1)
+            expect(writtenRowCounts).toEqual([1, 1])
+            expect(offsets.offsetsStore).toHaveBeenLastCalledWith([
+                { topic: 'ml_block_metadata', partition: 0, offset: 2 },
+            ])
+        })
+
+        it('holds a second flush until the first fails, then writes both batches and stores their offsets', async () => {
+            const batcher = makeBatcher(60_000, 2)
+            await batcher.handleBatch([message(0)], 0)
+
+            const shutdownFlush = batcher.flush(0)
+            await firstWriteStarted.promise
+            const batchAtRowLimit = batcher.handleBatch([message(1), message(2)], 0)
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(offsets.offsetsStore).not.toHaveBeenCalled()
+
+            firstWrite.reject(new Error('s3 down'))
+            await expect(shutdownFlush).rejects.toThrow('s3 down')
+            await batchAtRowLimit
+            expect(writtenRowCounts).toEqual([1, 3])
+            expect(offsets.offsetsStore.mock.calls).toEqual([
+                [[{ topic: 'ml_block_metadata', partition: 0, offset: 3 }]],
+            ])
+        })
     })
 
     it('keeps v2 offsets pending until the encrypted eval index upload succeeds', async () => {
@@ -177,12 +319,21 @@ describe('BlockMetadataBatcher', () => {
         expect(store.write).toHaveBeenCalledTimes(1)
     })
 
-    it('commits offsets for a skipped-only batch without writing (so it does not replay forever)', async () => {
-        const batcher = makeBatcher(1_000, 1_000_000, 0)
-        await batcher.handleBatch([skippedMsg(7, 0)], 1_000) // all rows dropped by the parser, but offset must advance
+    it.each([
+        { storage: 'legacy', message: skippedMsg(7, 0) },
+        { storage: 'plain v3', message: v3Msg(7, { session_id: V3_SESSION, team_id: '7', format_version: 2 }) },
+    ])(
+        'commits offsets for a skipped-only $storage batch without writing (so it does not replay forever)',
+        async ({ message }) => {
+            const batcher = makeBatcher(1_000, 1_000_000, 0)
+            await batcher.handleBatch([message], 1_000) // all rows dropped by the parser, but offset must advance
 
-        expect(store.write).not.toHaveBeenCalled()
-        expect(offsets.offsetsStore).toHaveBeenCalledTimes(1)
-        expect(offsets.offsetsStore.mock.calls[0][0]).toEqual([{ topic: 'ml_block_metadata', partition: 0, offset: 8 }])
-    })
+            expect(store.write).not.toHaveBeenCalled()
+            expect(store.writePlainV3).not.toHaveBeenCalled()
+            expect(offsets.offsetsStore).toHaveBeenCalledTimes(1)
+            expect(offsets.offsetsStore.mock.calls[0][0]).toEqual([
+                { topic: 'ml_block_metadata', partition: 0, offset: 8 },
+            ])
+        }
+    )
 })

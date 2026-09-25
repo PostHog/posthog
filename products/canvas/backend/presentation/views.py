@@ -1,5 +1,7 @@
 import json
 import hashlib
+from collections import Counter
+from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
@@ -37,6 +39,7 @@ from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
     CanvasStateReader,
     apply_layout_ops,
+    apply_source_edits,
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
@@ -78,6 +81,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSerializer,
     CanvasSourceDraftResponseSerializer,
     CanvasSourceDraftSerializer,
+    CanvasSourceEditOp,
     CanvasSourceEditSerializer,
     CanvasSourceInvalidSerializer,
     CanvasSourcePublishResponseSerializer,
@@ -97,7 +101,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasViewResponseSerializer,
     canvas_url,
 )
-from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
+from products.canvas.backend.source import has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
@@ -120,6 +124,14 @@ def _capacity_response() -> Response:
         {"detail": "Canvas build capacity is temporarily exhausted. Try again shortly."},
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
+
+
+def _edit_operation_properties(operations: Sequence[dict[str, Any]]) -> dict[str, int]:
+    counts = Counter(operation["op"] for operation in operations)
+    return {
+        "operation_count": len(operations),
+        **{f"{op}_operation_count": counts[op] for op in CanvasSourceEditOp.values},
+    }
 
 
 def _conflict_response(error: build_service.CanvasVersionConflict) -> Response:
@@ -855,6 +867,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=True, url_path="publish-current-version")
     def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Queue a build for the current source version without changing source or metadata."""
@@ -933,7 +946,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
-                description="An edit targeted a missing file, or the edited project failed validation.",
+                description="An operation did not apply (a missing file, or old_string matched no place or several), or the edited project failed validation.",
             ),
             409: OpenApiResponse(
                 response=CanvasPublishConflictSerializer,
@@ -944,11 +957,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def edit(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish per-file edits against the canvas's current source project.
+        """Publish file edits against the canvas's current source project.
 
-        Diff-aware alternative to sending the complete project: each operation
-        sets a file's content or (content null) deletes it, applied to the head
-        the caller read. `expected_current_version_id` is mandatory here —
+        Diff-aware alternative to sending the complete project: operations
+        replace text inside a file, write, delete, or rename files, applied in
+        order to the head the caller read. `expected_current_version_id` is mandatory here —
         relative edits against an unverified base could silently merge into
         someone else's newer work.
         """
@@ -960,14 +973,25 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
 
         try:
-            project, _ = build_service.current_source_project(canvas)
+            project, head_version_id = build_service.current_source_project(canvas)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's source is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        project, diagnostics = apply_source_edits(project, payload.validated_data["operations"])
+        if (payload.validated_data["expected_current_version_id"] or None) != head_version_id:
+            return _conflict_response(build_service.CanvasVersionConflict(head_version_id))
+        operations = payload.validated_data["operations"]
+        project, diagnostics = apply_source_edits(project, operations)
+        if "capabilities" in payload.validated_data:
+            project = {**project, "capabilities": payload.validated_data["capabilities"]}
         if diagnostics:
+            self._report_canvas_action(
+                "canvas edit rejected",
+                canvas,
+                error_codes=sorted({entry["code"] for entry in diagnostics}),
+                **_edit_operation_properties(operations),
+            )
             return Response(
                 {
                     "detail": "The edit could not be applied to the canvas's current source.",
@@ -985,6 +1009,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             name=payload.validated_data.get("name"),
             has_expected_version=True,
             expected_version_id=payload.validated_data["expected_current_version_id"],
+            edit_operations=operations,
         )
 
     def _publish(
@@ -997,6 +1022,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         name: str | None,
         has_expected_version: bool,
         expected_version_id: str | None,
+        edit_operations: Sequence[dict[str, Any]] | None = None,
     ) -> Response:
         user = self._request_user()
         if name is not None and (user is None or canvas.created_by_id != user.id):
@@ -1008,7 +1034,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
 
         task_id = self._sandbox_task_id(request)
         try:
-            canvas, version, _build, first_publish = build_service.publish_source_project(
+            canvas, version, build, first_publish = build_service.publish_source_project(
                 canvas,
                 project=project,
                 prompt=prompt,
@@ -1045,14 +1071,16 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             inline_queries_capability=bool(posthog_capabilities.get("inlineQueries")),
             agent_requests_capability=bool(posthog_capabilities.get("agentRequests")),
             is_sandbox_publish=task_id is not None,
+            save_method="publish" if edit_operations is None else "edit",
+            **(_edit_operation_properties(edit_operations) if edit_operations is not None else {}),
         )
 
+        build = build_service.wait_for_build_result(build)
+        canvas.refresh_from_db()
         return Response(
-            {
-                "canvas": CanvasSummarySerializer(canvas).data,
-                "current_version_id": str(version.id),
-                "diagnostics": diagnostics,
-            }
+            CanvasSourcePublishResponseSerializer(
+                {"canvas": canvas, "current_version_id": str(version.id), "diagnostics": diagnostics, "build": build}
+            ).data
         )
 
     @extend_schema(
@@ -2277,7 +2305,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             report_user_action(
                 user,
                 event,
-                {"canvas_id": str(canvas.id), "channel_id": str(canvas.channel_id), **extra},
+                {
+                    "canvas_id": str(canvas.id),
+                    "channel_id": str(canvas.channel_id),
+                    "canvas_kind": canvas.kind,
+                    **extra,
+                },
                 team=self.team,
                 request=self.request,
             )

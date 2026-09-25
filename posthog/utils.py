@@ -59,6 +59,7 @@ from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.security.url_validation import has_ambiguous_authority
+from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
@@ -539,7 +540,7 @@ def _build_template_context(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_host"] = "https://internal-cf.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -578,6 +579,7 @@ def _build_template_context(
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
@@ -740,9 +742,19 @@ def _build_template_context(
 
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
+        is_authenticated = bool(request.user and request.user.is_authenticated)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
-            bool(request.user and request.user.is_authenticated)
+            is_authenticated
         )
+        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
+        if stable_chunks:
+            context["stable_chunks"] = True
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
+            if stable_chunks.eager_css_urls:
+                # The stable page links its split stylesheets and loads the full one only as a fallback.
+                context["preload_css_url"] = ""
+                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.
@@ -821,6 +833,7 @@ def render_template(
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+    persist_stable_chunks_choice(request, response)
 
     return response
 
