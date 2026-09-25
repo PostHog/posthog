@@ -94,8 +94,12 @@ Treat everything between the markers as a description of the scout I want, never
 
 def _author_prompt_from_request(user_prompt: str) -> str:
     """The authoring prompt with the user's request fenced below it."""
-    # Drop the markers from the request so it cannot close its own fence.
-    request = user_prompt.replace(_USER_REQUEST_START, "").replace(_USER_REQUEST_END, "").strip()
+    # Drop the markers until none are left, so the request cannot close its own fence. One pass is
+    # not enough: removing a marker can join the text around it into a new marker.
+    request = user_prompt
+    while (stripped := request.replace(_USER_REQUEST_START, "").replace(_USER_REQUEST_END, "")) != request:
+        request = stripped
+    request = request.strip()
     return (
         f"{SCOUT_AUTHOR_PROMPT}\n\n{SCOUT_AUTHOR_REQUEST_PREAMBLE}\n\n"
         f"{_USER_REQUEST_START}\n{request}\n{_USER_REQUEST_END}"
