@@ -99,6 +99,16 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             schemas = new_source.get_schemas(
                 config, inputs.team_id, api_version=new_source.resolve_api_version(source.api_version)
             )
+        except NotImplementedError:
+            # A scaffolded source inherits the base `get_schemas`, which only raises. Web code
+            # refuses to create a source whose discovery raises, so this worker runs older code
+            # than the web code that created the source. The worker recovers on its own once it
+            # catches up, so skip quietly and keep the schedule in place.
+            logger.warning(
+                "Skipping schema discovery: this build does not implement get_schemas for the source",
+                source_type=source.source_type,
+            )
+            return
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,
