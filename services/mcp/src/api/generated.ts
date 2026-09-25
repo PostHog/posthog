@@ -7655,6 +7655,7 @@ export namespace Schemas {
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
+      Zendesk: 'zendesk',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -54426,6 +54427,7 @@ export namespace Schemas {
      * * `twilio` - Twilio
      * * `vercel` - Vercel
      * * `youtube-analytics` - Youtube Analytics
+     * * `zendesk` - Zendesk
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
@@ -54479,6 +54481,7 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
       YoutubeAnalytics: 'youtube-analytics',
+      Zendesk: 'zendesk',
     } as const;
 
     export interface IntegrationAccessRequest {
@@ -54531,7 +54534,8 @@ export namespace Schemas {
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
        * * `vercel` - Vercel
-       * * `youtube-analytics` - Youtube Analytics */
+       * * `youtube-analytics` - Youtube Analytics
+       * * `zendesk` - Zendesk */
       kind: IntegrationKindEnum;
       /**
          * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -112868,6 +112872,7 @@ export namespace Schemas {
      * * `twilio` - Twilio
      * * `vercel` - Vercel
      * * `youtube-analytics` - Youtube Analytics
+     * * `zendesk` - Zendesk
      */
     kind?: IntegrationsListKind;
     /**
@@ -112932,6 +112937,7 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
       YoutubeAnalytics: 'youtube-analytics',
+      Zendesk: 'zendesk',
     } as const;
 
     export type IntegrationsChannelsRetrieveParams = {
