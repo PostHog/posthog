@@ -12,6 +12,7 @@ export type UsageKeyResolver = (event: string) => string | null
 // which are billed under their own key rather than excluded. The two lists have to agree or the
 // usage records and the org usage report bill the same team differently.
 const NON_BILLABLE_EVENTS = new Set([
+    '$sdk_diagnostics_config',
     '$feature_flag_called',
     '$experiment_exposure',
     'survey shown',

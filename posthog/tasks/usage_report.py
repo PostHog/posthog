@@ -110,6 +110,7 @@ CONVERSATIONS_EVENTS = [
 ]
 
 BILLABLE_EVENT_EXCLUDED_EVENTS = [
+    "$sdk_diagnostics_config",
     "$feature_flag_called",
     "$experiment_exposure",
     "survey sent",
