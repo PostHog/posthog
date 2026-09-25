@@ -4651,6 +4651,9 @@ class ExperimentService:
             order_value = str(order)
             if order_value not in self.EXPERIMENT_ORDER_ALLOWLIST:
                 raise ValidationError(f"Invalid order field: '{order_value}'")
+            # Every branch ends on `id`, because limit/offset paging returns tied rows in an
+            # arbitrary order without a unique last sort key, so a row can repeat or vanish.
+            prefix = "-" if order_value.startswith("-") else ""
             if order_value in ["duration", "-duration"]:
                 queryset = queryset.annotate(
                     computed_duration=Case(
@@ -4659,7 +4662,7 @@ class ExperimentService:
                         default=Now() - F("start_date"),
                     )
                 )
-                queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
+                queryset = queryset.order_by(f"{prefix}computed_duration", f"{prefix}id")
             elif order_value in ["status", "-status"]:
                 queryset = queryset.annotate(
                     status_sort_key=Case(
@@ -4668,15 +4671,14 @@ class ExperimentService:
                         default=Value(2),
                     )
                 )
-                if order_value.startswith("-"):
-                    queryset = queryset.order_by(F("status_sort_key").desc())
+                if prefix:
+                    queryset = queryset.order_by(F("status_sort_key").desc(), "-id")
                 else:
-                    queryset = queryset.order_by(F("status_sort_key").asc())
+                    queryset = queryset.order_by(F("status_sort_key").asc(), "id")
             elif order_value in ["created_by", "-created_by"]:
                 # Match the frontend column's `first_name || email` sorter — treat an
                 # empty `first_name` as missing and fall back to `email`, so users with
                 # a blank first name aren't bunched at one end of the list.
-                prefix = "-" if order_value.startswith("-") else ""
                 queryset = queryset.annotate(
                     created_by_display=Coalesce(
                         NullIf(F("created_by__first_name"), Value("")),
@@ -4685,11 +4687,10 @@ class ExperimentService:
                         # infer a type across the two, so set it explicitly.
                         output_field=CharField(),
                     )
-                ).order_by(f"{prefix}created_by_display")
+                ).order_by(f"{prefix}created_by_display", f"{prefix}id")
             elif order_value in ["conclusion", "-conclusion"]:
                 # Match the frontend column's rank order: won → lost → inconclusive →
                 # stopped_early → invalid, experiments without a conclusion last.
-                prefix = "-" if order_value.startswith("-") else ""
                 queryset = queryset.annotate(
                     conclusion_sort_key=Case(
                         When(conclusion="won", then=Value(1)),
@@ -4699,11 +4700,11 @@ class ExperimentService:
                         When(conclusion="invalid", then=Value(5)),
                         default=Value(6),
                     )
-                ).order_by(f"{prefix}conclusion_sort_key")
+                ).order_by(f"{prefix}conclusion_sort_key", f"{prefix}id")
             else:
-                queryset = queryset.order_by(order_value)
+                queryset = queryset.order_by(order_value, f"{prefix}id")
         else:
-            queryset = queryset.order_by("-created_at")
+            queryset = queryset.order_by("-created_at", "-id")
 
         return queryset
 
