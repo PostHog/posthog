@@ -15,7 +15,7 @@ type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
     'ctaLabel' | 'gateVariant' | 'productWithFeature'
 > & {
-    clickHandlerProps: Pick<LemonButtonProps, 'onClick' | 'to'>
+    clickHandlerProps: Pick<LemonButtonProps, 'disabledReason' | 'onClick' | 'to'>
 }
 
 function usePayGateButton({
@@ -23,7 +23,7 @@ function usePayGateButton({
     currentUsage,
     onClick,
 }: PayGateMiniLogicProps & Pick<LemonButtonProps, 'onClick'>): UsePayGateButtonReturn {
-    const { productWithFeature, ctaLink, ctaLabel, gateVariant, isPaymentEntryFlow } = useValues(
+    const { productWithFeature, ctaLink, ctaLabel, gateVariant, isPaymentEntryFlow, mustAskAdminToUpgrade } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
@@ -43,7 +43,12 @@ function usePayGateButton({
         : { to: ctaLink }
 
     return {
-        clickHandlerProps,
+        clickHandlerProps: {
+            ...clickHandlerProps,
+            disabledReason: mustAskAdminToUpgrade
+                ? 'Only organization admins can change the plan. Ask an admin in your organization to upgrade.'
+                : undefined,
+        },
         ctaLabel,
         gateVariant,
         productWithFeature,

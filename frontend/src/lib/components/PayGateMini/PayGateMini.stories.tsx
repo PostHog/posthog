@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
@@ -131,6 +133,63 @@ export const PayGateMiniLimitFeatureProjects: Story = {
                                 },
                             ],
                         },
+                    },
+                ],
+            },
+        })
+
+        return (
+            <div className="p-10 max-w-4xl mx-auto">
+                <PayGateMini {...props}>
+                    <></>
+                </PayGateMini>
+            </div>
+        )
+    },
+}
+
+export const PayGateMiniMemberWithoutBillingAccess: Story = {
+    args: { feature: AvailableFeature.SUBSCRIPTIONS },
+    render: ({ cloud, ...props }) => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: cloud !== undefined ? cloud : true,
+                    is_debug: cloud !== undefined ? cloud : true,
+                    realm: Realm.Cloud,
+                },
+                '/api/billing/': { ...billingJson },
+                '/api/organizations/@current/': () => [
+                    200,
+                    { ...meCurrent.organization, membership_level: OrganizationMembershipLevel.Member },
+                ],
+                '/api/organizations/@current/members/': () => [
+                    200,
+                    {
+                        count: 2,
+                        results: [
+                            {
+                                id: 'member-1',
+                                level: OrganizationMembershipLevel.Owner,
+                                user: {
+                                    uuid: 'owner-uuid',
+                                    first_name: 'Ada',
+                                    last_name: 'Hog',
+                                    email: 'ada@example.com',
+                                },
+                            },
+                            {
+                                id: 'member-2',
+                                level: OrganizationMembershipLevel.Admin,
+                                user: {
+                                    uuid: 'admin-uuid',
+                                    first_name: 'Bo',
+                                    last_name: 'Hog',
+                                    email: 'bo@example.com',
+                                },
+                            },
+                        ],
                     },
                 ],
             },
