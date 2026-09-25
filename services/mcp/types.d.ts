@@ -12,6 +12,9 @@ declare namespace Cloudflare {
         MCP_CAT_PROJECT_ID: string | undefined
         MCP_KV: KVNamespace | undefined
         MCP_HONO_URL: string | undefined
+        // Keys that sign the edge client IP for the Hono runtime of each region (see src/proxy.ts).
+        MCP_EDGE_CLIENT_IP_SIGNING_KEYS_US: string | undefined
+        MCP_EDGE_CLIENT_IP_SIGNING_KEYS_EU: string | undefined
     }
 }
 
