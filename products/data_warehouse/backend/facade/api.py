@@ -26,6 +26,7 @@ _LAZY = {
     "delete_cdc_extraction_schedule": "logic.data_load.service",
     "delete_discover_schemas_schedule": "logic.data_load.service",
     "delete_external_data_schedule": "logic.data_load.service",
+    "ensure_cdc_extraction_schedule": "logic.data_load.service",
     "ensure_cdc_slot_cleanup_schedule": "logic.data_load.service",
     "external_data_workflow_exists": "logic.data_load.service",
     "is_any_external_data_schema_paused": "logic.data_load.service",
