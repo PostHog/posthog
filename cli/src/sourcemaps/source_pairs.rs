@@ -151,35 +151,21 @@ pub fn read_pairs(
     pairs
 }
 
-/// Stands in for a script file path in the event-mode content hash. The control characters keep
-/// it from colliding with anything a bundler writes.
+// The control characters keep the token from matching anything a bundler writes.
 const FILE_PATH_TOKEN: &str = "\u{1}file-path\u{1}";
 
-/// Replace every script file path in `text` with the same token, for the event-mode content hash.
+/// Replace every script file path in `text` with one token, for the event-mode content hash.
+/// With content-hashed file names every release renames every chunk, because each chunk carries
+/// the release id, and the names appear inside chunks: imports, `sourceMappingURL` and the map's
+/// `file`. A path is a run of path characters that ends in `.js`, `.mjs` or `.cjs` with no
+/// identifier character after it. The result depends only on `text`, so one chunk hashes the same
+/// way in every upload.
 ///
-/// With content-hashed file names (Vite's default) a chunk is renamed whenever its bytes change,
-/// and in event mode every chunk carries the release id, so every chunk is renamed on every
-/// release. The names end up inside the chunks: the map's `file` field and the
-/// `sourceMappingURL` comment hold the chunk's own name, and an import of another chunk holds
-/// that chunk's name. Hashing them would upload every unchanged chunk again on every release
-/// (PostHog/posthog#105956).
-///
-/// A path is a run of path characters ending in `.js`, `.mjs` or `.cjs`, where no identifier
-/// character follows: `./index-C3e2Htc9.js` and the `index-C3e2Htc9.js` in
-/// `index-C3e2Htc9.js.map`, but not `index.json` or `index.jsx`. The replacement depends on the
-/// chunk alone, not on the other files in the upload, so two uploads of one chunk hash it alike,
-/// and chunks that hashed alike before still do.
-///
-/// Leaving the paths out cannot keep a stored symbol set that resolves a frame to another file,
-/// line or column. A frame resolves through the map's mappings, `sources`, `names` and
-/// `sourcesContent`, and through scopes read from the minified source by position. The rest of the
-/// map is hashed as it is, and a path whose length changes shifts the generated columns after it
-/// on its line, which the mappings record. A run can also be code or a string key, such as
-/// `e.options.js` or `{"one-BrAf3own.js"(){}}`, and a function can take its name from it. That name
-/// could only go stale if one chunk id stood for two builds whose code differs inside a run, and
-/// no chunk id does: `@posthog/rollup-plugin` derives its ids before the bundler turns imports into
-/// file names, so its builds differ only in those names, and every other chunk id covers the final
-/// content.
+/// A stored symbol set that this lets the server keep resolves frames the same way: the hash still
+/// covers the mappings, so a path that changes length changes the hash. A function named after a
+/// run, such as `{"one.js"(){}}`, could only go stale if one chunk id covered two builds whose code
+/// differs inside a run. No chunk id does: `@posthog/rollup-plugin` derives its ids before imports
+/// become file names, and every other chunk id covers the final content.
 fn without_file_paths(text: &str) -> Cow<'_, str> {
     let bytes = text.as_bytes();
     let mut normalized = String::new();
@@ -228,7 +214,7 @@ fn is_identifier_char(c: char) -> bool {
 }
 
 fn is_path_char(c: char) -> bool {
-    is_identifier_char(c) || matches!(c, '-' | '.' | '/' | '~' | '@' | '+')
+    is_identifier_char(c) || matches!(c, '-' | '.' | '/' | '\\' | '~' | '@' | '+')
 }
 
 /// Replace the file path in the map's `file` field, the only field that names the chunk rather
@@ -332,10 +318,17 @@ mod tests {
             r#"import("<path>");const d=["<path>","https:<path>"];
 //# sourceMappingURL=<path>.map"#
         );
-        // A hash in a directory name is part of the path.
+    }
+
+    #[test]
+    fn replaces_directory_names_with_the_path() {
         assert_eq!(
             normalize(r#"import("../Bx9_a1c2/one.cjs")"#),
             r#"import("<path>")"#
+        );
+        assert_eq!(
+            normalize(r#"require("C:\\ci\\Bx9_a1c2\\one.js")"#),
+            normalize(r#"require("C:\\ci\\Zq0_w9e8\\one.js")"#)
         );
     }
 

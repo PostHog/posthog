@@ -669,11 +669,8 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
 const ENTRY_DEBUG_ID: &str = "22222222-3333-4444-8555-666666666666";
 const LAZY_DEBUG_ID: &str = "33333333-4444-4555-8666-777777777777";
 
-/// One release of a two-chunk app whose bundler names chunks by content, as Vite does by
-/// default. Every chunk carries the release id, so every name changes with every release: the
-/// entry imports the lazy chunk by name, and each chunk names itself in its `sourceMappingURL`
-/// comment and its map's `file`. The debug ids stand in for chunk ids that stay the same across
-/// releases, like the ones `@posthog/rollup-plugin` derives.
+/// The debug ids stand in for chunk ids that stay the same across releases, like the ones
+/// `@posthog/rollup-plugin` derives.
 fn content_named_release(
     release_id: &str,
     entry_name: &str,
@@ -723,8 +720,6 @@ fn event_mode_hashes(pairs: Vec<SourcePair>) -> Vec<String> {
 
 #[test]
 fn test_event_mode_content_hash_ignores_chunk_file_names() {
-    // PostHog/posthog#105956: with content-hashed file names every release renames every chunk,
-    // so hashing the names would upload every unchanged chunk again on every release.
     let release = |release_id, entry_name, lazy_name| {
         content_named_release(release_id, entry_name, lazy_name, "console.log(1);")
     };
@@ -745,8 +740,6 @@ fn test_event_mode_content_hash_ignores_chunk_file_names() {
 
 #[test]
 fn test_event_mode_content_hash_still_tracks_code_changes() {
-    // A changed chunk must upload again. The entry still reaches it by name only, so the entry,
-    // unchanged otherwise, is still recognized.
     let before = event_mode_hashes(content_named_release(
         "release-a",
         "index-C3e2Htc9.js",
@@ -769,7 +762,6 @@ fn test_event_mode_content_hash_still_tracks_code_changes() {
 
 #[test]
 fn test_event_mode_upload_keeps_the_file_names() {
-    // Only the hash leaves the names out. The stored symbol set is the chunk as it shipped.
     let pair = content_named_release(
         "release-a",
         "index-C3e2Htc9.js",
