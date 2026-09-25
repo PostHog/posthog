@@ -1,1 +1,1 @@
-0032_drop_orphaned_mcpserver_fks
+0033_mcpservertemplate_last_probed_at

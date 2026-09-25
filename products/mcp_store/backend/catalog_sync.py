@@ -10,8 +10,9 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - The sync normally preserves operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
-  Two fail-closed exceptions deactivate active rows: an ``auth_type`` flip, or a catalog
-  entry marked ``disabled``. Entries with a catalog-managed credential source also follow
+  Three fail-closed exceptions deactivate active rows: an ``auth_type`` flip, a catalog
+  entry marked ``disabled``, or a DCR entry whose re-probe shows the server refusing to
+  register a client for us. Entries with a catalog-managed credential source also follow
   that source: sync probes and activates them when configured, and deactivates them when
   their required settings are absent.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
@@ -21,8 +22,11 @@ Semantics, chosen so the sync can run unattended at every app startup:
   server that auth-walls the handshake (the common case) yields no MCP evidence, so it
   is born inactive for an operator to vet and activate in admin. Other servers needing
   shared OAuth credentials remain inactive until an operator provisions them. Probes run
-  only on creation, except while a catalog-managed shared client is inactive or first adopts
-  its credential source. A DCR probe mints a real client, so it never repeats during sync.
+  on creation, while a catalog-managed shared client is inactive or first adopts its
+  credential source, and on an interval for an active DCR entry. A DCR probe mints a real
+  client with the provider, so ``last_probed_at`` keeps it to one probe per entry per
+  ``DCR_REPROBE_INTERVAL``. A re-probe only ever deactivates on refused registration, never
+  on an unreachable server: the entry must not flap on a timeout or a provider fault.
 
   The probe is a liveness and protocol check, not a security control: it catches a dead
   url or a mis-declared auth model, but a malicious server passes it trivially. Vendor
@@ -31,9 +35,11 @@ Semantics, chosen so the sync can run unattended at every app startup:
 """
 
 from dataclasses import dataclass, replace
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import IntegrityError
+from django.utils import timezone
 
 import structlog
 
@@ -43,6 +49,8 @@ from .oauth_credentials import resolve_oauth_credentials_source
 from .probe import ProbeResult, probe_mcp_server
 
 logger = structlog.get_logger(__name__)
+
+DCR_REPROBE_INTERVAL = timedelta(hours=24)
 
 _CONTENT_FIELDS = (
     "name",
@@ -107,7 +115,25 @@ def _probe_entry(entry: CatalogEntry) -> ProbeResult:
     )
 
 
-def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeResult, counts: SyncCounts) -> list[str]:
+def _dcr_reprobe_due(template: MCPServerTemplate, entry: CatalogEntry) -> bool:
+    if entry.auth_type != "oauth" or entry.oauth_credentials_source or not template.is_active:
+        return False
+    return template.last_probed_at is None or timezone.now() - template.last_probed_at >= DCR_REPROBE_INTERVAL
+
+
+def _claim_reprobe(template: MCPServerTemplate) -> bool:
+    """Take the re-probe slot with a conditional update, so two overlapping syncs mint one
+    client between them instead of one each."""
+    now = timezone.now()
+    if not MCPServerTemplate.objects.filter(pk=template.pk, last_probed_at=template.last_probed_at).update(
+        last_probed_at=now
+    ):
+        return False
+    template.last_probed_at = now
+    return True
+
+
+def _apply_probe_metadata(template: MCPServerTemplate, probe: ProbeResult) -> list[str]:
     changed: list[str] = []
     if probe.oauth_metadata:
         if template.oauth_metadata != probe.oauth_metadata:
@@ -117,6 +143,12 @@ def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeR
         if issuer and template.oauth_issuer_url != issuer:
             template.oauth_issuer_url = issuer
             changed.append("oauth_issuer_url")
+    return changed
+
+
+def _apply_probe(template: MCPServerTemplate, entry: CatalogEntry, probe: ProbeResult, counts: SyncCounts) -> list[str]:
+    template.last_probed_at = timezone.now()
+    changed: list[str] = ["last_probed_at", *_apply_probe_metadata(template, probe)]
     if _activation_allowed(entry, probe):
         if not template.is_active:
             template.is_active = True
@@ -194,6 +226,17 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
                 "mcp_catalog_sync.deactivated_missing_credential_source",
                 url=entry.url,
                 oauth_credentials_source=entry.oauth_credentials_source,
+            )
+    elif not skip_probe and _dcr_reprobe_due(template, entry) and _claim_reprobe(template):
+        probe = _probe_entry(entry)
+        changed += _apply_probe_metadata(template, probe)
+        if probe.dcr_registration_refused:
+            template.is_active = False
+            changed.append("is_active")
+            logger.warning(
+                "mcp_catalog_sync.deactivated_dcr_refused",
+                url=entry.url,
+                probe_errors=probe.errors,
             )
     if not changed:
         counts.unchanged += 1
