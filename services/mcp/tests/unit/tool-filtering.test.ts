@@ -324,6 +324,7 @@ describe('Tool Filtering - API Scopes', () => {
         expect(toolNames).toContain('dashboard-get')
         expect(toolNames).toContain('dashboards-get-all')
         expect(toolNames).toContain('dashboard-reorder-tiles')
+        expect(toolNames).toContain('dashboard-transfer-tile')
 
         expect(toolNames).not.toContain('create-feature-flag')
         expect(toolNames).not.toContain('organizations-list')

@@ -8083,6 +8083,8 @@ def run_task(
     *,
     validated_data: dict,
     warm_retry_token: str | None = None,
+    pipeline_rerun: bool = False,
+    free_trial_enabled: bool | None = None,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -8090,6 +8092,8 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this. A report implementation raises
     ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
+    ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
+    fresh run and stamps the protected implementation stage from the verified report-task link.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -8129,17 +8133,22 @@ def run_task(
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
+    is_implementation = False
     if report_id_for_slot_check is not None:
         # Free trial gate: the create-time gate refuses a new implementation, but a task created
         # before sales turned the flag on can still be started or retried from here, and its pull
         # request bills the trial org. Only the implementation relationship opens one, so a
         # discussion keeps running. Outside the transaction below, because the flag read does
         # network I/O and must not hold the report row lock.
-        if is_report_implementation_task(team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)):
+        is_implementation = is_report_implementation_task(
+            team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+        )
+        if is_implementation:
             enforce_self_driving_free_trial(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,
                 stage="task_run",
+                enabled=free_trial_enabled,
             )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
@@ -8232,7 +8241,11 @@ def run_task(
                 attr="codex_model_access" if codex_model_access == "own-subscription" else "claude_model_access",
             )
         )
-    warm_run = None if scheduled_at is not None or run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
+    warm_run = (
+        None
+        if pipeline_rerun or scheduled_at is not None or run_source == RunSource.AGENT
+        else _idling_warm_run_for_task(task)
+    )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
     if warm_run is not None and model_access.kind == "own-subscription":
         warm_run = None
@@ -8398,6 +8411,8 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+        if pipeline_rerun and task.internal and is_implementation:
+            extra_state["ai_stage"] = "implementation"
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the

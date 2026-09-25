@@ -14,9 +14,12 @@ from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
+from rest_framework import (
+    serializers as drf_serializers,
+    viewsets,
+)
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -28,6 +31,7 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.oauth_provenance import is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
@@ -37,10 +41,12 @@ from products.autoresearch.backend.facade.contracts import (
     ArtifactStorageUnavailable,
     AutoresearchConflict,
     InvalidArtifactPath,
+    InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
     TrainingRunNotFound,
 )
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
     ArtifactContentSerializer,
@@ -64,12 +70,14 @@ from .serializers import (
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     RespondToSuggestionSerializer,
+    StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
+    has_action_scope,
     resolve_target,
     validate_event_target,
 )
@@ -170,6 +178,12 @@ def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     }
 
 
+def _validated_with_sentinels(serializer: drf_serializers.BaseSerializer) -> Any:
+    # On a partial update `DataclassSerializer.validated_data` swaps each `empty` sentinel for the
+    # dataclass default, so reading it would write defaults over every field the PATCH left out.
+    return drf_serializers.BaseSerializer.validated_data.fget(serializer)  # type: ignore[attr-defined]
+
+
 @extend_schema(tags=["autoresearch"])
 class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
     """
@@ -183,16 +197,35 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
-    # Both HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
+    # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "start_training",
+        "run_inference",
+        "run_validation",
+        "archive",
+        "pause",
+        "resume",
+    ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        # A sandbox token carries team-wide autoresearch:write, and the training agent writes only
+        # through its run, so a confused or injected agent must not reach pipeline writes. Tasks
+        # applies the same rule to its own launches.
+        if self.action in self.scope_object_write_actions and is_sandbox_origin_request(request):
+            raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
+
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
-        if self.action in ("resolve_template", "validate_definition"):
+        if self.action in ("resolve_template", "validate_definition", "run_inference", "run_validation"):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
@@ -245,21 +278,32 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             pipeline = api.update_pipeline(
                 self.team_id,
                 self.kwargs["pk"],
-                fields=_pipeline_write_fields(serializer.validated_data),
+                fields=_pipeline_write_fields(_validated_with_sentinels(serializer)),
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="The pipeline and its rows were deleted."),
+            400: OpenApiResponse(description="A training run is in progress for this pipeline."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        }
+    )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             api.delete_pipeline(self.team_id, self.kwargs["pk"])
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(status=204)
 
     @extend_schema(
@@ -362,6 +406,228 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             user=cast(User, request.user),
         )
         return Response(ValidatePipelineResponseSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=StartTrainingRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The created training run. Poll it through the training runs endpoint.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "A training run is already in progress, the pipeline is paused, "
+                    "or the pipeline's target or creator is no longer valid."
+                )
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "The caller has no PostHog Desktop access, which cloud runs need, "
+                    "or the request comes from inside a sandbox."
+                )
+            ),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
+        },
+        summary="Start a training run",
+        description=(
+            "Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where "
+            "the autoresearch agent iterates on features and models, and returns the run immediately with "
+            "status 'running'. Poll the training run until it reaches a terminal status (completed or "
+            "failed). A pipeline's first run has no champion until it completes and promotion runs; on a "
+            "retrain the existing champion stays live and keeps scoring until a new one is promoted."
+        ),
+    )
+    # The sandbox agent gets a token with these read scopes, so the caller must already hold them.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="train",
+        required_scopes=["autoresearch:write", "query:read", "insight:read"],
+    )
+    def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+        try:
+            training_run = api.start_training(
+                self.team_id,
+                self.kwargs["pk"],
+                iteration_budget=request.validated_data.get("iteration_budget"),
+                user_id=cast(User, request.user).id,
+                # Training labels on the action's steps, so an action target needs the same scope it took to set.
+                allow_action_target=has_action_scope(request),
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchRunSerializer,
+                description="The created inference run. Check rows_scored and status.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The pipeline has no champion model or is paused, or an action target needs the action:read scope."
+                )
+            ),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        },
+        summary="Run inference (score users)",
+        description=(
+            "Score the inference population using the champion model and emit autoresearch_prediction "
+            "events for each scored user, and sets the pipeline's output_person_property on each scored person. "
+            "In production this is triggered by the daily Temporal inference workflow."
+        ),
+    )
+    # Scoring sets the pipeline's output property on every scored person, so it needs person:write too.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="score",
+        required_scopes=["autoresearch:write", "query:read", "person:write"],
+    )
+    def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            run = api.score_pipeline(
+                self.team_id,
+                self.kwargs["pk"],
+                user=cast(User, request.user),
+                # Scoring can label or select on the action's steps, so an action target needs the action scope.
+                allow_action_target=has_action_scope(request),
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=run).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchRunSerializer(many=True),
+                description=(
+                    "One AutoresearchRun per matured prediction date that was validated. "
+                    "Empty list when no prediction dates have matured yet."
+                ),
+            ),
+            400: OpenApiResponse(description="An action target needs the action:read scope."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        },
+        summary="Run online validation",
+        description=(
+            "Validate predictions against realized outcomes for all matured prediction dates. "
+            "A prediction date is matured when today >= prediction_date + horizon_days. "
+            "Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. "
+            "Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. "
+            "Already-validated dates are skipped. In production this is triggered by the daily "
+            "Temporal validation workflow after inference runs."
+        ),
+    )
+    # pagination_class=None so the generated client types the response as a bare array of runs
+    # (matching what this returns) rather than a paginated envelope.
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="validate_online",
+        pagination_class=None,
+        required_scopes=["autoresearch:write", "query:read"],
+    )
+    def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            runs = api.validate_pipeline_online(
+                self.team_id,
+                self.kwargs["pk"],
+                user=cast(User, request.user),
+                # Realized labels come from the action's steps, so an action target needs the action scope.
+                allow_action_target=has_action_scope(request),
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after archiving.",
+            ),
+            400: OpenApiResponse(description="A training run is in progress for this pipeline."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        },
+        summary="Archive a pipeline",
+        description=(
+            "Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. "
+            "Refused while a training run is in progress."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="archive")
+    def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("archived")
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after pausing.",
+            ),
+            400: OpenApiResponse(description="The pipeline is not running."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        },
+        summary="Pause a pipeline",
+        description=(
+            "Pause daily scoring and training on a running pipeline. The pipeline can be resumed later. "
+            "A training run already in progress finishes and can promote a new champion, "
+            "but the pipeline stays paused and scores nobody until it is resumed."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="pause")
+    def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("paused")
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchPipelineSerializer,
+                description="The pipeline after resuming.",
+            ),
+            400: OpenApiResponse(description="The pipeline is not paused."),
+            404: OpenApiResponse(description="The pipeline does not exist or is archived."),
+        },
+        summary="Resume a pipeline",
+        description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
+    )
+    @action(detail=True, methods=["post"], url_path="resume")
+    def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._set_status("running")
+
+    def _set_status(self, status: str) -> Response:
+        try:
+            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
 
 @extend_schema(tags=["autoresearch"])
@@ -496,7 +762,12 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 response=AutoresearchTrainingRunSerializer,
                 description="The opened training run. Record iterations against its id, then call complete.",
             ),
-            400: OpenApiResponse(description="Pipeline is archived."),
+            400: OpenApiResponse(
+                description=(
+                    "The pipeline is archived or paused, a run is already in progress, "
+                    "or an action target needs the action:read scope."
+                )
+            ),
         },
         summary="Open a training run",
         description=(
@@ -506,14 +777,20 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The training agent works inside the run /train opened for it, so it never opens one itself.
+        if is_sandbox_origin_request(request):
+            raise PermissionDenied("Training runs cannot be opened from inside a sandbox.")
         try:
             training_run = api.open_training_run(
                 self.team_id,
                 _require_parent_pipeline_id(self),
                 iteration_budget=request.validated_data.get("iteration_budget"),
+                allow_action_target=has_action_scope(request),
             )
         except PipelineNotFound as exc:
             raise NotFound(str(exc)) from exc
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data, status=201)

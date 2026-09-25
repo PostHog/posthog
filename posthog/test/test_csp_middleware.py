@@ -13,6 +13,7 @@ from posthog.csp_middleware import (
     CSPMiddleware,
     app_csp_header_name,
     narrowed_app_policy,
+    object_storage_upload_source,
 )
 
 
@@ -295,6 +296,22 @@ class TestCSPMiddleware(APIBaseTest):
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
+    @override_settings(
+        OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",
+        OBJECT_STORAGE_BUCKET="posthog-test-bucket",
+    )
+    def test_connect_src_admits_the_presigned_upload_endpoint(self) -> None:
+        # Narrowing must keep it: cloud enforces the narrowed policy, and an upload it drops
+        # fails in the browser with nothing logged server-side.
+        with override_settings(
+            TEST=False, DEBUG=False, CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com", E2E_TESTING=False
+        ):
+            response = self.client.get("/")
+
+        policy = response["Content-Security-Policy"]
+        connect_src = next(part for part in policy.split("; ") if part.startswith("connect-src ")).split()
+        assert "https://s3.us-east-1.amazonaws.com/posthog-test-bucket" in connect_src
+
 
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestAppCspHeaderName(SimpleTestCase):
@@ -416,6 +433,39 @@ class TestNarrowedAppPolicy(SimpleTestCase):
             "img-src 'self' data: https://*.posthog.com",
             "connect-src 'self' https://api.github.com https://internal-j.posthog.com",
         ]
+
+
+class TestObjectStorageUploadSource(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "shared_s3",
+                "https://s3.us-east-1.amazonaws.com",
+                "posthog-cloud-prod-us-east-1-app-assets",
+                "https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets",
+            ),
+            ("dev_store_keeps_http", "http://objectstorage:19000", "posthog", "http://objectstorage:19000/posthog"),
+            ("endpoint_unset", "", "posthog", ""),
+            ("bucket_unset", "https://s3.us-east-1.amazonaws.com", "", ""),
+            ("not_a_fetchable_scheme", "s3://posthog-bucket", "posthog", ""),
+        ]
+    )
+    def test_source_carries_the_bucket_or_is_left_out(
+        self, _name: str, endpoint: str, bucket: str, expected: str
+    ) -> None:
+        with override_settings(OBJECT_STORAGE_PUBLIC_ENDPOINT=endpoint, OBJECT_STORAGE_BUCKET=bucket):
+            assert object_storage_upload_source() == expected
+
+    def test_a_plaintext_endpoint_is_named_over_https_outside_dev(self) -> None:
+        # Only the dev store is reached over http. Anywhere else the policy must not bless a
+        # bucket served in plaintext, whatever the endpoint is configured as.
+        with override_settings(
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="http://storage.example.com",
+            OBJECT_STORAGE_BUCKET="posthog",
+            TEST=False,
+            DEBUG=False,
+        ):
+            assert object_storage_upload_source() == "https://storage.example.com/posthog"
 
 
 class TestViewManagedCsp(SimpleTestCase):
