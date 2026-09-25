@@ -29,7 +29,7 @@ class TestPostSlackUpdate(TestCase):
         # tested there. Here it only decides whether the cards carry a url, so default to
         # "linkable" and let the deny-path test re-patch it.
         self._footer_patcher = patch(
-            "products.slack_app.backend.services.slack_messages.load_run_footer",
+            "products.slack_app.backend.slack_thread.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/10?runId=run-1"),
         )
         self._footer_patcher.start()

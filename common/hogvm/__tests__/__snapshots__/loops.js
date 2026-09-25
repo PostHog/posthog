@@ -26,6 +26,7 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
@@ -43,7 +44,7 @@ function __escapeIdentifier(identifier) {
 print("-- test while loop --");
 {
     let i = 0;
-    while ((i < 3)) {
+    while (__lt(i, 3)) {
             i = (i + 1)
             print(i);
         }
@@ -51,14 +52,14 @@ print("-- test while loop --");
 }
 print("-- test for loop --");
 {
-    for (let i = 0; (i < 3); i = (i + 1)) {
+    for (let i = 0; __lt(i, 3); i = (i + 1)) {
             print(i);
         }
 }
 print("-- test emptier for loop --");
 {
     let i = 0;
-    for (; (i < 3); ) {
+    for (; __lt(i, 3); ) {
             print("woo");
             i = (i + 1)
         }
