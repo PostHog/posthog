@@ -6182,6 +6182,38 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
+    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetAddRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    export interface NotebookWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the notebook widget widget. */
+      config: NotebookWidgetConfig;
+    }
+
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -6676,14 +6708,14 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -9619,7 +9651,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -19934,18 +19966,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
-
-
-    export const ClaudeModelAccessEnum = {
-      PosthogGateway: 'posthog-gateway',
-      OwnSubscription: 'own-subscription',
-    } as const;
-
-    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -19993,6 +20013,18 @@ export namespace Schemas {
       /** @maxLength 64 */
       name: string;
     }
+
+    /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ModelAccessEnum = typeof ModelAccessEnum[keyof typeof ModelAccessEnum];
+
+
+    export const ModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
 
     /**
      * * `interactive` - interactive
@@ -20110,7 +20142,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /**
          * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
          * @nullable
@@ -20479,6 +20516,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected
+     */
+    export type CodexIntegrationStatusEnum = typeof CodexIntegrationStatusEnum[keyof typeof CodexIntegrationStatusEnum];
+
+
+    export const CodexIntegrationStatusEnum = {
+      Connected: 'connected',
+      ReauthRequired: 'reauth_required',
+      NotConnected: 'not_connected',
+    } as const;
+
+    /**
      * * `codex` - codex
      */
     export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
@@ -20532,7 +20583,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /**
          * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
          * @nullable
@@ -24397,6 +24453,7 @@ export namespace Schemas {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
      */
@@ -24410,6 +24467,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
@@ -24425,6 +24483,7 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
+       * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
        * * `survey_results` - survey_results */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -46704,7 +46763,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -60207,6 +60266,8 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
+      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
     }
@@ -60436,6 +60497,60 @@ export namespace Schemas {
       variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
+    }
+
+    export type NotebookWidgetCatalogEntryOpenApiWidgetType = typeof NotebookWidgetCatalogEntryOpenApiWidgetType[keyof typeof NotebookWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const NotebookWidgetCatalogEntryOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetCatalogEntryOpenApi {
+      widget_type: NotebookWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: NotebookWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `notebook_widget` - notebook_widget
+     */
+    export type NotebookWidgetTypeEnum = typeof NotebookWidgetTypeEnum[keyof typeof NotebookWidgetTypeEnum];
+
+
+    export const NotebookWidgetTypeEnum = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+      config?: NotebookWidgetConfig;
     }
 
     /**
@@ -63613,7 +63728,23 @@ export namespace Schemas {
       results: PauseStateResponse[];
     }
 
-    export interface PersonRecord {
+    /**
+     * * `distinct_id` - Distinct ID
+     * * `email` - Email
+     * * `name` - Name
+     * * `id` - Person ID
+     */
+    export type PersonSearchMatchFieldEnum = typeof PersonSearchMatchFieldEnum[keyof typeof PersonSearchMatchFieldEnum];
+
+
+    export const PersonSearchMatchFieldEnum = {
+      DistinctId: 'distinct_id',
+      Email: 'email',
+      Name: 'name',
+      Id: 'id',
+    } as const;
+
+    export interface PersonListRecord {
       /** Numeric person ID. */
       readonly id: number;
       /** Display name derived from person properties (email, name, or username). */
@@ -63630,15 +63761,17 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_seen_at: string | null;
+      /** Only on a search result with `include_matched_fields`: the searched fields the term was found in. */
+      matched_fields?: PersonSearchMatchFieldEnum[];
     }
 
-    export interface PaginatedPersonRecordList {
+    export interface PaginatedPersonListRecordList {
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       count?: number;
-      results?: PersonRecord[];
+      results?: PersonListRecord[];
     }
 
     /**
@@ -65142,6 +65275,7 @@ export namespace Schemas {
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
+     * * `ranking_score` - Ranking Score
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -65176,6 +65310,7 @@ export namespace Schemas {
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
+      RankingScore: 'ranking_score',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -72425,7 +72560,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -77603,7 +77738,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -78212,7 +78347,7 @@ export namespace Schemas {
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       recordings_queued_for_deletion: boolean;
-      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them, except entries whose step is 'log_activity': that person was deleted, but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
+      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
@@ -78280,6 +78415,25 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
+    }
+
+    export interface PersonRecord {
+      /** Numeric person ID. */
+      readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
+      readonly name: string;
+      readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
+      properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
+      readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
+      readonly uuid: string;
+      /**
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
+      readonly last_seen_at: string | null;
     }
 
     export interface PersonSplitRequest {
@@ -96639,7 +96793,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -97351,6 +97510,29 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    export interface TaskRunSubscriptionTokenRequest {
+      /**
+         * SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.
+         * @nullable
+         * @pattern ^[0-9a-f]{64}$
+         */
+      rejected_access_token_sha256?: string | null;
+    }
+
+    export interface TaskRunSubscriptionTokenResponse {
+      /** ChatGPT access token for the Codex app-server. It can stay valid for several days. */
+      access_token: string;
+      /** ChatGPT account the access token belongs to */
+      account_id: string;
+      /**
+         * ChatGPT plan of the account, when known
+         * @nullable
+         */
+      plan_type: string | null;
+      /** When the access token expires. Request a new one before this time. */
+      expires_at: string;
     }
 
     /**
@@ -98957,6 +99139,47 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface UserCodexAuthTokens {
+      /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+      access_token: string;
+      /** The single-use ChatGPT refresh token from the same `tokens` object. */
+      refresh_token: string;
+      /**
+         * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+         * @nullable
+         */
+      id_token?: string | null;
+    }
+
+    export interface UserCodexConnectRequest {
+      /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+      tokens: UserCodexAuthTokens;
+    }
+
+    export interface UserCodexIntegration {
+      /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+       *
+       * * `connected` - Connected
+       * * `reauth_required` - Reauth Required
+       * * `not_connected` - Not Connected */
+      status: CodexIntegrationStatusEnum;
+      /**
+         * The ChatGPT plan type OpenAI reports for the account.
+         * @nullable
+         */
+      plan_type?: string | null;
+      /**
+         * The email of the connected ChatGPT account.
+         * @nullable
+         */
+      email?: string | null;
+      /**
+         * When the account was connected.
+         * @nullable
+         */
+      connected_at?: string | null;
+    }
+
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
@@ -100113,7 +100336,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -100258,6 +100481,86 @@ export namespace Schemas {
       version_id: string;
       /** Current version used for optimistic concurrency. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Frozen input mappings and Hog transforms.
+     */
+    export type WidgetSnapshotInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface WidgetSnapshot {
+      /** Immutable snapshot containing the widget's saved dataframe results. */
+      id: string;
+      /** Source widget node in the notebook. */
+      node_id: string;
+      /** Pinned generated widget version. */
+      version_id: string;
+      /** When all dataframe results were saved. */
+      created_at: string;
+      /** Allowed dataframe slots. */
+      frame_names: string[];
+      /** Frozen input mappings and Hog transforms. */
+      input_bindings: WidgetSnapshotInputBindings;
+      /** Pinned widget input schemas. */
+      input_contract: WidgetInputContractItem[];
+      /**
+         * Short-lived URL for the pinned widget build.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /**
+         * Exact build hash used for execution consent.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Review of the pinned widget source. */
+      security_review: WidgetSecurityReview | null;
+    }
+
+    export interface WidgetSnapshotPublish {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
+      /**
+         * Dashboard to add the widget to.
+         * @minimum 1
+         */
+      dashboard_id?: number;
+      /**
+         * Existing dashboard tile to refresh.
+         * @minimum 1
+         */
+      tile_id?: number;
+      /**
+         * Title for a new dashboard widget.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
+    export interface WidgetSnapshotRequest {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
     }
 
     export interface WidgetSource {
@@ -109905,6 +110208,10 @@ export namespace Schemas {
     };
 
     export type HogFlowsListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.
@@ -112748,6 +113055,28 @@ export namespace Schemas {
     user?: string;
     };
 
+    export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string;
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string;
+    };
+
     export type NotebooksWidgetFrameParams = {
     limit?: number;
     offset?: number;
@@ -112835,6 +113164,10 @@ export namespace Schemas {
      */
     email?: string;
     format?: PersonsListFormat;
+    /**
+     * Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.
+     */
+    include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
      */

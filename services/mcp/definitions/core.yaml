@@ -641,6 +641,15 @@ tools:
     users-hedgehog-config-retrieve:
         operation: users_hedgehog_config_retrieve
         enabled: false
+    users-integrations-codex-create:
+        operation: users_integrations_codex_create
+        enabled: false
+    users-integrations-codex-destroy:
+        operation: users_integrations_codex_destroy
+        enabled: false
+    users-integrations-codex-retrieve:
+        operation: users_integrations_codex_retrieve
+        enabled: false
     users-integrations-github-branches-retrieve:
         operation: users_integrations_github_branches_retrieve
         enabled: false
