@@ -132,6 +132,7 @@ export function PromptViewDetails(): JSX.Element {
                                 icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                 tooltip="Toggle markdown rendering"
                                 onClick={toggleMarkdownRendering}
+                                data-attr="llma-prompt-view-markdown-toggle"
                             />
                         )}
                         {canCompareVersions && (
@@ -1020,6 +1021,7 @@ export function PromptEditForm({
                                 e.preventDefault()
                                 toggleMarkdownRendering()
                             }}
+                            data-attr="llma-prompt-edit-markdown-toggle"
                         />
                         {!isRenderingMarkdown && (
                             <InsertPromptReferenceButton
