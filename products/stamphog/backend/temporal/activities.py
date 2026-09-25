@@ -987,12 +987,12 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 with timer.step("prefetch"):
                     _prefetch_review_blobs(sandbox, merge_base_sha, token, deadline)
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
-                # of the budget. Re-check here, because the three steps below write through the
-                # sandbox filesystem API and cannot take a deadline: passing one would switch them
-                # to an exec-based write, which is a different mechanism, not a bounded one.
+                # of the budget. Re-check here, because the archive write below goes through the
+                # sandbox filesystem API and cannot take a deadline: passing one would switch it to
+                # an exec-based write, which is a different mechanism, not a bounded one.
                 _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
                 with timer.step("ship_engine"):
-                    _ship_review_payload(sandbox, policy_files, invocation.context_json)
+                    _ship_review_payload(sandbox, policy_files, invocation.context_json, deadline)
 
                 # GNU date prints epoch milliseconds, so the engine can report how long `uv run` took to
                 # reach its main().
@@ -1851,14 +1851,16 @@ def _review_payload_command() -> str:
     )
 
 
-def _ship_review_payload(sandbox: SandboxBase, policy_files: dict[str, str], context_json: str) -> None:
+def _ship_review_payload(
+    sandbox: SandboxBase, policy_files: dict[str, str], context_json: str, deadline: float
+) -> None:
     """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
     The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
     checkout and reads the injected trusted policy. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
-    result = sandbox.execute(_review_payload_command(), timeout_seconds=60)
+    result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))
     if result.exit_code != 0:
         # The reviewer reads an untrusted PR head, so tar's stderr can name repository paths. Keep it
         # in the worker log only.
