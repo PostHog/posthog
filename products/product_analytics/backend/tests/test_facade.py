@@ -48,25 +48,73 @@ class TestInsightVariableReads(BaseTest):
         assert insight_variables_for_team(other_team.pk) == []
 
 
-class TestInsightQueryDemandSchema(BaseTest):
-    def test_contexts_are_unique_and_deleted_with_the_insight(self) -> None:
-        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+class TestInsightViewedContextSchema(BaseTest):
+    @parameterized.expand([("anonymous", False), ("identified", True)])
+    def test_contexts_are_unique_and_deleted_with_the_insight(self, _name: str, identified: bool) -> None:
+        demand = apps.get_model("product_analytics", "InsightViewedContext")
         insight = Insight.objects.create(team=self.team)
-        demand.objects.create(team=self.team, insight=insight, last_requested_at=now())
+        viewer = {"user_id": self.user.pk if identified else None, "source": "web"}
+        demand.objects.create(team=self.team, insight=insight, last_viewed_at=now(), **viewer)
         with transaction.atomic(), self.assertRaises(IntegrityError):
-            demand.objects.create(team=self.team, insight=insight, last_requested_at=now())
+            demand.objects.create(team=self.team, insight=insight, last_viewed_at=now(), **viewer)
         dashboard_model = apps.get_model("dashboards", "Dashboard")
         dashboard = dashboard_model.objects.create(team=self.team, name="Overview")
         other_dashboard = dashboard_model.objects.create(team=self.team, name="Other")
-        demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_requested_at=now())
-        demand.objects.create(team=self.team, insight=insight, dashboard=other_dashboard, last_requested_at=now())
+        demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_viewed_at=now(), **viewer)
+        demand.objects.create(
+            team=self.team, insight=insight, dashboard=other_dashboard, last_viewed_at=now(), **viewer
+        )
         with transaction.atomic(), self.assertRaises(IntegrityError):
-            demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_requested_at=now())
+            demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_viewed_at=now(), **viewer)
+        # A different source or viewer must not overwrite this viewer's access.
+        demand.objects.create(
+            team=self.team, insight=insight, user_id=viewer["user_id"], source="mcp", last_viewed_at=now()
+        )
+        demand.objects.create(
+            team=self.team,
+            insight=insight,
+            user_id=None if identified else self.user.pk,
+            source="web",
+            last_viewed_at=now(),
+        )
         dashboard.delete()
-        assert demand.objects.filter(insight=insight).count() == 2
+        assert demand.objects.filter(insight=insight).count() == 4
         insight_id = insight.pk
         insight.delete()
         assert not demand.objects.filter(insight_id=insight_id).exists()
+
+    def test_context_rows_do_not_change_legacy_history_or_upserts(self) -> None:
+        from products.product_analytics.backend.facade.api import (
+            recent_viewers_by_insight,
+            recently_viewed_insights,
+            record_insight_views,
+            with_last_viewed_at,
+        )
+
+        insight = Insight.objects.create(team=self.team)
+        contexts = apps.get_model("product_analytics", "InsightViewedContext")
+        for source in ["web", "mcp"]:
+            contexts.objects.create(
+                team=self.team, user=self.user, insight=insight, source=source, last_viewed_at=now()
+            )
+        first = now() - timedelta(hours=1)
+        record_insight_views(
+            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: first}
+        )
+        latest = now()
+        record_insight_views(
+            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: latest}
+        )
+        assert InsightViewed.objects.get(team=self.team, user=self.user, insight=insight).last_viewed_at == latest
+        recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=10)
+        assert [item.pk for item in recent] == [insight.pk]
+        assert recent[0].last_viewed_at == latest
+        assert with_last_viewed_at(Insight.objects.filter(pk=insight.pk)).get().last_viewed_at == latest
+        assert recent_viewers_by_insight(
+            team_id=self.team.pk, insight_ids=[insight.pk], since=first, max_per_insight=10
+        ) == {insight.pk: [self.user]}
+        self.user.delete()
+        assert not contexts.objects.filter(insight=insight).exists()
 
 
 class TestConcurrentInsightQueryDemand(NonAtomicBaseTest):
@@ -178,7 +226,9 @@ class TestRecordInsightView(BaseTest):
     def test_unattributed_view_does_not_imply_standalone_demand(self) -> None:
         view = InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())
         assert (
-            not apps.get_model("product_analytics", "InsightQueryDemand").objects.filter(insight=view.insight).exists()
+            not apps.get_model("product_analytics", "InsightViewedContext")
+            .objects.filter(insight=view.insight)
+            .exists()
         )
 
     @parameterized.expand([("anonymous", False), ("identified", True)])
