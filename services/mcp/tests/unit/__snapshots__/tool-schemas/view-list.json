@@ -2,12 +2,16 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "include_columns": {
-            "default": true,
-            "description": "Include column definitions. Set to false for table-only lists.",
+            "default": false,
+            "description": "Include column definitions. Off by default: the columns of a view are a large payload that most list callers do not render. Set to true to get them.",
             "type": "boolean"
         },
         "page": {
             "description": "A page number within the paginated result set.",
+            "type": "number"
+        },
+        "page_size": {
+            "description": "Number of results to return per page.",
             "type": "number"
         },
         "search": {
