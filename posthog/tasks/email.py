@@ -50,13 +50,12 @@ from posthog.models.organization_notification_lock import (
     pipeline_lock_for_team,
 )
 from posthog.models.scoping import with_team_scope
-from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
@@ -1085,7 +1084,8 @@ def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, d
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: str | UUIDT,
+    batch_export_run_id: str | uuid.UUID,
+    team_id: int,
     failure_rate: float = 1.0,
 ) -> None:
     logger = structlog.get_logger(__name__)
@@ -1095,17 +1095,14 @@ def send_batch_export_run_failure(
         logger.warning("Email service is not available")
         return None
 
-    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related(
-        "batch_export__team", "batch_export_on_demand__team"
-    ).get(id=batch_export_run_id)
-    batch_export = batch_export_run.parent
+    run_failure = batch_exports_api.get_run_failure(batch_export_run_id, team_id)
     # On-demand exports do not have a page for this email to link to.
-    if not isinstance(batch_export, BatchExport):
+    if run_failure is None:
         return
 
-    team: Team = batch_export.team
+    team = Team.objects.get(id=run_failure.team_id)
 
-    pipeline_id = f"batch_export:{batch_export.id}"
+    pipeline_id = f"batch_export:{run_failure.export_id}"
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
@@ -1113,20 +1110,22 @@ def send_batch_export_run_failure(
     logger.info("Preparing notification email for batch export run %s", batch_export_run_id)
 
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
-    last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
+    last_updated_at_date = run_failure.last_updated_at.strftime("%Y-%m-%d")
 
-    campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
+    campaign_key: str = (
+        f"batch_export_run_email_batch_export_{run_failure.export_id}_last_updated_at_{last_updated_at_date}"
+    )
 
-    subject = f"PostHog: {batch_export.name} batch export run failure"
+    subject = f"PostHog: {run_failure.export_name} batch export run failure"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
         template_name="batch_export_run_failure",
         template_context={
-            "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
+            "time": run_failure.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
-            "id": batch_export.id,
-            "name": batch_export.name,
+            "id": run_failure.export_id,
+            "name": run_failure.export_name,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)

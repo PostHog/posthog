@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -359,13 +360,38 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
     """Shared handler for the experiments_config action — exposed under both the
     team/environment and project routers so both surfaces stay in parity."""
     # Keeps the products app import off this module's import path.
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+    from products.experiments.backend.models.team_experiments_config import (  # noqa: PLC0415
+        MAX_RECALCULATION_TIMES,
+        MIN_RECALCULATION_GAP_HOURS,
+        TeamExperimentsConfig,
+        legacy_from_recalculation_times,
+        recalculation_times_from_legacy,
+        validate_recalculation_times,
+    )
 
     class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        experiment_recalculation_times = serializers.ListField(
+            child=serializers.RegexField(
+                regex=r"^(?:[01]\d|2[0-3]):00:00$",
+                error_messages={"invalid": "Recalculation times must be on the hour, in HH:00:00 format (UTC)."},
+            ),
+            required=False,
+            allow_null=True,
+            allow_empty=False,
+            max_length=MAX_RECALCULATION_TIMES,
+            help_text=(
+                "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
+                f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
+                "Takes precedence over experiment_recalculation_time."
+            ),
+        )
+
         class Meta:
             model = TeamExperimentsConfig
             fields = [
                 "experiment_recalculation_time",
+                "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
                 "experiment_precomputation_enabled",
@@ -378,11 +404,28 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "flag_cleanup_repository",
             ]
 
+        def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
+            try:
+                validate_recalculation_times(value)
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(e.messages)
+            return value
+
         def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
             # A human toggling precomputation must stick: the auto-enrollment job only
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            # The two recalculation fields must stay coherent while both exist: writing one
+            # syncs the other, so old clients and the workflow reader never disagree.
+            if "experiment_recalculation_times" in validated_data:
+                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
+                    validated_data["experiment_recalculation_times"]
+                )
+            elif "experiment_recalculation_time" in validated_data:
+                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
+                    validated_data["experiment_recalculation_time"]
+                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
