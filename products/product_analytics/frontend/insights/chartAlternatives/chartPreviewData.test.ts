@@ -199,15 +199,20 @@ describe('deriveChartPreview', () => {
         expect(results(preview)[0]).toMatchObject({ aggregated_value: 10 })
     })
 
-    it.each([
-        ['smoothed buckets', query(ChartDisplayType.ActionsLineGraph, { trendsFilter: { smoothingIntervals: 2 } })],
-        [
-            'breakdown buckets',
-            query(ChartDisplayType.ActionsLineGraph, {
-                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
-            }),
-        ],
-    ])('does not derive a slope from %s', (_, source) => {
-        expect(deriveChartPreview(ChartDisplayType.SlopeGraph, source, response([series({})]))).toBeNull()
+    it('derives one slope per value from a breakdown', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+        })
+        const loaded = response([
+            series({ breakdown_value: 'Chrome' }),
+            series({ breakdown_value: 'Safari', data: [5, 6, 7, 8] }),
+            series({ breakdown_value: 'Edge', data: [0, 7, 7, 0] }),
+        ])
+
+        expect(results(deriveChartPreview(ChartDisplayType.SlopeGraph, source, loaded))).toMatchObject([
+            { breakdown_value: 'Chrome', data: [1, 4] },
+            { breakdown_value: 'Safari', data: [5, 8] },
+            { breakdown_value: 'Edge', data: [0, 0] },
+        ])
     })
 })
