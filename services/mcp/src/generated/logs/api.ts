@@ -5512,6 +5512,16 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         })
         .optional()
         .describe('Date range to search within. Defaults to last hour.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Start of the date range, as a flat param. Only read when dateRange is not sent.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('End of the date range, as a flat param. Only read when dateRange is not sent.'),
     filterGroup: zod
         .array(
             zod.object({
