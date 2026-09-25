@@ -22,6 +22,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     get_authenticator_scopes,
+    scopes_not_covered,
 )
 from posthog.scopes import (
     API_SCOPE_ACTIONS,
@@ -36,17 +37,11 @@ MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
     """A project secret API key outlives the credential that issued it, so a scoped caller must not
-    issue one with scopes it lacks. Session auth and `*` keys carry the user's full authority. A
-    `:write` scope covers the matching `:read`, the same as in APIScopePermission."""
+    issue one with scopes it lacks. Session auth and `*` keys carry the user's full authority."""
     caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if caller_scopes is None or "*" in caller_scopes:
         return
-    held = set(caller_scopes)
-    missing = sorted(
-        scope
-        for scope in scopes
-        if scope not in held and not (scope.endswith(":read") and scope.replace(":read", ":write") in held)
-    )
+    missing = sorted(scopes_not_covered(caller_scopes, scopes))
     if missing:
         raise PermissionDenied(
             "Your API key or OAuth token can only issue a project secret API key with scopes it has. "

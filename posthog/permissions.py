@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -729,6 +730,19 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
+    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
+    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
+    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
+    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    held = set(held_scopes)
+    return [
+        scope
+        for scope in required_scopes
+        if scope not in held and not (scope.endswith(":read") and scope.replace(":read", ":write") in held)
+    ]
+
+
 CLIENT_ID_POSTHOG = "posthog"
 
 
@@ -884,16 +898,10 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        for required_scope in required_scopes:
-            valid_scopes = [required_scope]
-
-            # For all valid scopes with :read we also add :write
-            if required_scope.endswith(":read"):
-                valid_scopes.append(required_scope.replace(":read", ":write"))
-
-            if not any(scope in key_scopes for scope in valid_scopes):
-                self.message = f"API key missing required scope '{required_scope}'"
-                return False
+        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        if missing_scopes:
+            self.message = f"API key missing required scope '{missing_scopes[0]}'"
+            return False
 
         return True
 
