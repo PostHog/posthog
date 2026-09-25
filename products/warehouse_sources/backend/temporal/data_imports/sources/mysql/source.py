@@ -448,6 +448,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
+            # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
+            # swap during a failover, reparent, or health-check-triggered pool recycle) when the
+            # query's RPC was submitted. Same transient, self-healing class as `code = Unavailable`
+            # and "reparent operation in progress" above, but hits mid-stream — a path with no
+            # in-process retry wrapper of its own — so there's nothing to backstop; this entry is
+            # the only classification. Match the stable gRPC-go message, excluding the volatile
+            # keyspace/shard/tablet-type target prefix that precedes it.
+            "grpc: the client connection is closing",
         }
 
     def reconcile_schema_metadata(
