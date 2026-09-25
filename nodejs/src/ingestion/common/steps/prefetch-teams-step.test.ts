@@ -1,5 +1,5 @@
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { prefetchTeamsStep } from '~/ingestion/pipelines/analytics/steps/prefetchTeamsStep'
 
 type TestInput = { headers: { token?: string } }
 
