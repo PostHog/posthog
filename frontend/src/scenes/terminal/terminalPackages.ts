@@ -109,9 +109,16 @@ export class TerminalPackages {
                     bin,
                     [
                         '#!/bin/sh',
+                        ...(command === 'pi'
+                            ? [
+                                  'first_install=0',
+                                  `[ -d /opt/posthog-packages/${id}-${pkg.version} ] || first_install=1`,
+                              ]
+                            : []),
                         ...[...pkg.dependencies, id].map(
                             (dependency) => `sh /posthog/bin/install-tool ${dependency} || exit $?`
                         ),
+                        ...(command === 'pi' ? ['[ "$first_install" = 0 ] || echo \'Starting pi...\' >&2'] : []),
                         ...(command === 'doom'
                             ? [
                                   'mkdir -p /tmp/doom',
