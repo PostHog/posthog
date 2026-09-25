@@ -1,5 +1,7 @@
 import json
 import datetime
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -167,6 +169,9 @@ class TestScoreInboxReports(SimpleTestCase):
         self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
+        self.capture = MagicMock()
+        self.capture_scopes = 0
+        self._patch(sweep, "ph_scoped_capture", new=self._capture_scope)
         self.failing_teams: dict[int, Exception] = {}
         settings_override = override_settings(INBOX_RANKING_SCORING_ENABLED=True)
         settings_override.enable()
@@ -178,7 +183,21 @@ class TestScoreInboxReports(SimpleTestCase):
         self.addCleanup(patcher.stop)
         return mock
 
-    def _outcomes(self, team_id: int, report_ids: list[str], *, persist: bool, now: datetime.datetime) -> list:
+    @contextmanager
+    def _capture_scope(self) -> Iterator[MagicMock]:
+        self.capture_scopes += 1
+        yield self.capture
+
+    def _outcomes(
+        self,
+        team_id: int,
+        report_ids: list[str],
+        *,
+        persist: bool,
+        now: datetime.datetime,
+        serving: Any = None,
+        capture: Any = None,
+    ) -> list:
         if team_id in self.failing_teams:
             raise self.failing_teams[team_id]
         return [
@@ -221,6 +240,11 @@ class TestScoreInboxReports(SimpleTestCase):
         assert sorted(
             (call.args[0], call.args[1], call.kwargs["persist"]) for call in self.score_reports.call_args_list
         ) == [(1, ["a", "novec-c"], True), (2, ["b"], True)]
+        assert all(
+            call.kwargs["serving"] is self.serving and call.kwargs["capture"] is self.capture
+            for call in self.score_reports.call_args_list
+        )
+        assert (self.load_serving_set.call_count, self.capture_scopes) == (1, 1)
         assert (result.candidates, result.scored, result.no_vector, result.teams, result.failed_teams) == (
             3,
             2,
@@ -243,9 +267,9 @@ class TestScoreInboxReports(SimpleTestCase):
         clock = [0.0]
         self._patch(sweep, "time", new=SimpleNamespace(monotonic=lambda: clock[0]))
 
-        def slow_first_team(team_id: int, report_ids: list[str], *, persist: bool, now: datetime.datetime) -> list:
+        def slow_first_team(team_id: int, report_ids: list[str], **kwargs: Any) -> list:
             clock[0] += sweep._TIME_BUDGET.total_seconds()
-            return self._outcomes(team_id, report_ids, persist=persist, now=now)
+            return self._outcomes(team_id, report_ids, **kwargs)
 
         self.score_reports.side_effect = slow_first_team
 

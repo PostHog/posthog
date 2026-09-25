@@ -17,6 +17,7 @@ import pandas as pd
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import ScopedCapture
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.ranking.features import (
@@ -166,15 +167,25 @@ def _unloaded_result(entry: ServingManifestEntry, reason: str) -> RankingModelRe
 
 
 def score_reports(
-    team_id: int, report_ids: Sequence[str], *, persist: bool, now: datetime
+    team_id: int,
+    report_ids: Sequence[str],
+    *,
+    persist: bool,
+    now: datetime,
+    serving: ServingSet | None = None,
+    capture: ScopedCapture | None = None,
 ) -> list[ReportScoringOutcome]:
     """One outcome per distinct report id, in the order given.
 
     A report with no current vector for the served model gets no score and `reason="no_vector"`,
     so the caller can try it again later. A challenger with no vector is a skipped result inside
     the score. `persist=False` returns the scores and writes nothing.
+
+    A caller that scores many teams passes the `serving` set it loaded and one `capture`, so each
+    team does not read the manifest from object storage again or flush its own events.
     """
-    serving = load_serving_set()
+    if serving is None:
+        serving = load_serving_set()
     if serving is None:
         logger.info("inbox_ranking_scoring_skipped", team_id=team_id, reason="no serving manifest is published")
         return []
@@ -214,5 +225,7 @@ def score_reports(
         outcomes.append(ReportScoringOutcome(report_id=report_id, score=score, reason=None))
 
     if persist:
-        persist_scores(team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score])
+        persist_scores(
+            team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score], capture=capture
+        )
     return outcomes

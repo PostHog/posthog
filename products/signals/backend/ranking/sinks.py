@@ -6,10 +6,11 @@ every other ranking event.
 """
 
 from collections.abc import Sequence
+from contextlib import nullcontext
 
 from django.conf import settings
 
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ScopedCapture, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import RankingScore
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportArtefact
@@ -18,10 +19,14 @@ REPORT_SCORED_EVENT = "inbox_ranking_report_scored"
 DISTINCT_ID = "inbox_ranking_scoring"
 
 
-def persist_scores(team_id: int, scores: Sequence[tuple[str, RankingScore]]) -> int:
+def persist_scores(
+    team_id: int, scores: Sequence[tuple[str, RankingScore]], *, capture: ScopedCapture | None = None
+) -> int:
     """Write one artefact per `(report_id, score)` of the team, then capture its events.
 
-    A report id that is not one of the team's reports is dropped. Returns the rows written.
+    A report id that is not one of the team's reports is dropped. Returns the rows written. Without
+    `capture`, the call opens its own scope, which blocks on a flush when it closes. A caller that
+    persists many teams passes one `capture` for all of them, so it pays that flush once.
     """
     report_ids = [report_id for report_id, _ in scores]
     owned = {
@@ -41,10 +46,10 @@ def persist_scores(team_id: int, scores: Sequence[tuple[str, RankingScore]]) -> 
             for report_id, score in kept
         ]
     )
-    with ph_scoped_capture() as capture:
+    with ph_scoped_capture() if capture is None else nullcontext(capture) as active_capture:
         for report_id, score in kept:
             for model_key, result in score.results.items():
-                capture(
+                active_capture(
                     distinct_id=DISTINCT_ID,
                     event=REPORT_SCORED_EVENT,
                     properties={

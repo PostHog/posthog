@@ -27,6 +27,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -235,21 +236,24 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         ids_by_team[candidate.team_id].append(candidate.report_id)
 
     scored = no_vector = failed_teams = deferred_teams = 0
-    for team_id, report_ids in ids_by_team.items():
-        if time.monotonic() >= deadline:
-            deferred_teams += 1
-            continue
-        try:
-            outcomes = scorer.score_reports(team_id, report_ids, persist=True, now=now)
-        except (scorer.ScoringError, ModelLoadError):
-            # A pass without a served score is worse than no pass.
-            raise
-        except Exception:
-            logger.exception("inbox_ranking_sweep_team_failed", team_id=team_id)
-            failed_teams += 1
-            continue
-        scored += sum(1 for outcome in outcomes if outcome.score is not None)
-        no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
+    with ph_scoped_capture() as capture:
+        for team_id, report_ids in ids_by_team.items():
+            if time.monotonic() >= deadline:
+                deferred_teams += 1
+                continue
+            try:
+                outcomes = scorer.score_reports(
+                    team_id, report_ids, persist=True, now=now, serving=serving, capture=capture
+                )
+            except (scorer.ScoringError, ModelLoadError):
+                # A pass without a served score is worse than no pass.
+                raise
+            except Exception:
+                logger.exception("inbox_ranking_sweep_team_failed", team_id=team_id)
+                failed_teams += 1
+                continue
+            scored += sum(1 for outcome in outcomes if outcome.score is not None)
+            no_vector += sum(1 for outcome in outcomes if outcome.reason == scorer.NO_VECTOR)
 
     result = ScoreInboxReportsResult(
         candidates=len(candidates),
