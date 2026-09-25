@@ -455,13 +455,49 @@ jobs:
                   fi
                   echo "$IMAGE:master -> $master_digest"
 
+    sandbox_derived_build:
+        needs: [changes, sandbox_base_build]
+        name: Build and push the derived sandbox images
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .dockerignore
+                      products/tasks/backend/sandbox/images
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
             - parallel:
                   - name: Build and push container image (pi)
                     id: build-pi
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
@@ -475,7 +511,7 @@ jobs:
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
@@ -489,7 +525,7 @@ jobs:
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
                         project: vpl2362h0x # tasks-sandbox-images
-                        context: . # use local checkout (includes downloaded artifact)
+                        context: . # use local checkout
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
                         buildx-fallback: false # the fallback is so slow it's better to just fail
                         push: true
@@ -631,7 +667,7 @@ jobs:
     # paths, and a required check that never reports blocks merging forever.
     # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
-        needs: [changes, build_skills, sandbox_base_build]
+        needs: [changes, build_skills, sandbox_base_build, sandbox_derived_build]
         name: Sandbox Base Image Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -659,6 +695,11 @@ jobs:
 
                   if [[ "${{ needs.sandbox_base_build.result }}" != "success" && "${{ needs.sandbox_base_build.result }}" != "skipped" ]]; then
                     echo "Sandbox base image build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.sandbox_derived_build.result }}" != "success" && "${{ needs.sandbox_derived_build.result }}" != "skipped" ]]; then
+                    echo "Derived sandbox image build failed."
                     exit 1
                   fi
 
