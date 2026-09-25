@@ -1,8 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { FileSystemShortcutApi } from '~/generated/core/api.schemas'
@@ -281,10 +285,44 @@ describe('navProductsTabLogic', () => {
         }).toDispatchActions(['saveAppStarsSuccess'])
         expect(createdPaths).toEqual(['Web analytics', 'SQL editor'])
         expect(navProductsTabLogic.values.selectAllMatchingAppsDisabledReason).toBe('All matching apps are selected')
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        expect(navProductsTabLogic.values.appRecommendationsEnabled).toBe(false)
+        expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(allApps)
+        expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
         navProductsTabLogic.actions.setAppRecommendationQuery('')
         expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(allApps)
         expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
     })
+
+    it.each(['not approved', 'not loaded', 'revoked during debounce'])(
+        'does not send app recommendations without consent, including debug mode: %s',
+        async (consent) => {
+            const decide = jest.fn(() => [503, { detail: 'Unavailable' }])
+            useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: true })
+            await expectLogic(navProductsTabLogic, () => {
+                if (consent === 'revoked during debounce') {
+                    navProductsTabLogic.actions.setAppRecommendationQuery('Debug errors')
+                }
+                organizationLogic.actions.loadCurrentOrganizationSuccess(
+                    consent === 'not loaded'
+                        ? null
+                        : { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false }
+                )
+                if (consent !== 'revoked during debounce') {
+                    navProductsTabLogic.actions.setAppRecommendationQuery('Debug errors')
+                }
+            }).toFinishAllListeners()
+            expect(decide).not.toHaveBeenCalled()
+            expect(navProductsTabLogic.values.appRecommendationsEnabled).toBe(false)
+            expect(navProductsTabLogic.values.appMatchGroups).toBeNull()
+            expect(navProductsTabLogic.values.rankedConfigurableApps).toEqual(navProductsTabLogic.values.configurableProducts)
+        }
+    )
 
     it('leaves every app available when ranking fails and does not call Jev without enrollment', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: false })

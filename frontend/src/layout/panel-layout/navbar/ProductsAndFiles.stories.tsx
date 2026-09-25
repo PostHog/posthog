@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { within, waitFor } from '@testing-library/dom'
@@ -7,6 +7,7 @@ import { useActions, useMountedLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -190,6 +191,25 @@ export const ConfigureStarred: Story = {
         const body = within(canvasElement.ownerDocument.body)
         await userEvent.click(await canvas.findByLabelText('Starred options'))
         await userEvent.click(await body.findByText('Configure starred', { exact: true }))
+    },
+}
+export const ConfigureStarredWithoutAIConsent: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': [
+                    200,
+                    { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+                ],
+            },
+        }),
+    ],
+    play: async (context) => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        await ConfigureStarred.play!(context)
     },
 }
 export const ConfigureStarredRanked: Story = {
