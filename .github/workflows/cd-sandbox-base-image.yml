@@ -422,15 +422,19 @@ jobs:
                   IMAGE: ghcr.io/posthog/posthog-sandbox-base@${{ steps.build.outputs.digest }}
               run: |
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  manifest=$(docker manifest inspect "$IMAGE")
                   for platform in linux/amd64 linux/arm64; do
                     echo "::group::$platform"
-                    installed=$(docker run --rm --platform "$platform" "$IMAGE" \
+                    digest=$(jq -er --arg platform "$platform" '.manifests[] |
+                      select((.platform.os + "/" + .platform.architecture) == $platform) | .digest' <<< "$manifest")
+                    platform_image="${IMAGE%@*}@$digest"
+                    installed=$(docker run --rm --platform "$platform" "$platform_image" \
                       node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
                     if [ "$installed" != "$pinned" ]; then
                       echo "::error::$platform image has @posthog/agent $installed, Dockerfile pins $pinned"
                       exit 1
                     fi
-                    docker run --rm --platform "$platform" "$IMAGE" \
+                    docker run --rm --platform "$platform" "$platform_image" \
                       /scripts/node_modules/.bin/agent-server --help >/dev/null
                     echo "@posthog/agent $installed starts on $platform"
                     echo "::endgroup::"
