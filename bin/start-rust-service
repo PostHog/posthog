@@ -52,7 +52,7 @@ case "$RS_SVC" in
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3307 # avoid port conflict in local dev
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST="$DEFAULT_KAFKA"
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     export CAPTURE_MODE=events
@@ -76,7 +76,7 @@ case "$RS_SVC" in
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3306 # avoid port conflict in local dev
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST="$DEFAULT_KAFKA"
     export KAFKA_TOPIC=session_recording_snapshot_item_events
     export KAFKA_OVERFLOW_TOPIC=session_recording_snapshot_item_overflow
     export REDIS_URL="$DEFAULT_REDIS"
@@ -92,7 +92,7 @@ case "$RS_SVC" in
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST="$DEFAULT_KAFKA"
     export KAFKA_TOPIC=events_plugin_ingestion_ai
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
