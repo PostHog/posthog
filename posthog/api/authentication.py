@@ -53,7 +53,7 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_user_logged_in, report_user_login_failed, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -334,6 +334,7 @@ class LoginSerializer(serializers.Serializer):
         # Check SSO enforcement (which happens at the domain level)
         sso_enforcement = sso_enforcement_for_login_address(validated_data["email"], existing_user)
         if sso_enforcement:
+            report_user_login_failed("sso_enforced", existing_user, social_provider=sso_enforcement)
             raise serializers.ValidationError(
                 f"You can only login with SSO for this account ({sso_enforcement}).",
                 code="sso_enforced",
@@ -362,6 +363,7 @@ class LoginSerializer(serializers.Serializer):
 
         # Check if axes has locked out this IP/user before attempting authentication
         if handler.is_locked(axes_request, credentials=axes_credentials):
+            report_user_login_failed("account_locked", existing_user)
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
@@ -377,8 +379,10 @@ class LoginSerializer(serializers.Serializer):
             # Axes tracks failed attempts via authentication signals. If this failure triggered a
             # lockout, surface the lockout response instead of the generic credential error.
             if handler.is_locked(axes_request, credentials=axes_credentials):
+                report_user_login_failed("account_locked", existing_user)
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
+            report_user_login_failed("invalid_credentials", existing_user)
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         try:
@@ -393,10 +397,12 @@ class LoginSerializer(serializers.Serializer):
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to
             # the code entry page.
+            report_user_login_failed("email_verification_pending", user)
             raise EmailVerificationPending(str(user.uuid))
 
         # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
         if not resolve_login_organization(user):
+            report_user_login_failed("verified_domain_required", user)
             raise serializers.ValidationError(
                 VERIFIED_DOMAIN_REQUIRED_ERROR,
                 code="verified_domain_required",

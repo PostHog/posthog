@@ -50,6 +50,7 @@ from posthog.auth import (
     _extract_phs_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.event_usage import LOGIN_FAILED_UNIDENTIFIED_DISTINCT_ID
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -418,7 +419,8 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
-    def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self):
+    @patch("posthoganalytics.capture")
+    def test_login_refused_for_blocked_member_when_org_requires_verified_domain(self, mock_capture):
         # A blocked member has no recovery action a session would enable, so they get a clear
         # refusal instead of a fully gated app.
         self.user.is_email_verified = True
@@ -433,6 +435,17 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "verified_domain_required")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={
+                "failure_reason": "verified_domain_required",
+                "social_provider": "",
+                "user_identified": True,
+            },
+            groups=ANY,
+        )
 
     def test_blocked_admin_can_log_in_gated_and_recover_via_the_escape_hatch(self):
         # The full recovery loop: a blocked admin whose session expired logs back in (gated to the
@@ -655,8 +668,21 @@ class TestLoginAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={
+                "failure_reason": "invalid_credentials",
+                "social_provider": "",
+                "user_identified": True,
+            },
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+        self.assertEqual(mock_capture.call_count, len(invalid_passwords))
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_email(self, mock_capture):
@@ -672,8 +698,19 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("email", response.json())
 
-        # Events never get reported
-        mock_capture.assert_not_called()
+        # An address that reaches no account is never attributed to a person, and never carries the
+        # address itself into the event stream.
+        mock_capture.assert_called_once_with(
+            distinct_id=LOGIN_FAILED_UNIDENTIFIED_DISTINCT_ID,
+            event="user login failed",
+            properties={
+                "failure_reason": "invalid_credentials",
+                "social_provider": "",
+                "user_identified": False,
+                "$process_person_profile": False,
+            },
+            groups={"instance": ANY},
+        )
 
     def test_cant_login_without_required_attributes(self):
         required_attributes = ["email", "password"]
@@ -698,8 +735,9 @@ class TestLoginAPI(APIBaseTest):
             response = self.client.get("/api/users/@me/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_login_endpoint_is_protected_against_brute_force_attempts(self):
-        User.objects.create(email="new_user@posthog.com", password="87654321")
+    @patch("posthoganalytics.capture")
+    def test_login_endpoint_is_protected_against_brute_force_attempts(self, mock_capture):
+        locked_out_user = User.objects.create_user(email="new_user@posthog.com", password="87654321", first_name="New")
 
         # Fill the attempt limit
         with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
@@ -725,6 +763,17 @@ class TestLoginAPI(APIBaseTest):
                     "detail": "Too many failed login attempts. Please try again in 10 minutes.",
                     "attr": None,
                 },
+            )
+
+            mock_capture.assert_any_call(
+                distinct_id=locked_out_user.distinct_id,
+                event="user login failed",
+                properties={
+                    "failure_reason": "account_locked",
+                    "social_provider": "",
+                    "user_identified": True,
+                },
+                groups=ANY,
             )
 
     def test_login_lockout_is_ip_based(self):
@@ -1874,7 +1923,21 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        mock_capture.assert_any_call(
+            distinct_id=self.user.distinct_id,
+            event="user login failed",
+            properties={
+                "failure_reason": "invalid_credentials",
+                "social_provider": "",
+                "user_identified": True,
+            },
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
