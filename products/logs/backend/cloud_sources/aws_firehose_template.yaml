@@ -65,6 +65,30 @@ Resources:
                     - Id: ExpireFailedDeliveries
                       Status: Enabled
                       ExpirationInDays: 14
+                      # Firehose writes via multipart upload; an aborted part is invisible to the
+                      # expiry rule above and bills until it is removed.
+                      AbortIncompleteMultipartUpload:
+                          DaysAfterInitiation: 7
+
+    # Without this a bucket PostHog's template created fails the customer's own
+    # s3-bucket-ssl-requests-only check in Security Hub and Config.
+    BackupBucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref BackupBucket
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Sid: DenyInsecureTransport
+                      Effect: Deny
+                      Principal: '*'
+                      Action: s3:*
+                      Resource:
+                          - !GetAtt BackupBucket.Arn
+                          - !Sub '${BackupBucket.Arn}/*'
+                      Condition:
+                          Bool:
+                              aws:SecureTransport: false
 
     FirehoseRole:
         Type: AWS::IAM::Role
@@ -88,7 +112,6 @@ Resources:
                             Action:
                                 - s3:AbortMultipartUpload
                                 - s3:GetBucketLocation
-                                - s3:GetObject
                                 - s3:ListBucket
                                 - s3:ListBucketMultipartUploads
                                 - s3:PutObject
@@ -100,6 +123,8 @@ Resources:
         Type: AWS::KinesisFirehose::DeliveryStream
         Properties:
             DeliveryStreamType: DirectPut
+            DeliveryStreamEncryptionConfigurationInput:
+                KeyType: AWS_OWNED_CMK
             HttpEndpointDestinationConfiguration:
                 EndpointConfiguration:
                     Name: PostHog

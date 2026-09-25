@@ -214,17 +214,13 @@ class LogsSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "buffering_interval_seconds": FIREHOSE_BUFFER_INTERVAL_SECONDS,
             "retry_duration_seconds": FIREHOSE_RETRY_DURATION_SECONDS,
             "content_encoding": "GZIP",
-            "quick_create_url": (
-                quick_create_url(
-                    region=region,
-                    template_url=settings.LOGS_CLOUD_SOURCES_TEMPLATE_URL,
-                    endpoint_url=endpoint_url,
-                    access_key=self.team.api_token,
-                    source_name=source.name,
-                    source_id=str(source.id),
-                )
-                if settings.LOGS_CLOUD_SOURCES_TEMPLATE_URL
-                else None
+            "quick_create_url": quick_create_url(
+                region=region,
+                template_url=settings.LOGS_CLOUD_SOURCES_TEMPLATE_URL,
+                endpoint_url=endpoint_url,
+                access_key=self.team.api_token,
+                source_name=source.name,
+                source_id=str(source.id),
             ),
         }
         return Response(LogsSourceSetupSerializer(data).data)

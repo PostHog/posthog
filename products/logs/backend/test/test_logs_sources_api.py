@@ -14,7 +14,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 
 from products.logs.backend.cloud_sources.aws_firehose import (
+    FIREHOSE_BUFFER_INTERVAL_SECONDS,
+    FIREHOSE_BUFFER_SIZE_MB,
     FIREHOSE_ENDPOINT_PATH,
+    FIREHOSE_RETRY_DURATION_SECONDS,
     LOG_GROUP_PLACEHOLDER,
     TEMPLATE_PATH,
     quick_create_url,
@@ -187,32 +190,49 @@ class TestLogsSourcesAPI(APIBaseTest):
         mock_execute.assert_not_called()
 
 
+def _link(**overrides: str) -> str | None:
+    return quick_create_url(
+        **{
+            "region": "us-east-1",
+            "template_url": "https://templates.example.com/firehose.yaml",
+            "endpoint_url": "https://us.i.posthog.com/i/v1/logs/aws/firehose/abc",
+            "access_key": "phc_test",
+            "source_name": "prod",
+            "source_id": "6f1a2b3c-0000-4000-8000-000000000001",
+            **overrides,
+        }
+    )
+
+
+def _template() -> dict:
+    # CloudFormation short-form tags (!Ref, !GetAtt) are not plain YAML, so keep them as opaque nodes.
+    class CfnLoader(yaml.SafeLoader):
+        pass
+
+    CfnLoader.add_multi_constructor("!", lambda _loader, _suffix, node: node.value)
+    return yaml.load(TEMPLATE_PATH.read_text(), Loader=CfnLoader)
+
+
 class TestAwsFirehoseTemplate(SimpleTestCase):
     def test_quick_create_link_fills_parameters_the_template_declares(self) -> None:
-        # CloudFormation short-form tags (!Ref, !GetAtt) are not plain YAML, so keep them as opaque nodes.
-        class CfnLoader(yaml.SafeLoader):
-            pass
-
-        CfnLoader.add_multi_constructor("!", lambda _loader, _suffix, node: node.value)
-        template = yaml.load(TEMPLATE_PATH.read_text(), Loader=CfnLoader)
-
-        link = quick_create_url(
-            region="us-east-1",
-            template_url="https://templates.example.com/firehose.yaml",
-            endpoint_url="https://us.i.posthog.com/i/v1/logs/aws/firehose/abc",
-            access_key="phc_test",
-            source_name="prod",
-            source_id="6f1a2b3c-0000-4000-8000-000000000001",
-        )
+        link = _link()
         assert link is not None
         query = parse_qs(urlsplit(link).fragment.split("?", 1)[1])
         filled = {key.removeprefix("param_") for key in query if key.startswith("param_")}
-        assert filled <= set(template["Parameters"])
-        assert template["Parameters"]["PostHogAccessKey"]["NoEcho"] is True
-        # The link stays deliberately incomplete, so it reads as a helper rather than a one-click
-        # provisioning action. The placeholder must also survive encoding to stay readable.
+        assert filled <= set(_template()["Parameters"])
+        # The placeholder must survive encoding, or the link reads as a one-click provisioning
+        # action rather than a value to finish filling in.
         assert query["param_LogGroupName"] == [LOG_GROUP_PLACEHOLDER]
         assert LOG_GROUP_PLACEHOLDER in link
+
+    def test_template_secrets_are_masked_and_buffering_defaults_match_the_api(self) -> None:
+        parameters = _template()["Parameters"]
+        assert parameters["PostHogAccessKey"]["NoEcho"] is True
+        # A customer who launches the template straight from its URL gets these defaults, so they
+        # have to agree with what the setup endpoint tells everyone else to use.
+        assert parameters["BufferSizeMB"]["Default"] == FIREHOSE_BUFFER_SIZE_MB
+        assert parameters["BufferIntervalSeconds"]["Default"] == FIREHOSE_BUFFER_INTERVAL_SECONDS
+        assert parameters["RetryDurationSeconds"]["Default"] == FIREHOSE_RETRY_DURATION_SECONDS
 
     @parameterized.expand(
         [
@@ -226,14 +246,7 @@ class TestAwsFirehoseTemplate(SimpleTestCase):
     def test_quick_create_link_targets_the_region_partition(
         self, _name: str, region: str, expected_prefix: str | None
     ) -> None:
-        link = quick_create_url(
-            region=region,
-            template_url="https://templates.example.com/firehose.yaml",
-            endpoint_url="https://eu.i.posthog.com/i/v1/logs/aws/firehose/abc",
-            access_key="phc_test",
-            source_name="prod",
-            source_id="6f1a2b3c-0000-4000-8000-000000000001",
-        )
+        link = _link(region=region)
         if expected_prefix is None:
             assert link is None
         else:

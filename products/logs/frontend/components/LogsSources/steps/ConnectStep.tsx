@@ -65,18 +65,17 @@ export function ConnectStep(): JSX.Element {
             {setup.quick_create_url && (
                 <>
                     <LemonField.Pure
-                        label="CloudFormation template link"
-                        help="Replace the log group placeholder with the log group you want to stream, then open the link to review the stack."
+                        label="CloudFormation quick-create link"
+                        help="Replace the log group placeholder with the log group you want to stream, then open the link to review the stack. Leave the filter pattern empty to forward every line in that log group."
                     >
                         <CodeSnippet language={Language.Text} compact wrap>
                             {setup.quick_create_url}
                         </CodeSnippet>
                     </LemonField.Pure>
-                    <p className="m-0 text-xs text-secondary" data-attr="logs-source-stack-contents">
+                    <p className="m-0 text-xs text-secondary">
                         The stack creates the Firehose stream, an S3 bucket for failed deliveries, the IAM roles, and
                         one subscription filter in your AWS account. Nothing is created until you click Create stack in
-                        the AWS console. An empty filter pattern forwards every line in the log group, so set one if you
-                        only want some of them.
+                        the AWS console.
                     </p>
                 </>
             )}
