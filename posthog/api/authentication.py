@@ -44,6 +44,7 @@ from rest_framework.views import APIView
 from social_core.backends.base import BaseAuth
 from social_core.backends.github import GithubOAuth2
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
 from two_factor.utils import default_device
@@ -1351,7 +1352,7 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
     return request
 
 
-def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: Any) -> bool:
+def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: BaseAuth) -> bool:
     request = strategy.request
     return (
         bool(request)
@@ -1410,7 +1411,7 @@ def social_email_verified_by_provider(
     backend: BaseAuth,
     details: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
-    social: Any = None,
+    social: UserSocialAuth | None = None,
     **kwargs: Any,
 ) -> None:
     # A linked identity resolves by its provider uid, and a signed-in account connect is keyed to the
