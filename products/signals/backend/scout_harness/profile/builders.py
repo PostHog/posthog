@@ -30,8 +30,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, Q, TextField
-from django.db.models.functions import Cast
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -85,9 +84,8 @@ INVENTORY_SOURCE_VERSION = "v15"
 PRODUCT_ANALYTICS_KEY = "product_analytics"
 
 # The saved-insight kinds that mark real product-analytics use: the behavioral flows the
-# product-analytics scout scores. Matched against the current `query` JSON (cast to text, so a
-# nested `source.kind` matches the way the scout's own `query::text ILIKE` search does) and, for
-# rows that never got a `query`, against the legacy `filters.insight` type.
+# product-analytics scout scores. Matched against the current `query` JSON and, for rows that
+# never got a `query`, against the legacy `filters.insight` type.
 _BEHAVIORAL_QUERY_KINDS = ("FunnelsQuery", "RetentionQuery", "LifecycleQuery", "StickinessQuery", "PathsQuery")
 _LEGACY_BEHAVIORAL_INSIGHT_TYPES = ("FUNNELS", "RETENTION", "LIFECYCLE", "STICKINESS", "PATHS")
 
@@ -227,14 +225,15 @@ def _has_saved_behavioral_insight(team: Team) -> bool:
     - The legacy `filters.insight` type only counts on a row with no `query`. The filters-to-query
       backfill left `filters` in place, and changing an insight's type rewrites `query` alone, so a
       trends chart can carry a stale funnel type forever.
+
+    The kind is read from the two positions a saved insight puts it in, never matched against the
+    serialized `query` text: a SQL insight that reports on PostHog itself names these kinds in its
+    own HogQL, and a text match reads that as a flow to score.
     """
-    kind_match = Q()
-    for kind in _BEHAVIORAL_QUERY_KINDS:
-        kind_match |= Q(query_text__icontains=kind)
+    kind_match = Q(query__kind__in=_BEHAVIORAL_QUERY_KINDS) | Q(query__source__kind__in=_BEHAVIORAL_QUERY_KINDS)
     return (
         Insight.objects.filter(team=team, deleted=False)
         .filter(Q(saved=True) | insight_has_listed_tile())
-        .annotate(query_text=Cast("query", output_field=TextField()))
         .filter(kind_match | Q(query__isnull=True, filters__insight__in=_LEGACY_BEHAVIORAL_INSIGHT_TYPES))
         .exists()
     )

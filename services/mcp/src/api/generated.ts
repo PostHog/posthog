@@ -76813,7 +76813,7 @@ export namespace Schemas {
     export interface ProjectProfileInventory {
       /** Free-form orientation: human-set product description + registered app URLs. */
       project_context: ProjectContext;
-      /** Product keys this team uses, sorted alphabetically: the products it completed onboarding for, plus `product_analytics` when the team keeps a saved behavioral insight (funnel, retention, lifecycle, stickiness, or paths) but never finished onboarding. */
+      /** Product keys this team uses, sorted alphabetically: the products it completed onboarding for, plus `product_analytics` when the team keeps a behavioral insight (funnel, retention, lifecycle, stickiness, or paths) that is saved or listed on a dashboard, but never finished onboarding. */
       products_in_use: string[];
       /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
       product_intents: ProductIntentEntry[];

@@ -45,7 +45,7 @@ You can't scan a whole project in one run. Your leverage is a **durable watchlis
 Close out early only when **all three** of these hold. If one of them fails, the run continues.
 
 1. `scout-project-profile-get` does not list `product_analytics` in `products_in_use`.
-2. The team has no saved funnel, retention, lifecycle, or stickiness insight. Check this with the `system.insights` search below on every run. The `products_in_use` marker follows onboarding completion first, so a team that saved a funnel but never finished onboarding can lose the marker and still have flows to score.
+2. The team has no saved funnel, retention, lifecycle, stickiness, or paths insight. Check this with the `system.insights` search below on every run. The `products_in_use` marker follows onboarding completion first, so a team that saved a funnel but never finished onboarding can lose the marker and still have flows to score.
 3. `top_events` is too thin to infer even one activation flow (fewer than ~3 discrete business events above ~100/day).
 
 When all three hold, this team has no behavioral flow to score yet. Write one `not-in-use:product_analytics:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
@@ -69,7 +69,7 @@ Cheap reads cold-start every run:
 
 Two sources, highest-confidence first:
 
-1. **Saved behavioral insights (seed first — human-blessed flows).** Find them with `execute-sql` over `system.insights`: `query::text ILIKE '%FunnelsQuery%'` (funnels), `'%RetentionQuery%'` (retention), `'%LifecycleQuery%'` (lifecycle), `'%StickinessQuery%'` (stickiness). For each, read the definition with `insight-get` to learn its steps/events, then add a `watchlist:product_analytics:flow:<short_id>` entry. These are the strongest watch targets — the team already decided the flow matters, and no other scout scores them.
+1. **Saved behavioral insights (seed first — human-blessed flows).** Find them with `execute-sql` over `system.insights`: `WHERE deleted = 0 AND JSONExtractString(JSONExtractRaw(query, 'source'), 'kind') IN ('FunnelsQuery', 'RetentionQuery', 'LifecycleQuery', 'StickinessQuery', 'PathsQuery')`. Read the kind out of the query. Do not text-match the whole row, because a SQL insight that reports on PostHog itself names these kinds in its own HogQL. For each, read the definition with `insight-get` to learn its steps/events, then add a `watchlist:product_analytics:flow:<short_id>` entry. These are the strongest watch targets — the team already decided the flow matters, and no other scout scores them.
 2. **Inferred activation flow (only when the team has few/no saved funnels — cap at ONE).** From `product_intents` (`activated_at` milestones) + the top discrete business events, use `query-paths` to find the dominant signup→activation sequence, then express it as a `query-funnel`. Mark its watchlist entry `inferred: true` and hold it to a **higher** emit bar — you defined the flow, so a human hasn't blessed it. Don't infer more than one; an over-eager inferred funnel is the main noise risk for this scout.
 
 ### Exploit — re-score the due flows
@@ -136,7 +136,7 @@ Direct (read-only):
 - `query-paths` — infer the dominant activation sequence when seeding an inferred flow.
 - `query-trends` — sanity-check the entrant denominator volume behind a rate.
 - `insight-get` — read a saved flow's steps/events/filters before scoring.
-- `insights-list` / `execute-sql` over `system.insights` — find saved funnel/retention/ lifecycle/stickiness insights (`query::text ILIKE '%FunnelsQuery%'` etc.) and their recency.
+- `insights-list` / `execute-sql` over `system.insights` — find saved funnel / retention / lifecycle / stickiness / paths insights (match on `source.kind`, see the watchlist section) and their recency.
 - `read-data-schema` — confirm events/properties before any SQL or inferred funnel.
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.

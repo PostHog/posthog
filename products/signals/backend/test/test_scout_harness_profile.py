@@ -137,7 +137,15 @@ class TestProductsInUse(BaseTest):
         [
             ("funnel_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}}),
             ("retention_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "RetentionQuery"}}}),
+            ("lifecycle_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "LifecycleQuery"}}}),
+            ("stickiness_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "StickinessQuery"}}}),
+            ("paths_query", {"query": {"kind": "InsightVizNode", "source": {"kind": "PathsQuery"}}}),
+            ("unwrapped_query", {"query": {"kind": "FunnelsQuery"}}),
             ("legacy_filters_funnel", {"filters": {"insight": "FUNNELS"}}),
+            ("legacy_filters_retention", {"filters": {"insight": "RETENTION"}}),
+            ("legacy_filters_lifecycle", {"filters": {"insight": "LIFECYCLE"}}),
+            ("legacy_filters_stickiness", {"filters": {"insight": "STICKINESS"}}),
+            ("legacy_filters_paths", {"filters": {"insight": "PATHS"}}),
         ]
     )
     def test_credits_product_analytics_from_saved_behavioral_insight(self, _name: str, insight_kwargs: dict) -> None:
@@ -169,6 +177,18 @@ class TestProductsInUse(BaseTest):
                 {
                     "filters": {"insight": "FUNNELS"},
                     "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                },
+            ),
+            (
+                "sql_insight_naming_a_kind_in_its_own_hogql",
+                {
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {
+                            "kind": "HogQLQuery",
+                            "query": "SELECT count() FROM events WHERE properties.query_type = 'FunnelsQuery'",
+                        },
+                    }
                 },
             ),
         ]
