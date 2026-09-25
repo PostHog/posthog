@@ -1220,6 +1220,33 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_full_refresh_interval(self, _mock_workflow_exists):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["full_refresh_interval_days"] == 7
+        schema.refresh_from_db()
+        assert schema.full_refresh_interval_days == 7
+        assert schema.next_full_refresh_at is not None
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
         return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
@@ -3105,6 +3132,8 @@ class TestExternalDataSource(APIBaseTest):
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
+                    "full_refresh_interval_days": None,
+                    "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
