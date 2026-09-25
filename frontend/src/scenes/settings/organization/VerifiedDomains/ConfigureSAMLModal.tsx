@@ -51,37 +51,45 @@ export function ConfigureSAMLModal(): JSX.Element {
                                     Read the docs
                                 </Link>
                             </p>
-                            <LemonField label="ACS Consumer URL" name="_ACSConsumerUrl">
+                            <LemonField
+                                label="PostHog ACS consumer URL"
+                                name="_ACSConsumerUrl"
+                                help="Copy this into your identity provider. Do not enter it in the fields below."
+                            >
                                 <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
                             </LemonField>
-                            <LemonField label="RelayState" name="_RelayState">
+                            <LemonField label="Relay state" name="_RelayState">
                                 <CopyToClipboardInline>
                                     {samlConfig.saml_relay_state || 'unknown'}
                                 </CopyToClipboardInline>
                             </LemonField>
-                            <LemonField label="Audience / Entity ID" name="_Audience">
+                            <LemonField label="Audience / entity ID" name="_Audience">
                                 <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>
                             </LemonField>
-                            <LemonField name="saml_acs_url" label="SAML ACS URL">
+                            <LemonField
+                                name="saml_acs_url"
+                                label="Identity provider sign-on URL"
+                                help="The URL PostHog sends people to when they sign in. Okta calls it the sign-on URL, Microsoft Entra ID calls it the login URL."
+                            >
+                                <LemonInput className="ph-ignore-input" placeholder="https://idp.example.com/sso" />
+                            </LemonField>
+                            <LemonField name="saml_entity_id" label="SAML entity ID">
                                 <LemonInput
                                     className="ph-ignore-input"
-                                    placeholder="Your IdP's ACS or single sign-on URL."
+                                    placeholder="Entity ID provided by your identity provider"
                                 />
                             </LemonField>
-                            <LemonField name="saml_entity_id" label="SAML Entity ID">
-                                <LemonInput className="ph-ignore-input" placeholder="Entity ID provided by your IdP." />
-                            </LemonField>
-                            <LemonField name="saml_x509_cert" label="SAML X.509 Certificate">
+                            <LemonField name="saml_x509_cert" label="SAML X.509 certificate">
                                 <LemonTextArea
                                     className="ph-ignore-input"
                                     minRows={10}
-                                    placeholder={`Enter the public certificate of your IdP. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
+                                    placeholder={`Enter the public certificate from your identity provider. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
                                 />
                             </LemonField>
                             {!samlReady && (
                                 <LemonBanner type="info">
-                                    SAML will not be enabled unless you enter all attributes above. However you can
-                                    still settings as draft.
+                                    SAML remains disabled until you enter the sign-on URL, entity ID, and X.509
+                                    certificate. You can save a partial configuration.
                                 </LemonBanner>
                             )}
                         </>

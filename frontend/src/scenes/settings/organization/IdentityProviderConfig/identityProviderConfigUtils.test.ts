@@ -131,7 +131,7 @@ describe('identityProviderConfigUtils', () => {
             [],
             {
                 text: 'Add ',
-                emphasizedText: 'SAML ACS URL and SAML X.509 certificate',
+                emphasizedText: 'identity provider sign-on URL and SAML X.509 certificate',
                 trailingText: ' to finish the configuration.',
             },
         ],

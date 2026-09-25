@@ -1,6 +1,7 @@
 from typing import Any, cast
 from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -162,7 +163,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
                 "required": False,
                 "allow_null": True,
                 "allow_blank": True,
-                "help_text": "SAML single sign-on (ACS) URL the IdP redirects to.",
+                "help_text": (
+                    "Sign-on URL of the identity provider, where PostHog sends the authentication request. "
+                    "This is not PostHog's own ACS consumer URL."
+                ),
             },
             "saml_x509_cert": {
                 "required": False,
@@ -211,6 +215,21 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
         return self._validate_id_jag_url(value)
+
+    def validate_saml_acs_url(self, value: str | None) -> str | None:
+        if not value or not value.strip():
+            return value
+        normalized = value.strip()
+        # An IdP sign-on URL is never hosted by PostHog, so a PostHog host means the admin pasted
+        # the ACS consumer URL shown above the field. Accepting it locks the organization out of login.
+        entered = urlsplit(normalized if "//" in normalized else f"//{normalized}")
+        site = urlsplit(settings.SITE_URL)
+        if entered.netloc and site.netloc and entered.netloc.lower() == site.netloc.lower():
+            raise serializers.ValidationError(
+                "This is a PostHog URL. Enter the sign-on URL from your identity provider instead. "
+                "Okta calls it the sign-on URL, Microsoft Entra ID calls it the login URL."
+            )
+        return value
 
     def validate_oidc_issuer_url(self, value: str) -> str:
         normalized = value.strip()

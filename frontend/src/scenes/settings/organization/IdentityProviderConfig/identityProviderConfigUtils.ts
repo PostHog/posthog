@@ -125,7 +125,7 @@ export function getIdentityProviderConfigStatusDescription(
 ): IdentityProviderConfigStatusDescription {
     if (status === 'partially_configured' && configScope === ConfigScopeEnumApi.Saml) {
         const missingFields = [
-            !config?.saml_acs_url ? 'SAML ACS URL' : null,
+            !config?.saml_acs_url ? 'identity provider sign-on URL' : null,
             !config?.saml_entity_id ? 'SAML entity ID' : null,
             !config?.saml_x509_cert ? 'SAML X.509 certificate' : null,
         ].filter((field): field is string => field !== null)

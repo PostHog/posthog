@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -227,6 +228,56 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
                 identity_provider_config=config, organization_domain=domain
             ).exists()
         )
+
+    @parameterized.expand(
+        [
+            ("acs_consumer_url", "https://posthog.example.com/complete/saml/"),
+            ("site_root", "https://posthog.example.com"),
+            ("no_scheme", "posthog.example.com/complete/saml/"),
+            ("mixed_case_host", "https://PostHog.Example.com/complete/saml/"),
+        ]
+    )
+    def test_cannot_set_posthog_url_as_saml_sign_on_url(self, _name: str, acs_url: str):
+        self._make_admin()
+        with self.settings(SITE_URL="https://posthog.example.com"):
+            response = self.client.post(
+                "/api/organizations/@current/identity_provider_configs/",
+                {
+                    "config_scope": "saml",
+                    "domain_scope": "all",
+                    "saml_entity_id": "entity",
+                    "saml_acs_url": acs_url,
+                },
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "saml_acs_url")
+        self.assertFalse(IdentityProviderConfig.objects.filter(organization=self.organization).exists())
+
+    def test_can_update_saml_sign_on_url_to_identity_provider_url(self):
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="all",
+            saml_entity_id="entity",
+            saml_acs_url="https://idp.example.com/sso",
+            saml_x509_cert="cert",
+        )
+        with self.settings(SITE_URL="https://posthog.example.com"):
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {"saml_acs_url": "https://posthog.example.com/complete/saml/"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "saml_acs_url")
+
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {"saml_acs_url": "https://idp.example.com/app/sso/saml"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        config.refresh_from_db()
+        self.assertEqual(config.saml_acs_url, "https://idp.example.com/app/sso/saml")
 
     def test_cannot_create_saml_config_with_overlapping_domain_coverage(self):
         self._make_admin()

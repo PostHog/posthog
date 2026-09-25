@@ -198,7 +198,9 @@ export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(identityProviderConfigsCreateBodySamlAcsUrlMax)
         .nullish()
-        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+        .describe(
+            "Sign-on URL of the identity provider, where PostHog sends the authentication request. This is not PostHog's own ACS consumer URL."
+        ),
     saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
     scim_enabled: zod
         .boolean()
@@ -302,7 +304,9 @@ export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(identityProviderConfigsUpdateBodySamlAcsUrlMax)
         .nullish()
-        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+        .describe(
+            "Sign-on URL of the identity provider, where PostHog sends the authentication request. This is not PostHog's own ACS consumer URL."
+        ),
     saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
     scim_enabled: zod
         .boolean()
@@ -406,7 +410,9 @@ export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.obje
         .string()
         .max(identityProviderConfigsPartialUpdateBodySamlAcsUrlMax)
         .nullish()
-        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+        .describe(
+            "Sign-on URL of the identity provider, where PostHog sends the authentication request. This is not PostHog's own ACS consumer URL."
+        ),
     saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
     scim_enabled: zod
         .boolean()
