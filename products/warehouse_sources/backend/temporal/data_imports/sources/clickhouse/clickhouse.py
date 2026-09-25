@@ -8,6 +8,7 @@ import threading
 import collections
 from collections.abc import Callable, Generator, Iterator, Sequence
 from contextlib import _GeneratorContextManager, closing
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
@@ -1155,7 +1156,7 @@ def _get_incremental_row_count(
     try:
         result = client.query(
             query,
-            parameters={"last_value": last_value},
+            parameters={"last_value": _last_value_param(last_value, incremental_field_type)},
             settings={"max_execution_time": 30},
         )
     except ClickHouseError as e:
@@ -1312,6 +1313,10 @@ def _project_columns(
     return projected or columns
 
 
+_DATETIME_CURSOR_TYPES = (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp)
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> str:
     """SQL expression binding the `last_value` parameter for the incremental cursor.
 
@@ -1324,7 +1329,26 @@ def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> 
     """
     if incremental_field_type == IncrementalFieldType.Date:
         return "toDate32(%(last_value)s)"
+    if incremental_field_type in _DATETIME_CURSOR_TYPES:
+        return "fromUnixTimestamp64Micro(%(last_value)s)"
     return "%(last_value)s"
+
+
+def _last_value_param(last_value: Any, incremental_field_type: Optional[IncrementalFieldType]) -> Any:
+    """The `last_value` parameter for `_last_value_expr`.
+
+    clickhouse-connect binds a datetime as a whole-second string, which ClickHouse then parses in
+    the column's timezone. Epoch microseconds keep the sub-second part and name one exact instant.
+    A naive cursor is UTC, like the naive Arrow timestamps it came from.
+    """
+    if incremental_field_type not in _DATETIME_CURSOR_TYPES:
+        return last_value
+    if isinstance(last_value, datetime):
+        instant = last_value if last_value.tzinfo is not None else last_value.replace(tzinfo=UTC)
+        return (instant - _UNIX_EPOCH) // timedelta(microseconds=1)
+    if isinstance(last_value, int | float) and not isinstance(last_value, bool):
+        return int(last_value * 1_000_000)
+    return last_value
 
 
 def _build_query(
@@ -1636,7 +1660,7 @@ def clickhouse_source(
                     last_value = db_incremental_field_last_value
                     if last_value is None and incremental_field_type is not None:
                         last_value = incremental_type_to_initial_value(incremental_field_type)
-                    parameters["last_value"] = last_value
+                    parameters["last_value"] = _last_value_param(last_value, incremental_field_type)
 
                 logger.info(f"ClickHouse query: {query}")
 
