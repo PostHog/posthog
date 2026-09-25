@@ -13,7 +13,7 @@ import type { Context } from '@/tools/types'
 
 const PROJECT_SKILL_LIST_PAGE_SIZE = 100
 const PROJECT_SKILL_LIST_LIMIT = 200
-// Matches MAX_SKILL_BODY_BYTES in products/skills/backend/api/skill_serializers.py.
+// Matches MAX_SKILL_BODY_BYTES and MAX_SKILL_FILE_BYTES in products/skills/backend/api/skill_serializers.py.
 const MAX_PROJECT_SKILL_BODY_BYTES = 1_000_000
 
 export interface ProjectSkillList {
@@ -184,7 +184,14 @@ export class ProjectSkillCatalog {
             const file = await this.context.api.request<Schemas.LLMSkillFile>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(name)}/files/${encodeURIComponent(path)}/`,
+                // A character count this large covers every valid UTF-8 file without the API's default paging.
+                query: { body_length: MAX_PROJECT_SKILL_BODY_BYTES },
             })
+            // Loose null check: an API that predates file paging omits the field entirely, and
+            // that response is whole because the same API applies no page cap.
+            if (file.body_next_offset != null) {
+                throw new Error('The API returned an incomplete skill file. Try fetching the file again.')
+            }
             return makeSkillFile(file.path, file.content, file.content_type)
         })
     }

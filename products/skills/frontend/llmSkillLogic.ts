@@ -186,6 +186,10 @@ async function fetchAllFileContents(skillName: string, skill: LLMSkillApi): Prom
         skill.files.map((f) =>
             llmSkillsNameFilesRetrieve(teamId, skillName, f.path, {
                 version: skill.is_latest ? undefined : skill.version,
+                // The API returns an unpaged file in capped pages, and a publish writes back every file
+                // in the form. A file holds at most SKILL_FILE_MAX_BYTES bytes and each character takes
+                // at least one byte, so this length loads the whole file.
+                body_length: SKILL_FILE_MAX_BYTES,
             })
         )
     )

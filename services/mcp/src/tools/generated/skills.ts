@@ -187,6 +187,8 @@ const skillFileGet = (): ToolBase<ReturnType<typeof SkillFileGetSchema>, Schemas
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/${encodeURIComponent(String(params.file_path))}/`,
             query: {
+                body_length: params.body_length,
+                body_offset: params.body_offset,
                 version: params.version,
             },
         })

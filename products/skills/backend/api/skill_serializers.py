@@ -46,13 +46,12 @@ MAX_SKILL_FILE_COUNT = 200
 # Ownership is a short routing list, not an ACL — cap it so a create/update can't resolve membership,
 # clear the owner set, and insert an owner row per entry for an oversized input before being rejected.
 MAX_SKILL_OWNERS = 25
-# skill-get returns the whole body when the caller doesn't page, but a large body is
-# truncated by the MCP transport before it reaches an agent — and an un-paged response
-# reported body_next_offset as null, so the agent had no valid offset to continue from and
-# would treat a cut-off body as complete. get_by_name caps the first page at this length so
-# body_next_offset is always a real continuation offset the caller can page from until it is
-# null, never a guess. Sized to sit under observed transport truncation with room for the
-# response envelope (outline, file manifest, metadata).
+# The MCP transport truncates a large skill body or bundled file before it reaches an agent. A
+# response that returns the whole text has body_next_offset null, so the agent has no valid offset
+# to continue from and treats a cut-off text as complete. When the caller doesn't page, get_by_name
+# and get_file cap the first page at this length, so body_next_offset is always a real continuation
+# offset the caller can page from until it is null, never a guess. Sized to sit under observed
+# transport truncation with room for the response envelope (outline, file manifest, metadata).
 DEFAULT_BODY_PAGE_LENGTH = 8000
 # Tools that opt a scout skill into the report channel. Local copy of
 # products/signals/backend/scout_harness/skill_loader.REPORT_CHANNEL_TOOLS — skills must not
@@ -166,21 +165,26 @@ class LLMSkillBundleQuerySerializer(serializers.Serializer):
 
 
 class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
-    """Fetch-by-name query params plus optional body paging — only the body-returning endpoint uses these."""
+    """Fetch-by-name query params plus optional paging over the returned text.
+
+    Shared by the two endpoints that return a large text field: the skill body and a bundled
+    file's content. The parameter names stay the same on both so a caller pages them the same way.
+    """
 
     body_offset = serializers.IntegerField(
         min_value=0,
         required=False,
-        help_text="Zero-based character offset to start the returned body from. Use with body_length to page through a "
-        "large body that a client would otherwise truncate. Compare the returned body length against body_total_length "
-        "to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).",
+        help_text="Zero-based character offset to start the returned text from. Use with body_length to page through a "
+        "large skill body or bundled file that a client would otherwise truncate. Compare the returned length against "
+        "body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of text).",
     )
     body_length = serializers.IntegerField(
         min_value=1,
         required=False,
-        help_text="Maximum number of characters of the body to return starting at body_offset. Omit to return the "
-        "whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to "
-        "request next.",
+        help_text="Maximum number of characters to return starting at body_offset. A skill body defaults to "
+        f"{DEFAULT_BODY_PAGE_LENGTH} when omitted, so a long body comes back in pages; a bundled file comes back "
+        "whole. When the slice stops before the end, body_next_offset is the offset to request next. Keep requesting "
+        "until body_next_offset is null.",
     )
 
 
@@ -302,9 +306,48 @@ class LLMSkillSpecProblemSerializer(serializers.Serializer):
 
 
 class LLMSkillFileSerializer(serializers.ModelSerializer):
+    """A bundled file's content, paged with the same body_offset/body_length params as the skill body."""
+
+    body_total_length = serializers.SerializerMethodField(
+        help_text="Total length of the full file content in characters, independent of any body_offset/body_length "
+        "paging. Compare against the length of the returned content to detect a truncated response.",
+    )
+    body_next_offset = serializers.SerializerMethodField(
+        help_text="When paging stops before the end of the file content, the character offset to request next "
+        "(pass as body_offset). Null when the returned content reaches the end.",
+    )
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content", "content_type"]
+        # Paging metadata is ordered before `content` so it survives a client that truncates the
+        # tail of a large response — the truncation signal stays readable.
+        fields = ["path", "content_type", "body_total_length", "body_next_offset", "content"]
+
+    def _offset(self) -> int:
+        return self.context.get("body_offset") or 0
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_body_total_length(self, instance: LLMSkillFile) -> int:
+        return len(instance.content or "")
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_body_next_offset(self, instance: LLMSkillFile) -> int | None:
+        body_length = self.context.get("body_length")
+        if body_length is None:
+            return None
+        end = self._offset() + body_length
+        return end if end < len(instance.content or "") else None
+
+    def to_representation(self, instance: LLMSkillFile) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        content = data.get("content")
+        if content is not None:
+            offset = self._offset()
+            body_length = self.context.get("body_length")
+            if offset or body_length is not None:
+                end = None if body_length is None else offset + body_length
+                data["content"] = content[offset:end]
+        return data
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):

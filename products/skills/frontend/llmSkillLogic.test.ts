@@ -36,7 +36,13 @@ const mockResolve = llmSkillsResolveNameRetrieve as jest.MockedFunction<typeof l
 const mockFilesRetrieve = llmSkillsNameFilesRetrieve as jest.MockedFunction<typeof llmSkillsNameFilesRetrieve>
 const mockRename = llmSkillsNameRenameCreate as jest.MockedFunction<typeof llmSkillsNameRenameCreate>
 
-const MOCK_FILE = { path: 'scripts/run.sh', content: 'echo hi', content_type: 'text/x-shellscript' }
+const MOCK_FILE = {
+    path: 'scripts/run.sh',
+    content: 'echo hi',
+    content_type: 'text/x-shellscript',
+    body_total_length: 7,
+    body_next_offset: null,
+}
 
 const MOCK_OWNER = { id: 1, uuid: 'user-uuid-1', email: 'test@example.com' }
 const MOCK_NEW_OWNER = { id: 2, uuid: 'user-uuid-2', email: 'other@example.com' }
@@ -144,6 +150,33 @@ describe('llmSkillLogic', () => {
             expect(mockPartialUpdate.mock.calls[0]?.[2]?.files).toBeUndefined()
             expect(logic.values.isPublishReviewOpen).toBe(false)
             expect(logic.values.mode).toBe(SkillMode.View)
+        })
+
+        it('loads the whole of a long bundled file into the edit form', async () => {
+            // Pages like the API: a request without body_length gets only the first 8000 characters.
+            const longContent = 'x'.repeat(20_000)
+            mockFilesRetrieve.mockImplementation(async (_teamId, _skillName, _filePath, params) => {
+                const offset = params?.body_offset ?? 0
+                const end = offset + (params?.body_length ?? 8000)
+                return {
+                    ...MOCK_FILE,
+                    content: longContent.slice(offset, end),
+                    body_total_length: longContent.length,
+                    body_next_offset: end < longContent.length ? end : null,
+                }
+            })
+            mockResolve.mockResolvedValue(resolveResponse(mockSkill))
+
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillSuccess'])
+
+            logic.actions.setMode(SkillMode.Edit)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.skillForm.files).toEqual([
+                { path: MOCK_FILE.path, content: longContent, content_type: MOCK_FILE.content_type },
+            ])
         })
 
         it('preserves form edits and advances the base version on a publish conflict', async () => {
