@@ -167,6 +167,7 @@ export interface reportListLogicValues {
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
+    scopeReviewerUuid: string | undefined
     staleMetricReportIds: string[]
     totalCount: number | null
 }
@@ -307,6 +308,7 @@ export interface reportListLogicMeta {
     key: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
         primarySectionKey: (featureFlags: FeatureFlagsSet) => InboxReportSectionKey
+        scopeReviewerUuid: (scope: InboxScope, user: UserType | null) => string | undefined
         listApiParams: (
             searchQuery: string,
             sortField: InboxSortField,
@@ -314,8 +316,7 @@ export interface reportListLogicMeta {
             sourceProductFilter: string[],
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
-            scope: InboxScope,
-            user: UserType | null,
+            scopeReviewerUuid: string | undefined,
             arg: any
         ) => any
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
@@ -517,6 +518,12 @@ export const reportListLogic = kea<reportListLogicType>([
                     ? INBOX_PRIMARY_REPORT_SECTION_KEY
                     : INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
         ],
+        // The PostHog user the reviewer scope narrows the list to. Undefined for Entire project.
+        scopeReviewerUuid: [
+            (s) => [s.scope, s.user],
+            (scope: InboxScope, user: UserType | null): string | undefined =>
+                scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope),
+        ],
         // The section's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
         listApiParams: [
             (s) => [
@@ -526,8 +533,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.sourceProductFilter,
                 s.scoutFilter,
                 s.priorityFilter,
-                s.scope,
-                s.user,
+                s.scopeReviewerUuid,
                 (_, p) => p.listParams,
             ],
             (
@@ -537,12 +543,9 @@ export const reportListLogic = kea<reportListLogicType>([
                 sourceProductFilter: string[],
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
-                scope: InboxScope,
-                user: null | import('~/types').UserType,
+                suggestedReviewer: string | undefined,
                 listParams
             ) => {
-                const suggestedReviewer =
-                    scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: searchQuery.trim() || undefined,
@@ -766,6 +769,14 @@ export const reportListLogic = kea<reportListLogicType>([
         // this section against the server so the report leaves its section and joins Resolved or
         // Dismissed, counts included.
         [inboxBulkActionsLogic.actionTypes.reportStateChanged]: () => actions.refresh(),
+        // A reviewer edit can take a report out of this list's reviewer scope. Drop the row in place
+        // rather than refetch: a refetch reloads only the first page, which loses the scroll position.
+        [inboxBulkActionsLogic.actionTypes.reportReviewersChanged]: ({ reportId, reviewerUuids }) => {
+            const scopeUuid = values.scopeReviewerUuid
+            if (scopeUuid && !reviewerUuids.includes(scopeUuid) && values.reports.some((r) => r.id === reportId)) {
+                actions.removeReport(reportId)
+            }
+        },
     })),
 
     events(({ actions }) => ({

@@ -15,6 +15,7 @@ import {
     SignalReport,
     SignalReportStatus,
 } from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
@@ -188,6 +189,49 @@ describe('reportListLogic', () => {
             expect(logic.values.pageLoadFailed).toBe(false)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
+
+        // A refetch reloads only the first page, so a reviewer edit must drop the row in place or the
+        // reader loses their scroll position in a long list.
+        it.each([
+            {
+                name: 'drops the row once the scoped reviewer is removed',
+                scope: 'teammate:t-1',
+                after: [],
+                dropped: true,
+            },
+            {
+                name: 'keeps the row while the scoped reviewer stays',
+                scope: 'teammate:t-1',
+                after: ['t-1'],
+                dropped: false,
+            },
+            {
+                name: 'keeps the row when no reviewer scope applies',
+                scope: INBOX_SCOPE_ENTIRE_PROJECT,
+                after: [],
+                dropped: false,
+            },
+        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean }[])(
+            '$name',
+            async ({ scope, after, dropped }) => {
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadMore()
+                await expectLogic(logic).toFinishAllListeners()
+                requestedOffsets = []
+
+                bulkLogic.actions.reportReviewersChanged(FIRST_PAGE[3].id, after)
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loadedCount = FIRST_PAGE.length + SECOND_PAGE.length
+                expect(logic.values.reports.map((r) => r.id).includes(FIRST_PAGE[3].id)).toBe(!dropped)
+                expect(logic.values.reports).toHaveLength(dropped ? loadedCount - 1 : loadedCount)
+                expect(requestedOffsets).toEqual([])
+                bulkLogic.unmount()
+            }
+        )
     })
 
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
