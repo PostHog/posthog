@@ -46,17 +46,18 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, buil
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
     @parameterized.expand([("user", False), ("system", True)])
-    def test_unsupported_stored_config_cannot_be_updated(self, _name: str, system: bool) -> None:
+    def test_stored_v2_config_can_only_be_disabled_with_its_row_version(self, _name: str, system: bool) -> None:
         filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
         flag = self._create_flag(filters=filters)
-        original_version = flag.version
+        user = None if system else self.user
         with self.assertRaises(ValidationError) as exc:
-            update_flag(flag, {"active": False}, team=self.team, user=None if system else self.user)
-        assert exc.exception.get_codes() == {"filters": ["unsupported_config_version"]}
+            update_flag(flag, {"active": False}, team=self.team, user=user)
+        assert exc.exception.get_codes() == {"version": "required"}
         flag.refresh_from_db()
-        assert flag.active is True
-        assert flag.filters == filters
-        assert flag.version == original_version
+        assert (flag.active, flag.version) == (True, 1)
+        update_flag(flag, {"version": 1, "active": False}, team=self.team, user=user)
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 2, filters)
 
     def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(

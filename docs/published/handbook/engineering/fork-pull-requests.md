@@ -6,6 +6,8 @@ sidebar: Handbook
 Backend CI runs on one of two engines per pull request, decided by `.github/scripts/ci_backend_route.py`: GitHub Actions or Depot CI.
 Depot CI never runs a fork's code, so the router sends every fork pull request to GitHub Actions.
 The required `Django Tests Pass` check is a GitHub Actions job on every head, fork or not, and nothing about the merge queue changes for a fork.
+For in-repository PRs, an unreadable prior routing decision stops CI instead of switching engines.
+The Depot relay matches the PR event's named wait check and reads only that Depot workflow's verdict; it never starts GitHub tests after a timeout.
 
 What a fork contributor sees:
 

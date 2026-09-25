@@ -6,15 +6,15 @@ specifiers, plus `stable-chunks-manifest.json` with the import map that resolves
 frontend/bin/stableChunkNames.mjs). A chunk's URL then changes only when its own code changes,
 so a deploy no longer makes returning users download every chunk that imports a changed one.
 
-Serving it is opt-in per browser while it is tested: `?stable_chunks=1` sets a cookie and
-`?stable_chunks=0` clears it. Without the cookie, or without a readable manifest, pages render
-exactly as before.
+Which build a request gets is decided by `stable_chunks_choice`. Without a readable manifest,
+pages render exactly as before.
 """
 
 import os
 import json
+from collections.abc import Mapping
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 
 STABLE_CHUNKS_PARAM = "stable_chunks"
 STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
+STABLE_CHUNKS_FLAG = "stable-chunk-names"
 _COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 
@@ -99,27 +100,39 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
     )
 
 
-def stable_chunks_opted_in(request: HttpRequest) -> bool:
+def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
+    """
+    The query param wins, then the cookie, then the flag for a logged-in user. `feature_flags` are
+    the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
+    """
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param is not None:
         return param == "1"
-    return request.COOKIES.get(STABLE_CHUNKS_COOKIE) == "1"
+
+    cookie = request.COOKIES.get(STABLE_CHUNKS_COOKIE)
+    if cookie in ("0", "1"):
+        return cookie == "1"
+
+    if not request.user.is_authenticated or not feature_flags:
+        return False
+
+    return feature_flags.get(STABLE_CHUNKS_FLAG) is True
 
 
-def stable_chunks_for_request(request: HttpRequest) -> Optional[StableChunks]:
-    return _resolve_stable_chunks() if stable_chunks_opted_in(request) else None
+def stable_chunks_for_request(
+    request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]
+) -> Optional[StableChunks]:
+    return _resolve_stable_chunks() if stable_chunks_choice(request, feature_flags) else None
 
 
 def persist_stable_chunks_choice(request: HttpRequest, response: HttpResponse) -> None:
     param = request.GET.get(STABLE_CHUNKS_PARAM)
-    if param == "1":
+    if param in ("0", "1"):
         response.set_cookie(
             STABLE_CHUNKS_COOKIE,
-            "1",
+            param,
             max_age=_COOKIE_MAX_AGE_SECONDS,
             secure=request.is_secure(),
             httponly=True,
             samesite="Lax",
         )
-    elif param == "0":
-        response.delete_cookie(STABLE_CHUNKS_COOKIE)
