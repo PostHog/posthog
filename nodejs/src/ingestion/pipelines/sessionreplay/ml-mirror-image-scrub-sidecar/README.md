@@ -101,9 +101,11 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
    Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
+   The detector does not run when the stored image is four times smaller than the readable face floor (`vacuousDetectors` in `src/floors.ts`), because its cost is fixed by its 640×640 input and an icon would pay the same as a screenshot.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
 6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   The detector does not run when the stored image is four times smaller than the decodable code floor, by the same rule.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -162,6 +164,7 @@ src/  (production — ships)
 dev/  (non-production)
   scrub-eval.ts   OCR + face-redaction eval over downloaded images (npm run eval)
   verify.ts       quick OCR-readability check
+  vacuous-floor.ts  what the face and code detectors find on whole-image icons, and on their stored artifacts (npm run floors:vacuous)
   bench.ts scale.ts worker-proc.ts   latency + throughput benchmarks
   make-corpus.ts  synthetic screenshot corpus
   setup.ts        download ONNX models + sample test images (npm run setup)

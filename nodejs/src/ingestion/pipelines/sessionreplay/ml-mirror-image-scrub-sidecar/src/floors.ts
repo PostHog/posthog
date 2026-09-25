@@ -89,3 +89,37 @@ export function requiredRatio(floor: Floor): number {
 export function bindingRatio(): number {
     return Math.max(...Object.values(FLOORS).map(requiredRatio))
 }
+
+/** The sweep behind FACE_FLOOR and CODE_FLOOR stored a 0.1 MP artifact from a 2.07 MP source, so a size it states in source px is this much smaller in the artifact. */
+const SWEEP_STORED_SCALE = Math.sqrt(0.1 / 2.07)
+
+/** A detector is skipped only when the stored image is this many times smaller than the floor says a readable subject needs, so a floor measured a little low still leaves room. dev/vacuous-floor.ts measured on 2026-09-21: YuNet finds a face on a raw stored artifact from 32 px, zxing decodes a stored QR from 40 px, and the bounds sit at 5 px and 15 px. */
+const SKIP_MARGIN = 4
+
+interface Dims {
+    width: number
+    height: number
+}
+
+export interface VacuousDetectors {
+    face: boolean
+    code: boolean
+}
+
+/**
+ * Detectors whose run cannot change what a person can take out of the stored image, decided from
+ * the planned stored size alone.
+ *
+ * A face is never larger than the short side of the image that holds it, so a stored short side
+ * below the readable floor holds no readable face. A code is never larger than the long side, and
+ * CODE_FLOOR.readableAt is stated in source px of the sweep, so it is converted to artifact px
+ * first. Both bounds carry SKIP_MARGIN. The detector may still find the subject on the frame, where
+ * it is up to bindingRatio times larger, and that is the point: the fill it would draw covers pixels
+ * that carry nothing. Text has no bound, because a readable line fits in a few px of height.
+ */
+export function vacuousDetectors(stored: Dims): VacuousDetectors {
+    return {
+        face: Math.min(stored.width, stored.height) * SKIP_MARGIN < FACE_FLOOR.readableAt,
+        code: Math.max(stored.width, stored.height) * SKIP_MARGIN < CODE_FLOOR.readableAt * SWEEP_STORED_SCALE,
+    }
+}

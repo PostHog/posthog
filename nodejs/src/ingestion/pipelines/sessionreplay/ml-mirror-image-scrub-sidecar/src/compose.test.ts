@@ -15,6 +15,8 @@ function timings(): StageTimings {
         totalMs: 0,
         blanked: false,
         uniform: false,
+        faceVacuous: false,
+        codesVacuous: false,
         faces: 0,
         textBoxes: 0,
         codes: 0,

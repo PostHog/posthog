@@ -138,6 +138,14 @@ const uniformFrameBytes = new Counter({
     help: 'Encoded bytes of those frames: the scrub-topic and bucket volume an upstream blank skip would remove',
     registers: [register],
 })
+// The share of images too small for a detector to find anything is what the skip saves, and a
+// detector that reports vacuous on large images is a sizing bug rather than a saving.
+const vacuousDetector = new Counter({
+    name: 'ml_mirror_image_scrub_vacuous_detector_total',
+    help: 'Detector runs skipped because the image is too small to hold a readable face or a detectable code',
+    labelNames: ['detector'],
+    registers: [register],
+})
 const facesRedacted = new Counter({
     name: 'ml_mirror_image_scrub_faces_redacted_total',
     help: 'Face regions solid-filled (alert on a sustained zero rate under traffic: detector outage)',
@@ -246,9 +254,17 @@ export const ScrubMetrics = {
         if (t.blanked) {
             return
         }
-        stageDuration.labels('face').observe(t.faceMs / 1000)
+        if (t.faceVacuous) {
+            vacuousDetector.labels('face').inc()
+        } else {
+            stageDuration.labels('face').observe(t.faceMs / 1000)
+        }
         stageDuration.labels('text').observe(t.textMs / 1000)
-        stageDuration.labels('codes').observe(t.codesMs / 1000)
+        if (t.codesVacuous) {
+            vacuousDetector.labels('codes').inc()
+        } else {
+            stageDuration.labels('codes').observe(t.codesMs / 1000)
+        }
         stageDuration.labels('compose').observe(t.composeMs / 1000)
         stageDuration.labels('encode').observe(t.encodeMs / 1000)
     },

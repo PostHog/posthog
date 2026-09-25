@@ -13,6 +13,8 @@ function timings(over: Partial<StageTimings> = {}): StageTimings {
         totalMs: 8,
         blanked: false,
         uniform: false,
+        faceVacuous: false,
+        codesVacuous: false,
         faces: 0,
         textBoxes: 0,
         codes: 0,
@@ -47,8 +49,28 @@ async function undecodableReasonLabels(): Promise<string[]> {
     return (metric as { values: { labels: Record<string, string> }[] }).values.map((value) => value.labels.reason)
 }
 
+async function vacuousDetectorCount(detector: string): Promise<number> {
+    const metric = (await register.getMetricsAsJSON()).find(
+        (candidate) => candidate.name === 'ml_mirror_image_scrub_vacuous_detector_total'
+    )
+    const values = (metric as { values: { labels: Record<string, string>; value: number }[] }).values
+    return values.find((value) => value.labels.detector === detector)?.value ?? 0
+}
+
 describe('observeScrubOutcome', () => {
     beforeEach(() => register.resetMetrics())
+
+    // A skipped detector took no time, so its zero must not land in the stage quantiles, and the
+    // skip must be countable on its own because it is what the size bound saves.
+    it('counts a skipped detector instead of timing it', async () => {
+        ScrubMetrics.observeScrubOutcome(timings({ faceVacuous: true, codesVacuous: true }))
+
+        expect(await stageCount('face')).toBe(0)
+        expect(await stageCount('codes')).toBe(0)
+        expect(await stageCount('text')).toBe(1)
+        expect(await vacuousDetectorCount('face')).toBe(1)
+        expect(await vacuousDetectorCount('codes')).toBe(1)
+    })
 
     // A frame that returned early never ran the stages below its exit, so recording their zeros
     // reports work that did not happen and pulls every one of those quantiles toward zero. The
