@@ -797,7 +797,7 @@ class ImplementationDecision(BaseModel):
     research_run_count: int | None = None
     research_started_at: datetime | None = None
     content_revision_count: int = 0
-    blocked_reason: Literal["revision_limit"] | None = None
+    blocked_reason: Literal["revision_limit", "no_implementation"] | None = None
 
     @field_validator("reason")
     @classmethod

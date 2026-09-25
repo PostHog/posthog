@@ -1840,8 +1840,13 @@ def _do_edit_report(
                 content_revision_count = record_content_revision(team_id=team.id, report_id=report_id)
                 # A supersede claim rides on the rewrite, never on its own. Appending a note or
                 # re-routing a report says nothing about whether the fix changed, and restating the
-                # text the report already carries says nothing at all.
-                supersede_recorded = supersedes_implementation and content_revision_count <= MAX_SCOUT_CONTENT_REVISIONS
+                # text the report already carries says nothing at all. A report with no pull request
+                # has nothing to replace, so the claim lapses and the rewrite lands on its own.
+                supersede_recorded = (
+                    supersedes_implementation
+                    and bool(implementation_context.candidates)
+                    and content_revision_count <= MAX_SCOUT_CONTENT_REVISIONS
+                )
                 record_implementation_decision(
                     team_id=team.id,
                     report_id=report_id,

@@ -490,6 +490,7 @@ A report that autostarted has an open draft pull request built from the summary 
 
 - **More evidence for the same fix is not a reason to set it.** The open pull request already implements that fix, and replacing it throws away review someone may already have done. Use `append_note` there instead.
 - **It rides on a real rewrite.** It is ignored unless the same call actually changed the `title` or `summary`. Restating text the report already holds, appending a note, and setting reviewers all count for nothing; the response's `is_content_revision` tells you whether yours counted.
+- **A report with no open pull request has nothing to replace.** The field is a no-op there, your rewrite still lands, and the response's `supersedes_implementation` is false.
 - **Only the first four content revisions can request replacements.** Every title or summary rewrite counts, including one that did not request a replacement. Past that your rewrite still lands, but it cannot request a replacement. The response's `supersedes_implementation` is true only when the decision was recorded.
 
 # Re-confirming a report still holds

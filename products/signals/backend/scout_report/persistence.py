@@ -433,6 +433,14 @@ def prepare_scout_supersession(
         return NO_IMPLEMENTATION_CONTEXT
     context = research_implementation_context(team_id, report_id)
     if not context.candidates:
+        # A report that never started an implementation has nothing to replace, which is an answer
+        # rather than a failure: the rewrite is still valid, so the claim becomes a no-op and the
+        # caller reads `supersedes_implementation: false`. The context still travels, because its
+        # `target_count` is what tells the decision artefact which refusal to record. Everything
+        # else — a lookup that did not complete, a target that no longer verifies — stays a
+        # retryable rejection.
+        if context.target_count == 0:
+            return context
         raise InvalidScoutReportError("Could not verify an implementation PR to replace. Retry the edit.")
     return context
 
@@ -675,25 +683,31 @@ def record_implementation_decision(
     claim would let one of those paths open a replacement off a decision nobody made.
 
     `supersede_requested` is the caller's ask, `supersede` the policy answer to it. They part company
-    past the revision cap, where the reason has to say the cap refused the claim: reading the refusal
-    back as "the fix did not change" states the scout's judgment backwards, in the one entry a
-    reviewer opens to find out why no replacement started.
+    past the revision cap, and on a report with no open pull request, where the reason has to name
+    what refused the claim: reading either refusal back as "the fix did not change" states the
+    scout's judgment backwards, in the one entry a reviewer opens to find out why no replacement
+    started.
     """
     fields = " and ".join(sorted(set(updated_fields) & {"title", "summary"})) or "content"
     who = author or "A scout"
-    blocked_reason: Literal["revision_limit"] | None = (
-        "revision_limit" if supersede_requested and not supersede else None
-    )
+    blocked_reason: Literal["revision_limit", "no_implementation"] | None = None
+    if supersede_requested and not supersede:
+        blocked_reason = "no_implementation" if implementation_context.target_count == 0 else "revision_limit"
     if supersede:
         reason = (
             f"{who} rewrote the report's {fields}. "
             "The open pull request was built from the version before that rewrite."
         )
-    elif supersede_requested:
+    elif blocked_reason == "revision_limit":
         reason = (
             f"{who} rewrote the report's {fields} and asked to replace the open pull request. "
             f"Only a report's first {MAX_SCOUT_CONTENT_REVISIONS} rewrites can do that, "
             "so the pull request stays open."
+        )
+    elif blocked_reason == "no_implementation":
+        reason = (
+            f"{who} rewrote the report's {fields} and asked to replace the open pull request. "
+            "The report has no open pull request, so there was nothing to replace."
         )
     else:
         reason = f"{who} rewrote the report's {fields} without changing what the fix should be."

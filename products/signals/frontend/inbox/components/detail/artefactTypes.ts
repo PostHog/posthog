@@ -144,7 +144,7 @@ export interface SummaryChangeContent {
 
 export interface ImplementationDecisionContent {
     supersede?: boolean
-    blocked_reason?: 'revision_limit' | null
+    blocked_reason?: 'revision_limit' | 'no_implementation' | null
     reason?: string
     targets?: { pr_url: string }[]
 }

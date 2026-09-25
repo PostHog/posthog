@@ -1763,7 +1763,9 @@ class EditReportRequestSerializer(serializers.Serializer):
             "checks gate the replacement. The existing pull request closes only after a successful, "
             "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
             "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
-            "and only within the first four content revisions, including revisions that did not request replacement."
+            "and only within the first four content revisions, including revisions that did not request replacement. "
+            "A report with no open pull request has nothing to replace, so the field is a no-op there and the "
+            "rewrite still lands."
         ),
     )
 
@@ -1847,8 +1849,8 @@ class EditReportResponseSerializer(serializers.Serializer):
     supersedes_implementation = serializers.BooleanField(
         help_text=(
             "Whether the edit recorded that the report's pull request should be replaced. False when "
-            "you did not ask for it, when the edit changed no content, or when the report has already "
-            "been rewritten too many times."
+            "you did not ask for it, when the edit changed no content, when the report has no open "
+            "pull request to replace, or when the report has already been rewritten too many times."
         ),
     )
     corroboration_collapsed = serializers.BooleanField(
