@@ -54,15 +54,17 @@ def object_storage_upload_source() -> str:
 
     Returns "" for a deployment that serves object storage from its own origin, which `'self'`
     already covers, and for one that has not configured the store at all.
+
+    The source is https whatever the endpoint says, because a bucket reached over plaintext is
+    not something to admit. The dev store runs on http, so it keeps its scheme the way the other
+    localhost sources in this policy do.
     """
-    endpoint = settings.OBJECT_STORAGE_PUBLIC_ENDPOINT
+    parts = urlsplit(settings.OBJECT_STORAGE_PUBLIC_ENDPOINT)
     bucket = settings.OBJECT_STORAGE_BUCKET
-    if not endpoint or not bucket:
+    if parts.scheme not in ("http", "https") or not parts.netloc or not bucket:
         return ""
-    parts = urlsplit(endpoint)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
-        return ""
-    return f"{parts.scheme}://{parts.netloc}/{bucket}"
+    scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
+    return f"{scheme}://{parts.netloc}/{bucket}"
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a

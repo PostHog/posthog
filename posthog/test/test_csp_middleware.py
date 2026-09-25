@@ -308,7 +308,7 @@ class TestCSPMiddleware(APIBaseTest):
         ):
             response = self.client.get("/")
 
-        policy = response.get("Content-Security-Policy") or response["Content-Security-Policy-Report-Only"]
+        policy = response["Content-Security-Policy"]
         connect_src = next(part for part in policy.split("; ") if part.startswith("connect-src ")).split()
         assert "https://s3.us-east-1.amazonaws.com/posthog-test-bucket" in connect_src
 
@@ -444,7 +444,7 @@ class TestObjectStorageUploadSource(SimpleTestCase):
                 "posthog-cloud-prod-us-east-1-app-assets",
                 "https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets",
             ),
-            ("own_host_and_port", "http://objectstorage:19000", "posthog", "http://objectstorage:19000/posthog"),
+            ("dev_store_keeps_http", "http://objectstorage:19000", "posthog", "http://objectstorage:19000/posthog"),
             ("endpoint_unset", "", "posthog", ""),
             ("bucket_unset", "https://s3.us-east-1.amazonaws.com", "", ""),
             ("not_a_fetchable_scheme", "s3://posthog-bucket", "posthog", ""),
@@ -455,6 +455,17 @@ class TestObjectStorageUploadSource(SimpleTestCase):
     ) -> None:
         with override_settings(OBJECT_STORAGE_PUBLIC_ENDPOINT=endpoint, OBJECT_STORAGE_BUCKET=bucket):
             assert object_storage_upload_source() == expected
+
+    def test_a_plaintext_endpoint_is_named_over_https_outside_dev(self) -> None:
+        # Only the dev store is reached over http. Anywhere else the policy must not bless a
+        # bucket served in plaintext, whatever the endpoint is configured as.
+        with override_settings(
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="http://storage.example.com",
+            OBJECT_STORAGE_BUCKET="posthog",
+            TEST=False,
+            DEBUG=False,
+        ):
+            assert object_storage_upload_source() == "https://storage.example.com/posthog"
 
 
 class TestViewManagedCsp(SimpleTestCase):
