@@ -3453,6 +3453,11 @@ export interface ScoutChatTaskCreateApi {
      * @maxLength 64
      */
     suggestion_id?: string
+    /**
+     * Optional description, in the user's own words, of what the new scout should watch. The chat then opens on this request instead of asking from scratch. `author_scout` only, and not together with `suggestion_id`.
+     * @maxLength 2000
+     */
+    user_prompt?: string
 }
 
 export interface ScoutChatTaskApi {
