@@ -45,12 +45,8 @@ class ZstdCompressor(BaseCompressor):
         try:
             return zstd.decompress(value)
         except Exception:
-            # Broader than zstd.Error on purpose: a corrupt frame's declared content size raises
-            # MemoryError, and a size above 2^63 raises SystemError. This method must never raise,
-            # because a cache read turns an escaped exception into a request failure, not a miss.
-            # Counted whatever USE_REDIS_COMPRESSION says: old frames stay in redis after
-            # compression is turned off, and turning it off is a plausible response to this.
+            # Corrupt frame sizes can raise MemoryError or SystemError instead of zstd.Error.
+            # Count old frames even after compression is disabled.
             COULD_NOT_DECOMPRESS_VALUE_COUNTER.inc()
-            # if the decompression fails, behave like the IdentityCompressor
-            # this way if the compressor is turned off we can still read values
+            # The serializer can reject these bytes; this counter does not turn the read into a miss.
             return value
