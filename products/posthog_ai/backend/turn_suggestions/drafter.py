@@ -13,7 +13,7 @@ import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
@@ -29,6 +29,11 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
 logger = structlog.get_logger(__name__)
 
 DRAFT_MODEL = "gpt-5.6-luna"
+
+# PostHog pays for drafts, not the customer's AI credits. The Go gateway bills the wallet of the team
+# that owns its key, and the Python fallback route is one that bills no credit bucket.
+DRAFT_FALLBACK_PRODUCT = "growth"
+DRAFT_AI_PRODUCT = "posthog_ai_turn_suggestions"
 
 # A reasoning model spends the same token budget on its thinking and on the reply, and the reply
 # carries a complete scout prompt, so the ceiling sits well above the JSON alone.
@@ -115,13 +120,20 @@ def _complete(
 ) -> _ReplyT | None:
     try:
         # Inside the guard: an instance without a configured gateway raises here, and a failed draft offers nothing.
-        client = get_llm_client("posthog_ai", team_id=team_id).with_options(
+        distinct_id = team_distinct_id(team_id)
+        client = build_openai_client(
+            DRAFT_FALLBACK_PRODUCT,
+            ai_product=DRAFT_AI_PRODUCT,
+            properties={"team_id": str(team_id)},
+            distinct_id=distinct_id,
+        ).with_options(
             timeout=DRAFT_TIMEOUT_SECONDS,
             max_retries=DRAFT_MAX_RETRIES,
         )
         response = client.chat.completions.create(
             model=DRAFT_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            user=distinct_id,
             max_completion_tokens=DRAFT_MAX_TOKENS,
             response_format=_response_format(schema_name, reply_type),
         )
