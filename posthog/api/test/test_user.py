@@ -1052,6 +1052,73 @@ class TestUserAPI(APIBaseTest):
             assert self.user.pending_email is None
             mock_send_code.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("email_service_available", True, True),
+            ("email_service_unavailable", False, False),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.report_user_email_change_requested")
+    def test_staging_an_email_change_reports_it(
+        self,
+        _name: str,
+        email_available: bool,
+        verification_required: bool,
+        mock_report,
+        _mock_send_code,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with patch("posthog.api.user.is_email_available", return_value=email_available):
+            response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_report.assert_called_once_with(self.user, verification_required=verification_required)
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.report_user_email_change_requested")
+    def test_an_unchanged_email_reports_nothing(self, mock_report, _mock_is_email_available):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "ALPHA@example.com", "first_name": "Newname"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_report.assert_not_called()
+
+    @patch("posthog.api.user.report_user_identity_change_refused")
+    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_report):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        key = self.create_personal_api_key_with_scopes(["user:write"])
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"email": "beta@example.com"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_report.assert_called_once_with(self.user, field="email", reason="token_auth")
+
+    @patch("posthog.api.user.report_user_identity_change_refused")
+    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_report):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - settings.SESSION_FRESH_REAUTH_AGE - 1
+        session.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
+
     def test_email_change_rejected_when_new_email_is_plus_addressed(self):
         self.user.email = "alpha@example.com"
         self.user.save()
