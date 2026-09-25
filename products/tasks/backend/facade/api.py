@@ -5343,9 +5343,10 @@ def _exposed_port_probe(port: int) -> str:
 
 
 def _preview_target(state: dict, port: int | None) -> tuple[int, str] | None:
-    if port is None or (port == DEV_STACK_PREVIEW_PORT and task_run_preview_ready(state)):
-        if not task_run_preview_ready(state):
-            return None
+    ready = task_run_preview_ready(state)
+    if port is None:
+        return (DEV_STACK_PREVIEW_PORT, _PREVIEW_HEALTH_PROBE) if ready else None
+    if port == DEV_STACK_PREVIEW_PORT and ready:
         return DEV_STACK_PREVIEW_PORT, _PREVIEW_HEALTH_PROBE
     if not any(entry["port"] == port for entry in _registered_exposed_ports(state)):
         return None

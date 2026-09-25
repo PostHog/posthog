@@ -1,4 +1,4 @@
-import type { WebContents, WebPreferences } from "electron";
+import type { Session, WebContents, WebPreferences } from "electron";
 import {
   TASK_PREVIEW_ARG,
   TASK_PREVIEW_PARTITION,
@@ -51,6 +51,8 @@ export function hardenTaskPreviewPreferences(
   preferences.plugins = false;
 }
 
+const lockedSessions = new WeakSet<Session>();
+
 export function lockDownTaskPreview(
   guest: WebContents,
   openExternal: (url: string) => void,
@@ -67,6 +69,8 @@ export function lockDownTaskPreview(
   });
 
   const guestSession = guest.session;
+  if (lockedSessions.has(guestSession)) return;
+  lockedSessions.add(guestSession);
   guestSession.setPermissionCheckHandler(() => false);
   guestSession.setPermissionRequestHandler((_contents, _permission, callback) =>
     callback(false),

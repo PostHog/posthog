@@ -1,21 +1,10 @@
 import { createAppendOnlyTracker } from "@posthog/core/sessions/appendOnlyTracker";
-import {
-  type AcpMessage,
-  isJsonRpcNotification,
-  readMcpToolDescriptor,
-} from "@posthog/shared";
+import type { AcpMessage } from "@posthog/shared";
 import type { TaskRunExposedPort } from "@posthog/shared/domain-types";
+import { readToolCallUpdate } from "@posthog/ui/features/sessions/components/completedToolCalls";
 import { useMemo, useRef } from "react";
 
 export const EXPOSE_PORT_TOOL = "expose_port";
-
-type ToolCallUpdate = {
-  sessionUpdate?: string;
-  toolCallId?: string;
-  status?: string;
-  rawInput?: unknown;
-  _meta?: unknown;
-};
 
 type ExposedPortState = {
   inputs: Map<string, TaskRunExposedPort>;
@@ -30,23 +19,13 @@ function readInput(rawInput: unknown): TaskRunExposedPort | null {
   return { port, name: typeof name === "string" && name ? name : null };
 }
 
-export function createExposedPortTracker() {
+function createExposedPortTracker() {
   return createAppendOnlyTracker<ExposedPortState, TaskRunExposedPort[]>({
     init: () => ({ inputs: new Map(), byPort: new Map(), result: [] }),
     processEvent: (state, event) => {
-      const message = event.message;
-      if (!isJsonRpcNotification(message)) return;
-      if (message.method !== "session/update") return;
-      const update = (message.params as { update?: ToolCallUpdate } | undefined)
-        ?.update;
-      if (
-        !update?.toolCallId ||
-        (update.sessionUpdate !== "tool_call" &&
-          update.sessionUpdate !== "tool_call_update")
-      ) {
-        return;
-      }
-      if (readMcpToolDescriptor(update._meta)?.tool === EXPOSE_PORT_TOOL) {
+      const update = readToolCallUpdate(event);
+      if (!update) return;
+      if (update.tool === EXPOSE_PORT_TOOL) {
         const input = readInput(update.rawInput);
         if (input) state.inputs.set(update.toolCallId, input);
       }

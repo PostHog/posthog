@@ -195,10 +195,21 @@ export function setupTaskPreviewPicker(
     reportChangedPins(changed);
   };
 
+  let renderFrame = 0;
+  const scheduleRender = () => {
+    if (renderFrame) return;
+    renderFrame = requestAnimationFrame(() => {
+      renderFrame = 0;
+      renderPins();
+    });
+  };
+
   const syncRefreshTimer = () => {
     const needed = pins.length > 0;
     if (needed && !refreshTimer) {
-      refreshTimer = setInterval(renderPins, PIN_REFRESH_INTERVAL_MS);
+      refreshTimer = setInterval(() => {
+        if (document.visibilityState === "visible") renderPins();
+      }, PIN_REFRESH_INTERVAL_MS);
     } else if (!needed && refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = null;
@@ -276,8 +287,8 @@ export function setupTaskPreviewPicker(
   }
   window.addEventListener("click", onClick, true);
   window.addEventListener("keydown", onKey, true);
-  window.addEventListener("scroll", () => renderPins(), true);
-  window.addEventListener("resize", () => renderPins());
+  window.addEventListener("scroll", scheduleRender, true);
+  window.addEventListener("resize", scheduleRender);
 
   return (message) => {
     if (message.type === "release") {

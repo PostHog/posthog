@@ -9,11 +9,7 @@ import { useExposedPortsFromEvents } from "./exposedPortsFromEvents";
 import { useTaskPreviewEnabled } from "./useTaskPreviewEnabled";
 import { useTaskRunExposedPorts } from "./useTaskRunExposedPorts";
 
-export type TaskPreviewPorts = {
-  runId: string;
-  ports: TaskRunExposedPort[];
-  local: boolean;
-};
+export type TaskPreviewPorts = { runId: string; ports: TaskRunExposedPort[] };
 
 const NO_EVENTS: never[] = [];
 export const LOCAL_PREVIEW_RUN_ID = "local";
@@ -38,12 +34,8 @@ export function useTaskPreviewPorts(
   return useMemo(() => {
     if (!enabled || !task) return null;
     if (isCloud) {
-      return runId ? { runId, ports: cloudPorts, local: false } : null;
+      return runId ? { runId, ports: cloudPorts } : null;
     }
-    return {
-      runId: runId ?? LOCAL_PREVIEW_RUN_ID,
-      ports: localPorts,
-      local: true,
-    };
+    return { runId: runId ?? LOCAL_PREVIEW_RUN_ID, ports: localPorts };
   }, [enabled, task, isCloud, runId, cloudPorts, localPorts]);
 }

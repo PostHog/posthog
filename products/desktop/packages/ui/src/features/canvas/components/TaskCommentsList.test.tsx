@@ -441,7 +441,6 @@ describe("TaskCommentsList", () => {
     mocks.previewPorts = {
       runId: "run-live",
       ports: [{ port: 5173, name: "Web app" }],
-      local: false,
     };
     mocks.comments = [
       comment({

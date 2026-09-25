@@ -1,15 +1,16 @@
-import { elementCommentAnchorSchema } from "@posthog/core/comments/anchors";
+import {
+  ELEMENT_ANCHOR_LIMITS,
+  elementCommentAnchorSchema,
+} from "@posthog/core/comments/anchors";
 import type {
   TaskPreviewElement,
   TaskPreviewPin,
   TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
+import { boundedString, finiteRect, isRecord } from "./bridge-guards";
 
 export const TASK_PREVIEW_MAX_PINS = 200;
 const MAX_ID_LENGTH = 128;
-const MAX_PATH_LENGTH = 2_000;
-const MAX_SELECTOR_LENGTH = 1_000;
-const MAX_TEXT_LENGTH = 2_000;
 
 const elementSchema = elementCommentAnchorSchema.omit({ kind: true });
 
@@ -25,27 +26,8 @@ export type TaskPreviewHostMessage =
   | { type: "locate"; id: string }
   | { type: "release" };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function boundedString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength;
-}
-
 function boundedId(value: unknown): value is string {
   return boundedString(value, MAX_ID_LENGTH) && value.length > 0;
-}
-
-function finiteRect(value: unknown): TaskPreviewRect | null {
-  if (!isRecord(value)) return null;
-  const rect: Record<string, number> = {};
-  for (const key of ["top", "left", "right", "bottom", "width", "height"]) {
-    const field = value[key];
-    if (typeof field !== "number" || !Number.isFinite(field)) return null;
-    rect[key] = field;
-  }
-  return rect as TaskPreviewRect;
 }
 
 export function sanitizeTaskPreviewGuestMessage(
@@ -64,7 +46,7 @@ export function sanitizeTaskPreviewGuestMessage(
   }
   if (value.type === "picked") {
     const element = elementSchema.safeParse(value.element);
-    const rect = finiteRect(value.rect);
+    const rect = finiteRect(value.rect) as TaskPreviewRect | null;
     return element.success && rect
       ? { type: "picked", element: element.data, rect }
       : null;
@@ -76,9 +58,9 @@ function sanitizePin(value: unknown): TaskPreviewPin | null {
   if (
     !isRecord(value) ||
     !boundedId(value.id) ||
-    !boundedString(value.path, MAX_PATH_LENGTH) ||
-    !boundedString(value.selector, MAX_SELECTOR_LENGTH) ||
-    !boundedString(value.text, MAX_TEXT_LENGTH) ||
+    !boundedString(value.path, ELEMENT_ANCHOR_LIMITS.path) ||
+    !boundedString(value.selector, ELEMENT_ANCHOR_LIMITS.selector) ||
+    !boundedString(value.text, ELEMENT_ANCHOR_LIMITS.text) ||
     typeof value.number !== "number" ||
     !Number.isInteger(value.number) ||
     typeof value.active !== "boolean"

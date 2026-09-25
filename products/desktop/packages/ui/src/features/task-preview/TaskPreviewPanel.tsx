@@ -23,7 +23,6 @@ import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useState } from "react";
 import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
-import { localPreviewSession } from "./localPreviewSession";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
 import { usePreviewTabInMainPanel } from "./usePreviewTabInMainPanel";
 import { useTaskPreviewAnnotationsSupported } from "./useTaskPreviewAnnotationsSupported";
@@ -91,7 +90,14 @@ export function TaskPreviewPanel({
     attempt,
     !local,
   );
-  const session = local ? localPreviewSession(port) : remoteSession;
+  const session = local
+    ? {
+        data: { outcome: "ready" as const, url: `http://localhost:${port}/` },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+      }
+    : remoteSession;
   const outcome = session.data?.outcome;
   const url = outcome === "ready" ? session.data?.url : null;
 

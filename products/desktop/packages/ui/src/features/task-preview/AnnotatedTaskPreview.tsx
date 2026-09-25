@@ -4,7 +4,10 @@ import {
 } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
-import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
+import {
+  commentAgentContext,
+  withScreenshot,
+} from "@posthog/ui/features/sessions/commentAgentContext";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
@@ -27,9 +30,9 @@ import type {
 } from "./taskPreviewFrameHost";
 
 type PendingComment = {
-  element: TaskPreviewElement;
+  anchor: ElementCommentAnchor;
   screenshot: string | null;
-  anchor: { top: number; right: number; bottom: number };
+  position: { top: number; endX: number; bottom: number };
 };
 
 export function AnnotatedTaskPreview({
@@ -107,11 +110,11 @@ export function AnnotatedTaskPreview({
       const box = frameRef.current?.getBoundingClientRect();
       if (!box) return;
       setPending({
-        element,
+        anchor: { kind: "element", ...element },
         screenshot,
-        anchor: {
+        position: {
           top: box.top + rect.top,
-          right: box.left + rect.right,
+          endX: box.left + rect.right,
           bottom: box.top + rect.bottom,
         },
       });
@@ -134,24 +137,16 @@ export function AnnotatedTaskPreview({
 
   const submit = async (content: string, mentions: number[]) => {
     if (!pending) return;
-    const anchor: ElementCommentAnchor = {
-      kind: "element",
-      ...pending.element,
-    };
     const created = await createComment.mutateAsync({
       content,
-      context: { anchor },
+      context: { anchor: pending.anchor },
       mentions,
     });
     requestCommentFocus(taskId, target, created.id, { intent: "focus-only" });
   };
 
-  const sendToAgent = (
-    anchor: ElementCommentAnchor,
-    screenshot: string | null,
-    content: string,
-  ) => {
-    const context = commentAgentContext(anchor, {
+  const sendToAgent = (comment: PendingComment, content: string) => {
+    const context = commentAgentContext(comment.anchor, {
       kind: "preview",
       name: title,
       port,
@@ -159,7 +154,7 @@ export function AnnotatedTaskPreview({
     void sendCommentToAgent({
       taskId,
       comment: content,
-      context: context && screenshot ? { ...context, screenshot } : context,
+      context: withScreenshot(context, comment.screenshot),
       surface: "preview",
       openChat: false,
     }).then(() => {
@@ -200,14 +195,10 @@ export function AnnotatedTaskPreview({
         selection={
           pending
             ? {
-                text: pending.element.text,
+                text: pending.anchor.text,
                 fromLine: 1,
                 toLine: 1,
-                anchor: {
-                  top: pending.anchor.top,
-                  endX: pending.anchor.right,
-                  bottom: pending.anchor.bottom,
-                },
+                anchor: pending.position,
               }
             : null
         }
@@ -223,14 +214,7 @@ export function AnnotatedTaskPreview({
           submit(content, mentions ?? [])
         }
         onSendToAgent={
-          pending
-            ? (content) =>
-                sendToAgent(
-                  { kind: "element", ...pending.element },
-                  pending.screenshot,
-                  content,
-                )
-            : undefined
+          pending ? (content) => sendToAgent(pending, content) : undefined
         }
       />
     </div>

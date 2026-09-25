@@ -486,7 +486,7 @@ export function TaskArtifactsList({
     () => buildRows(task, timeline, runs, { previews }),
     [task, timeline, runs, previews],
   );
-  const portCount = rows.filter((row) => row.kind === "preview").length;
+  const portCount = previews?.ports.length ?? 0;
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);

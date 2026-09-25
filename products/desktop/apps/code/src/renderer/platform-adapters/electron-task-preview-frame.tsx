@@ -148,7 +148,7 @@ export function ElectronTaskPreviewFrame({
       } else if (message.type === "pick-cancelled") {
         callbacksRef.current.onPickCancelled();
       } else if (message.type === "pins-changed") {
-        callbacksRef.current.onPinsChanged?.(message.ids);
+        callbacksRef.current.onPinsChanged(message.ids);
       } else {
         callbacksRef.current.onActivatePin(message.id);
       }
@@ -173,11 +173,12 @@ export function ElectronTaskPreviewFrame({
   }, [url]);
 
   useEffect(() => {
-    stateRef.current = { picking, pins };
+    stateRef.current.pins = pins;
     sendRef.current({ type: "pins", items: pins });
-  }, [pins, picking]);
+  }, [pins]);
 
   useEffect(() => {
+    stateRef.current.picking = picking;
     sendRef.current({ type: "pick", active: picking });
   }, [picking]);
 

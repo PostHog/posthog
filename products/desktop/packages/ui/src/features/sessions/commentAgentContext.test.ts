@@ -1,6 +1,5 @@
 import type { CommentAnchor } from "@posthog/core/comments/anchors";
 import { describe, expect, it } from "vitest";
-import { parseCommentContextBody } from "../message-editor/components/commentContextBody";
 import {
   type CommentResource,
   commentAgentContext,

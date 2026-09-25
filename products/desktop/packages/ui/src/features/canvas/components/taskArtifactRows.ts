@@ -16,11 +16,11 @@ import { readPrUrls } from "@posthog/shared";
 import type {
   Task,
   TaskRun,
-  TaskRunExposedPort,
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
+import type { TaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
 export type RunFile = RunArtifact & { runId: string };
@@ -212,9 +212,7 @@ function readRunPostHogReferences(run: TaskRun): Array<{
   });
 }
 
-export type PreviewPorts = { runId: string; ports: TaskRunExposedPort[] };
-
-function previewRows(task: Task, previews: PreviewPorts): ArtifactRow[] {
+function previewRows(task: Task, previews: TaskPreviewPorts): ArtifactRow[] {
   return previews.ports.map((exposed) => ({
     kind: "preview",
     key: `preview:${previews.runId}:${exposed.port}`,
@@ -229,7 +227,7 @@ export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],
   runs: TaskRun[],
-  options: { previews?: PreviewPorts | null } = {},
+  options: { previews?: TaskPreviewPorts | null } = {},
 ): ArtifactRow[] {
   const rows: ArtifactRow[] = options.previews
     ? previewRows(task, options.previews)
