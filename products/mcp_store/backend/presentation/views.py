@@ -1037,25 +1037,32 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         source: str,
         template: MCPServerTemplate | None = None,
     ) -> Response:
-        """Build the 400 the user sees, and count the attempt.
+        """Build the response the user sees, and count the attempt.
 
         These installs never reach "mcp_store oauth started", so without an event here a
         server that refuses our client looks exactly like a server nobody tried to connect.
+        A refusal is permanent and a provider fault is not, so the two must not share a
+        failure reason or a status: one tells the user to give up, the other to retry.
         """
+        provider_status = None if isinstance(error, DCRNotSupportedError) else error.provider_status
+        http_status: int
         if isinstance(error, DCRNotSupportedError):
             failure_reason = "dcr_not_supported"
-            provider_status = None
             detail = "This MCP server does not support Dynamic Client Registration (DCR)."
+            http_status = status.HTTP_400_BAD_REQUEST
+        elif provider_status is not None and 400 <= provider_status < 500:
+            failure_reason = "dcr_refused"
+            detail = (
+                "This server doesn't accept app registrations from PostHog, so we can't connect it here. "
+                "Connect it from a client the vendor supports, or ask them to allow PostHog."
+            )
+            http_status = status.HTTP_400_BAD_REQUEST
         else:
-            failure_reason = "dcr_rejected"
-            provider_status = error.provider_status
-            if provider_status is not None and 400 <= provider_status < 500:
-                detail = (
-                    "This server doesn't accept app registrations from PostHog, so we can't connect it here. "
-                    "Connect it from a client the vendor supports, or ask them to allow PostHog."
-                )
-            else:
-                detail = "Couldn't register with this server. Try again, and if it keeps happening contact support."
+            # A provider fault, or a transport failure that never reached the provider. 502
+            # matches the other upstream failures in this viewset and keeps the call retryable.
+            failure_reason = "dcr_provider_error" if provider_status is not None else "dcr_unreachable"
+            detail = "Couldn't register with this server. Try again, and if it keeps happening contact support."
+            http_status = status.HTTP_502_BAD_GATEWAY
         properties: dict[str, Any] = {
             "server_url": server_url,
             "install_source": install_source,
@@ -1073,7 +1080,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
             request=request,
         )
-        return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": detail}, status=http_status)
 
     def _build_authorize_url_from_metadata(
         self,

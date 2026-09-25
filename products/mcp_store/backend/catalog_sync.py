@@ -190,6 +190,20 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         template.save(update_fields=[*update_fields, "updated_at"])
 
 
+def _reprobe_dcr_entry(template: MCPServerTemplate, entry: CatalogEntry) -> list[str]:
+    probe = _probe_entry(entry)
+    changed = _apply_probe_metadata(template, probe)
+    if probe.dcr_registration_refused:
+        template.is_active = False
+        changed.append("is_active")
+        logger.warning(
+            "mcp_catalog_sync.deactivated_dcr_refused",
+            url=entry.url,
+            probe_errors=probe.errors,
+        )
+    return changed
+
+
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) -> None:
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
@@ -228,16 +242,7 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
                 oauth_credentials_source=entry.oauth_credentials_source,
             )
     elif not skip_probe and _dcr_reprobe_due(template, entry) and _claim_reprobe(template):
-        probe = _probe_entry(entry)
-        changed += _apply_probe_metadata(template, probe)
-        if probe.dcr_registration_refused:
-            template.is_active = False
-            changed.append("is_active")
-            logger.warning(
-                "mcp_catalog_sync.deactivated_dcr_refused",
-                url=entry.url,
-                probe_errors=probe.errors,
-            )
+        changed += _reprobe_dcr_entry(template, entry)
     if not changed:
         counts.unchanged += 1
         return
