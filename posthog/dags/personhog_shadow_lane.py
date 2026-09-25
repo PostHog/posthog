@@ -20,7 +20,7 @@ these jobs apply. Both are charts-side prerequisites.
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import closing
 from urllib.parse import parse_qs, urlparse
 
@@ -171,6 +171,30 @@ def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: 
     return deployment.status.ready_replicas or 0
 
 
+def wait_for_deployments(
+    deployments: Iterable[str],
+    is_settled: Callable[[str], bool],
+    *,
+    timeout_seconds: float,
+    poll_seconds: float = 10,
+    sleep: Callable[[float], None] = time.sleep,
+) -> set[str]:
+    """Poll each deployment until is_settled accepts it or the deadline passes.
+
+    Returns the deployments still pending at the deadline, so the caller
+    decides how to report them.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    pending = set(deployments)
+    while pending and time.monotonic() < deadline:
+        for deployment in sorted(pending):
+            if is_settled(deployment):
+                pending.discard(deployment)
+        if pending:
+            sleep(poll_seconds)
+    return pending
+
+
 def wait_for_quiescence(
     read_write_counter: Callable[[], int],
     *,
@@ -309,21 +333,20 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
         context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
         scale_deployment(apps, config.namespace, deployment, replicas)
 
-    deadline = time.monotonic() + config.ready_timeout_seconds
-    pending = dict(targets)
-    while pending and time.monotonic() < deadline:
-        for deployment, replicas in list(pending.items()):
-            ready = deployment_ready_replicas(apps, config.namespace, deployment)
-            if ready >= replicas:
-                context.log.info(f"{deployment} is ready with {ready} replica(s)")
-                del pending[deployment]
-        if pending:
-            time.sleep(10)
+    wanted = dict(targets)
 
+    def is_ready(deployment: str) -> bool:
+        ready = deployment_ready_replicas(apps, config.namespace, deployment)
+        if ready < wanted[deployment]:
+            return False
+        context.log.info(f"{deployment} is ready with {ready} replica(s)")
+        return True
+
+    pending = wait_for_deployments(wanted, is_ready, timeout_seconds=config.ready_timeout_seconds)
     if pending:
         raise dagster.Failure(
             description=(
-                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(pending)}. "
+                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(sorted(pending))}. "
                 "The scale was applied; check the pods in the lane namespace."
             )
         )

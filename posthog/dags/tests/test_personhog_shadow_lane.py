@@ -13,6 +13,7 @@ from posthog.dags.personhog_shadow_lane import (
     _reset_shadow_state,
     read_shadow_write_counter,
     require_shadow_dsn,
+    wait_for_deployments,
     wait_for_quiescence,
 )
 from posthog.persons_db import persons_db_url
@@ -81,6 +82,28 @@ class TestWaitForQuiescence:
                 timeout_seconds=0,
                 sleep=lambda _seconds: None,
             )
+
+
+class TestWaitForDeployments:
+    @parameterized.expand(
+        [
+            ("all_settle", {"consumer": 2, "processor": 1}, 60, set()),
+            ("deadline_passed", {"consumer": 0, "processor": 0}, 0, {"consumer", "processor"}),
+        ]
+    )
+    def test_returns_what_is_still_pending(
+        self, _name: str, settles_on_check: dict[str, int], timeout_seconds: int, expected_pending: set[str]
+    ) -> None:
+        checks: dict[str, int] = dict.fromkeys(settles_on_check, 0)
+
+        def is_settled(deployment: str) -> bool:
+            checks[deployment] += 1
+            return 0 < settles_on_check[deployment] <= checks[deployment]
+
+        pending = wait_for_deployments(
+            settles_on_check, is_settled, timeout_seconds=timeout_seconds, sleep=lambda _seconds: None
+        )
+        assert pending == expected_pending
 
 
 class _FakeAppsApi:
