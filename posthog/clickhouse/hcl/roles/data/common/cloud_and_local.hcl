@@ -549,7 +549,9 @@ SQL
     }
   }
 
-  table "log_entries" {
+  # Post read-cutover: the main-cluster reader lives under the legacy alias;
+  # the app-facing `log_entries` (aux reader) comes from roles/coshared/log_entries_aux.
+  table "log_entries_distributed" {
     column "team_id" {
       type = "UInt64"
     }

@@ -453,7 +453,7 @@ CREATE TABLE posthog.llma_metrics_daily (
   metric_name String,
   metric_value Float64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.llma_metrics_daily', '{replica}-{shard}') ORDER BY (team_id, date, metric_name) PARTITION BY toYYYYMM(date) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.log_entries_distributed (
+CREATE TABLE posthog.log_entries (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,
@@ -3160,7 +3160,7 @@ CREATE TABLE posthog.ingestion_warnings (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_ingestion_warnings', rand());
-CREATE TABLE posthog.log_entries (
+CREATE TABLE posthog.log_entries_distributed (
   team_id UInt64,
   log_source LowCardinality(String),
   log_source_id String,

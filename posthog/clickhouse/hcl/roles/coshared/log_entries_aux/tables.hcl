@@ -1,5 +1,5 @@
 # log_entries on the aux cluster: the column core and
-# the Distributed reader, composed by the aux and data nodes. The data table lives in
+# the app-facing Distributed reader (post read-cutover), composed by the aux and data nodes. The data table lives in
 # roles/auxiliary/shared, the Kafka consumer trio in roles/coshared/log_entries_aux_write.
 database "posthog" {
   table "_log_entries_aux_columns" {
@@ -14,7 +14,7 @@ database "posthog" {
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
   }
-  table "log_entries_distributed" {
+  table "log_entries" {
     extend = "_log_entries_aux_columns"
     engine "distributed" {
       cluster_name    = "aux"

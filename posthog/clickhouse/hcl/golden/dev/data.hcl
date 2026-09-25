@@ -2197,10 +2197,9 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
-      remote_table    = "sharded_log_entries"
-      sharding_key    = "rand()"
+      remote_table    = "log_entries_data"
     }
   }
 
@@ -2233,9 +2232,10 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "aux"
+      cluster_name    = "posthog"
       remote_database = "posthog"
-      remote_table    = "log_entries_data"
+      remote_table    = "sharded_log_entries"
+      sharding_key    = "rand()"
     }
   }
 
