@@ -116,7 +116,7 @@ class TestCSPMiddleware(APIBaseTest):
 
         embedded = self.client.get("/shared/notarealtoken")
         assert "Content-Security-Policy" not in embedded
-        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
+        assert "frame-ancestors" not in embedded["Content-Security-Policy-Report-Only"]
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
