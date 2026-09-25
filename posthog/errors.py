@@ -737,7 +737,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     437: ErrorCodeMeta("PROTOBUF_FIELD_NOT_REPEATED"),
     438: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_PROMOTED"),
     439: ErrorCodeMeta("CANNOT_SCHEDULE_TASK", category=QueryErrorCategory.RATE_LIMITED),
-    440: ErrorCodeMeta("INVALID_LIMIT_EXPRESSION"),
+    440: ErrorCodeMeta("INVALID_LIMIT_EXPRESSION", user_safe=True),  # LIMIT or OFFSET is not a numeric constant
     441: ErrorCodeMeta("CANNOT_PARSE_DOMAIN_VALUE_FROM_STRING"),
     442: ErrorCodeMeta("BAD_DATABASE_FOR_TEMPORARY_TABLE"),
     443: ErrorCodeMeta("NO_COLUMNS_SERIALIZED_TO_PROTOBUF_FIELDS"),
