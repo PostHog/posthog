@@ -15,7 +15,7 @@ import subprocess
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import pytest
 
@@ -27,6 +27,17 @@ PROVEN_OUTCOME = "passed"
 TEST_PHASES = frozenset({"call", "setup:function"})
 CLASS_PHASES = frozenset({"setup:class"})
 UNBOUNDED_PHASES = frozenset({"setup:package", "setup:session"})
+
+
+class RecordedTest(TypedDict):
+    hits: dict[str, int]
+    seconds: float
+    outcome: str
+
+
+class ManifestEntry(TypedDict):
+    digest: str
+    prune: dict[str, str]
 
 
 def file_digest(path: Path) -> str:
@@ -65,7 +76,7 @@ def _hit_prefix(nodeid: str, phase: str) -> str:
     return WHOLE_FILE
 
 
-def safe_nodeids(tests: Mapping[str, Mapping[str, Any]]) -> set[str]:
+def safe_nodeids(tests: Mapping[str, RecordedTest]) -> set[str]:
     blocked: dict[str, set[str]] = defaultdict(set)
     for nodeid, record in tests.items():
         for phase in record["hits"]:
@@ -79,15 +90,15 @@ def safe_nodeids(tests: Mapping[str, Mapping[str, Any]]) -> set[str]:
 
 
 def build_manifest(
-    tests: Mapping[str, Mapping[str, Any]], digest_of: Callable[[str], str | None], min_seconds: float = 0.0
-) -> dict[str, Any]:
+    tests: Mapping[str, RecordedTest], digest_of: Callable[[str], str | None], min_seconds: float = 0.0
+) -> dict[str, ManifestEntry]:
     safe = safe_nodeids(tests)
-    by_file: dict[str, dict[str, Mapping[str, Any]]] = defaultdict(dict)
+    by_file: dict[str, dict[str, RecordedTest]] = defaultdict(dict)
     for nodeid, record in tests.items():
         path, suffix = _split(nodeid)
         by_file[path][suffix] = record
 
-    files: dict[str, Any] = {}
+    files: dict[str, ManifestEntry] = {}
     for path, records in sorted(by_file.items()):
         digest = digest_of(path)
         safe_suffixes = {suffix for suffix in records if f"{path}::{suffix}" in safe}
@@ -111,7 +122,7 @@ def build_manifest(
 
 
 def select_prunable(
-    files: Mapping[str, Mapping[str, Any]], nodeids: Iterable[str], digest_of: Callable[[str], str | None]
+    files: Mapping[str, ManifestEntry], nodeids: Iterable[str], digest_of: Callable[[str], str | None]
 ) -> set[str]:
     suffixes_by_file: dict[str, list[str]] = defaultdict(list)
     for nodeid in nodeids:
@@ -134,8 +145,8 @@ def select_prunable(
 
 
 def stale_entries(
-    files: Mapping[str, Mapping[str, Any]],
-    tests: Mapping[str, Mapping[str, Any]],
+    files: Mapping[str, ManifestEntry],
+    tests: Mapping[str, RecordedTest],
     digest_of: Callable[[str], str | None],
 ) -> list[str]:
     # Each shard checks only the tests it ran, so a listed test counts whether or not the rest of
@@ -172,7 +183,7 @@ def digests_at(revision: str) -> Callable[[str], str | None]:
 
 class EventsSchemaPruner:
     def __init__(self, manifest: Path) -> None:
-        self._files = json.loads(manifest.read_text())["files"]
+        self._files: dict[str, ManifestEntry] = json.loads(manifest.read_text())["files"]
 
     # tryfirst so pytest-split, which runs trylast, shards only the tests that remain.
     @pytest.hookimpl(tryfirst=True)
@@ -184,7 +195,7 @@ class EventsSchemaPruner:
         items[:] = [item for item in items if item.nodeid not in prunable]
 
 
-def merge_records(first: Mapping[str, Any], second: Mapping[str, Any]) -> dict[str, Any]:
+def merge_records(first: RecordedTest, second: RecordedTest) -> RecordedTest:
     hits = Counter(first["hits"]) + Counter(second["hits"])
     outcomes = {first["outcome"], second["outcome"]} - {PROVEN_OUTCOME}
     return {
@@ -194,8 +205,8 @@ def merge_records(first: Mapping[str, Any], second: Mapping[str, Any]) -> dict[s
     }
 
 
-def _load_tests(recordings: Iterable[Path]) -> dict[str, Any]:
-    tests: dict[str, Any] = {}
+def _load_tests(recordings: Iterable[Path]) -> dict[str, RecordedTest]:
+    tests: dict[str, RecordedTest] = {}
     for recording in recordings:
         data = json.loads(recording.read_text())
         if not data["events_json_mode"] or data["json_table_readers"] != []:

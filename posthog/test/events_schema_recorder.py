@@ -10,7 +10,7 @@ import functools
 from collections import Counter, defaultdict
 from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -28,6 +28,9 @@ from posthog.clickhouse.events_json import (
     WRITABLE_EVENTS_JSON_TABLE,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient as AsyncClickHouseClient
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 EVENTS_JSON_TABLES = (DISTRIBUTED_EVENTS_JSON_TABLE, EVENTS_JSON_DATA_TABLE, WRITABLE_EVENTS_JSON_TABLE)
 EVENTS_JSON_TABLE_NAME = re.compile(rf"(?<!\w)(?:{'|'.join(EVENTS_JSON_TABLES)})(?!\w)")
@@ -73,7 +76,7 @@ class EventsSchemaRecorder:
         # Only the events schema module calls this helper, and it looks the name up on each call.
         table_ref = hogql_events_schema.events_table_clickhouse_table_ref
 
-        def observed_table_ref(context: Any) -> str:
+        def observed_table_ref(context: "HogQLContext") -> str:
             printed = table_ref(context)
             if printed == DISTRIBUTED_EVENTS_JSON_TABLE:
                 self._hit()
@@ -81,9 +84,9 @@ class EventsSchemaRecorder:
 
         hogql_events_schema.events_table_clickhouse_table_ref = observed_table_ref  # ty: ignore[invalid-assignment]
 
-    def _observe_sql(self, method: Callable[..., Any]) -> Callable[..., Any]:
+    def _observe_sql(self, method: Callable[..., object]) -> Callable[..., object]:
         @functools.wraps(method)
-        def observed(client: Any, *args: Any, **kwargs: Any) -> Any:
+        def observed(client: object, *args: object, **kwargs: object) -> object:
             query = args[0] if args else kwargs.get("query")
             self._ran_clickhouse = True
             if isinstance(query, str) and names_events_json_table(query):
@@ -102,7 +105,7 @@ class EventsSchemaRecorder:
         return (yield)
 
     @pytest.hookimpl(wrapper=True)
-    def pytest_fixture_setup(self, fixturedef: Any) -> Generator[None, Any, Any]:
+    def pytest_fixture_setup(self, fixturedef: pytest.FixtureDef[object]) -> Generator[None, object, object]:
         # A fixture wider than the test runs in the setup of the first test that needs it, so the
         # hit names the fixture scope that tells the manifest builder which tests it can affect.
         outer = self._phase

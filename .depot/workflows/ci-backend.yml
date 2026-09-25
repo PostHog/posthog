@@ -3378,11 +3378,16 @@ jobs:
               # A test file in the manifest can stay unchanged while the code it covers starts to
               # read the JSON tables. The hourly run records every listed test, so it fails here
               # and names the rebuild command.
-              if: ${{ !cancelled() && matrix.json-targets && github.event_name == 'schedule' && hashFiles('events-schema-record.json') != '' }}
+              if: ${{ !cancelled() && matrix.json-targets && github.event_name == 'schedule' }}
               env:
                   RUN_ID: ${{ github.run_id }}
                   REVISION: ${{ github.sha }}
-              run: python posthog/test/events_schema_prune.py check --run-id "$RUN_ID" --revision "$REVISION" .github/new-events-schema-prune.json events-schema-record.json
+              run: |
+                  if [[ ! -f events-schema-record.json ]]; then
+                      echo "::error::The events_json run wrote no recording, so the prune manifest went unchecked."
+                      exit 1
+                  fi
+                  python posthog/test/events_schema_prune.py check --run-id "$RUN_ID" --revision "$REVISION" .github/new-events-schema-prune.json events-schema-record.json
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash

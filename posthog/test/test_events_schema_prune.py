@@ -1,9 +1,9 @@
 import pytest
 
-from posthog.test.events_schema_prune import build_manifest, merge_records, select_prunable, stale_entries
+from posthog.test.events_schema_prune import RecordedTest, build_manifest, merge_records, select_prunable, stale_entries
 
-SAFE = {"hits": {}, "outcome": "passed", "seconds": 1.0}
-RECORDING = {
+SAFE: RecordedTest = {"hits": {}, "outcome": "passed", "seconds": 1.0}
+RECORDING: dict[str, RecordedTest] = {
     "a.py::TestSafe::test_one": SAFE,
     "a.py::TestSafe::test_two": SAFE,
     "a.py::TestMixed::test_reads": {"hits": {"call": 2}, "outcome": "passed", "seconds": 1.0},
@@ -63,7 +63,7 @@ def test_runs_tests_the_recording_did_not_see(
 
 def test_check_flags_a_listed_test_that_now_reads_the_json_tables() -> None:
     manifest = build_manifest(RECORDING, DIGESTS.get, min_seconds=0.1)
-    later = {**RECORDING, "b.py::test_one": {**SAFE, "hits": {"call": 1}}}
+    later: dict[str, RecordedTest] = {**RECORDING, "b.py::test_one": {**SAFE, "hits": {"call": 1}}}
 
     assert stale_entries(manifest, later, DIGESTS.get) == ["b.py::test_one"]
     assert stale_entries(manifest, {"b.py::test_one": later["b.py::test_one"]}, DIGESTS.get) == ["b.py::test_one"]
