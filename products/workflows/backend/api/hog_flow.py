@@ -702,6 +702,11 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
     template_uuid = config.get("template_uuid")
     if not template_uuid:
         return
+    # The web editor copies the template body in itself and saves the whole email, so an empty
+    # body there is one the user cleared. Refilling it would undo that edit, and a lookup could
+    # fail publish on a template deleted since the insert. On this path the link is provenance only.
+    if context.get("event_source") == EventSource.WEB:
+        return
     inputs = config.get("inputs")
     email_input = inputs.get("email") if isinstance(inputs, dict) else None
     value = email_input.get("value") if isinstance(email_input, dict) else None
