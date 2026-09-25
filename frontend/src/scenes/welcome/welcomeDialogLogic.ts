@@ -175,7 +175,7 @@ export interface welcomeDialogLogicActions {
     dismissWelcome: () => {
         value: true
     }
-    loadWelcomeData: () => any
+    loadWelcomeData: (_: void) => void
     loadWelcomeDataFailure: (
         error: string,
         errorObject?: any
@@ -185,10 +185,10 @@ export interface welcomeDialogLogicActions {
     }
     loadWelcomeDataSuccess: (
         welcomeData: WelcomePayload,
-        payload?: any
+        payload?: void
     ) => {
         welcomeData: WelcomePayload
-        payload?: any
+        payload?: void
     }
     markCardInteracted: (card: WelcomeCardKind) => {
         card: WelcomeCardKind
@@ -326,9 +326,10 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         welcomeData: [
             EMPTY_PAYLOAD,
             {
-                loadWelcomeData: async () => {
+                loadWelcomeData: async (_: void, breakpoint) => {
+                    let payload: WelcomePayload
                     try {
-                        return await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
+                        payload = await api.get<WelcomePayload>('api/organizations/@current/welcome/current/')
                     } catch (error) {
                         const status =
                             typeof error === 'object' && error !== null && 'status' in error
@@ -341,6 +342,12 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                         posthog.capture('welcome_screen_load_failed', { status })
                         return EMPTY_PAYLOAD
                     }
+                    // An organization switch starts a second load. Abandon this one, so the previous
+                    // organization's payload cannot record an introduction for the new organization
+                    // and report a second `welcome_screen_shown` for one dialog. The breakpoint sits
+                    // outside the try block, because it aborts by throwing.
+                    breakpoint()
+                    return payload
                 },
             },
         ],
@@ -411,6 +418,12 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
 
     listeners(({ actions, values }) => ({
         resetForOrgChange: () => {
+            // `shouldShowDialog` here already answers for the organization the user switched to,
+            // so a dialog that stays on screen across the switch keeps its guard. The subscription
+            // below cannot do this, because the value does not flip.
+            if (values.shouldShowDialog) {
+                actions.markOnScreen()
+            }
             // The cached payload belongs to the previous org. Refetch so the members, dashboards,
             // activity, and org name all reflect the org the user just switched to. The automatic
             // refetch only fires when `shouldShowDialog` flips, which it does not when the dialog
@@ -426,9 +439,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 return
             }
             actions.markShown()
-            // After an organization switch `shouldShowDialog` stays true, so its subscription does
-            // not fire and the content arrives with `onScreen` still false.
-            actions.markOnScreen()
             // Record the introduction as it happens, because the user does not have to close the
             // dialog for it to count as seen.
             rememberMarker(LOCAL_SEEN_KEY_PREFIX, values.user?.uuid, values.user?.organization?.id)

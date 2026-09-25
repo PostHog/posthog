@@ -149,6 +149,21 @@ describe('welcomeDialogLogic', () => {
         expect(logic.values.shouldShowDialog).toBe(true)
     })
 
+    it('drops a welcome load that a later one superseded', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        // An organization switch starts a second load while the first is still in flight. Both
+        // payloads carry an organization name, so both would otherwise report a dialog.
+        logic.actions.loadWelcomeData()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess']).toFinishAllListeners()
+
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'welcome_screen_shown')
+        ).toHaveLength(1)
+    })
+
     it('persists dismissal to localStorage so the dialog does not reopen', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)
         logic = welcomeDialogLogic()
@@ -207,5 +222,12 @@ describe('welcomeDialogLogic', () => {
         // Title must follow the user's current org even before the refetch lands.
         expect(logic.values.organizationName).toBe('Beta Corp')
         await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
+
+        // The switch keeps the dialog on screen, so another tab introducing the new org must not
+        // take it away. `shouldShowDialog` never flips here, so only the org-change listener can
+        // carry the guard across.
+        window.localStorage.setItem(`posthog_welcome_seen:${INVITED_USER.uuid}:${orgB.id}`, '1')
+        logic.actions.acknowledgeStorageChange()
+        expect(logic.values.shouldShowDialog).toBe(true)
     })
 })
