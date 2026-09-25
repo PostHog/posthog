@@ -1,8 +1,5 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
-import type {
-  CommentTarget,
-  ElementCommentAnchor,
-} from "@posthog/core/comments/anchors";
+import type { ElementCommentAnchor } from "@posthog/core/comments/anchors";
 import {
   type CommentEntry,
   resourceEntry,
@@ -21,13 +18,6 @@ export type PreviewThread = {
   entries: CommentEntry[];
   resolved: boolean;
 };
-
-export function previewCommentTarget(
-  taskId: string,
-  port: number,
-): CommentTarget {
-  return { scope: "task_preview", itemId: `${taskId}:${port}` };
-}
 
 export function previewPathname(path: string): string {
   try {

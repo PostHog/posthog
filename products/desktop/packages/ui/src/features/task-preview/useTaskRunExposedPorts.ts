@@ -7,7 +7,7 @@ import { useCompletedToolCalls } from "@posthog/ui/features/sessions/components/
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
-const EXPOSE_PORT_TOOL = "expose_port";
+export const EXPOSE_PORT_TOOL = "expose_port";
 const EXPOSED_PORTS_POLL_INTERVAL_MS = 30_000;
 const NO_PORTS: TaskRunExposedPort[] = [];
 

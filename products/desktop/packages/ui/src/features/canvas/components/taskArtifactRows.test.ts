@@ -82,4 +82,59 @@ describe("buildRows", () => {
       },
     });
   });
+
+  it.each([
+    {
+      name: "the live latest run",
+      latest: "run-2",
+      status: "in_progress",
+      previews: true,
+      expected: [5173],
+    },
+    {
+      name: "a finished latest run",
+      latest: "run-2",
+      status: "completed",
+      previews: true,
+      expected: [],
+    },
+    {
+      name: "previews turned off",
+      latest: "run-2",
+      status: "in_progress",
+      previews: false,
+      expected: [],
+    },
+  ])(
+    "lists open ports only for $name",
+    ({ latest, status, previews, expected }) => {
+      const runs = [
+        {
+          id: "run-1",
+          status: "in_progress",
+          created_at: "2026-08-01T00:00:00Z",
+          exposed_ports: [{ port: 3000, name: "Old app" }],
+        },
+        {
+          id: "run-2",
+          status,
+          created_at: "2026-08-02T00:00:00Z",
+          exposed_ports: [{ port: 5173, name: "Web app" }],
+        },
+      ] as unknown as TaskRun[];
+      const task = { id: "task-1", latest_run: { id: latest } } as Task;
+
+      const rows = buildRows(task, [], runs, { previews });
+
+      expect(
+        rows.flatMap((row) => (row.kind === "preview" ? [row.port] : [])),
+      ).toEqual(expected);
+      expect(commentTargets(rows)).toEqual(
+        expected.map((port) => ({
+          scope: "task_preview",
+          itemId: `task-1:${port}`,
+        })),
+      );
+    },
+  );
 });

@@ -26,7 +26,11 @@ export function TaskPreviewButton({ task }: { task: Task }) {
   if (!enabled || !isCloud || !runId || ports.length === 0) return null;
 
   const open = (port: TaskRunExposedPort) => {
-    track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, { port_count: ports.length });
+    track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {
+      port_count: ports.length,
+      source: "header",
+      placement: "main",
+    });
     openPreviewTab(task.id, {
       runId,
       port: port.port,

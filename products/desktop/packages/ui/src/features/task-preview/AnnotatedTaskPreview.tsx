@@ -10,11 +10,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { attachPreviewCommentToComposer } from "./attachPreviewCommentToComposer";
 import { PreviewCommentCard } from "./PreviewCommentCard";
 import { PreviewCommentThreads } from "./PreviewCommentThreads";
-import {
-  previewCommentTarget,
-  previewPins,
-  previewThreads,
-} from "./previewComments";
+import { previewPins, previewThreads } from "./previewComments";
+import { previewCommentTarget } from "./previewCommentTarget";
 import { TaskPreviewFrame } from "./TaskPreviewFrame";
 import type {
   TaskPreviewElement,

@@ -1,5 +1,6 @@
 import { contentHash } from "@posthog/core/code-review/contentHash";
 import type { InjectedBlock } from "@posthog/core/editor/injectedBlocks";
+import { DEFAULT_PANEL_IDS } from "@posthog/core/panels/panelConstants";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -23,6 +24,7 @@ import {
 import {
   activeArtifactId,
   createFileTabId,
+  createPreviewTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
@@ -77,6 +79,7 @@ interface PanelLayoutStore {
   openPreviewTab: (
     taskId: string,
     preview: { runId: string; port: number; label: string },
+    placement?: "main" | "split",
   ) => void;
   openPostHogObjectTab: (
     taskId: string,
@@ -309,24 +312,31 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         );
       },
 
-      openPreviewTab: (taskId, preview) => {
+      openPreviewTab: (taskId, preview, placement = "main") => {
+        const tabId = createPreviewTabId(preview.runId, preview.port);
         set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreOpenReadonlyTab(
-                layout,
-                `preview-${preview.runId}-${preview.port}`,
-                preview.label,
-                {
-                  type: "preview",
-                  runId: preview.runId,
-                  port: preview.port,
-                },
-                "main",
-              ) as Partial<TaskLayout>,
-          ),
+          updateTaskLayout(state, taskId, (layout) => {
+            const existing = findTabInTree(layout.panelTree, tabId);
+            const current =
+              placement === "split" &&
+              existing?.panelId === DEFAULT_PANEL_IDS.MAIN_PANEL
+                ? {
+                    ...layout,
+                    ...coreCloseTab(layout, existing.panelId, tabId),
+                  }
+                : layout;
+            return coreOpenReadonlyTab(
+              current,
+              tabId,
+              preview.label,
+              {
+                type: "preview",
+                runId: preview.runId,
+                port: preview.port,
+              },
+              placement,
+            ) as Partial<TaskLayout>;
+          }),
         );
       },
 

@@ -3,6 +3,7 @@ import {
   ArrowSquareOut,
   ChatCircle,
   Globe,
+  SquareSplitHorizontal,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -14,6 +15,7 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
@@ -22,6 +24,7 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useState } from "react";
 import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
+import { usePreviewTabInMainPanel } from "./usePreviewTabInMainPanel";
 import { useTaskPreviewAnnotationsSupported } from "./useTaskPreviewAnnotationsSupported";
 import { useTaskPreviewSession } from "./useTaskPreviewSession";
 
@@ -76,6 +79,8 @@ export function TaskPreviewPanel({
   const [failedAttempt, setFailedAttempt] = useState<number | null>(null);
   const [commenting, setCommenting] = useState(false);
   const annotationsSupported = useTaskPreviewAnnotationsSupported();
+  const inMainPanel = usePreviewTabInMainPanel(taskId, runId, port);
+  const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
   const session = useTaskPreviewSession(taskId, runId, port, attempt);
   const outcome = session.data?.outcome;
   const url = outcome === "ready" ? session.data?.url : null;
@@ -87,6 +92,13 @@ export function TaskPreviewPanel({
   }, [outcome]);
 
   const retry = () => setAttempt((current) => current + 1);
+  const openSideBySide = () => {
+    track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {
+      source: "preview_tab",
+      placement: "split",
+    });
+    openPreviewTab(taskId, { runId, port, label }, "split");
+  };
   const openInBrowser = () => {
     if (!url) return;
     track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED_IN_BROWSER);
@@ -165,6 +177,18 @@ export function TaskPreviewPanel({
                   onClick={() => setCommenting((current) => !current)}
                 >
                   <ChatCircle size={14} />
+                </Button>
+              </Tooltip>
+            )}
+            {inMainPanel && (
+              <Tooltip content="Open side by side" side="bottom">
+                <Button
+                  size="icon-sm"
+                  aria-label="Open side by side"
+                  data-attr="task-preview-open-side-by-side"
+                  onClick={openSideBySide}
+                >
+                  <SquareSplitHorizontal size={14} />
                 </Button>
               </Tooltip>
             )}

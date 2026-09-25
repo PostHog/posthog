@@ -20,6 +20,10 @@ export function createFileTabId(filePath: string): string {
   return `file-${filePath}`;
 }
 
+export function createPreviewTabId(runId: string, port: number): string {
+  return `preview-${runId}-${port}`;
+}
+
 function parseTabId(tabId: string): ParsedTabId & { status?: string } {
   if (tabId.startsWith("file-")) {
     return { type: "file", value: tabId.slice(5) };

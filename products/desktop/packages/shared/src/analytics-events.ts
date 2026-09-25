@@ -305,7 +305,9 @@ export type SidebarNavItem =
 export type SidebarLayout = "code" | "channels";
 
 export interface TaskPreviewOpenedProperties {
-  port_count: number;
+  port_count?: number;
+  source: "header" | "artifacts" | "preview_tab";
+  placement: "main" | "split";
 }
 
 export interface TaskPreviewSessionStartedProperties {
