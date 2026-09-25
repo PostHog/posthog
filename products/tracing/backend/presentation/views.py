@@ -13,6 +13,7 @@ No business logic here - that belongs in logic.py via the facade.
 import json
 import base64
 from collections.abc import Callable
+from typing import cast
 
 from django.db import models
 
@@ -45,7 +46,9 @@ from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.permissions import posthog_feature_flag_enabled
 
 from ..facade.api import (
     FACET_COLUMNS,
@@ -54,6 +57,7 @@ from ..facade.api import (
     count_session_exceptions,
     count_span_exceptions,
     count_trace_exceptions,
+    fetch_trace_ai_events,
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
@@ -74,6 +78,9 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+
+# Matches FEATURE_FLAGS.TRACING_AI_EVENTS in the frontend.
+TRACING_AI_EVENTS_FEATURE_FLAG = "tracing-ai-events"
 
 
 def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
@@ -825,6 +832,34 @@ class _TracingTraceResponseSerializer(serializers.Serializer):
     nextOffset = serializers.IntegerField(
         allow_null=True, help_text="Offset for the next page, or null on the last page."
     )
+
+
+class _TracingTraceAiEventSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="Event UUID.")
+    event = serializers.CharField(
+        help_text="The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`."
+    )
+    started_at = serializers.DateTimeField(
+        help_text="When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish."
+    )
+    ai_trace_id = serializers.CharField(help_text="The `$ai_trace_id` of the event, which opens it in LLM analytics.")
+    ai_span_id = serializers.CharField(allow_null=True, help_text="The `$ai_span_id` of the event.")
+    ai_parent_id = serializers.CharField(
+        allow_null=True,
+        help_text="The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.",
+    )
+    span_name = serializers.CharField(allow_null=True, help_text="The `$ai_span_name`, set on `$ai_span` events.")
+    latency_seconds = serializers.FloatField(allow_null=True, help_text="How long the call took, in seconds.")
+    model = serializers.CharField(allow_null=True, help_text="The model the call used.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider the call went to.")
+    input_tokens = serializers.IntegerField(allow_null=True, help_text="Prompt tokens.")
+    output_tokens = serializers.IntegerField(allow_null=True, help_text="Completion tokens.")
+    total_cost_usd = serializers.FloatField(allow_null=True, help_text="Total cost of the call, in USD.")
+    is_error = serializers.BooleanField(help_text="Whether the call failed.")
+
+
+class _TracingTraceAiEventsResponseSerializer(serializers.Serializer):
+    results = _TracingTraceAiEventSerializer(many=True, help_text="AI events in the trace, earliest start first.")
 
 
 class _TracingSparklineRowSerializer(serializers.Serializer):
@@ -1868,6 +1903,48 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(responses={200: _TracingTraceAiEventsResponseSerializer})
+    # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
+        required_scopes=["tracing:read", "llm_analytics:read"],
+    )
+    def trace_ai_events(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+        """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
+        can show each model call inline with the spans.
+
+        The spans and the AI events live on different ClickHouse clusters, so one query cannot join
+        them; this returns the events half and the caller places them by time.
+        """
+        # The same flag gates the waterfall rows in the frontend, so the endpoint stays dark for
+        # everyone the drawer would not show them to.
+        if not posthog_feature_flag_enabled(
+            TRACING_AI_EVENTS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("AI events in traces are not enabled for this user.")
+
+        if not self.user_access_control.check_access_level_for_resource("llm_analytics", "viewer"):
+            raise PermissionDenied("You do not have access to LLM analytics.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        try:
+            bytes.fromhex(trace_id)
+        except ValueError:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
+
+        self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})
+
+        response = _TracingTraceAiEventsResponseSerializer(instance={"results": events})
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         parameters=[_TracingAttributesQuerySerializer],

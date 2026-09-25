@@ -32,7 +32,7 @@ ANSWERS: dict[str, Any] = {
         "mood": {"score": 2.5, "confidence": 0.4, "probabilities": {"1": 0.2, "2": 0.3, "3": 0.5}, "legend": {}},
     },
     "usage": {"input_tokens": 772, "output_tokens": 0},
-    "latency_ms": 31,
+    "latency_ms": 41.25,
 }
 
 
@@ -94,7 +94,7 @@ class TestDecide:
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
         assert result.input_tokens == 772
-        assert result.latency_ms == 31
+        assert result.latency_ms == 41.25
 
     def test_parses_every_answer_type(self) -> None:
         result = decisions.parse_result(ANSWERS, QUESTIONS)

@@ -50,6 +50,9 @@ class GitHubSourceNotConnectedError(Exception):
 
 # The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
+# Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
+# spends the team's warehouse compute, so no team gets one without opting in.
+FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
 
 
 class CISignalsSyncStatus(StrEnum):
@@ -285,6 +288,7 @@ class ExpectedWarehouseView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
+    materialized: bool = False
 
 
 @dataclass(frozen=True)
@@ -1750,6 +1754,123 @@ class TeamReadyToMergeMedians:
     # Over the pull requests by the team's members, the same population as a github_team delivery scope.
     # None when too few other authors merged in the window: the author could read a teammate's value back.
     medians: ReadyToMergeMedians | None
+
+
+class FrictionGroup(StrEnum):
+    """The kinds of friction an author meets, each a share of the friction score."""
+
+    CI = "ci"
+    REVIEW = "review"
+    QUEUE = "queue"
+    REWORK = "rework"
+
+
+@dataclass(frozen=True)
+class FrictionGroupShare:
+    group: FrictionGroup
+    # This group's part of the author's score, in the same "× typical" unit. The parts add up to the score.
+    score: float
+
+
+@dataclass(frozen=True)
+class AuthorFriction:
+    """What the dev loop put one author through, as a multiple of the typical author (1.0).
+
+    Friction counts only what happened to the author, never how much or how fast they ship (SPEC §2).
+    ``rank`` orders experiences, and ``rank_low``..``rank_high`` is the band it stays in when the author's
+    pull requests are resampled, so a reader sees how settled a position is.
+    """
+
+    author: str
+    avatar_url: str
+    score: float
+    groups: list[FrictionGroupShare]
+    pr_count: int
+    rank: int
+    rank_low: int
+    rank_high: int
+    # The author's GitHub teams, empty when the membership table is not synced.
+    teams: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TeamFriction:
+    """A team's median member friction. Shown only above a floor of scored members, so one or two people
+    never read as a team's figure (SPEC §2)."""
+
+    github_team: str
+    median_score: float
+    scored_author_count: int
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionItem:
+    """One pull request's friction, as a multiple of the typical pull request in the repository."""
+
+    number: int
+    repo_owner: str
+    repo_name: str
+    title: str
+    score: float
+    groups: list[FrictionGroupShare]
+
+
+@dataclass(frozen=True)
+class AuthorFrictionDetail:
+    available: bool
+    window_days: int
+    ranked_author_count: int
+    has_membership_data: bool
+    # None when the author has fewer merged pull requests than a score needs.
+    author: AuthorFriction | None
+    pr_count: int
+    # The author's teams without the author, each only above the floor of other scored members.
+    teams: list[TeamFriction]
+    pull_requests: list[PullRequestFrictionItem]
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionBreakdown:
+    """One merged pull request's friction, and the counts from the per-PR friction view behind it."""
+
+    score: float
+    groups: list[FrictionGroupShare]
+    flake_red_count: int
+    master_red_count: int
+    unknown_red_count: int
+    own_red_count: int
+    futile_rerun_count: int
+    push_count: int
+    # CI running time of each push, oldest first.
+    ci_wait_seconds: list[float]
+    # None when the pull request's ready-for-review moment or first approval is not observed.
+    first_approval_wait_seconds: float | None
+    pushes_after_approval: int | None
+    # None when the pull request never entered the merge queue.
+    queue_seconds: float | None
+    kickout_count: int | None
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionDetail:
+    available: bool
+    window_days: int
+    # None when the pull request did not merge in the window, or a bot authored it.
+    pull_request: PullRequestFrictionBreakdown | None
+
+
+@dataclass(frozen=True)
+class AuthorFrictionList:
+    # False when the team has no per-PR friction view yet (it needs runs, jobs and pull requests synced).
+    available: bool
+    window_days: int
+    # Authors scored in the repository. A team list keeps their ranks, so this is the ranks' denominator.
+    ranked_author_count: int
+    github_team: str | None
+    has_membership_data: bool
+    items: list[AuthorFriction]
+    # Every team above the floor of scored members, most friction first.
+    teams: list[TeamFriction] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
