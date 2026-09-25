@@ -52,16 +52,35 @@ describe('insight error states', () => {
         })
     })
 
-    it('reports "insight error message shown" when a server error renders', () => {
-        render(<InsightErrorState title="A server error occurred." queryId="test-query-id" />)
+    it.each([
+        { networkError: false, errorType: 'server' },
+        { networkError: true, errorType: 'network' },
+    ])('reports error_type $errorType when networkError=$networkError', ({ networkError, errorType }) => {
+        render(
+            <InsightErrorState title="A server error occurred." queryId="test-query-id" networkError={networkError} />
+        )
 
         const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
         expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
-            error_type: 'server',
+            error_type: errorType,
             query_kind: null,
             query_id: 'test-query-id',
         })
+    })
+
+    it('blames the connection, not PostHog, when the request never reached the server', () => {
+        preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+
+        const { container } = render(
+            <InsightErrorState title={null} networkError query={{ kind: 'InsightVizNode' }} onRetry={() => {}} />
+        )
+
+        expect(screen.getByText("We couldn't connect to PostHog")).toBeTruthy()
+        expect(screen.getByText('Check your internet connection, then try again.')).toBeTruthy()
+        expect(screen.queryByText(/contact support/)).toBeNull()
+        expect(screen.queryByText('If this persists, submit a bug report.')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
     })
 
     it('replaces generic invalid-query detail with a next step', () => {
