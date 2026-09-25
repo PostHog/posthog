@@ -6,6 +6,7 @@ import {
     SourceConfigResponseApi,
     SourceFieldInputConfigApi,
     SourceFieldSelectConfigApi,
+    SourceFieldSSHTunnelConfigApi,
     SourceFieldSwitchGroupConfigApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
@@ -91,6 +92,25 @@ const connectionStringWarns = (value: string): boolean => {
     return screen.queryByText(/Couldn't read that connection string/) !== null
 }
 
+// Labels of the fields an open SSH tunnel group renders, which is where the tunnel's own
+// options reach the user.
+const openTunnelFieldLabels = (supportsRequireTls: boolean): string[] => {
+    const field: SourceFieldSSHTunnelConfigApi = {
+        type: 'ssh-tunnel',
+        name: 'ssh_tunnel',
+        label: 'Use SSH tunnel?',
+        supportsRequireTls,
+    }
+    const element = sourceFieldToElement(field, SOURCE_CONFIG, { enabled: true })
+    const rendered = element.props.children({ value: true, onChange: jest.fn() })
+    const children = Array.isArray(rendered.props.children) ? rendered.props.children : [rendered.props.children]
+    const group = children.find((child: any) => Array.isArray(child?.props?.children))
+    if (!group) {
+        throw new Error('open tunnel group rendered no fields')
+    }
+    return group.props.children.map((child: any) => child.props.label)
+}
+
 describe('sourceFieldToElement', () => {
     afterEach(cleanup)
 
@@ -137,5 +157,15 @@ describe('sourceFieldToElement', () => {
             checked: expected,
             childrenVisible: expected,
         })
+    })
+
+    // Only the Postgres connect path reads `require_tls`. On every other tunnel source the switch
+    // used to render and change nothing, so it read as a protection the sync never applied.
+    it.each([
+        ['offers the TLS switch when the source reads require_tls', true, true],
+        ['hides the TLS switch when the source ignores require_tls', false, false],
+    ])('%s', (_name, supportsRequireTls, expected) => {
+        expect(openTunnelFieldLabels(supportsRequireTls)).toContain('Tunnel host')
+        expect(openTunnelFieldLabels(supportsRequireTls).includes('Require TLS through tunnel?')).toBe(expected)
     })
 })

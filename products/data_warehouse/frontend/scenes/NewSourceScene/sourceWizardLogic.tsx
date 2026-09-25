@@ -36,6 +36,7 @@ import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
     ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
+    SourceFieldSSHTunnelConfigApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -152,16 +153,26 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfigApi = {
             caption:
                 'Paste one public host key line for the tunnel server, and PostHog verifies its identity on every connect. Get it from your server administrator, or run `ssh-keyscan -p <port> <host>` and pick one of the lines it prints, then confirm that line through a channel you trust. Leave blank to connect without verifying the server.',
         },
-        {
-            name: 'require_tls',
-            label: 'Require TLS through tunnel?',
-            type: 'switch-group',
-            default: true,
-            caption: 'Disable if your database does not support TLS.',
-            fields: [],
-        },
     ],
 }
+
+// Only sources whose connect path reads `require_tls` render this switch, so the form never
+// offers a TLS guarantee the sync does not make.
+const REQUIRE_TLS_FIELD: SourceFieldConfig = {
+    name: 'require_tls',
+    label: 'Require TLS through tunnel?',
+    type: 'switch-group',
+    default: true,
+    caption: 'Disable if your database does not support TLS.',
+    fields: [],
+}
+
+export const sshTunnelFieldConfig = (field: SourceFieldSSHTunnelConfigApi): SourceFieldSwitchGroupConfigApi => ({
+    ...SSH_FIELD,
+    name: field.name,
+    label: field.label,
+    fields: field.supportsRequireTls ? [...SSH_FIELD.fields, REQUIRE_TLS_FIELD] : SSH_FIELD.fields,
+})
 
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfigResponseApi>
@@ -211,7 +222,7 @@ export const buildKeaFormDefaultFromSourceDetails = (
             const fields = sourceDetails[cur].fields
             fields.forEach((f) => {
                 if (f.type === 'ssh-tunnel') {
-                    fieldDefaults(SSH_FIELD, defaults['payload'])
+                    fieldDefaults(sshTunnelFieldConfig(f), defaults['payload'])
                 } else {
                     fieldDefaults(f, defaults['payload'])
                 }
@@ -2868,7 +2879,7 @@ export const getErrorsForFields = (
 
     for (const field of fields) {
         if (field.type === 'ssh-tunnel') {
-            validateField(SSH_FIELD, values?.payload ?? {}, errors['payload'])
+            validateField(sshTunnelFieldConfig(field), values?.payload ?? {}, errors['payload'])
         } else {
             validateField(field, values?.payload ?? {}, errors['payload'])
         }
