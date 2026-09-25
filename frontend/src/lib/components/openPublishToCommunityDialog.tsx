@@ -7,6 +7,7 @@ import { PublishToCommunityContents } from 'products/skills/frontend/PublishToCo
 export interface PublishToCommunityOptions {
     expected_skill_id: string
     expected_version: number
+    expected_category: string
     display_name?: string
     tags?: string[]
     author_handle?: string
@@ -31,7 +32,7 @@ export function openPublishToCommunityDialog({
     teamId?: number
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
-    let expectedSkill: { id: string; version: number } | null = null
+    let expectedSkill: { id: string; version: number; category: string } | null = null
 
     LemonDialog.openForm({
         title: 'Publish to the PostHog community?',
@@ -52,7 +53,9 @@ export function openPublishToCommunityDialog({
                     skillName={skillName}
                     teamId={teamId}
                     onPreviewChange={(preview) => {
-                        expectedSkill = preview ? { id: preview.id, version: preview.version } : null
+                        expectedSkill = preview
+                            ? { id: preview.id, version: preview.version, category: preview.category }
+                            : null
                     }}
                 />
                 <LemonField name="display_name" label="Display name">
@@ -78,6 +81,7 @@ export function openPublishToCommunityDialog({
             onPublish(skillName, {
                 expected_skill_id: expectedSkill.id,
                 expected_version: expectedSkill.version,
+                expected_category: expectedSkill.category,
                 display_name: display_name?.trim() || undefined,
                 tags: tags
                     ? tags

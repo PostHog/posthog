@@ -205,7 +205,7 @@ describe('scoutFleetLogic', () => {
         const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
         logic.actions.loadScoutConfigsSuccess([config])
 
-        const reviewedSkill = { expected_skill_id: 'skill-1', expected_version: 3 }
+        const reviewedSkill = { expected_skill_id: 'skill-1', expected_version: 3, expected_category: 'scout' }
         logic.actions.publishScoutToCommunity(config.id, reviewedSkill)
         await expectLogic(logic).toDispatchActions(['publishScoutToCommunityFinished'])
 

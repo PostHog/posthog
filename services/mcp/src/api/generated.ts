@@ -54804,6 +54804,11 @@ export namespace Schemas {
          * @minimum 1
          */
       expected_version: number;
+      /**
+         * Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.
+         * @maxLength 64
+         */
+      expected_category?: string;
       /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
       scout_config?: CommunitySkillScoutConfig;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */

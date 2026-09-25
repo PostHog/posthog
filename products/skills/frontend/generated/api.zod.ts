@@ -311,6 +311,8 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmSkillsNamePublishCommunityCreateBodyExpectedCategoryMax = 64
+
 export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMin = 30
 export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMax = 43200
 
@@ -340,6 +342,13 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         .number()
         .min(1)
         .describe('Skill version that the publisher reviewed. The request returns 409 if the latest version changed.'),
+    expected_category: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyExpectedCategoryMax)
+        .optional()
+        .describe(
+            'Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.'
+        ),
     scout_config: zod
         .object({
             run_interval_minutes: zod

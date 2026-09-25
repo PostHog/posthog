@@ -293,6 +293,7 @@ function reuseScoutCostsIfUnchanged(previous: ScoutCostsApi | null, next: ScoutC
 export interface PublishScoutOptions {
     expected_skill_id: string
     expected_version: number
+    expected_category: string
     display_name?: string
     tags?: string[]
     author_handle?: string

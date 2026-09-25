@@ -1772,9 +1772,14 @@ class LLMSkillViewSet(
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
+        # Category rides along with id and version because registering a skill as a scout stamps
+        # `category` without raising the version: on version alone, a skill reviewed as an ordinary
+        # one could publish as a scout, carrying a schedule its publisher never consented to.
+        expected_category = payload.validated_data.get("expected_category")
         if (
             skill.id != payload.validated_data["expected_skill_id"]
             or skill.version != payload.validated_data["expected_version"]
+            or (expected_category is not None and skill.category != expected_category)
         ):
             return Response(
                 {
