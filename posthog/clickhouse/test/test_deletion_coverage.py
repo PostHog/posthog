@@ -65,6 +65,13 @@ class TestDeletionCoverage(ClickhouseTestMixin, BaseTest):
             "See docs/internal/clickhouse-deletion-coverage.md."
         )
 
+        stale = sorted(PERSON_ID_REWRITE_EXEMPT - skipped)
+        assert not stale, (
+            f"{stale} are in PERSON_ID_REWRITE_EXEMPT but are not registered targets the squash skips. "
+            "Remove each entry: either the target now sets accepts_person_id_rewrite=True, or it is no "
+            "longer in PERSONAL_DATA_TARGETS."
+        )
+
     def test_squash_targets_accept_an_alter_update_on_person_id(self):
         # The squash rewrites person_id with ALTER UPDATE, and ClickHouse refuses one on a column in
         # the sorting key or the partition key. A target marked accepts_person_id_rewrite whose key

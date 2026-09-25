@@ -229,3 +229,4 @@ If its storage lives on a cluster other than the one the deletion jobs connect t
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither deletion list, so that decision has to be made rather than skipped.
 It fails the same way on a registered target that neither sets `accepts_person_id_rewrite` nor appears in `PERSON_ID_REWRITE_EXEMPT`, and on a squash target carrying `person_id` in its sorting or partition key.
+It also fails on a `PERSON_ID_REWRITE_EXEMPT` entry that names a squash target or a table no target registers, so the list holds only exemptions that are still in force.
