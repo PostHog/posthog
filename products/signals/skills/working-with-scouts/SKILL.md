@@ -112,15 +112,14 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
 ## Auditing what a scout changed
 
 A scout that holds `write_scopes` (granted via `authoring-scouts`) changes real objects in the project, and each change lands in the project's **activity log** like any other edit.
-The row names the scout's **acting user**, the person whose identity the run mints its token as, and carries a small "via MCP" tag next to the timestamp.
-The row does not name the scout, the run, the skill, or the scopes it held.
-A scout editing a dashboard and the same person editing one from an MCP client produce identical rows.
-So auditing a run is a reconstruction from the run window, not a lookup by scout.
+The row names the scout's **acting user**, the person whose identity the run mints its token as, and carries the server-derived `scout:<skill_name>` client tag.
+The tag identifies the scout but not the run or the scopes it held.
+Auditing one run still requires its time window and a cross-check against its close-out.
 
 To reconstruct one run's changes:
 
 1. **Read the run** (`posthog:scout-runs-retrieve`) for `started_at`, `completed_at`, `metadata.write_scopes` (present only when the run actually held a grant), and the close-out `summary`. The run prompt asks a granted scout to name every object it changed.
-2. **Check history availability.** Follow the reader guidance supplied by MCP when activity history is available. If it is unavailable or access is denied, record that limitation and skip this lens; do not retry discovery or try another audit endpoint.
+2. **Check history availability.** Follow the reader guidance supplied by MCP when activity history is available. If a reader is unavailable or access is denied, record that limitation and stop using that reader for the run; do not retry its discovery or probe endpoints to bypass the restriction. Other advertised, authorized readers, including per-object history, remain usable. Skip only checks that have no available reader.
 3. **Confirm attribution.** The run window can include the acting user's other writes. History that cannot distinguish those writes does not establish which changes the scout made.
 4. **Cross-check against the close-out.** A row the summary does not mention, or a change the summary claims with no row behind it, is the thing to look at.
 
@@ -142,7 +141,7 @@ The scope-named objects themselves still log nothing: a skill body edit (includi
 
 Four caveats change what the answer means:
 
-- **The window is not an attribution.** The same filter also catches the acting user's own MCP writes in that window, from Claude Code, Cursor, or any other MCP client. Narrow by scope and timestamp, then read the rows.
+- **The window is not an attribution.** Without a scout tag, the window can include the acting user's other writes. Even with a tag, overlapping runs of the same scout can share it. Compare actors, items, and timestamps with the close-out.
 - **History access is optional.** Permissions, the Cloud Audit Logs entitlement, and the plan's retention window can make history unavailable. Missing history does not establish that a run made no changes. Defer conclusions that depend on it and continue independent checks; a confirmed access restriction is not a missing-tool defect.
 - **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
   It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.

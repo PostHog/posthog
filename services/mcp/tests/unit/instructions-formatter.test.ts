@@ -568,7 +568,9 @@ describe('InstructionsFormatter', () => {
             if (inline && history) {
                 expect(result).toContain('`start_date`, `end_date`')
                 expect(result).toContain('`page_size: 10`')
-                expect(result).toContain('If access is denied, stop history checks')
+                expect(result).toContain('`clients: ["scout:<skill_name>"]`')
+                expect(result).toContain('If access is denied, stop using this reader')
+                expect(result).toContain('Other advertised, authorized history readers, including per-object readers')
             }
         })
     })
