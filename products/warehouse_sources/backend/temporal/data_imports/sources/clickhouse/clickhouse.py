@@ -912,13 +912,18 @@ def _is_materialized_view_engine(engine: str | None) -> bool:
     return engine == "MaterializedView"
 
 
-def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
-    """Read columns + table type for a single table from system tables."""
+def _to_columns(rows: Sequence[Sequence[Any]]) -> list[ClickHouseColumn]:
+    """Build columns from `(name, type)` rows, in the order the source returned them."""
+    return [ClickHouseColumn(name=row[0], data_type=row[1], nullable=_strip_type_modifiers(row[1])[1]) for row in rows]
+
+
+def _columns_from_system_columns(client: ClickHouseClient, database: str, table_name: str) -> list[ClickHouseColumn]:
+    """Read a table's columns from `system.columns`."""
     # Skip ALIAS and EPHEMERAL columns, matching `get_schemas`'s discovery query — see its
     # comment for why: our `SELECT *` expands to an explicit column list, and an included
     # ALIAS whose defining expression no longer resolves fails the whole sync query with
     # UNKNOWN_IDENTIFIER (code 47), while EPHEMERAL columns aren't selectable at all.
-    cols_result = client.query(
+    result = client.query(
         """
         SELECT name, type
         FROM system.columns
@@ -928,15 +933,24 @@ def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Tabl
         """,
         parameters={"database": database, "table": table_name},
     )
+    return _to_columns(result.result_rows)
 
-    columns: list[ClickHouseColumn] = []
-    for name, raw_type in cols_result.result_rows:
-        _, nullable = _strip_type_modifiers(raw_type)
-        columns.append(ClickHouseColumn(name=name, data_type=raw_type, nullable=nullable))
 
-    if not columns:
-        raise ValueError(f"Table {database}.{table_name} not found or has no columns")
+def _columns_from_view_body(client: ClickHouseClient, database: str, table_name: str) -> list[ClickHouseColumn]:
+    """Read a view's columns by describing the query the view actually runs.
 
+    ClickHouse records a view's columns in `system.columns` when the view is created and
+    never refreshes them. Rename a column in an underlying table and the old name stays
+    there, so the explicit SELECT list we build from it projects a column the view can no
+    longer resolve and the sync fails with UNKNOWN_IDENTIFIER (code 47). `DESCRIBE` of the
+    view body re-resolves the names against the tables as they are today.
+    """
+    result = client.query(f"DESCRIBE (SELECT * FROM {_qualified_table(database, table_name)})")
+    return _to_columns(result.result_rows)
+
+
+def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
+    """Read a single table's type, then its columns from whichever source matches that type."""
     engine_result = client.query(
         "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(table)s",
         parameters={"database": database, "table": table_name},
@@ -949,7 +963,37 @@ def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Tabl
     elif _is_view_engine(engine):
         table_type = "view"
 
+    # A materialized view is excluded: its rows live in a real target table, so
+    # `system.columns` already describes what a read returns.
+    if table_type == "view":
+        columns = _columns_from_view_body(client, database, table_name)
+    else:
+        columns = _columns_from_system_columns(client, database, table_name)
+
+    if not columns:
+        raise ValueError(f"Table {database}.{table_name} not found or has no columns")
+
     return Table(name=table_name, parents=(database,), columns=columns, type=table_type)  # type: ignore[arg-type]
+
+
+def _validate_query_identifiers(
+    table: Table[ClickHouseColumn],
+    incremental_field: Optional[str],
+    row_filters: Optional[list[ValidatedRowFilter]],
+) -> None:
+    """Check the cursor and row-filter columns still exist in the source table.
+
+    Both were validated against the columns discovered when the schema was configured. If
+    one has been renamed or dropped since, ClickHouse answers the extraction query with a
+    raw UNKNOWN_IDENTIFIER that names no column the customer can act on.
+    """
+    configured = [incremental_field, *(row_filter.column for row_filter in row_filters or [])]
+    missing = {name for name in configured if name is not None and name not in table}
+
+    if missing:
+        raise ValueError(
+            f"Configured columns no longer exist in {table.fully_qualified_name}: {', '.join(sorted(missing))}"
+        )
 
 
 def _get_primary_keys(client: ClickHouseClient, database: str, table_name: str) -> list[str] | None:
@@ -1537,6 +1581,12 @@ def clickhouse_source(
             logger.info(f"Discovering table {database}.{table_name}")
             table = _get_table(client, database, table_name)
             logger.info(f"Source schema: {table.to_arrow_schema()}")
+
+            _validate_query_identifiers(
+                table,
+                incremental_field if should_use_incremental_field else None,
+                row_filters,
+            )
 
             primary_keys = _get_primary_keys(client, database, table_name)
             if primary_keys:

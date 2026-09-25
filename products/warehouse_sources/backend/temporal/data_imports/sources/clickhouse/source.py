@@ -346,6 +346,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # identical failure. We match the stable Arrow-conversion phrase, not the
             # volatile column name or type in the message.
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
+            # Raised from `_validate_query_identifiers` when the incremental cursor or a row
+            # filter names a column the source table no longer has — it was renamed or dropped
+            # after this schema was configured. Without this check ClickHouse answers with a raw
+            # UNKNOWN_IDENTIFIER (code 47) that names no column. The configuration is fixed until
+            # the customer changes it, so retrying replays the identical failure. We match the
+            # stable prefix, not the volatile table and column names that follow.
+            "Configured columns no longer exist in": "This schema's incremental cursor or row filter points at a column that no longer exists in your ClickHouse table — it was renamed or dropped. Update the cursor or filter in this schema's settings, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
