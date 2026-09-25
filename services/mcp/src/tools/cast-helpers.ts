@@ -90,3 +90,18 @@ export const normalizeParamAliases =
         }
         return result
     }
+
+/**
+ * Cast a safe integer to its decimal string form; pass everything else through.
+ *
+ * A string path param that reads as a number to an agent is the mirror of the
+ * `string-int` case — the clearest one is an identifier documented as "a UUID
+ * or a numeric ticket number", where the numeric form is a genuine, supported
+ * identifier and JSON's natural encoding for it is a number. Non-integers,
+ * NaN, and Infinity pass through unchanged so zod still rejects them.
+ *
+ * Wired up declaratively via `param_overrides: { id: { cast: 'int-string' } }`
+ * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ */
+export const castIntToString = (v: unknown): unknown =>
+    typeof v === 'number' && Number.isSafeInteger(v) ? String(v) : v

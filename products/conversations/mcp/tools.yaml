@@ -88,6 +88,17 @@ tools:
             from the response envelope. Includes all messages from the customer, team members, and AI, as well as
             private internal notes. Each message contains author_type, author_name, content, and an is_private flag
             indicating internal notes.
+        param_overrides:
+            id:
+                description: >
+                    The ticket's UUID, or its numeric ticket number. Both identify the same ticket;
+                    conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`.
+                cast: int-string
+                aliases:
+                    - ticket_id
+                    - ticketId
+                    - ticket_number
+                    - ticketNumber
     conversations-tickets-notes-destroy:
         operation: conversations_tickets_notes_destroy
         enabled: true
@@ -154,6 +165,17 @@ tools:
             surface them, call inbox-reports-list with source_id set to this ticket's `id` and
             source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold
             the investigation and findings; the ticket's own messages do not.
+        param_overrides:
+            id:
+                description: >
+                    The ticket's UUID, or its numeric ticket number. Both identify the same ticket;
+                    conversations-tickets-list returns the UUID as `id` and the number as `ticket_number`.
+                cast: int-string
+                aliases:
+                    - ticket_id
+                    - ticketId
+                    - ticket_number
+                    - ticketNumber
         response:
             include:
                 - id
