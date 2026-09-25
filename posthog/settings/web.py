@@ -655,6 +655,7 @@ SPECTACULAR_SETTINGS = {
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
+            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",

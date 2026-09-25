@@ -9,6 +9,7 @@ import { engineeringAnalyticsAuthorWorkflowCosts } from '../generated/api'
 import { authorLogic } from './authorLogic'
 
 jest.mock('../generated/api', () => ({
+    engineeringAnalyticsAuthorFrictionDetail: jest.fn().mockResolvedValue(null),
     engineeringAnalyticsAuthorWorkflowCosts: jest.fn(),
 }))
 

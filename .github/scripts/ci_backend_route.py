@@ -6,8 +6,7 @@ to Depot CI` job, which Depot CI waits for before it runs anything, so Depot nev
 routes on its own and the tests never run on both engines. Once that job has concluded
 for a commit, every later run of the same commit repeats its answer, whatever the
 percent or the labels say by then, even after the rollout variable is deleted. A read of
-that record that keeps failing fails the run when the event would go to Depot, so
-nothing is routed anywhere, and otherwise leaves the event on GitHub Actions.
+that record that keeps failing stops routing, so a commit cannot run on both engines.
 """
 
 import os
@@ -181,14 +180,8 @@ def main() -> int:
                 fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
             )
         except HandoffReadError as error:
-            if route_with(None).engine == "depot":
-                sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
-                return 1
-            # Staying on GitHub Actions never sends a commit to Depot twice. The worst case is
-            # a GitHub rerun of a commit Depot already tested, which costs runners, not safety.
-            sys.stdout.write(
-                f"::warning::Cannot read the earlier hand-off, so this event stays on GitHub Actions: {error}\n"
-            )
+            sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
+            return 1
         else:
             sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
     decision = route_with(prior_handoff)
