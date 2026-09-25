@@ -1266,6 +1266,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalyticsTests()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsDeploys()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsTeams()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsAuthors()]: (_, s) => applyScope(s.source, s.repo),
                 '/engineering-analytics/teams/:ownerTeam': (_, s) => applyScope(s.source, s.repo),
             }
         }),

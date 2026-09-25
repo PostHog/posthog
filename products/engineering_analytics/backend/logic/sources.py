@@ -207,6 +207,9 @@ class JobSourceTables:
     # Optional: these views qualify on jobs + runs alone, so a repo can reach them with no PR
     # snapshot. Consumers that enrich from it (default-branch PR attribution) degrade without it.
     pull_requests: str | None = None
+    issue_events: str | None = None
+    reviews: str | None = None
+    source_id: str = ""
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
@@ -232,6 +235,9 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
                         workflow_jobs=jobs,
                         workflow_runs=runs,
                         pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
+                        issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                        reviews=tables.get(REVIEWS_SCHEMA),
+                        source_id=str(source.id),
                     )
                 )
     return resolved
