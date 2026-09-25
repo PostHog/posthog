@@ -314,7 +314,9 @@ def _query_pull_requests(curated: CuratedGitHubSource) -> list[PullRequestFricti
     try:
         rows = curated.run_paged(
             _FRICTION_SELECT.replace("__REPO__", repo_filter),
-            page_key=(("number", 0),),
+            # A multi-repo source read without a repository keeps several repositories under one source id,
+            # and their pull request numbers collide, so the page key carries the repository too.
+            page_key=(("repo_owner", 1), ("repo_name", 2), ("number", 0)),
             query_type="engineering_analytics.author_friction",
             placeholders=placeholders,
         )
