@@ -8,9 +8,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic, previousRefreshAnalytics } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
-import { ExperimentLastRefreshText } from 'scenes/experiments/ExperimentView/ExperimentReloadAction'
 
 import { Experiment } from '~/types'
+
+import { ExperimentLastRefreshText } from './ExperimentLastRefreshText'
 
 interface RefreshButtonProps {
     isRefreshing: boolean
@@ -56,7 +57,7 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
     const metricsLogic = experimentMetricsLogic({ experiment })
     const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
-    const { autoRefresh, currentRefresh } = useValues(experimentLogic)
+    const { currentRefresh } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { refreshExperimentResults } = useAsyncActions(experimentLogic)
 
@@ -69,8 +70,6 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
                     ...previousRefreshAnalytics(currentRefresh),
                 })
                 triggerRecalculation()
@@ -89,7 +88,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
-        autoRefresh,
+        exposuresLoading,
         currentRefresh,
     } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -99,13 +98,11 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
 
     return (
         <RefreshButton
-            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading || exposuresLoading}
             lastRefresh={lastRefresh}
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
                     ...previousRefreshAnalytics(currentRefresh),
                 })
                 void refreshExperimentResults(true, 'manual').catch(() => {

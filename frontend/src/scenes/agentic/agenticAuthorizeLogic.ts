@@ -394,7 +394,6 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
 
         return {
             '/agentic/authorize': handleAuthorize,
-            '/agentic/authorize/': handleAuthorize,
         }
     }),
 ])
