@@ -41,7 +41,8 @@ import {
 } from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import * as tasksApi from 'products/tasks/frontend/generated/api'
+import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -1766,7 +1767,9 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
-            const runSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            const runSpy = jest
+                .spyOn(tasksApi, 'tasksRunsRetrieve')
+                .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1781,8 +1784,13 @@ describe('maxThreadLogic', () => {
 
             // bootstrapRun replayed logs/ and refetched the run, then opened SSE — and the LangGraph
             // stream was never touched (coexistence).
-            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
-            expect(runSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+                projectId: 997,
+            })
+            expect(runSpy).toHaveBeenCalledWith('997', SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+            })
             expect(streamSpy).not.toHaveBeenCalled()
         })
 

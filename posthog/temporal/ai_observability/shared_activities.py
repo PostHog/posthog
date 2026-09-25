@@ -6,6 +6,9 @@ from typing import Any, Literal, cast
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
+from posthog.sync import database_sync_to_async_pool
+
 AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
 
@@ -31,6 +34,33 @@ async def fetch_all_clustering_filters_activity(
         return {config.team_id: config.event_filters for config in configs}
 
     return await asyncio.to_thread(_fetch_filters)
+
+
+def consented_team_ids(team_ids: list[int]) -> set[int]:
+    """Of the given teams, the ones whose organization approved third-party AI data processing.
+
+    The flag is nullable, and every reader treats an unset flag as not approved. A team that
+    no longer exists is absent from the result, so a caller fails closed on both.
+    """
+    from posthog.models import Team  # noqa: PLC0415 - keeps Django models off the workflow import path
+
+    return set(
+        Team.objects.filter(id__in=team_ids, organization__is_ai_data_processing_approved=True).values_list(
+            "id", flat=True
+        )
+    )
+
+
+@frozen
+class TeamAIConsentInput:
+    team_id: int
+
+
+@activity.defn
+async def check_ai_data_processing_consent_activity(inputs: TeamAIConsentInput) -> bool:
+    """Report whether the team's organization approved third-party AI data processing."""
+    consented = await database_sync_to_async_pool(consented_team_ids)([inputs.team_id])
+    return inputs.team_id in consented
 
 
 @dataclass

@@ -26,6 +26,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -127,9 +128,10 @@ async def disable_evaluation_activity(
 ) -> bool:
     """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    Returns True only for the first workflow that disables a running evaluation. Later in-flight
     workflows can hit the same terminal error after the first transition, but shouldn't send
-    duplicate disabled notifications or write duplicate activity log rows.
+    duplicate disabled notifications or write duplicate activity log rows. An evaluation that was
+    already off keeps its new error state, but returns False, because nothing was disabled.
     """
 
     def _disable() -> bool:
@@ -142,8 +144,9 @@ async def disable_evaluation_activity(
             if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
                 return False
 
+            was_enabled = evaluation.enabled
             evaluation.set_status("error", reason, status_reason_detail)
-            return True
+            return was_enabled
 
     return await database_sync_to_async(_disable)()
 
@@ -173,10 +176,11 @@ _STATUS_REASON_SUBJECTS = {
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members when an evaluation enters the ERROR state."""
+    """Email subscribed org members who can view the evaluation when it enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
+        from posthog.tasks.email import NotificationSetting, get_members_to_notify
 
         if not is_email_available(with_absolute_urls=True):
             logger.info(
@@ -190,6 +194,15 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             team = Team.objects.select_related("organization").get(id=inputs.team_id)
         except Team.DoesNotExist:
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        evaluation = Evaluation.objects.filter(id=inputs.evaluation_id, team_id=team.id, deleted=False).first()
+        if evaluation is None:
+            logger.info(
+                "Evaluation not found for evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
             return
 
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
@@ -213,8 +226,9 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             },
         )
 
-        for user in team.organization.members.all():
-            message.add_user_recipient(user)
+        for membership in get_members_to_notify(team, NotificationSetting.AI_EVALUATION_DISABLED.value):
+            if UserAccessControl(membership.user, team).check_access_level_for_object(evaluation, "viewer"):
+                message.add_user_recipient(membership.user)
 
         if message.to:
             message.send()
@@ -289,7 +303,18 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-    if result["result_type"] == "sentiment":
+    if result["result_type"] == "numeric":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True):
+            if "score" in result:
+                properties["$ai_evaluation_numeric_result"] = result["score"]
+            if "score_min" in result:
+                properties["$ai_evaluation_numeric_result_min"] = result["score_min"]
+            if "score_max" in result:
+                properties["$ai_evaluation_numeric_result_max"] = result["score_max"]
+    elif result["result_type"] == "sentiment":
         if not result.get("skipped"):
             properties["$ai_sentiment_label"] = result.get("sentiment_label")
             properties["$ai_sentiment_score"] = result.get("sentiment_score")
@@ -436,7 +461,8 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
                 "input_tokens": result.get("input_tokens", 0),
                 "output_tokens": result.get("output_tokens", 0),
                 "total_tokens": result.get("total_tokens", 0),
-                "verdict": result["verdict"],
+                **({"verdict": result["verdict"]} if "verdict" in result else {}),
+                "result_type": result["result_type"],
             },
             groups={"organization": organization_id, "instance": settings.SITE_URL},
         )

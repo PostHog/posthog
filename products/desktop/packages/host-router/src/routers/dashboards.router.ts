@@ -25,6 +25,8 @@ import {
   listComponentsInput,
   listDashboardsInput,
   promoteCanvasInput,
+  publishProjectInput,
+  publishProjectResultSchema,
   renameDashboardInput,
   reportCanvasErrorInput,
   requestCanvasAgentInput,
@@ -108,6 +110,14 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .patchLayout(input),
+    ),
+  publishProject: publicProcedure
+    .input(publishProjectInput)
+    .output(publishProjectResultSchema)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .publishProject(input),
     ),
   source: publicProcedure
     .input(canvasSourceInput)

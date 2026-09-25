@@ -1,10 +1,7 @@
 {% extends "email/base.html" %}
 {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
-{% if provider_unavailable %}
-    <p>
-        PostHog could not run the AI detector for this alert.
-        The alert and insight settings are correct, so there is nothing to change.
-    </p>
+{% if detector_unavailable %}
+    <p>PostHog could not run the AI detector for this alert, so this check did not run.</p>
 {% else %}
     <p>
         PostHog could not evaluate this alert. This can happen when the insight or alert settings need attention, or
@@ -22,7 +19,7 @@
     <i>{{ alert_error }}</i>
 </p>
 <p>
-    {% if not provider_unavailable %}Review the alert settings.{% endif %}
+    {% if not detector_unavailable %}Review the alert settings.{% endif %}
     {% if next_check_at %}
         PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
     {% else %}
@@ -32,7 +29,7 @@
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri alert_url %}">
-        {% if provider_unavailable %}View alert{% else %}Review alert{% endif %}
+        {% if detector_unavailable %}View alert{% else %}Review alert{% endif %}
     </a>
 </div>
 {% endblock %}

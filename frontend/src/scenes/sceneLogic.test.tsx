@@ -2,7 +2,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -87,6 +87,25 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId,
         })
+    })
+
+    // A trailing slash used to reach the scene, then get replaced out of the address bar. That
+    // second navigation re-ran every `urlToAction` of the scene, so the OAuth consent screen
+    // reloaded its data and blanked while the person was reading it.
+    it('opens a scene once when the URL carries a trailing slash', async () => {
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+
+        const from = testUtilsContext().recordedHistory.length
+        router.actions.push(`${urls.eventDefinitions()}/`)
+        await expectLogic(logic).delay(1)
+        const openScenes = testUtilsContext()
+            .recordedHistory.slice(from)
+            .filter((recorded) => recorded.action.type === logic.actionTypes.openScene)
+
+        expect(openScenes).toHaveLength(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {

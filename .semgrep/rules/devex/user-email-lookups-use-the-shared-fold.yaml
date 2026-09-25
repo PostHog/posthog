@@ -36,7 +36,6 @@ rules:
           include:
               - /ee/api/agentic_provisioning/**/*.py
               - /ee/api/authentication.py
-              - /ee/api/google_oauth_diagnostics.py
               - /ee/api/scim/**/*.py
               - /ee/partners/stripe/api/provisioning/**/*.py
               - /posthog/api/authentication.py

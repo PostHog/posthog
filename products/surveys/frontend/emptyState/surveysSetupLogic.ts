@@ -13,6 +13,8 @@ import { surveysList } from '../generated/api'
 export const surveysSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.SURVEYS,
     path: ['products', 'surveys', 'frontend', 'emptyState', 'surveysSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         // The list excludes archived surveys unless asked for them, and no value of

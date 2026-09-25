@@ -460,6 +460,11 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
+class CodexConnectUserThrottle(UserRateThrottle):
+    scope = "codex_connect_user"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

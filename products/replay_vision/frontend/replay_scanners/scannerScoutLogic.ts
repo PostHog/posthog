@@ -118,7 +118,6 @@ export interface scannerScoutLogicValues {
     createTemplateKey: ScannerScoutTemplateKey | null
     creating: boolean
     enrolled: boolean | null
-    expanded: boolean
     expandedSkillNames: string[]
     latestReportRow: ScoutReportApi | null
     latestRun: SignalScoutRunSummary | null
@@ -311,9 +310,6 @@ export interface scannerScoutLogicActions {
     setScoutConfigsFailed: (failed: boolean) => {
         failed: boolean
     }
-    toggleExpanded: () => {
-        value: true
-    }
     toggleScoutExpanded: (skillName: string) => {
         skillName: string
     }
@@ -402,7 +398,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
 
     actions({
         setScoutConfigsFailed: (failed: boolean) => ({ failed }),
-        toggleExpanded: true,
         toggleScoutExpanded: (skillName: string) => ({ skillName }),
         openReport: (reportId: string) => ({ reportId }),
         closeReport: true,
@@ -552,13 +547,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             {
                 toggleScoutExpanded: (state, { skillName }) =>
                     state.includes(skillName) ? state.filter((name) => name !== skillName) : [...state, skillName],
-            },
-        ],
-        // Whether the Overview card shows the whole digest or the clipped preview.
-        expanded: [
-            false,
-            {
-                toggleExpanded: (state) => !state,
             },
         ],
         creating: [
