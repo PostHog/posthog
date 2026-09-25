@@ -121,6 +121,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
@@ -640,6 +641,18 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
             "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific "
+            "query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
+            "This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     layouts = TileLayoutsSerializer(
         required=False,
         help_text=(
@@ -673,6 +686,17 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
             "min_length": "Text body cannot be empty",
             "max_length": "Text body cannot exceed 4000 characters",
         },
+    )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. "
+            "Max 10000 characters."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
         required=False,
@@ -868,6 +892,18 @@ class TextSerializer(serializers.ModelSerializer):
         allow_null=True,
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=(
+            "Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query "
+            "assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
+            "This field is omitted from shared and exported dashboards."
+        ),
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
@@ -877,6 +913,8 @@ class TextSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Text) -> dict[str, Any]:
         representation = super().to_representation(instance)
+        if self.context.get("is_shared"):
+            representation.pop("agent_context", None)
         _hide_extra_details(self.context, representation)
         return representation
 
@@ -1680,42 +1718,43 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "layout_compaction": layout_compaction,
             }
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+        with transaction.atomic():
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        if use_template:
-            try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
+            if use_template:
+                try:
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
+                except (AttributeError, ValueError) as error:
+                    logger.error(
+                        "dashboard_create.create_from_template_failed",
+                        team_id=team_id,
+                        template=use_template,
+                        error=error,
+                        exc_info=True,
+                    )
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+
+            elif existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
                 )
-            except AttributeError as error:
-                logger.error(
-                    "dashboard_create.create_from_template_failed",
-                    team_id=team_id,
-                    template=use_template,
-                    error=error,
-                    exc_info=True,
-                )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard)
+            # Manual tag creation since this create method doesn't call super()
+            self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -3126,6 +3165,7 @@ class DashboardsViewSet(
         with transaction.atomic():
             text = Text.objects.create(
                 body=validated["body"],
+                agent_context=validated.get("agent_context"),
                 team=dashboard.team,
                 created_by=user,
                 last_modified_at=now(),
@@ -3173,6 +3213,8 @@ class DashboardsViewSet(
             text = tile.text
             if "body" in validated:
                 text.body = validated["body"]
+            if "agent_context" in validated:
+                text.agent_context = validated["agent_context"]
             text.last_modified_by = user
             text.last_modified_at = now()
             text.save()

@@ -3,12 +3,13 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType } from '~/types'
 
 import { textCardModalLogic } from './textCardModalLogic'
 
-const makeDashboard = (body: string = 'existing text'): DashboardType =>
+const makeDashboard = (body: string = 'existing text', agentContext: string = ''): DashboardType =>
     ({
         id: 123,
         name: 'Test dashboard',
@@ -27,6 +28,7 @@ const makeDashboard = (body: string = 'existing text'): DashboardType =>
                 layouts: {},
                 text: {
                     body,
+                    agent_context: agentContext,
                     last_modified_at: '2024-01-01T00:00:00Z',
                 },
             },
@@ -57,7 +59,10 @@ describe('textCardModalLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            textTileValidationErrors: { body: 'Text is too long (4000 characters max)' },
+            textTileValidationErrors: {
+                body: 'Text is too long (4000 characters max)',
+                agent_context: null,
+            },
         })
 
         logic.actions.submitTextTileFailure({ error: 'Validation failed', errors: {} } as any, {})
@@ -75,7 +80,10 @@ describe('textCardModalLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            textTileValidationErrors: { body: 'This card would be empty! Type something first' },
+            textTileValidationErrors: {
+                body: 'This card would be empty! Type something first',
+                agent_context: null,
+            },
         })
 
         logic.actions.submitTextTileFailure({ error: 'Validation failed', errors: {} } as any, {})
@@ -93,6 +101,43 @@ describe('textCardModalLogic', () => {
         logic.mount()
 
         expect(logic.values.textTile.transparent_background).toBe(true)
+    })
+
+    it('loads existing agent context', () => {
+        const logic = textCardModalLogic({
+            dashboard: makeDashboard('Dashboard summary', 'Semantic layer metric: activation_rate'),
+            textTileId: 1,
+            onClose: jest.fn(),
+            tileType: 'text',
+        })
+        logic.mount()
+
+        expect(logic.values.textTile.agent_context).toBe('Semantic layer metric: activation_rate')
+    })
+
+    it('does not mutate the dashboard tile before an update succeeds', () => {
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/dashboards/:id/': () => new Promise(() => {}),
+            },
+        })
+        const dashboard = makeDashboard('Original summary', 'Original agent context')
+        const logic = textCardModalLogic({
+            dashboard,
+            textTileId: 1,
+            onClose: jest.fn(),
+            tileType: 'text',
+        })
+        logic.mount()
+
+        logic.actions.setTextTileValues({
+            body: 'Updated summary',
+            agent_context: 'Updated agent context',
+        })
+        logic.actions.submitTextTile()
+
+        expect(dashboard.tiles?.[0].text?.body).toBe('Original summary')
+        expect(dashboard.tiles?.[0].text?.agent_context).toBe('Original agent context')
     })
 
     it('does not show toast for expected api body validation errors', () => {
@@ -159,6 +204,7 @@ describe('textCardModalLogic', () => {
         ['image', '![Diagram](https://example.com/diagram.png)'],
         ['text', 'Dashboard context'],
     ])('reports %s content type when a text tile saves', (contentType, body) => {
+        const agentContext = 'Semantic layer metric: activation_rate'
         const logic = textCardModalLogic({
             dashboard: makeDashboard(),
             textTileId: null,
@@ -167,11 +213,19 @@ describe('textCardModalLogic', () => {
         })
         logic.mount()
 
-        logic.actions.submitTextTileSuccess({ body, transparent_background: false })
+        logic.actions.submitTextTileSuccess({
+            body,
+            agent_context: agentContext,
+            transparent_background: false,
+        })
 
         expect(posthog.capture).toHaveBeenCalledWith(
             'dashboard text tile saved',
-            expect.objectContaining({ content_type: contentType })
+            expect.objectContaining({
+                content_type: contentType,
+                has_agent_context: true,
+                agent_context_length: agentContext.length,
+            })
         )
     })
 })

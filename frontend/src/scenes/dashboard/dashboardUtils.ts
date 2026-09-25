@@ -47,7 +47,7 @@ export function getInsightQueryError(insight: InsightModel): ApiError | null {
     })
 }
 
-/** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
+/** Shape used for project template creation and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
@@ -66,6 +66,7 @@ export function dashboardToSaveableTemplate(
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
+                        agent_context: tile.text.agent_context,
                         layouts: tile.layouts,
                         color: tile.color,
                         transparent_background: tile.transparent_background,
@@ -109,6 +110,25 @@ export function dashboardToSaveableTemplate(
                 throw new Error('Unknown tile type')
             }),
         variables: [],
+    }
+}
+
+export function dashboardTemplateForExport(
+    template: DashboardTemplateEditorType | undefined
+): DashboardTemplateEditorType | null {
+    if (!template) {
+        return null
+    }
+    return {
+        ...template,
+        tiles: template.tiles.map((tile) => {
+            if (tile.type !== 'TEXT') {
+                return tile
+            }
+            const exportedTile = { ...tile }
+            delete exportedTile.agent_context
+            return exportedTile
+        }),
     }
 }
 

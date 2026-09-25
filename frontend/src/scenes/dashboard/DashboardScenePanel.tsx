@@ -37,6 +37,7 @@ import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalL
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplateModal'
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
+import { dashboardTemplateForExport } from './dashboardUtils'
 
 const RESOURCE_TYPE = 'dashboard'
 
@@ -153,7 +154,9 @@ export function DashboardScenePanel(): JSX.Element | null {
                                           {
                                               format: ExporterFormat.JSON,
                                               context: {
-                                                  localData: JSON.stringify(asDashboardTemplate),
+                                                  localData: JSON.stringify(
+                                                      dashboardTemplateForExport(asDashboardTemplate)
+                                                  ),
                                                   filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                                                   mediaType: ExporterFormat.JSON,
                                               },

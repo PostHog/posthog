@@ -30,6 +30,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
+    showAgentContext?: boolean
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -82,6 +83,7 @@ function TextCardInternal(
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
         showEditingControls,
+        showAgentContext = false,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -93,6 +95,10 @@ function TextCardInternal(
     }
 
     const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
+    const canShowAgentContext =
+        !!text.agent_context?.trim() &&
+        placement !== DashboardPlacement.Public &&
+        placement !== DashboardPlacement.Export
 
     const isTransparent = textTile.transparent_background
     return (
@@ -120,7 +126,10 @@ function TextCardInternal(
                 )}
                 onMouseDown={onDragHandleMouseDown}
             >
-                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+                <TextContent
+                    text={showAgentContext && canShowAgentContext ? text.agent_context || '' : text.body}
+                    className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'}
+                />
             </div>
 
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (

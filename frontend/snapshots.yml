@@ -396,10 +396,18 @@ snapshots:
         hash: v1.k794b7964.407381ff793630510388ef73c424be70fe4b7f4505214ebf03e74861d6b35af5.VXt6UhMyl3bRD_Zg19yN60BSOlElwCuVXkT7QjxqRKE
     components-cards-recordings-universal-filters-display--with-test-accounts-excluded--light:
         hash: v1.k794b7964.6793d8534e432f3ad6417ce8b9a87dc2a413ec160e613bd02cdc83bb6b0ef311.Oe0lQ6yHU6WXgbir-zR6tU1wrBxmw15Gm4mV4Ofx4iA
+    components-cards-text-card--edit-modal-with-agent-context--dark:
+        hash: v1.k794b7964.44d5239691a161b97d6d9f294937327f6f75eee88f75b95956efd2b20c975595.xGEea7187W9BIaiWEX05UfpzZ4b_yeo14pW1CErAYUU
+    components-cards-text-card--edit-modal-with-agent-context--light:
+        hash: v1.k794b7964.2df87059ffb8d52679b02a764f24af1029e4d2d2273b2b85d58280eedcdfcbcf.dL2OJVI76NiBpyZ_IMNKb8iqqh1FT5jfffwJUpbSLao
     components-cards-text-card--template--dark:
         hash: v1.k794b7964.8e6f24ba09b592a10e9da01c6d9e16656cf5d143d6ce27f20d14880941e1f0bf.i43yoYXm-IOhRgrQh66-5UK5DT9n1QRBEhF2hRhrE6Y
     components-cards-text-card--template--light:
         hash: v1.k794b7964.0ea73d1676fdeb2712433012b37ecced0bb3dd6600ef38be24d0a5dffdf909a6.g-u7ns0GawOp2EI9wNA9dfH6OtRgIRDODBUAE3ltej0
+    components-cards-text-card--with-agent-context--dark:
+        hash: v1.k794b7964.7d35d22d06bc42d7867cf53159cf358f9a7b77ebd254de33695facc61ecc745c.up6roT9CezHOQJ8uv1xD7iTOxEEVV9DcsMjE3CXXp_M
+    components-cards-text-card--with-agent-context--light:
+        hash: v1.k794b7964.5e5b6cf283be92f7dedec5dc4d18704d0453c47ea42cdf86931d66148b794c1f.STnYHaIADmsWW4FpnZFb2vsfZuspoE6AiohyONDApOE
     components-cards-text-card--with-more-button--dark:
         hash: v1.k794b7964.248315ccc30b44adfeca97058e776ddf65ac4f9fc99e3b9577f61b0e8883b61c.gji71YH8perbiK2FEFN8bkNjI4NSsKunqTCS7RgZnBk
     components-cards-text-card--with-more-button--light:

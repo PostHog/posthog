@@ -32,8 +32,8 @@ export function mergeTileTextUpdatesIntoDashboard(
 ): DashboardType {
     // Optimistically reconcile text tile updates in-place after save.
     // Some dashboard PATCH responses can momentarily return stale tile.text values, so we patch the
-    // returned dashboard with the just-submitted text body for matching tiles to avoid UI flicker/regression.
-    // We only merge `body` so server-owned metadata (timestamps, modifier fields, etc.) remains authoritative.
+    // returned dashboard with the just-submitted text fields for matching tiles to avoid UI flicker/regression.
+    // We only merge editable fields so server-owned metadata (timestamps, modifier fields, etc.) remains authoritative.
     if (!tilesPayload?.length || !dashboard.tiles?.length) {
         return dashboard
     }
@@ -61,9 +61,13 @@ export function mergeTileTextUpdatesIntoDashboard(
             return {
                 ...tile,
                 text: tile.text
-                    ? incomingText.body !== undefined
-                        ? { ...tile.text, body: incomingText.body }
-                        : tile.text
+                    ? {
+                          ...tile.text,
+                          ...(incomingText.body !== undefined ? { body: incomingText.body } : {}),
+                          ...(incomingText.agent_context !== undefined
+                              ? { agent_context: incomingText.agent_context }
+                              : {}),
+                      }
                     : incomingText,
             }
         }),

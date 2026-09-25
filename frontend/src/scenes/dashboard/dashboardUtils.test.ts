@@ -15,6 +15,7 @@ import {
 
 import {
     dashboardSearchParamsFromOverrides,
+    dashboardTemplateForExport,
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
@@ -132,7 +133,11 @@ describe('dashboardToSaveableTemplate', () => {
             tiles: [
                 {
                     id: 1,
-                    text: { body: 'Text', last_modified_at: '2024-01-01' },
+                    text: {
+                        body: 'Text',
+                        agent_context: 'Use paid plan events for this metric.',
+                        last_modified_at: '2024-01-01',
+                    },
                     layouts: {},
                     color: null,
                     transparent_background: true,
@@ -162,11 +167,20 @@ describe('dashboardToSaveableTemplate', () => {
         } as unknown as DashboardType
 
         expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
-            { type: 'TEXT', transparent_background: true },
+            {
+                type: 'TEXT',
+                body: 'Text',
+                agent_context: 'Use paid plan events for this metric.',
+                transparent_background: true,
+            },
             { type: 'INSIGHT', transparent_background: false },
             { type: 'BUTTON', transparent_background: true },
             { type: 'WIDGET', transparent_background: false },
         ])
+        expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
+            'agent_context'
+        )
+        expect(dashboardTemplateForExport(undefined)).toBeNull()
     })
 })
 

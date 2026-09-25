@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "agent_context": {
+            "anyOf": [
+                {
+                    "maxLength": 10000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. Max 10000 characters."
+        },
         "body": {
             "description": "New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.",
             "maxLength": 4000,

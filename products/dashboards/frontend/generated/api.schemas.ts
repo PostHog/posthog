@@ -1295,6 +1295,12 @@ export interface CreateTextTileRequestApi {
      * @maxLength 4000
      */
     body: string
+    /**
+     * Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
     layouts?: TileLayoutsApi
     /**
@@ -9548,6 +9554,12 @@ export interface TextApi {
      * @nullable
      */
     body?: string | null
+    /**
+     * Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. This field is omitted from shared and exported dashboards.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     readonly last_modified_at: string
     team: number
@@ -9749,6 +9761,12 @@ export interface UpdateTextTileRequestApi {
      * @maxLength 4000
      */
     body?: string
+    /**
+     * New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
     layouts?: TileLayoutsApi
     /**

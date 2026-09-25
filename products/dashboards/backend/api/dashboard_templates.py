@@ -129,6 +129,15 @@ def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
     }
 
 
+def _tiles_without_agent_context(tiles: Any) -> Any:
+    if not isinstance(tiles, list):
+        return tiles
+    return [
+        {key: value for key, value in tile.items() if key != "agent_context"} if isinstance(tile, dict) else tile
+        for tile in tiles
+    ]
+
+
 class CustomerDashboardTemplateWritePermission(BasePermission):
     """
     Staff: any unsafe method (delegates object rules to has_object_permission).
@@ -221,6 +230,12 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else None
         return bool(user and user.is_authenticated and user.is_staff)
+
+    def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        if instance.scope != DashboardTemplate.Scope.ONLY_TEAM:
+            representation["tiles"] = _tiles_without_agent_context(representation.get("tiles"))
+        return representation
 
     @extend_schema_field(NonPortableReferencesSerializer)
     def get_non_portable_references(self, obj: DashboardTemplate) -> dict[str, Any] | None:
@@ -324,6 +339,9 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         if not validated_data.get("scope"):
             validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
 
+        if validated_data["scope"] != DashboardTemplate.Scope.ONLY_TEAM:
+            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles"))
+
         team_id = self.context["team_id"]
         validated_data["team_id"] = team_id
         org_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
@@ -363,6 +381,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             validated_data.pop("is_featured", None)
             validated_data.pop("availability_contexts", None)
             validated_data.pop("image_url", None)
+
+        effective_scope = validated_data.get("scope", instance.scope)
+        if effective_scope != DashboardTemplate.Scope.ONLY_TEAM:
+            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles", instance.tiles))
 
         try:
             return super().update(instance, validated_data, *args, **kwargs)

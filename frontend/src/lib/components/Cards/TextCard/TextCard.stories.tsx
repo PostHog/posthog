@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { DashboardPlacement, DashboardTile, InsightColor } from '~/types'
+import { AccessControlLevel, DashboardPlacement, DashboardTile, DashboardType, InsightColor } from '~/types'
+
+import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 
 import { TextCard } from './TextCard'
+import { TextCardModal } from './TextCardModal'
 import { WORD_ART_PRESETS } from './WordArt/wordArtPresets'
 
 const meta: Meta = {
@@ -13,11 +16,12 @@ const meta: Meta = {
 export default meta
 type Story = StoryObj<{}>
 
-const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
+const makeTextTile = (body: string, color: InsightColor | null = null, agentContext?: string): DashboardTile => {
     return {
         id: 1,
         text: {
             body: body,
+            agent_context: agentContext,
             last_modified_by: {
                 id: 1,
                 uuid: 'a uuid',
@@ -111,6 +115,66 @@ export const WithMoreButton: Story = {
                     moreButtonOverlay={<div>more button</div>}
                     placement={DashboardPlacement.Dashboard}
                 />
+            </div>
+        )
+    },
+}
+
+export const WithAgentContext: Story = {
+    render: () => {
+        return (
+            <div className="h-[240px] max-w-160">
+                <DashboardTextItem
+                    className="h-full"
+                    tile={makeTextTile(
+                        'This chart shows weekly activated organizations.',
+                        null,
+                        'Semantic layer metric: activation_rate. Keep the weekly date range when editing this tile.'
+                    )}
+                    placement={DashboardPlacement.Dashboard}
+                    dashboardId={1}
+                    onEdit={() => undefined}
+                    onDuplicate={() => undefined}
+                />
+            </div>
+        )
+    },
+}
+
+export const EditModalWithAgentContext: Story = {
+    parameters: {
+        testOptions: {
+            snapshotTargetSelector: '[role="dialog"]',
+            waitForSelector: '[role="dialog"]',
+        },
+    },
+    render: () => {
+        const dashboard = {
+            id: 1,
+            name: 'Activation dashboard',
+            description: '',
+            pinned: false,
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: null,
+            last_accessed_at: null,
+            is_shared: false,
+            deleted: false,
+            creation_mode: 'default',
+            tiles: [
+                makeTextTile(
+                    'This chart shows weekly activated organizations.',
+                    null,
+                    'Semantic layer metric: activation_rate. Keep the weekly date range when editing this tile.'
+                ),
+            ],
+            filters: {},
+            tags: [],
+            user_access_level: AccessControlLevel.Editor,
+        } as DashboardType
+
+        return (
+            <div className="min-h-screen w-full">
+                <TextCardModal isOpen onClose={() => undefined} dashboard={dashboard} textTileId={1} />
             </div>
         )
     },

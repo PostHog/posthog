@@ -1274,6 +1274,8 @@ export const DashboardsCreateTextTileCreateQueryParams = () => zod.object({
 export const dashboardsCreateTextTileCreateBodyTypeDefault = `text`
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsCreateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsCreateTextTileCreateBodyColorMax = 400
 
 export const DashboardsCreateTextTileCreateBody = () => zod.object({
@@ -1290,6 +1292,13 @@ export const DashboardsCreateTextTileCreateBody = () => zod.object({
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
             'Markdown body for the dashboard tile. Text tiles support headings, lists, and inline formatting. Image tiles require exactly one Markdown image. Max 4000 characters.'
+        ),
+    agent_context: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            'Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters.'
         ),
     layouts: zod
         .object({
@@ -1485,6 +1494,8 @@ export const DashboardsUpdateTextTileCreateQueryParams = () => zod.object({
 
 export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsUpdateTextTileCreateBodyAgentContextMax = 10000
+
 export const dashboardsUpdateTextTileCreateBodyColorMax = 400
 
 export const DashboardsUpdateTextTileCreateBody = () => zod.object({
@@ -1495,6 +1506,13 @@ export const DashboardsUpdateTextTileCreateBody = () => zod.object({
         .max(dashboardsUpdateTextTileCreateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    agent_context: zod
+        .string()
+        .max(dashboardsUpdateTextTileCreateBodyAgentContextMax)
+        .nullish()
+        .describe(
+            'New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. Max 10000 characters.'
+        ),
     layouts: zod
         .object({
             sm: zod

@@ -146,6 +146,18 @@
                     "maxLength": 4000,
                     "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body."
                 },
+                "agent_context": {
+                    "description": "Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer and user-facing explanations in body.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 10000
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "layouts": {
                     "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
                     "type": "object",

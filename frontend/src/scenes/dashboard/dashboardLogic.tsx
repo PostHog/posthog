@@ -1761,7 +1761,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile>
                         if (newTile.text) {
-                            newTile.text = { body: newTile.text.body } as TextModel
+                            newTile.text = {
+                                body: newTile.text.body,
+                                agent_context: newTile.text.agent_context,
+                            } as TextModel
                         }
 
                         const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)

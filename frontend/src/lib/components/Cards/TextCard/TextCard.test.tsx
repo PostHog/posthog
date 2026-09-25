@@ -53,6 +53,45 @@ describe('TextCard', () => {
         expect(onEnterEditModeFromEdge).toHaveBeenCalledTimes(1)
     })
 
+    it('shows agent context when selected', () => {
+        const { getByText, queryByText } = render(
+            <TextCard
+                textTile={makeTextTile({
+                    text: {
+                        body: 'Human-readable summary',
+                        agent_context: 'Semantic layer metric: activation_rate',
+                        last_modified_at: '2022-04-01T12:24:36',
+                    },
+                })}
+                placement={DashboardPlacement.Dashboard}
+                showAgentContext
+            />
+        )
+
+        expect(getByText('Semantic layer metric: activation_rate')).toBeInTheDocument()
+        expect(queryByText('Human-readable summary')).not.toBeInTheDocument()
+    })
+
+    it('does not show agent context on public dashboards', () => {
+        const { container } = render(
+            <TextCard
+                textTile={makeTextTile({
+                    text: {
+                        body: 'Public summary',
+                        agent_context: 'Private agent context',
+                        last_modified_at: '2022-04-01T12:24:36',
+                    },
+                })}
+                placement={DashboardPlacement.Public}
+                showAgentContext
+            />
+        )
+
+        expect(container).not.toHaveTextContent('Agent context')
+        expect(container).not.toHaveTextContent('Private agent context')
+        expect(container).toHaveTextContent('Public summary')
+    })
+
     describe('TextContent', () => {
         it('calls closeDetails when clicked', () => {
             const closeDetails = jest.fn()
