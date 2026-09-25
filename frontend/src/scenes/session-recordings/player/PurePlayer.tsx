@@ -96,8 +96,12 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
         hasLateFullSnapshot,
         leadingUnplayableMs,
+        leadingUnplayableActiveMs,
+        leadingSpanCoversRecording,
         hasUnrenderableWindow,
         unrenderableWindowMs,
+        unrenderableWindowActiveMs,
+        recordingActiveMs,
         hasOversizedMutations,
         fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
@@ -177,6 +181,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 recordingDurationMs: sessionPlayerData?.durationMs,
                 leadingUnplayableMs,
+                leadingUnplayableActiveMs,
+                recordingActiveMs,
             })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,10 +209,32 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 recordingDurationMs: sessionPlayerData?.durationMs,
                 unrenderableWindowMs,
+                unrenderableWindowActiveMs,
+                recordingActiveMs,
             })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [hasUnrenderableWindow, fullyLoaded, sessionRecordingId]
+    )
+
+    // The takeover replaces the player for these, so they are countable nowhere else.
+    const reportedSnapshotAfterEndFor = useRef<string | null>(null)
+
+    useEffect(
+        () => {
+            if (!leadingSpanCoversRecording || reportedSnapshotAfterEndFor.current === sessionRecordingId) {
+                return
+            }
+            reportedSnapshotAfterEndFor.current = sessionRecordingId
+            posthog.capture('session loaded with full snapshot after recording end', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                leadingUnplayableMs,
+            })
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [leadingSpanCoversRecording, sessionRecordingId]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -406,22 +434,23 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                         >
                                             {hasLateFullSnapshot ? (
                                                 <>
-                                                    The first{' '}
-                                                    {humanFriendlyDuration(leadingUnplayableMs / 1000, {
+                                                    This recording is missing its first{' '}
+                                                    {humanFriendlyDuration(leadingUnplayableActiveMs / 1000, {
                                                         maxUnits: 2,
                                                     })}{' '}
-                                                    of this recording can't be played. The first screen snapshot arrived
-                                                    late, so playback starts at the first frame we can render.{' '}
+                                                    of activity. The first screen snapshot arrived late, so playback
+                                                    starts at the first frame we can render.{' '}
                                                 </>
                                             ) : null}
                                             {hasUnrenderableWindow ? (
                                                 <>
-                                                    {humanFriendlyDuration(unrenderableWindowMs / 1000, {
+                                                    This recording is missing{' '}
+                                                    {humanFriendlyDuration(unrenderableWindowActiveMs / 1000, {
                                                         maxUnits: 2,
                                                     })}{' '}
-                                                    of this recording can't be played. A browser window opened without
-                                                    sending a screen snapshot, so the player stays blank while that
-                                                    window is on screen.{' '}
+                                                    of activity. A browser window opened without sending a screen
+                                                    snapshot, so the player stays blank while that window is on
+                                                    screen.{' '}
                                                 </>
                                             ) : null}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">

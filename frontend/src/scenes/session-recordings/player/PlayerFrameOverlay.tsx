@@ -132,12 +132,18 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         )
     } else if (currentPlayerState === SessionPlayerState.ERROR) {
         // A player frame that never loaded leaves nothing to draw into, so its message outranks any snapshot error.
-        const isMissingFullSnapshot = !playerFrameDocumentFailed && playerError === 'noPlayableFullSnapshot'
+        const isSnapshotAfterRecordingEnd =
+            !playerFrameDocumentFailed && playerError === 'fullSnapshotAfterRecordingEnd'
+        const isMissingFullSnapshot =
+            (!playerFrameDocumentFailed && playerError === 'noPlayableFullSnapshot') || isSnapshotAfterRecordingEnd
         const isUnauthorized = !playerFrameDocumentFailed && playerError === 'snapshotUnauthorized'
         const isRecoverable =
             !playerFrameDocumentFailed && !!playerError && RECOVERABLE_SNAPSHOT_ERRORS.includes(playerError)
         content = (
-            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
+            <div
+                className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm"
+                data-attr="player-error-overlay"
+            >
                 <IconWarning className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">
                     {playerFrameDocumentFailed
@@ -149,13 +155,15 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="text-secondary text-sm text-center">
                     {playerFrameDocumentFailed
                         ? "Your browser couldn't load the player. Check your internet connection and reload the page. If it keeps happening, a browser extension or security setting may be blocking it. Try turning off extensions for PostHog or using another browser."
-                        : isMissingFullSnapshot
-                          ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                          : isUnauthorized
-                            ? 'Your session has expired. Sign in again to keep watching this recording.'
-                            : isRecoverable
-                              ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
-                              : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                        : isSnapshotAfterRecordingEnd
+                          ? 'The first screen snapshot of this recording arrived after the recording ended, so there is no frame we can show. The data never reached PostHog in time, usually because the browser was closed or went offline before the recording finished uploading.'
+                          : isMissingFullSnapshot
+                            ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
+                            : isUnauthorized
+                              ? 'Your session has expired. Sign in again to keep watching this recording.'
+                              : isRecoverable
+                                ? "We couldn't fetch the recording data. This is usually a temporary network problem. Retry, and if it keeps failing contact support."
+                                : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {isUnauthorized && (
                     <LemonButton to={urls.login()} type="primary" fullWidth center>

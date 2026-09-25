@@ -11,16 +11,21 @@ const lineTwo =
 
 export const snapshotsAsJSONLines = (): string => `${lineOne}\n${lineTwo}\n`
 
-// a real full snapshot node, but emitted `lateByMs` after the first snapshot
+// a real full snapshot node, but emitted `lateByMs` after the first snapshot. The mouse moves
+// across the lost span make it active time, which is what the player measures the loss in.
 export const lateFullSnapshotAsJSONLines = (baseTimestamp: number, lateByMs: number): string => {
     const firstLine = snapshotsAsJSONLines().trim().split('\n')[0]
     const parsed = JSON.parse(firstLine)
     const meta = parsed.data.find((e: { type: number }) => e.type === 4)
     const fullSnapshot = parsed.data.find((e: { type: number }) => e.type === 2)
     const incremental = parsed.data.find((e: { type: number }) => e.type === 3)
+    const lostSpanMoves = Array.from({ length: Math.floor(lateByMs / 5000) }, (_, index) => ({
+        ...incremental,
+        timestamp: baseTimestamp + index * 5000,
+    }))
     const data = [
         { ...meta, timestamp: baseTimestamp },
-        { ...incremental, timestamp: baseTimestamp + 2000 },
+        ...lostSpanMoves,
         { ...fullSnapshot, timestamp: baseTimestamp + lateByMs },
         { ...incremental, timestamp: baseTimestamp + lateByMs + 1000 },
     ]

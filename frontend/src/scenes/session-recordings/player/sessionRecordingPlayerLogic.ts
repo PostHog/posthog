@@ -188,9 +188,42 @@ export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
 // extra seek on nearly every playback.
 const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 
-// a leading unplayable region longer than this is worth surfacing to the user (banner + scrubber
-// marker); below it the dead-zone clamp handles things silently and a warning would be noise
-const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
+// A span playback cannot render is worth surfacing to the user (banner + scrubber marker) only when
+// it costs real activity. Wall clock is the wrong measure: most of a recording can be idle time,
+// where the lost span holds nothing the viewer would have seen, so a wall-clock threshold warns the
+// same way for a recording that lost a few seconds of use and one that lost all of it.
+const UNPLAYABLE_SPAN_MIN_ACTIVE_MS = 5000
+const UNPLAYABLE_SPAN_MIN_ACTIVE_SHARE = 0.1
+
+// How far past the recovery point playback must reach before the viewer counts as recovered.
+const LATE_FULL_SNAPSHOT_RECOVERY_MS = 5000
+
+// Active time the segmenter marked inside a span. The segments hold the player's own definition of
+// activity, which is the one the playhead and the inactivity skip already follow.
+function activeMsWithin(segments: RecordingSegment[], startTimestamp: number, endTimestamp: number): number {
+    let total = 0
+    for (const segment of segments) {
+        if (!segment.isActive) {
+            continue
+        }
+        const overlapStart = Math.max(segment.startTimestamp, startTimestamp)
+        const overlapEnd = Math.min(segment.endTimestamp, endTimestamp)
+        if (overlapEnd > overlapStart) {
+            total += overlapEnd - overlapStart
+        }
+    }
+    return total
+}
+
+// Warn on a lost span only when it takes both a usable amount of activity and a meaningful share of
+// the activity the recording holds.
+function isSignificantActiveLoss(lostActiveMs: number, recordingActiveMs: number): boolean {
+    return (
+        lostActiveMs > UNPLAYABLE_SPAN_MIN_ACTIVE_MS &&
+        recordingActiveMs > 0 &&
+        lostActiveMs / recordingActiveMs > UNPLAYABLE_SPAN_MIN_ACTIVE_SHARE
+    )
+}
 
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
@@ -637,6 +670,8 @@ export interface sessionRecordingPlayerLogicValues {
     isWaitingForIngestion: boolean
     jumpTimeMs: number
     leadingRecoveryTimestamp: number | null
+    leadingSpanCoversRecording: boolean
+    leadingUnplayableActiveMs: number
     leadingUnplayableMs: number
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
@@ -654,6 +689,7 @@ export interface sessionRecordingPlayerLogicValues {
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
     quickEmojiIsOpen: boolean
+    recordingActiveMs: number
     reportedReplayerErrors: Set<string>
     resolution: {
         height: number
@@ -677,6 +713,7 @@ export interface sessionRecordingPlayerLogicValues {
         timestampMatchesPrevious: number
     }
     toRRWebPlayerTime: (timestamp: number) => number | undefined
+    unrenderableWindowActiveMs: number
     unrenderableWindowMs: number
     unrenderableWindowSpans: UnplayableSpan[]
     wasMarkedViewed: boolean
@@ -1136,14 +1173,31 @@ export interface sessionRecordingPlayerLogicMeta {
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number | null
         leadingUnplayableMs: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => number
-        hasLateFullSnapshot: (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null) => boolean
+        recordingActiveMs: (sessionPlayerData: SessionPlayerData) => number
+        leadingUnplayableActiveMs: (
+            sessionPlayerData: SessionPlayerData,
+            leadingRecoveryTimestamp: number | null
+        ) => number
+        leadingSpanCoversRecording: (
+            sessionPlayerData: SessionPlayerData,
+            leadingRecoveryTimestamp: number | null
+        ) => boolean
+        hasLateFullSnapshot: (
+            leadingUnplayableActiveMs: any,
+            recordingActiveMs: any,
+            leadingSpanCoversRecording: any
+        ) => boolean
         unrenderableWindowSpans: (
             sessionPlayerData: SessionPlayerData,
             seekRenderability: (timestamp: number) => SeekRenderability,
             leadingRecoveryTimestamp: number | null
         ) => UnplayableSpan[]
         unrenderableWindowMs: (unrenderableWindowSpans: UnplayableSpan[]) => number
-        hasUnrenderableWindow: (unrenderableWindowMs: number) => boolean
+        unrenderableWindowActiveMs: (
+            sessionPlayerData: SessionPlayerData,
+            unrenderableWindowSpans: UnplayableSpan[]
+        ) => number
+        hasUnrenderableWindow: (unrenderableWindowActiveMs: any, recordingActiveMs: any) => boolean
         isWaitingForIngestion: (
             seekRenderability: (timestamp: number) => SeekRenderability,
             currentTimestamp: number | undefined
@@ -1994,18 +2048,54 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        // The threshold reads the unclamped offset, not `leadingUnplayableMs`. The clamped span can
-        // never exceed the recording length, so a recording no longer than the threshold would always
-        // fall under it and silence its own warning, which is the worst case rather than a mild one.
-        hasLateFullSnapshot: [
+        // Active time the whole recording holds, the denominator every warning is measured against.
+        recordingActiveMs: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null) {
+                    return 0
+                }
+                return activeMsWithin(sessionPlayerData.segments, start, start + sessionPlayerData.durationMs)
+            },
+        ],
+
+        leadingUnplayableActiveMs: [
+            (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
+            (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null || leadingRecoveryTimestamp == null) {
+                    return 0
+                }
+                const end = Math.min(leadingRecoveryTimestamp, start + sessionPlayerData.durationMs)
+                return activeMsWithin(sessionPlayerData.segments, start, end)
+            },
+        ],
+
+        // The recovery point can sit at or past the end of the timeline, which leaves no frame to
+        // play: the clamp parks the playhead on the last frame and a banner would report the whole
+        // recording as lost while the player behind it shows nothing. The takeover owns this case.
+        // `durationMs` only applies the metadata cap once the recording is fully loaded, so this
+        // can only become true on a recording whose data has all arrived.
+        leadingSpanCoversRecording: [
             (s) => [s.sessionPlayerData, s.leadingRecoveryTimestamp],
             (sessionPlayerData: SessionPlayerData, leadingRecoveryTimestamp: number | null): boolean => {
                 const start = sessionPlayerData.start?.valueOf()
-                if (start == null || leadingRecoveryTimestamp == null) {
+                if (start == null || leadingRecoveryTimestamp == null || sessionPlayerData.durationMs <= 0) {
                     return false
                 }
-                return leadingRecoveryTimestamp - start > LATE_FULL_SNAPSHOT_THRESHOLD_MS
+                return leadingRecoveryTimestamp - start >= sessionPlayerData.durationMs
             },
+        ],
+
+        hasLateFullSnapshot: [
+            (s) => [s.leadingUnplayableActiveMs, s.recordingActiveMs, s.leadingSpanCoversRecording],
+            (
+                leadingUnplayableActiveMs: number,
+                recordingActiveMs: number,
+                leadingSpanCoversRecording: boolean
+            ): boolean =>
+                !leadingSpanCoversRecording && isSignificantActiveLoss(leadingUnplayableActiveMs, recordingActiveMs),
         ],
 
         // Spans of a window that opened without ever sending its initial DOM. rrweb draws its own
@@ -2131,9 +2221,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 unrenderableWindowSpans.reduce((total, span) => total + span.endTimestamp - span.startTimestamp, 0),
         ],
 
+        unrenderableWindowActiveMs: [
+            (s) => [s.sessionPlayerData, s.unrenderableWindowSpans],
+            (sessionPlayerData: SessionPlayerData, unrenderableWindowSpans: UnplayableSpan[]): number =>
+                unrenderableWindowSpans.reduce(
+                    (total, span) =>
+                        total + activeMsWithin(sessionPlayerData.segments, span.startTimestamp, span.endTimestamp),
+                    0
+                ),
+        ],
+
         hasUnrenderableWindow: [
-            (s) => [s.unrenderableWindowMs],
-            (unrenderableWindowMs: number): boolean => unrenderableWindowMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+            (s) => [s.unrenderableWindowActiveMs, s.recordingActiveMs],
+            (unrenderableWindowActiveMs: number, recordingActiveMs: number): boolean =>
+                isSignificantActiveLoss(unrenderableWindowActiveMs, recordingActiveMs),
         ],
 
         // True while the player is buffering on a position whose FullSnapshot hasn't been
@@ -2687,6 +2788,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (timestamp == null) {
                 return
             }
+            // Nothing renders before the recovery point, and the recovery point is past the end of the
+            // timeline, so no position in this recording can play. Say so once instead of clamping the
+            // playhead onto the last frame.
+            if (values.leadingSpanCoversRecording) {
+                actions.endBuffer()
+                values.player?.replayer?.pause()
+                actions.setPlayerError('fullSnapshotAfterRecordingEnd')
+                return
+            }
+
             // Gates on the raw isBuffering reducer rather than currentPlayerState === BUFFER — other states (e.g. SKIP while skipping inactivity) outrank BUFFER in that selector and would otherwise mask the exit forever.
             if (!reposition && !values.isBuffering) {
                 return
@@ -3034,7 +3145,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.syncPlayerSpeed()
             }
         },
+        setCurrentTimestamp: ({ timestamp }) => {
+            // Recovery metric: the banner tells the viewer playback starts later, and this reports
+            // whether they went on to watch from there. One event per recording.
+            if (cache.reportedLateFullSnapshotRecovery || !values.hasLateFullSnapshot) {
+                return
+            }
+            const recoveryTimestamp = values.leadingRecoveryTimestamp
+            if (recoveryTimestamp == null || timestamp < recoveryTimestamp + LATE_FULL_SNAPSHOT_RECOVERY_MS) {
+                return
+            }
+            cache.reportedLateFullSnapshotRecovery = true
+            posthog.capture('session played past late full snapshot', {
+                watchedSessionId: values.sessionRecordingId,
+                leadingUnplayableMs: values.leadingUnplayableMs,
+                leadingUnplayableActiveMs: values.leadingUnplayableActiveMs,
+                recordingActiveMs: values.recordingActiveMs,
+            })
+        },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
+            // Every position in this recording clamps onto the last frame, so a seek can only move the
+            // playhead to the end of a recording that never rendered. The takeover owns it instead.
+            if (values.leadingSpanCoversRecording) {
+                actions.syncPlayerState()
+                return
+            }
             // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
             // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.
             let target = timestamp
@@ -3716,6 +3851,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         cache.pausedMediaElements = []
+        cache.reportedLateFullSnapshotRecovery = false
         cache.disposables.add(() => {
             const fullScreenListener = (): void => {
                 actions.setIsFullScreen(document.fullscreenElement !== null)
