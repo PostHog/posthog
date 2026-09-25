@@ -252,6 +252,9 @@ describe('StepFunctionConfiguration', () => {
         fireEvent.click(await screen.findByText('Start from template'))
         await pickLibraryTemplate(SPRING_TEMPLATE)
         await waitFor(() => expect(stepConfig(logic).template_uuid).toEqual(SPRING_TEMPLATE.id))
+        // The picker unmounts after its close transition. Reopening it earlier makes react-modal
+        // register the same instance twice.
+        await waitFor(() => expect(screen.queryByText('Choose a starting point')).not.toBeInTheDocument())
 
         emailTemplaterLogic.findMounted()!.actions.setIsTemplatePickerOpen(true)
         await pickLibraryTemplate(SUMMER_TEMPLATE)
