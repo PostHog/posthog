@@ -6911,6 +6911,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 person_mode="full",
             )
 
+        flush_persons_and_events()
+        billable_result_after_excluded = dict(query(self.begin, self.end, count_distinct=count_distinct))
+        self.assertEqual(billable_result_after_excluded.get(self.team.id, 0), baseline_count)
+
         _create_event(
             event="$sdk_diagnostics_config_custom",
             team=self.team,
