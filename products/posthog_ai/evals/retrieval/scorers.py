@@ -39,7 +39,8 @@ import re
 import json
 from typing import Any
 
-from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, LogParser
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
