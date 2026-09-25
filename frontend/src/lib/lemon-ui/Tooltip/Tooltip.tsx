@@ -99,7 +99,7 @@ export function Tooltip({
     visible: controlledOpen,
     docLink,
     containerClassName,
-    openOnClick = false,
+    openOnClick = true,
     onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)

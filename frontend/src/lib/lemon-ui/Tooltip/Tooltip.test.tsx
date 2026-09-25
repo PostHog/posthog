@@ -29,20 +29,20 @@ describe('Tooltip', () => {
         expect(await screen.findByText(TITLE)).toBeTruthy()
     })
 
-    it('does not open on click by default', async () => {
+    it('opens on click by default', async () => {
         renderTooltip()
 
         fireEvent.click(screen.getByText('Outdated'))
 
-        await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
+        expect(await screen.findByText(TITLE)).toBeTruthy()
     })
 
-    it('opens on click when openOnClick is set', async () => {
-        renderTooltip({ openOnClick: true })
+    it('does not open on click when openOnClick is disabled', async () => {
+        renderTooltip({ openOnClick: false })
 
         fireEvent.click(screen.getByText('Outdated'))
 
-        expect(await screen.findByText(TITLE)).toBeTruthy()
+        await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
     })
 
     it('still opens on hover when openOnClick is set', async () => {
