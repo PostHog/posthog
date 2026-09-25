@@ -227,6 +227,30 @@ function requestPath(url: string): string {
     }
 }
 
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The request path with entity ids replaced by placeholders and the query
+ *  string dropped. One upstream outage hits many orgs and projects at once, and
+ *  a path that keeps their ids opens one error tracking issue per tenant
+ *  instead of one per fault. */
+function groupableRequestPath(url: string): string {
+    let pathname: string
+    try {
+        pathname = new URL(url).pathname
+    } catch {
+        return url
+    }
+    return pathname
+        .split('/')
+        .map((segment) => {
+            if (UUID_SEGMENT.test(segment)) {
+                return ':uuid'
+            }
+            return /^\d+$/.test(segment) ? ':id' : segment
+        })
+        .join('/')
+}
+
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
     return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
 }
@@ -293,7 +317,7 @@ export class PostHogTransportError extends Error {
             ? 'The request applies nothing upstream, so it is safe to retry.'
             : 'The request may have been applied upstream, so check the state before you send it again.'
         super(
-            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
+            `Could not reach the PostHog API on ${options.method} ${groupableRequestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
         )
         this.name = 'PostHogTransportError'
         this.retryable = options.retryable

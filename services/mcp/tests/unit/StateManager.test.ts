@@ -407,6 +407,24 @@ describe('StateManager', () => {
             expect(result.projectId).toBeUndefined()
             expect(reportSpy).not.toHaveBeenCalled()
         })
+
+        it.each([
+            ['getUser', 'getApiKey'],
+            ['getApiKey', 'getUser'],
+        ])('should return an empty default when %s fails', async (failing, succeeding) => {
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            vi.spyOn(stateManager, failing as 'getUser' | 'getApiKey').mockRejectedValue(
+                new Error('Could not reach the PostHog API')
+            )
+            vi.spyOn(stateManager, succeeding as 'getUser' | 'getApiKey').mockResolvedValue(
+                (succeeding === 'getUser' ? mockUser : mockApiKey) as any
+            )
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result).toEqual({ organizationId: undefined, projectId: undefined })
+            expect(reportSpy).toHaveBeenCalled()
+        })
     })
 
     describe('getOrgID', () => {

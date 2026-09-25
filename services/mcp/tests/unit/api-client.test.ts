@@ -549,6 +549,10 @@ describe('ApiClient', () => {
             // so telling the agent to send it again invites a double apply.
             expect((error as PostHogTransportError).retryable).toBe(false)
             expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
+            // One upstream outage must group as one error tracking issue, not one per
+            // project, so entity ids never reach the message.
+            expect((error as PostHogTransportError).message).toContain('/api/projects/:id/llm_skills/')
+            expect((error as PostHogTransportError).message).not.toContain('/17/')
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
