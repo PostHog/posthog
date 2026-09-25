@@ -6,6 +6,7 @@ import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFunctionType } from '../types'
 import { MAX_LOG_LENGTH } from '../utils'
+import { currentRuntimeContractHash } from './filter-runtime'
 import { buildHogFunctionInvocations, cloneInvocation, createInvocation } from './invocation-utils'
 
 describe('Invocation utils', () => {
@@ -265,10 +266,16 @@ describe('Invocation utils', () => {
                     .filter(({ labels }) => labels.class === cls && labels.type === 'destination')
                     .reduce((sum, { value }) => sum + value, 0)
             }
-            const before = { legacy: await inputsErrors('legacy'), data: await inputsErrors('data') }
+            const before = {
+                legacy: await inputsErrors('legacy'),
+                data: await inputsErrors('data'),
+                drift: await inputsErrors('drift'),
+                bug: await inputsErrors('bug'),
+            }
             const withInput = (input: {
                 value: string
                 bytecode?: unknown[]
+                bytecode_contract?: string
                 templating?: 'liquid'
             }): HogFunctionType =>
                 createHogFunction({
@@ -284,6 +291,18 @@ describe('Invocation utils', () => {
                 withInput({ value: '{% if %}', templating: 'liquid' }),
                 // A value that does not fit the function it meets.
                 withInput({ value: 'x', bytecode: ['_H', 1, 32, 'bogus', 33, 1, 33, 1, 2, 'dateDiff', 3] }),
+                // The same missing global on a template compiled against an older runtime: our change.
+                withInput({
+                    value: '{distinct_id}',
+                    bytecode: ['_H', 1, 32, 'distinct_id', 1, 1],
+                    bytecode_contract: 'older',
+                }),
+                // And on one compiled against this runtime: the compiler let through what the VM refuses.
+                withInput({
+                    value: '{distinct_id}',
+                    bytecode: ['_H', 1, 32, 'distinct_id', 1, 1],
+                    bytecode_contract: currentRuntimeContractHash(),
+                }),
             ]
 
             const results = await buildHogFunctionInvocations(hogInputsService, fns, pageviewGlobals())
@@ -291,6 +310,8 @@ describe('Invocation utils', () => {
             expect(results.invocations).toHaveLength(0)
             expect(await inputsErrors('legacy')).toBe(before.legacy + 2)
             expect(await inputsErrors('data')).toBe(before.data + 1)
+            expect(await inputsErrors('drift')).toBe(before.drift + 1)
+            expect(await inputsErrors('bug')).toBe(before.bug + 1)
         })
 
         it('masks a secret input quoted by the failure', async () => {
