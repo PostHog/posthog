@@ -283,7 +283,7 @@ def run_cases(
     endpoint: SystemOneEndpoint | None = None,
 ) -> list[CaseResult]:
     """Judge every case, calling ``on_result`` as each answer arrives so a caller can print it live.
-    ``endpoint`` sends the judgments to that server instead of TypeSafe. The results come back in
+    ``endpoint`` sends the judgments to that server instead of the configured one. The results come back in
     the order of ``cases``."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -297,7 +297,7 @@ def run_cases(
 
 @frozen
 class JudgeRun:
-    """Every case's result from one judge: Jev through TypeSafe, or one candidate endpoint."""
+    """Every case's result from one judge: Jev through the configured System One server, or one candidate endpoint."""
 
     label: str
     results: tuple[CaseResult, ...]

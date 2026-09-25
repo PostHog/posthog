@@ -9,9 +9,10 @@ The file header explains the case format.
 
 ## Before you start
 
-The command calls Jev through TypeSafe, so it needs an API key.
-Set `TYPESAFE_API_KEY` in the environment or in `.env.local` at the repo root.
-Other endpoints need no TypeSafe key, so `--skip-jev` runs without one.
+The command calls Jev the way production does: through the ai-gateway when `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` are set, and through TypeSafe with `TYPESAFE_API_KEY` otherwise.
+Set them in the environment or in `.env.local` at the repo root.
+The two serve different Jev models, and the judge's label names the one that answered.
+Other endpoints need neither, so `--skip-jev` runs without them.
 
 Every run sends the invented cases to the judge. It sends no data from your local database.
 

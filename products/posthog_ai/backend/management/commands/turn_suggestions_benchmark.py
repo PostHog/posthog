@@ -36,7 +36,7 @@ from products.posthog_ai.backend.turn_suggestions.benchmark import (
     sweep_thresholds,
 )
 from products.posthog_ai.backend.turn_suggestions.classifier import SHOW_THRESHOLD, build_draft, card_copy
-from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODELS, build_judge_state
+from products.posthog_ai.backend.turn_suggestions.judgment import build_judge_state, judge_model
 from products.posthog_ai.backend.turn_suggestions.verdict import NotebookDraft, OfferKind, ScoutDraft
 
 _MARKS = {
@@ -58,9 +58,10 @@ def _f1(value: float | None) -> str:
 
 
 ENDPOINTS_VARIABLE = "TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS"
+_SERVER_SETTINGS = ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY")
 DEFAULT_TARGET_OFFER_RATE = 0.45
 
-# A judge is Jev through TypeSafe (no endpoint) or one candidate endpoint.
+# A judge is Jev through the configured System One server (no endpoint) or one candidate endpoint.
 type Judge = tuple[str, SystemOneEndpoint | None]
 
 
@@ -75,8 +76,15 @@ def _from_env_local(name: str) -> str | None:
     return None
 
 
-def _judges(options: dict[str, Any]) -> list[Judge]:
-    judges: list[Judge] = [] if options["skip_jev"] else [(JUDGE_MODELS.typesafe, None)]
+def _judges(options: dict[str, Any], jev_label: str | None) -> list[Judge]:
+    judges: list[Judge] = []
+    if not options["skip_jev"]:
+        if jev_label is None:
+            raise CommandError(
+                "Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY, in the environment or in "
+                ".env.local, or pass --skip-jev."
+            )
+        judges.append((jev_label, None))
     if options["jev_only"]:
         return judges
     # Flags replace the variable, so one run can try an endpoint without editing the environment.
@@ -156,17 +164,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        judges = _judges(options)
-        for label, endpoint in judges:
-            if endpoint is not None and endpoint.sends_credentials_in_clear:
-                self.stderr.write(
-                    self.style.WARNING(f"{label} gets its username and password over plain http. Use https:// ")
-                    + self.style.WARNING("unless the network to that host is trusted.")
-                )
-        api_key = settings.TYPESAFE_API_KEY or _from_env_local("TYPESAFE_API_KEY")
-        if not api_key and any(endpoint is None for _, endpoint in judges):
-            raise CommandError("Set TYPESAFE_API_KEY in the environment or in .env.local, or pass --skip-jev.")
-        with override_settings(TYPESAFE_API_KEY=api_key or ""):
+        # The ai-gateway answers where it is configured, and TypeSafe elsewhere, as in production.
+        servers = {name: getattr(settings, name) or _from_env_local(name) or "" for name in _SERVER_SETTINGS}
+        with override_settings(**servers):
+            judges = _judges(options, judge_model())
+            for label, endpoint in judges:
+                if endpoint is not None and endpoint.sends_credentials_in_clear:
+                    self.stderr.write(
+                        self.style.WARNING(f"{label} gets its username and password over plain http. Use https:// ")
+                        + self.style.WARNING("unless the network to that host is trusted.")
+                    )
             self._run(options, judges)
 
     def _run(self, options: dict[str, Any], judges: list[Judge]) -> None:
