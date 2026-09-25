@@ -42,23 +42,31 @@ class TestWrapClickhouseQueryError:
         [
             # These are exposed but their raw CH message embeds a per-row data value, so they carry a
             # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
-            # would pass the raw ClickHouse text (and the source value) straight through.
-            (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
+            # would pass the raw ClickHouse text (and the source value) straight through. The class
+            # name is the error tracking title, so it must fit every condition the code covers.
+            (69, "An argument is out of bounds.", "CHQueryErrorArgumentOutOfBound"),
             (
                 70,
-                "CANNOT_CONVERT_TYPE",
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
+                "CHQueryErrorCannotConvertType",
             ),
-            (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
+            # ClickHouse raises 407 for a convert overflow as well as a decimal one.
+            (
+                407,
+                "A value did not fit the number type the query converted it to. "
+                "Check the numeric casts and decimal arithmetic in your query.",
+                "CHQueryErrorNumericOverflow",
+            ),
         ]
     )
-    def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, name: str, message: str) -> None:
-        err = ServerException(f"DB::Exception: {name} leaked_value=42", code=code)
+    def test_fixed_message_codes_hide_raw_clickhouse_text(self, code: int, message: str, class_name: str) -> None:
+        err = ServerException("DB::Exception: Convert overflow: leaked_value=42", code=code)
 
         wrapped = wrap_clickhouse_query_error(err)
 
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == message
+        assert type(wrapped).__name__ == class_name
 
     @parameterized.expand(
         [
