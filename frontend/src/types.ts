@@ -5939,6 +5939,7 @@ export const API_SCOPE_OBJECTS = [
     'mcp_analytics',
     'metrics',
     'notebook',
+    'offline_evaluation_ingestion',
     'organization',
     'organization_integration',
     'organization_member',
