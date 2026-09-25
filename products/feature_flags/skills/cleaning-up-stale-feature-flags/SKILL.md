@@ -236,6 +236,11 @@ Then trace outward:
   make sure every call site sits inside that scope; one call site outside it makes the flag ambiguous — stop and explain
 - stop and ask when different call sites imply different intended outcomes
 
+Step 3 searched history for the literal key only, and an unfinished cleanup can remove the call sites of a constant or wrapper without touching the key.
+So for each constant or wrapper name you traced, run `git log --all --not origin/<base branch> -S'<name>' --oneline`, which searches only commits the base branch lacks.
+Check the fork PR diffs from step 3 for those names too.
+A match that removes a runtime check is a cleanup in flight: report it and stop, as step 3 does.
+
 Do not rely on a fixed list of SDK call names — exact-key search plus reference tracing adapts to the repository's abstractions.
 When you genuinely need SDK-specific evaluation semantics, load the `instrument-feature-flags` skill.
 
