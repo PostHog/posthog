@@ -4035,13 +4035,14 @@ class TestBufferedIngressCapture:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_a_reset_still_waiting_on_a_slot_is_left_to_the_recovery(self, MockBufferWriter, mock_purge):
+    def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self, MockBufferWriter, mock_purge):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here
-        # would unpause the schedule, and the snapshot would start with no slot to resume from.
+        # would unpause the schedule, and the snapshot would start with no slot to resume from. A
+        # read that succeeds proves the slot is back, so the next run finishes the reset — recovery
+        # is not the only way out, or a failure right after the recreation would strand the table.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        pending = {"clear_deferred_runs": True, "awaiting_slot": True}
-        schema.sync_type_config["cdc_reset_pending"] = pending
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "awaiting_slot": True}
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -4055,7 +4056,8 @@ class TestBufferedIngressCapture:
         cancel.assert_not_called()
         unpause.assert_not_called()
         assert mock_purge.called is False
-        assert schema.sync_type_config["cdc_reset_pending"] == pending
+        assert MockBufferWriter.return_value.write_batch.called is False
+        assert schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "awaiting_slot": False}
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):

@@ -900,6 +900,10 @@ class CDCExtractActivity:
 
             self._load_pk_columns()
             self._read_wal_loop()
+            # A read that got this far proves the slot is back, so a reset held for it can finish on
+            # the next run even if recovery never runs again.
+            for schema in self.cdc_schemas:
+                self._release_reset_awaiting_slot(schema)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 
@@ -1498,12 +1502,15 @@ class CDCExtractActivity:
         """Retry the resets earlier runs left pending, before this run reads the WAL.
 
         Repeating a reset that already happened is safe: its schedule stayed paused, so no new sync
-        has started since. A reset still waiting on a slot is left alone, so no snapshot starts
-        before capture has a point to resume from; slot recovery releases it.
+        has started since. A reset still waiting on a slot is held back, so no snapshot starts before
+        capture has a point to resume from, and its table stays out of capture meanwhile.
         """
         for schema in self.cdc_schemas:
             pending = self._pending_reset(schema)
-            if pending is None or pending.get("awaiting_slot"):
+            if pending is None:
+                continue
+            if pending.get("awaiting_slot"):
+                self._tables_awaiting_reset.add(schema.name)
                 continue
             if self._reset_schema_to_snapshot(schema):
                 self._unpause_schema_schedule(schema)
@@ -1601,7 +1608,11 @@ class CDCExtractActivity:
         self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
 
     def _release_reset_awaiting_slot(self, schema: ExternalDataSchema) -> None:
-        """Let a later run finish a reset held back for the slot, now that the new one exists."""
+        """Let a later run finish a reset held back for the slot, now that a slot is there to read.
+
+        Called both by recovery and by a successful read, so a failure between the recreation and
+        this write cannot strand the reset: recovery only runs while the slot is still broken.
+        """
         pending = self._pending_reset(schema)
         if pending is None or not pending.get("awaiting_slot"):
             return
