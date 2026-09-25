@@ -497,7 +497,7 @@ exclude_gitignore = true
 # packages/owners-yaml: a standalone distribution that must build and run with no Django. This config
 # loads the Django and DRF plugins and the app's settings, so it is the wrong checker for it. ty
 # covers it repo-wide instead, and ci-python builds and exercises the wheel in an empty venv.
-exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/ml_inference/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|packages/owners-yaml/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -535,7 +535,6 @@ exclude = [
     "manage.py",
     "posthog/hogql/grammar/**",
     "packages/personhog-proto/**",
-    "products/ml_inference/packages/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
