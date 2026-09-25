@@ -1,6 +1,8 @@
 import json
+import tempfile
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -17,6 +19,19 @@ from posthog.celery_queues import CeleryQueue
 from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, SystemOneResult
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
+from products.posthog_ai.backend.turn_suggestions.benchmark import (
+    BenchmarkCase,
+    CaseResult,
+    JudgeRun,
+    SystemOneEndpoint,
+    best_threshold,
+    closest_to_offer_rate,
+    load_cases,
+    on_shared_cases,
+    parse_endpoints,
+    run_cases,
+    score,
+)
 from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
 from products.posthog_ai.backend.turn_suggestions.dispatch import TURN_SETTLE_SECONDS, enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
@@ -653,6 +668,139 @@ class TestPickOffer(SimpleTestCase):
     )
     def test_policy(self, _name: str, overrides: dict, available: frozenset[OfferKind], expected: OfferKind):
         assert pick_offer(_judgment(**overrides), available) == expected
+
+
+class TestBenchmark(SimpleTestCase):
+    def test_every_case_expects_offers_its_turn_can_make(self):
+        cases = load_cases()
+
+        assert len({case.name for case in cases}) == len(cases)
+        for case in cases:
+            assert case.acceptable - {OfferKind.NONE} <= case.available, case.name
+
+    def test_scores_count_false_offers_misses_and_acceptable_borderline_offers(self):
+        transcript = build_turn_transcript(_metric_turn())
+
+        def result(acceptable: set[OfferKind], show: float) -> CaseResult:
+            case = BenchmarkCase(
+                name="case",
+                category="test",
+                acceptable=frozenset(acceptable),
+                transcript=transcript,
+                available=ALL_OFFERS,
+            )
+            return CaseResult(case=case, judgment=_judgment(show_probability=show), seconds=0.1)
+
+        results = [
+            result({OfferKind.SCOUT}, 0.9),
+            result({OfferKind.SCOUT}, 0.55),
+            result({OfferKind.NONE}, 0.6),
+            result({OfferKind.NONE}, 0.1),
+            result({OfferKind.SCOUT, OfferKind.NONE}, 0.9),
+            result({OfferKind.NOTEBOOK, OfferKind.NONE}, 0.9),
+        ]
+
+        low = score(results, 0.5)
+        high = score(results, 0.7)
+
+        assert (low.offer_rate, low.precision, low.recall) == (5 / 6, 0.6, 1.0)
+        assert (low.false_offers, low.wrong_kind) == (1, 1)
+        assert (high.offer_rate, high.precision, high.recall, high.missed) == (0.5, 2 / 3, 0.5, 1)
+        assert best_threshold([low, high]) == low
+        # Every threshold from 0.61 to 0.90 offers on half the cases, and the tie goes to the highest.
+        closest = closest_to_offer_rate(results, 0.5)
+        assert closest is not None and (closest.threshold, closest.offer_rate) == (0.9, 0.5)
+        # Offering nothing where offers are wanted scores zero, so that threshold still ranks.
+        silent = score(results, 0.95)
+        assert (silent.precision, silent.recall, silent.f1) == (None, 0.0, 0.0)
+
+    @parameterized.expand(
+        [
+            (
+                "repeated_name",
+                "- {name: same, category: c, acceptable: [none], question: q, answer: a, tools: [query-trends]}\n"
+                "- {name: same, category: c, acceptable: [none], question: q, answer: a, tools: [query-trends]}\n",
+            ),
+            (
+                "repeated_key",
+                "- name: one\n  category: c\n  acceptable: [none]\n  acceptable: [scout]\n"
+                "  question: q\n  answer: a\n  tools: [query-trends]\n",
+            ),
+            (
+                "no_offer_available",
+                "- {name: one, category: c, acceptable: [none], question: q, answer: a, scouts_available: false}\n",
+            ),
+        ]
+    )
+    def test_a_case_file_that_would_mislabel_or_crash_is_rejected(self, _name: str, content: str):
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as cases_file:
+            cases_file.write(content)
+            cases_file.flush()
+
+            with self.assertRaises(ValueError):
+                load_cases(Path(cases_file.name))
+
+    def test_judges_are_compared_on_the_cases_every_judge_answered(self):
+        cases = load_cases()[:3]
+        answered = [CaseResult(case=case, judgment=_judgment(show_probability=0.9), seconds=0.1) for case in cases]
+        one_failure = [*answered[:2], CaseResult(case=cases[2], judgment=None, seconds=60.0, error="Timeout")]
+
+        scored = on_shared_cases(
+            [JudgeRun(label="a", results=tuple(answered)), JudgeRun(label="b", results=tuple(one_failure))]
+        )
+
+        assert [[result.case.name for result in run.results] for run in scored] == [
+            [case.name for case in cases[:2]]
+        ] * 2
+
+    def test_endpoints_keep_credentials_out_of_the_url_and_label(self):
+        endpoints = parse_endpoints(
+            "http://judge:p%40ss@10.0.0.1:8080#candidate-2, https://api.example.com/v2/systemone"
+        )
+
+        assert endpoints == [
+            SystemOneEndpoint(
+                url="http://10.0.0.1:8080/v1/systemone", model="candidate-2", username="judge", password="p@ss"
+            ),
+            SystemOneEndpoint(url="https://api.example.com/v2/systemone"),
+        ]
+        assert [endpoint.label for endpoint in endpoints] == ["10.0.0.1:8080 candidate-2", "api.example.com default"]
+        assert "p@ss" not in repr(endpoints)
+
+    @parameterized.expand(
+        [
+            ("http_remote_host", "http://judge:secret@203.0.113.7:8080", True),
+            ("https", "https://judge:secret@api.example.com", False),
+            ("loopback", "http://judge:secret@127.0.0.1:8080", False),
+            ("no_credentials", "http://203.0.113.7:8080", False),
+        ]
+    )
+    def test_flags_credentials_sent_over_plain_http(self, _name: str, entry: str, expected: bool):
+        [endpoint] = parse_endpoints(entry)
+
+        assert endpoint.sends_credentials_in_clear is expected
+
+    @parameterized.expand([("no_scheme", "judge:secret@10.0.0.1"), ("bad_port", "http://judge:secret@10.0.0.1:99999")])
+    def test_endpoint_errors_do_not_echo_the_entry(self, _name: str, entry: str):
+        with self.assertRaises(ValueError) as raised:
+            parse_endpoints(f"https://api.example.com {entry}")
+
+        assert str(raised.exception).startswith("Endpoint 2 ")
+        assert "secret" not in str(raised.exception)
+
+    def test_a_malformed_endpoint_reply_fails_only_its_case(self):
+        case = load_cases()[0]
+        reply = MagicMock(status_code=200)
+        reply.json.return_value = {"model": "candidate", "answers": {}}
+
+        with patch("products.posthog_ai.backend.turn_suggestions.benchmark.requests.post", return_value=reply) as post:
+            [result] = run_cases(
+                [case], workers=1, on_result=lambda _: None, endpoint=SystemOneEndpoint(url="http://judge")
+            )
+
+        assert result.judgment is None
+        assert result.error is not None and result.error.startswith("malformed answer: ")
+        assert "model" not in post.call_args.kwargs["json"]
 
 
 class TestClassifyTurn(SimpleTestCase):
