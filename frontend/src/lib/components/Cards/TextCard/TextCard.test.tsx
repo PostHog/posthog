@@ -89,6 +89,7 @@ describe('TextCard', () => {
 
         expect(container).not.toHaveTextContent('Agent context')
         expect(container).not.toHaveTextContent('Private agent context')
+        expect(container).toHaveTextContent('Public summary')
     })
 
     describe('TextContent', () => {

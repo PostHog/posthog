@@ -21,7 +21,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
@@ -3044,6 +3044,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert Dashboard.objects.count() == dashboard_count
+        assert Text.objects.count() == text_count
+
+    def test_create_from_template_rejects_oversized_agent_context(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        template = DashboardTemplate(
+            template_name="Oversized agent context",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[
+                {
+                    "type": "TEXT",
+                    "body": "Dashboard summary",
+                    "agent_context": "x" * 10_001,
+                    "layouts": {},
+                }
+            ],
+        )
+        text_count = Text.objects.count()
+
+        with self.assertRaisesRegex(ValueError, "Agent context cannot exceed 10000 characters"):
+            create_from_template(dashboard, template, self.user)
+
         assert Text.objects.count() == text_count
 
     @parameterized.expand(

@@ -1,5 +1,5 @@
-import { useValues } from 'kea'
-import React, { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import React from 'react'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
@@ -13,6 +13,7 @@ import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
+import { dashboardTextItemLogic } from './dashboardTextItemLogic'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -56,7 +57,9 @@ function DashboardTextItemInternal(
 
     const image = tile.text ? getImageOnlyTextCardImage(textCardConverter, tile.text.body) : null
     const tileType = image ? 'image' : 'text'
-    const [showAgentContext, setShowAgentContext] = useState(false)
+    const textItemLogic = dashboardTextItemLogic({ tileId: tile.id })
+    const { showAgentContext } = useValues(textItemLogic)
+    const { toggleAgentContext } = useActions(textItemLogic)
     const canShowAgentContext = !image && !!tile.text?.agent_context?.trim()
     const moreButtonOverlay = (
         <>
@@ -67,7 +70,7 @@ function DashboardTextItemInternal(
             {canShowAgentContext && (
                 <LemonButton
                     fullWidth
-                    onClick={() => setShowAgentContext(!showAgentContext)}
+                    onClick={toggleAgentContext}
                     sideIcon={<LemonSwitch checked={showAgentContext} size="xsmall" />}
                     aria-pressed={showAgentContext}
                     data-attr="toggle-text-card-agent-context"

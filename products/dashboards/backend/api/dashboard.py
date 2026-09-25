@@ -121,6 +121,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
@@ -644,7 +645,7 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
         },
     )
     agent_context = serializers.CharField(
-        max_length=10000,
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
         required=False,
         allow_blank=True,
         allow_null=True,
@@ -690,7 +691,7 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         },
     )
     agent_context = serializers.CharField(
-        max_length=10000,
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
         required=False,
         allow_blank=True,
         allow_null=True,
@@ -895,7 +896,7 @@ class TextSerializer(serializers.ModelSerializer):
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
     agent_context = serializers.CharField(
-        max_length=10000,
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
         required=False,
         allow_blank=True,
         allow_null=True,

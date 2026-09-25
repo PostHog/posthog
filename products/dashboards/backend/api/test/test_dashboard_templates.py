@@ -1305,6 +1305,7 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         assert response.json()["team_id"] == self.team.pk
         assert "agent_context" not in response.json()["tiles"][0]
         template = DashboardTemplate.objects.get(id=response.json()["id"])
+        assert template.tiles is not None
         assert "agent_context" not in template.tiles[0]
 
     def test_non_staff_editor_can_promote_and_demote_between_team_and_organization(self) -> None:
@@ -1325,7 +1326,9 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         assert promote.status_code == status.HTTP_200_OK, promote
         assert promote.json()["scope"] == "organization"
         assert "agent_context" not in promote.json()["tiles"][0]
-        assert "agent_context" not in DashboardTemplate.objects.get(id=tid).tiles[0]
+        promoted_template = DashboardTemplate.objects.get(id=tid)
+        assert promoted_template.tiles is not None
+        assert "agent_context" not in promoted_template.tiles[0]
 
         demote = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",

@@ -187,13 +187,6 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                 }
             },
             submit: (formValues) => {
-                // only id and body, layout and color could be out-of-date
-                const textTiles = (props.dashboard.tiles || []).map((t) => ({
-                    id: t.id,
-                    text: t.text,
-                    transparent_background: t.transparent_background,
-                }))
-
                 if (props.textTileId === null) {
                     actions.updateDashboard({
                         id: props.dashboard.id,
@@ -205,12 +198,17 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         ],
                     })
                 } else {
-                    const updatedTiles = [...textTiles].reduce((acc, tile) => {
+                    const updatedTiles = (props.dashboard.tiles || []).reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {
-                            tile.text.body = formValues.body
-                            tile.text.agent_context = formValues.agent_context
-                            ;(tile as Partial<DashboardTile>).transparent_background = formValues.transparent_background
-                            acc.push(tile)
+                            acc.push({
+                                id: tile.id,
+                                text: {
+                                    ...tile.text,
+                                    body: formValues.body,
+                                    agent_context: formValues.agent_context,
+                                },
+                                transparent_background: formValues.transparent_background,
+                            })
                         }
                         return acc
                     }, [] as Partial<DashboardTile>[])

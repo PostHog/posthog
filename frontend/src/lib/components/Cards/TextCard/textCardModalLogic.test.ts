@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType } from '~/types'
 
@@ -112,6 +113,31 @@ describe('textCardModalLogic', () => {
         logic.mount()
 
         expect(logic.values.textTile.agent_context).toBe('Semantic layer metric: activation_rate')
+    })
+
+    it('does not mutate the dashboard tile before an update succeeds', () => {
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/dashboards/:id/': () => new Promise(() => {}),
+            },
+        })
+        const dashboard = makeDashboard('Original summary', 'Original agent context')
+        const logic = textCardModalLogic({
+            dashboard,
+            textTileId: 1,
+            onClose: jest.fn(),
+            tileType: 'text',
+        })
+        logic.mount()
+
+        logic.actions.setTextTileValues({
+            body: 'Updated summary',
+            agent_context: 'Updated agent context',
+        })
+        logic.actions.submitTextTile()
+
+        expect(dashboard.tiles?.[0].text?.body).toBe('Original summary')
+        expect(dashboard.tiles?.[0].text?.agent_context).toBe('Original agent context')
     })
 
     it('does not show toast for expected api body validation errors', () => {

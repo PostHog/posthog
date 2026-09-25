@@ -166,7 +166,11 @@ export const EditModalWithAgentContext: Story = {
             user_access_level: AccessControlLevel.Editor,
         } as DashboardType
 
-        return <TextCardModal isOpen onClose={() => undefined} dashboard={dashboard} textTileId={1} />
+        return (
+            <div className="min-h-screen w-full">
+                <TextCardModal isOpen onClose={() => undefined} dashboard={dashboard} textTileId={1} />
+            </div>
+        )
     },
 }
 

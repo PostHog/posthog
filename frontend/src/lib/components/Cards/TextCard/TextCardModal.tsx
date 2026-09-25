@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModalBodyField } from 'lib/components/Cards/TextCard/TextCardModalBodyField'
@@ -29,25 +29,10 @@ export function TextCardModal({
     const modalLogicProps: TextCardModalProps = { dashboard, textTileId, onClose, tileType: 'text' }
     const modalLogic = textCardModalLogic(modalLogicProps)
     // Form `body` + validation drive updates while typing; splitting useValues does not reduce rerenders.
-    const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
+    const { isTextTileSubmitting, textTileValidationErrors, textTileChanged } = useValues(modalLogic)
     const { resetTextTile } = useActions(modalLogic)
-    const [initialTextTile] = useState(() => {
-        const existingText =
-            textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text : undefined
-        return {
-            body: existingText?.body || '',
-            agent_context: existingText?.agent_context || '',
-            transparent_background:
-                textTileId !== null
-                    ? (dashboard.tiles?.find((tile) => tile.id === textTileId)?.transparent_background ?? false)
-                    : false,
-        }
-    })
-    const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialTextTile.body)
-    const hasUnsavedInput =
-        (textTile?.body || '') !== initialTextTile.body ||
-        (textTile?.agent_context || '') !== initialTextTile.agent_context ||
-        !!textTile?.transparent_background !== initialTextTile.transparent_background
+    const initialBody = textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body : ''
+    const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialBody || '')
     const saveDisabledReason =
         (textTileValidationErrors.body as string | null) || (textTileValidationErrors.agent_context as string | null)
 
@@ -60,7 +45,7 @@ export function TextCardModal({
         <DialogPrimitive
             open={isOpen}
             onOpenChange={(open) => !open && handleClose()}
-            disablePointerDismissal={hasUnsavedInput}
+            disablePointerDismissal={textTileChanged}
             className={cn(
                 'w-[min(100vw-3rem,72rem)] max-h-[calc(100vh-4rem)] supports-[max-height:1dvh]:max-h-[calc(100dvh-4rem)] top-8',
                 'bg-surface-primary',
