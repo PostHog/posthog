@@ -291,7 +291,7 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
-            pull-requests: read
+            pull-requests: write
             issues: write
         outputs:
             pr_number: ${{ steps.pr_info.outputs.pr_number }}
@@ -695,7 +695,7 @@ jobs:
             id-token: write
             contents: read
             packages: write
-            pull-requests: read
+            pull-requests: write
             issues: write
 
         steps:
