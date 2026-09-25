@@ -680,9 +680,14 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_code_based_verification(user_id: int, code: str) -> None:
+def send_code_based_verification(user_id: int, code: str, ip_address: str = "", short_user_agent: str = "") -> None:
     """Send the 6-digit login verification code."""
     user: User = User.objects.get(pk=user_id)
+
+    geoip_properties = get_geoip_properties(ip_address) if ip_address else {}
+    location = ", ".join(
+        part for part in (geoip_properties.get("$geoip_city_name"), geoip_properties.get("$geoip_country_name")) if part
+    )
 
     message = EmailMessage(
         use_http=True,
@@ -693,6 +698,10 @@ def send_code_based_verification(user_id: int, code: str) -> None:
             "preheader": "Enter this code to verify your login.",
             "code": code,
             "expiration_minutes": CODE_TTL_SECONDS // 60,
+            "login_time": timezone.now().strftime("%B %-d, %Y at %H:%M UTC"),
+            "ip_address": ip_address,
+            "location": location,
+            "browser": short_user_agent,
             "site_url": settings.SITE_URL,
         },
     )
