@@ -202,6 +202,7 @@ export enum NodeKind {
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPModelBreakdownQuery = 'MCPModelBreakdownQuery',
+    MCPProtocolVersionBreakdownQuery = 'MCPProtocolVersionBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
@@ -290,6 +291,7 @@ export type AnyDataNode =
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPModelBreakdownQuery
+    | MCPProtocolVersionBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -425,6 +427,7 @@ export type QuerySchema =
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPModelBreakdownQuery
+    | MCPProtocolVersionBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -3570,6 +3573,29 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
+
+/** One MCP protocol revision's share of tool calls. */
+export interface MCPProtocolVersionBreakdownItem {
+    protocol_version: string
+    /** On the stateless 2026-07-28 revision or later, or the rolling draft. */
+    is_current: boolean
+    total_calls: integer
+}
+
+export interface MCPProtocolVersionBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPProtocolVersionBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by negotiated protocol revision. */
+export interface MCPProtocolVersionBreakdownQuery extends DataNode<MCPProtocolVersionBreakdownQueryResponse> {
+    kind: NodeKind.MCPProtocolVersionBreakdownQuery
+    dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPProtocolVersionBreakdownQueryResponse =
+    CachedQueryResponse<MCPProtocolVersionBreakdownQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
