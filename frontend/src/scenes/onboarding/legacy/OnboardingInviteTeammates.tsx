@@ -17,7 +17,13 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
-    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
+    const {
+        invitesToSend,
+        canSubmit: canSubmitInvites,
+        inviteContainsOwnerLevel,
+        invites,
+        hasExistingMemberInvite,
+    } = useValues(inviteLogic)
 
     const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
     const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
@@ -31,11 +37,13 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
         emailServiceAvailable && hasFilledEmail
             ? hasInvalidEmail
                 ? 'Please enter a valid email address'
-                : inviteContainsOwnerLevel && !canSubmitInvites
-                  ? 'Type "send invites" to confirm owner-level invites'
-                  : !canSubmitInvites
-                    ? 'Please fill out all fields'
-                    : undefined
+                : hasExistingMemberInvite
+                  ? 'Remove people who are already members'
+                  : inviteContainsOwnerLevel && !canSubmitInvites
+                    ? 'Type "send invites" to confirm owner-level invites'
+                    : !canSubmitInvites
+                      ? 'Please fill out all fields'
+                      : undefined
             : undefined
 
     const titlePrefix = (): string => {

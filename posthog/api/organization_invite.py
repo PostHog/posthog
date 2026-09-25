@@ -197,6 +197,14 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         email = EmailNormalizer.normalize(email)
         reject_plus_addressed_email(email)
         validate_invite_target_email_domain(self.context["get_organization"](), email)
+        # Validation runs for every bulk row before any row saves, so one existing member
+        # rejects the batch without a partial set of sent invites.
+        if OrganizationMembership.objects.filter(
+            organization_id=self.context["organization_id"], user__email__iexact=email
+        ).exists():
+            raise exceptions.ValidationError(
+                "A user with this email address already belongs to the organization.", code="existing_member"
+            )
         return email
 
     def validate_first_name(self, value: str) -> str:
@@ -307,12 +315,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return private_project_access
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
-        if OrganizationMembership.objects.filter(
-            organization_id=self.context["organization_id"],
-            user__email__iexact=validated_data["target_email"],
-        ).exists():
-            raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
-
         combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
 

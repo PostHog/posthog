@@ -102,6 +102,13 @@ const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
+/*
+Write actions whose own logic marks the form row when the backend rejects an existing member
+(code `existing_member`). It is a validation result, so it is not reported as an exception.
+Owned by inviteLogic's inviteTeamMembersFailure listener.
+*/
+const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -238,7 +245,9 @@ export function initKea({
                 }
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
+                const isSelfHandledExistingMember =
+                    error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
+                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
                     posthog.captureException(error)
                 }
             },
