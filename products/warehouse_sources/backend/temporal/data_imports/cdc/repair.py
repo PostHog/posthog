@@ -116,9 +116,9 @@ def _repair_locked(source: ExternalDataSource) -> int:
 
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
-    # and no schema keeps streaming across the gap unnoticed. Deferred runs are dropped —
-    # they reference WAL from the dead slot and the re-snapshot supersedes them. The
-    # `cdc_broken` markers deliberately survive this step: they are the retry gate.
+    # and no schema keeps streaming across the gap unnoticed. Deferred runs left by the retired
+    # legacy lane are dropped: the re-snapshot supersedes them. The `cdc_broken` markers
+    # deliberately survive this step: they are the retry gate.
     for schema_id in all_cdc_schema_ids:
         update_sync_type_config_keys(
             schema_id,

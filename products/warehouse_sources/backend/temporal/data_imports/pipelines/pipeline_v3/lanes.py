@@ -127,9 +127,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         Opened lazily on purpose. A job created before there is anything to write is a row nothing
         owns: the loader finishes a job when its final batch lands, this activity's own workflow
         only knows the schema's job, and the stranded sweep finds runs by their queued batches. A
-        crash between creating it and staging into it would leave it Running for good, and one such
-        row blocks the flip and the rollback for the whole source. Opening it here means every
-        companion job has at least one batch, so the sweep is its owner like any other run.
+        crash between creating it and staging into it would leave it Running for good. Opening it
+        here means every companion job has at least one batch, so the sweep is its owner like any
+        other run.
         """
         existing = self._writers_by_lane.get(index)
         if existing is not None:

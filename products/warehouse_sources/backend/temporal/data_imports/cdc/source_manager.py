@@ -56,7 +56,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     has_engine_seq,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -91,8 +90,8 @@ CDCWriteMode = Literal["incremental_merge", "scd2_append"]
 CONSOLIDATED_WRITE_MODE: Final = "incremental_merge"
 COMPANION_WRITE_MODE: Final = SCD2_APPEND_MODE
 
-# The tables each mode's change stream feeds, as the write mode the loader uses for each — in the
-# order the legacy extraction path writes them. A mode absent here is one this module cannot write.
+# The tables each mode's change stream feeds, as the write mode the loader uses for each, in the order
+# a run writes them. A mode absent here is one this module cannot write.
 _LANE_WRITE_MODES: dict[str, tuple[CDCWriteMode, ...]] = {
     CONSOLIDATED_TABLE_MODE: (CONSOLIDATED_WRITE_MODE,),
     CDC_ONLY_TABLE_MODE: (COMPANION_WRITE_MODE,),
@@ -108,17 +107,8 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer and never
-# cleared, so a later flip can tell the `_ph_cdc_seq` the buffered lane wrote from a column the
-# source owns.
-BUFFERED_BEFORE_KEY = "cdc_buffered_before"
-
-
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress: streaming, seeded, and in a table mode with lanes.
-
-    The source's `ingest_mode` is the other half.
-    """
+    """Whether this schema's scheduled sync consumes the buffer: streaming, seeded, and in a table mode with lanes."""
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
@@ -128,16 +118,12 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
 
 
 def captures_to_buffer(schema: ExternalDataSchema) -> bool:
-    """Schema-side condition for capture to write this schema's changes into the buffer.
+    """Whether capture writes this schema's changes to the buffer.
 
-    Wider than `serves_buffered_lane`: a table whose snapshot the buffer carries is captured too,
-    and the consumer reads those changes once the snapshot completes.
+    Wider than `serves_buffered_lane`: a table in a mode the buffer serves is captured whatever its
+    state, and a snapshotting table's changes wait there until its snapshot completes.
     """
-    return bool(
-        schema.is_cdc
-        and schema.cdc_table_mode in _LANE_WRITE_MODES
-        and (serves_buffered_lane(schema) or snapshot_in_buffer(schema))
-    )
+    return bool(schema.is_cdc and schema.cdc_table_mode in _LANE_WRITE_MODES)
 
 
 def snapshot_can_start_in_buffer(schema: ExternalDataSchema) -> bool:
@@ -154,24 +140,19 @@ def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBo
     """Before a snapshot hands over to streaming, drop the buffer files it must not replay.
 
     When the buffer carried the snapshot, it holds an unbroken run of changes, and replaying all of
-    them over the snapshot converges, so nothing goes. Otherwise the snapshot's changes went to
-    legacy deferred runs, and every file predates a gap: an old file replayed after them would bring
-    back rows. Strict, because a surviving stale file corrupts the table.
+    them over the snapshot converges, so nothing goes. Otherwise capture never started the snapshot
+    in the buffer, so every file in it predates a gap: an old file replayed there would bring back
+    rows. Strict, because a surviving stale file corrupts the table.
     """
     if snapshot_in_buffer(schema):
         return
     purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
-def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
-    """Whether this schema's changes are delivered through the buffer."""
-    return ingest_mode == "buffered" and serves_buffered_lane(schema)
-
-
 def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
     """The tables this schema's change stream feeds.
 
-    One entry per Delta table the mode writes, in the order the legacy extraction path writes them.
+    One entry per Delta table the mode writes, in the order a run writes them.
     An unrecognized mode returns nothing, which reads as "not a lane the buffer serves".
     """
     return [
@@ -295,7 +276,6 @@ def _history_transform(replay: ReplayFilter, key_columns: list[str]) -> Callable
 
     Derived here rather than in the loader so the staged parquet is complete on its own: a loader
     on the previous release has no SCD2 step, and would append these rows with no validity at all.
-    The legacy extraction path stamps them at the same point for the same reason.
 
     Replay runs first because `valid_to` points at the next event for the same key. Rows this lane
     already wrote carry their own, and the writer closes them against what arrives next, so
@@ -366,25 +346,19 @@ def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
     Doubles as the pipeline-version override: buffered consumption must run the v3 pipeline,
     because only the v3 loader stamps the position each row landed at, which is what the next
     run reads back from the table, and only it resolves versions and deletes. The team's general
-    rollout flag cannot make that call (it can neither see individual sources nor be trusted to
-    stay wide after a flip), so the version check consults this predicate before the flag.
+    rollout flag cannot see individual schemas, so the version check consults this predicate
+    before the flag.
     """
-    return consumes_buffer(schema, ingest_mode=parse_ingest_mode(schema.source.job_inputs))
+    return serves_buffered_lane(schema)
 
 
 def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     """Whether any delivery for this schema is still working through the queue.
 
-    Two kinds, and the consumer must stand down for both.
-
-    Legacy deliveries carry no position column, so nothing orders them against buffered writes — a
-    consumer merge racing them lets an older legacy row land after a newer buffered one.
-
-    A previous attempt of THIS job is the other kind, and it is why the check has to cover buffered
-    batches too. It sees an attempt only once that attempt has staged a batch: one timed out by
-    its heartbeat but still alive inside the listing can stage after this check passed. The busy
-    gate keeps the two loads apart, but the history lane then holds both copies. Legacy has the
-    same window; fencing batches by attempt in the producer is the follow-up.
+    A previous attempt of THIS job is what the consumer stands down for. The check sees an attempt
+    only once that attempt has staged a batch: one timed out by its heartbeat but still alive inside
+    the listing can stage after this check passed. The busy gate keeps the two loads apart, but the
+    history lane then holds both copies; fencing batches by attempt in the producer is the follow-up.
 
     The v3 pipeline lock keeps two scheduled runs apart — it is held from the start of
     the workflow until the loader completes the job — but a retried activity runs under the lock its
@@ -400,8 +374,6 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     Runs holding a failed batch are excluded by the query, matching the loader's claim gate — their
     remaining batches can never be claimed, so they cannot write anything to collide with.
     """
-    if schema.sync_type_config.get("cdc_deferred_runs"):
-        return True
     return has_queued_batches(schema)
 
 

@@ -60,52 +60,6 @@ class TestBufferFileName:
         assert sorted(shuffled) == [build_buffer_file_name(*r) for r in sorted(ranges)]
 
 
-class TestIsShadowWriteEnabled:
-    """The per-team flag is the single gate, and it fails closed."""
-
-    def _call(self, *, flag, team_lookup_ok: bool = True) -> bool:
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import is_shadow_write_enabled
-
-        team = MagicMock(uuid="team-uuid", id=2, organization_id="org-uuid")
-        team_manager = MagicMock()
-        team_manager.objects.get.return_value = team
-        if not team_lookup_ok:
-            team_manager.objects.get.side_effect = Exception("db down")
-
-        flag_fn = MagicMock(side_effect=flag) if callable(flag) else MagicMock(return_value=flag)
-        with (
-            patch.dict("sys.modules", {"posthog.models.team": MagicMock(Team=team_manager)}),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.posthoganalytics.feature_enabled",
-                flag_fn,
-            ),
-        ):
-            result = is_shadow_write_enabled(2, MagicMock())
-        self._last_flag_call = flag_fn
-        return result
-
-    def test_follows_the_flag(self):
-        assert self._call(flag=True) is True
-        assert self._call(flag=False) is False
-
-    def test_passes_team_scoped_targeting_context(self):
-        # team_id drives the release conditions (warehouse per-team rollout convention),
-        # so a soak covers single teams rather than whole orgs.
-        self._call(flag=True)
-        kwargs = self._last_flag_call.call_args.kwargs
-        assert kwargs["person_properties"]["team_id"] == "2"
-        assert kwargs["groups"]["project"] == "2"
-
-    def test_flag_service_failure_disables_rather_than_raises(self):
-        def boom(*_a, **_k):
-            raise RuntimeError("flag service down")
-
-        assert self._call(flag=boom) is False
-
-    def test_team_lookup_failure_disables_rather_than_raises(self):
-        assert self._call(flag=True, team_lookup_ok=False) is False
-
-
 class TestCDCBufferWriter:
     def _writer_with_captured_files(self) -> tuple[CDCBufferWriter, dict[str, io.BytesIO]]:
         files: dict[str, io.BytesIO] = {}

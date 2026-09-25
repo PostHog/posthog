@@ -24,10 +24,7 @@ that straddles that position first has its settled rows rewritten under a narrow
 range. A schema reset (TRUNCATE / lost slot) invalidates the whole prefix —
 `purge_buffer_prefix`.
 
-Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
-evaluated once per extraction run and fail-closed) writes a validation copy while
-legacy delivery stays authoritative. Buffered ingress (`cdc_ingest_mode="buffered"`
-in the source's `job_inputs`) writes the same files as the ONLY delivery — the
+Capture writes these files as the only delivery of a table's changes: the table's
 scheduled sync consumes them, and a write failure fails the run rather than being
 swallowed, because the slot is about to advance past those changes.
 
@@ -55,17 +52,12 @@ from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import team_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     ensure_bucket,
     strip_s3_protocol,
 )
 
 BUFFER_ROOT_FOLDER = "cdc_producer"
-
-# Per-team gate for the shadow lane — the single on/off control. Fail-closed on
-# evaluation errors, so the soak can only ever shrink, never grow, by accident.
-SHADOW_WRITE_FLAG = "dwh-cdc-buffer-shadow"
 
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
 _INDEX_WIDTH = 6
@@ -76,15 +68,6 @@ _FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([
 # A trimmed replacement is written under this suffix first. The consumer parses names, so it
 # never reads a staged file, and the original can be removed before the replacement appears.
 _STAGING_SUFFIX = ".staging"
-
-
-def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
-    """Whether the shadow lane may write for this team, evaluated once per run.
-
-    Never raises: a flag-service failure leaves the lane off, which costs a gap in
-    validation data — the legacy path is unaffected either way.
-    """
-    return team_flag_enabled(SHADOW_WRITE_FLAG, team_id, logger)
 
 
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
@@ -308,11 +291,11 @@ class CDCBufferWriter:
 def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
     """Remove a schema's entire buffer prefix.
 
-    Called when a table is emptied for a new snapshot (TRUNCATE, lost slot, repair), and at the
-    snapshot→streaming flip when the snapshot's changes went to legacy deferred runs: there every
-    buffer file predates a gap no consumer could order across. Best-effort by default; `strict`
-    propagates failures (except a missing prefix) for callers where a survived stale file would
-    corrupt the table.
+    Called when a table is emptied for a new snapshot (TRUNCATE, lost slot, repair), when capture
+    starts a snapshot in the buffer, and at the snapshot→streaming flip of a snapshot capture never
+    started there: every buffer file then predates a gap no consumer could order across.
+    Best-effort by default; `strict` propagates failures (except a missing prefix) for callers where
+    a survived stale file would corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
     try:

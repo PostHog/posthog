@@ -155,8 +155,8 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
-# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
+# Per-run state, not configuration. `cdc_deferred_runs`, left on some schemas by the retired legacy
+# CDC lane, reaches hundreds of KB, and `schema_metadata` is the source table's column list.
 # Copying them onto every job row was most of the snapshot's storage cost.
 _SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
 
@@ -164,8 +164,8 @@ _SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadat
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     """The schema as it was when this job started, for debugging a run after the fact.
 
-    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
-    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
     `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
     """
     sync_type_config = {

@@ -161,8 +161,8 @@ def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
 def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     """Cancel any running workflow and reset schema state so the next run does a full snapshot.
 
-    Must save before triggering: the workflow reloads the schema and bails via
-    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
+    Must save before triggering: the workflow reloads the schema, and a stale
+    `cdc_mode='streaming'` sends it to the change buffer instead of the snapshot.
     """
     latest_running_job = (
         ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()
@@ -182,7 +182,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     # column, leaving no second window for the merged config to be overwritten).
     updates: dict[str, Any] = {"reset_pipeline": True, "cdc_mode": "snapshot"}
     removes = ["cdc_last_log_position", "cdc_deferred_runs"]
-    if resnapshot_stays_in_buffer(instance, logger):
+    if resnapshot_stays_in_buffer(instance):
         updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
     instance.sync_type_config = update_sync_type_config_keys(
         instance.id, instance.team_id, updates=updates, removes=removes
@@ -209,6 +209,14 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 # A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
 NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
+
+# A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
+# days, so a slower schedule would lose changes for good.
+CDC_MAX_SYNC_FREQUENCY_INTERVAL = dt.timedelta(days=7)
+CDC_SYNC_FREQUENCY_TOO_SLOW_ERROR = (
+    "Change data capture keeps captured changes for 14 days, so this table must sync at least weekly. "
+    "Choose Weekly or a shorter interval."
 )
 
 SCHEDULED_FULL_REFRESH_SYNC_TYPE_ERROR = (
@@ -777,7 +785,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         super().update() does a full-instance save: every column goes back to the value it held in the
         copy loaded at the start of the request. A PATCH that carries one field therefore reverts every
         field anything else wrote in between — a concurrent CDC extract activity's sync_type_config keys
-        (cdc_last_log_position, cdc_deferred_runs, cdc_mode), or the table_id, status, last_synced_at
+        (cdc_last_log_position, cdc_snapshot_lane, cdc_mode), or the table_id, status, last_synced_at
         and initial_sync_complete that `delete_table()` clears. sync_type_config additionally merges,
         because two writers own different keys of the same column. The lock is held across the save so
         nothing interleaves.
@@ -1187,6 +1195,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if source.supports_scheduled_sync and instance.sync_frequency_interval is None:
             if should_sync is True or was_sync_time_of_day_updated:
                 raise ValidationError({"sync_frequency": NO_SYNC_FREQUENCY_ERROR})
+
+        # Checked only when this request sets the frequency or the sync type, so a row that already has a
+        # slower frequency still accepts unrelated edits.
+        if (
+            resulting_sync_type == ExternalDataSchema.SyncType.CDC
+            and (was_sync_frequency_updated or "sync_type" in data)
+            and instance.sync_frequency_interval is not None
+            and instance.sync_frequency_interval > CDC_MAX_SYNC_FREQUENCY_INTERVAL
+        ):
+            raise ValidationError({"sync_frequency": CDC_SYNC_FREQUENCY_TOO_SLOW_ERROR})
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -1945,14 +1963,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             removes = ["cdc_last_log_position", "cdc_deferred_runs"]
             # Without the marker, the next capture run would empty the buffer, deleting changes a
             # capture run already in progress wrote after the snapshot started reading.
-            if resnapshot_stays_in_buffer(instance, logger):
+            if resnapshot_stays_in_buffer(instance):
                 updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
 
         # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
         # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
         # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
-        # workflow starts, loads stale "streaming" mode, raises CDCHandledExternally, and the
-        # full-refresh never runs.
+        # workflow starts, loads stale "streaming" mode, consumes the change buffer instead, and
+        # the full-refresh never runs.
         # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
         # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
         extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}

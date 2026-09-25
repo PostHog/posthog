@@ -1770,12 +1770,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs.logger.debug(f"probe_new_data: falling back to a full sync: {e}", exc_info=e)
             return None
 
-    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse | None:
-        """A `SourceResponse` reading this schema's S3 change buffer, or None if it isn't flipped.
-
-        Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
-        was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
-        """
+    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse:
+        """A `SourceResponse` reading this streaming, seeded schema's S3 change buffer."""
         from asgiref.sync import async_to_sync
 
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -1787,52 +1783,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             build_output_lanes,
             clear_listing,
             completed_listing_proof,
-            consumes_buffer,
             has_batches_in_flight,
             served_lanes,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
-            PostgresCDCConfig,
-        )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
-        ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
-        if not consumes_buffer(schema, ingest_mode=ingest_mode):
-            return None
-
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before the flip, or a worker one deploy behind, would consume this buffer on v2, which
-        # stamps no position on the rows it writes, so every later run would find nothing to resume
-        # from and re-merge the whole buffer. Fail the run loudly instead of degrading silently.
-        job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+        if not served_lanes(schema):
             raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
+                f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
+                "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
 
-        # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
-        # table); every reset writer does that. Standing down here instead would route into
-        # CDCHandledExternally, whose handler pauses this schedule — and nothing on a buffered
-        # source ever unpauses it, so the buffer would age to the S3 TTL unconsumed.
-        if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
-
-        if has_batches_in_flight(schema):
-            # Reading now would stage rows alongside a delivery that is still landing: a legacy one
-            # carries no position to order against, and a previous attempt of this job holds staged
-            # batches that are still claimable, which the append lane would then write twice.
-            #
-            # An empty response no-ops this tick and keeps the schedule alive, unlike
-            # CDCHandledExternally, which would pause it for good. Nothing is listed and nothing is
-            # deleted. An earlier attempt of this same job may have stamped a listing, though, and
+        def no_op_tick() -> SourceResponse:
+            # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
+            # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
             # the workflow completes the job on this response — so the stamp comes off, or a batch
             # of that attempt failing later would leave a Completed job proving a listing nothing
             # drained.
-            inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
             clear_listing(inputs.job_id, inputs.team_id)
             first_lane = served_lanes(schema)[0]
             return SourceResponse(
@@ -1841,6 +1808,42 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 primary_keys=schema.primary_key_columns,
                 cdc_write_mode=first_lane.write_mode,
             )
+
+        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
+            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
+            # lane already delivered, which a read would load a second time. Conversion empties the
+            # buffer before it marks the source buffered.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
+            return no_op_tick()
+
+        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
+        # before its table started streaming, or a worker one deploy behind, would consume this
+        # buffer on v2, which stamps no position on the rows it writes, so every later run would
+        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
+        # degrading silently.
+        job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
+        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            raise ValueError(
+                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
+                "Buffered consumption requires v3, whose loader stamps each row with the position "
+                "the next run resumes from."
+            )
+
+        # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
+        # replays over it; every reset writer does that. Merging the buffer into a wiped table
+        # instead would leave only the rows changed since.
+        if inputs.reset_pipeline:
+            raise ValueError(
+                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
+                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
+            )
+
+        if has_batches_in_flight(schema):
+            # Reading now would stage rows alongside a delivery that is still landing: a previous
+            # attempt of this job holds staged batches that are still claimable, which the append
+            # lane would then write twice.
+            inputs.logger.info("cdc_buffered_waiting_for_in_flight_batches", schema_name=schema.name)
+            return no_op_tick()
 
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
@@ -1871,7 +1874,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
-            CDCHandledExternally,
             ForeignServerUnreachableError,
         )
 
@@ -1900,17 +1902,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # A buffered source's changes are consumed here like any other source; every other CDC
-        # streaming schema is still dispatched by CDCExtractionWorkflow.
-        if schema.is_cdc and schema.cdc_mode == "streaming":
-            buffered_response = self._buffered_cdc_source(schema, inputs)
-            if buffered_response is not None:
-                return buffered_response
-            raise CDCHandledExternally(
-                f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
-            )
+        # A streaming CDC schema's changes are consumed from the buffer. One that is not seeded, still
+        # snapshotting or with its data deleted, falls through to a full refresh via postgres_source(),
+        # and capture keeps its changes in the buffer until that completes.
+        if schema.is_cdc and schema.cdc_mode == "streaming" and schema.initial_sync_complete:
+            return self._buffered_cdc_source(schema, inputs)
 
-        # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
         table_rebuild_pending = inputs.reset_pipeline or schema.delta_revive_required is not None
 

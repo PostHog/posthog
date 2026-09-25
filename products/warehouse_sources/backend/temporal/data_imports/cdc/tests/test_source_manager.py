@@ -28,13 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     ReplayFilter,
     build_output_lanes,
     captures_to_buffer,
-    consumes_buffer,
     has_batches_in_flight,
     scheduled_sync_consumes_buffer,
     served_lanes,
     serves_buffered_lane,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCJobInputsUnreadableError
 
 _TEAM_ID = 7
 _SCHEMA_ID = "3f7c1f4e-0000-0000-0000-000000000001"
@@ -300,39 +298,33 @@ class TestSnapshotCapture:
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
                 True,
             ),
-            ("snapshotting_on_deferred_runs", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
+            ("snapshotting_not_started_yet", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True),
             ("not_cdc", {"is_cdc": False}, False),
             ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
         ]
     )
-    def test_capture_follows_the_snapshot_lane(self, _name, overrides, captured):
+    def test_capture_writes_every_table_in_a_mode_the_buffer_serves(self, _name, overrides, captured):
         assert captures_to_buffer(_schema(**overrides)) is captured
 
     @parameterized.expand(
         [
-            ("streaming_on_a_buffered_source", {}, True, True),
-            ("flag_off", {}, False, False),
-            ("legacy_source", {"job_inputs": {}}, True, False),
-            ("deferred_runs_pending", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, True, False),
-            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True, False),
+            ("streaming", {}, True),
+            ("streaming_with_its_data_deleted", {"initial_sync_complete": False}, True),
+            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
             (
                 "already_in_the_buffer",
                 {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
-                False,
                 True,
             ),
+            # Its buffer holds copies of changes the legacy lane already delivered, until capture converts it.
+            ("streaming_on_a_source_not_converted_yet", {"job_inputs": {"cdc_ingest_mode": "legacy"}}, False),
+            # The previous release skipped these tables' capture, so their buffer has a gap.
+            ("streaming_with_deferred_runs_left", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, False),
         ]
     )
-    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(
-        self, _name, overrides, flag, stays
-    ):
+    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(self, _name, overrides, stays):
         schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
-            return_value=flag,
-        ):
-            assert resnapshot_stays_in_buffer(schema, MagicMock()) is stays
+        assert resnapshot_stays_in_buffer(schema) is stays
 
 
 class TestBufferedGating:
@@ -344,73 +336,41 @@ class TestBufferedGating:
             ("no_table_yet", {"initial_sync_complete": False}),
         ]
     )
-    def test_ineligible_schemas_stay_on_the_legacy_path(self, _name, overrides):
+    def test_ineligible_schemas_do_not_consume_the_buffer(self, _name, overrides):
         assert serves_buffered_lane(_schema(**overrides)) is False
 
     @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
     def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
         assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
 
-    @parameterized.expand([("legacy",), ("",), ("nonsense",)])
-    def test_a_source_that_was_not_flipped_stays_on_the_legacy_path(self, ingest_mode):
-        assert consumes_buffer(_schema(), ingest_mode=ingest_mode) is False
-
-    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
-    def test_a_flipped_schema_consumes_the_buffer(self, table_mode):
-        assert consumes_buffer(_schema(cdc_table_mode=table_mode), ingest_mode="buffered") is True
-
-    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
-    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self, table_mode):
-        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"}, cdc_table_mode=table_mode)
+    # A source capture has not converted yet still reads "legacy", and its consumer must run on v3 too.
+    @parameterized.expand(
+        [
+            (f"{table_mode}_{ingest_mode}", table_mode, ingest_mode)
+            for table_mode in ("consolidated", "cdc_only", "both")
+            for ingest_mode in ("buffered", "legacy")
+        ]
+    )
+    def test_a_streaming_schema_forces_the_buffered_consumer_on_its_scheduled_sync(
+        self, _name, table_mode, ingest_mode
+    ):
+        schema = _schema(job_inputs={"cdc_ingest_mode": ingest_mode}, cdc_table_mode=table_mode)
         assert scheduled_sync_consumes_buffer(schema) is True
 
     @parameterized.expand(
         [
-            ("source_never_flipped", {}),
-            ("no_job_inputs", {"job_inputs": None}),
-            (
-                "unrecognized_table_mode",
-                {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
-            ),
-            ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}),
+            ("still_snapshotting", {"cdc_mode": "snapshot"}),
         ]
     )
     def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
 
-    @parameterized.expand(
-        [
-            ("mapping", {"cdc_ingest_mode": "buffered"}, True),
-            ("json_string", '{"cdc_ingest_mode": "buffered"}', True),
-            ("json_string_not_flipped", '{"cdc_ingest_mode": "legacy"}', False),
-            ("empty_string", "", False),
-        ]
-    )
-    def test_the_flip_is_read_through_whichever_shape_job_inputs_decrypted_to(self, _name, job_inputs, consumes):
-        # EncryptedJSONField hands back a value that was written as a string as that same string,
-        # so reading only the mapping shape leaves a flipped source's buffer unconsumed.
-        assert scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs)) is consumes
-
-    @parameterized.expand([("not_json", "buffered"), ("json_scalar", "12"), ("not_a_string_either", 7)])
-    def test_job_inputs_that_is_no_mapping_at_all_is_an_error(self, _name, job_inputs):
-        with pytest.raises(CDCJobInputsUnreadableError):
-            scheduled_sync_consumes_buffer(_schema(job_inputs=job_inputs))
-
 
 @pytest.mark.asyncio
 class TestBatchesInFlight:
-    # Legacy deliveries carry no position column, so a consumer merge racing them can be overwritten
-    # by an older row. These prove both backlog forms hold the consumer off.
-
-    def test_deferred_runs_are_a_backlog_without_touching_the_queue(self):
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"
-        ) as mock_psycopg:
-            assert has_batches_in_flight(_schema(sync_type_config={"cdc_deferred_runs": [{"x": 1}]})) is True
-            mock_psycopg.Connection.connect.assert_not_called()
-
     @parameterized.expand([("batches_pending", 12.5, True), ("queue_drained", None, False)])
-    def test_sourcebatch_state_decides_when_no_deferred_runs(self, _name, age, expected):
+    def test_sourcebatch_state_decides(self, _name, age, expected):
         schema = _schema()
         schema.team_id = _TEAM_ID
         schema.id = _SCHEMA_ID

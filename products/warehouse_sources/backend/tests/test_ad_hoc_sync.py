@@ -100,10 +100,6 @@ def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(s
     with (
         patch(f"{MODULE}.is_schedule_paused", return_value=True),
         patch(f"{MODULE}.start_external_data_workflow"),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
-            return_value=True,
-        ),
     ):
         trigger_ad_hoc_sync(MagicMock(), schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
 

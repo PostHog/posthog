@@ -1506,7 +1506,7 @@ def update_sync_type_config_keys(
     committed value instead of clobbering it.
 
     `updates` sets keys, `removes` pops keys, and `mutate` runs last for in-place edits of nested
-    structures (e.g. appending to `cdc_deferred_runs`) that must happen inside the critical section.
+    structures that must happen inside the critical section.
     Callers refresh their in-memory copy from the returned dict.
 
     `extra_model_fields` saves additional model fields in the same transaction and row lock — use
@@ -1627,37 +1627,6 @@ def finalize_repartition_scheme(
     return wrote
 
 
-def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
-    """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
-
-    The sweeper can mark the source broken at any moment; checking ``cdc_broken`` outside the
-    row lock would let a stale instance repaint the schema healthy right after the sweeper wrote
-    FAILED, hiding the breakage from the UI and the failure digest (the loader-side twin of this
-    guard lives in jobs.update_external_job_status, which already checks under its own lock).
-    Clears a stale ``cdc_extraction_paused`` marker — a successful run proves extraction resumed.
-    Returns whether the repaint happened; the passed instance is refreshed either way.
-    """
-    with transaction.atomic():
-        fresh = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        config = fresh.sync_type_config or {}
-        repainted = not config.get("cdc_broken")
-        if repainted:
-            config.pop("cdc_extraction_paused", None)
-            fresh.sync_type_config = config
-            fresh.status = ExternalDataSchema.Status.COMPLETED
-            fresh.latest_error = None
-            fresh.last_synced_at = last_synced_at
-            fresh.save(
-                update_fields=["sync_type_config", "status", "latest_error", "last_synced_at", "updated_at"],
-                skip_activity_log=True,
-            )
-    schema.sync_type_config = fresh.sync_type_config
-    schema.status = fresh.status
-    schema.latest_error = fresh.latest_error
-    schema.last_synced_at = fresh.last_synced_at
-    return repainted
-
-
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
     """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
 
@@ -1682,11 +1651,10 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
     On the False→True transition, a CDC schema still in snapshot mode moves to
     ``cdc_mode="streaming"`` in the same row lock. Callers must only invoke this once the
     run's data has durably landed in the destination table — the streaming flip is what lets
-    the CDC workflow start enqueuing (and flushing deferred) WAL merge runs, and merges
-    against a half-loaded snapshot corrupt the table. Locked for the same reason as
-    ``update_sync_type_config_keys``: the CDC extract activity appends ``cdc_deferred_runs``
-    to ``sync_type_config`` concurrently, and an unlocked read-modify-write here could
-    clobber a deferred run.
+    the scheduled sync start merging the change buffer, and merges against a half-loaded
+    snapshot corrupt the table. Locked for the same reason as ``update_sync_type_config_keys``:
+    the CDC extract activity writes ``sync_type_config`` concurrently, and an unlocked
+    read-modify-write here could clobber its keys.
     """
     with transaction.atomic():
         schema = ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)

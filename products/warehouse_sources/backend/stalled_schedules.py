@@ -3,9 +3,8 @@
 A schema's cadence lives in a Temporal schedule whose paused flag is written once, when the
 schedule is created or rewritten (`sync_external_data_job_workflow`). Nothing keeps that flag
 in step with `should_sync` afterwards, so a schedule paused out of band stays paused while
-Postgres still reports the schema as syncing. `migrate_cdc_source_to_buffered` pauses every
-per-schema schedule at its step 3 and unpauses at its step 7, so any abort in between leaves
-them down.
+Postgres still reports the schema as syncing. A CDC schema's schedule is the one that consumes
+its change buffer, so a stall there also lets the buffer age toward its expiry.
 
 That failure is silent in a way an ordinary sync failure is not. No run starts, so there is no
 job row, no `latest_error`, and nothing for the failure digest to report. Every column a
@@ -78,7 +77,6 @@ class StalledSchema:
     # Temporal workflow and belongs to `unstick_external_data_jobs` instead.
     kind: str
     stalled_for: timedelta
-    cdc_ingest_mode: str
     # `ad_hoc_sync.py` and the admin action set this on the schema it pauses for an in-flight
     # non-scheduled run, and clear it themselves once that run finishes successfully. It surviving
     # to a stall check means the run's own cleanup has not (yet, or ever) run, so the pause may
@@ -90,11 +88,6 @@ class StalledSchema:
     # raises. Repairing would fail every time with the same error, so this is excluded rather
     # than left to fail — rewriting the schema's own cadence is not this tool's job.
     has_sync_interval: bool
-    # True once a CDC schema has finished its initial snapshot and flipped to streaming
-    # (`mark_initial_sync_complete`). `stalled_schema_queryset` already excludes this at the
-    # source; this field backs `repairable_here` for the window between discovery and repair,
-    # where a schema can flip to streaming after being read as `no_runs`.
-    cdc_streaming: bool
     # Mirrors `ExternalDataSchema.cdc_halted`: true while the source is marked `cdc_broken`, or
     # its extraction schedule was paused after a non-retryable error. This is a configuration
     # marker independent of `should_sync` and `status`, so a halted schema can still read
@@ -106,32 +99,16 @@ class StalledSchema:
     def repairable_here(self) -> bool:
         """Whether unpausing the schedule is the right fix.
 
-        A buffered CDC source is excluded because its schedule paces buffer consumption: once
-        the mode is flipped, restarting the schedule out of sequence merges files against a
-        table the buffered lane already writes. Those go back through
-        `migrate_cdc_source_to_buffered`.
-
         A schema still carrying `admin_unpause_schedule_after_run` is excluded because its pause
         may belong to an in-flight admin-triggered run rather than to the outage this repairs.
 
         A schema with no `sync_frequency_interval` is excluded because the schedule builder
         cannot turn a null interval into a cadence.
 
-        A streaming CDC schema is excluded because its own workflow paces the schedule; unpausing
-        it does not restart a sync, it just races that workflow into re-pausing it. Those go back
-        through `repair_cdc`.
-
-        A halted CDC schema is excluded for the same reason, one step earlier: the marker exists
-        precisely to stop anything else from touching the schema until `repair_cdc` clears it.
+        A halted CDC schema is excluded because the marker exists precisely to stop anything else
+        from touching the schema until `repair_cdc` clears it.
         """
-        return (
-            self.kind == "no_runs"
-            and self.cdc_ingest_mode != "buffered"
-            and not self.admin_paused
-            and self.has_sync_interval
-            and not self.cdc_streaming
-            and not self.cdc_halted
-        )
+        return self.kind == "no_runs" and not self.admin_paused and self.has_sync_interval and not self.cdc_halted
 
 
 def stalled_schema_queryset(
@@ -180,7 +157,7 @@ def stalled_schema_queryset(
         )
         .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
         .exclude(status__in=SELF_REPORTING_STATUSES)
-        # Streaming CDC and cdc_halted are excluded in `find_stalled_schemas` in Python, not
+        # cdc_halted is excluded in `find_stalled_schemas` in Python, not
         # here: a JSON key lookup against a schema whose `sync_type_config` does not have that
         # key evaluates to SQL NULL, and `.exclude()` compiles to `NOT (...)` — NOT NULL is NULL,
         # not TRUE, so Postgres drops the row from the result entirely instead of keeping it.
@@ -230,14 +207,11 @@ def find_stalled_schemas(
     now = timezone.now()
     stalled = []
     for schema in schemas:
-        # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
-        # comment there): a paused per-schema schedule is streaming CDC's steady state, and
-        # cdc_halted exists precisely to keep everything else off the schedule until repair_cdc
-        # clears it. Skipped rather than reported-but-unrepairable, unlike buffered CDC: this
-        # population can be the entire fleet during a broken-source incident, and reporting it
-        # every sweep would bury the schedule-stall signal this predicate exists to surface.
-        if schema.is_cdc and schema.cdc_mode == "streaming":
-            continue
+        # cdc_halted is excluded here rather than in the queryset (see the comment there): it exists
+        # precisely to keep everything else off the schedule until repair_cdc clears it. Skipped
+        # rather than reported-but-unrepairable: this population can be the entire fleet during a
+        # broken-source incident, and reporting it every sweep would bury the schedule-stall signal
+        # this predicate exists to surface.
         if schema.cdc_halted:
             continue
         stalled.append(
@@ -249,10 +223,8 @@ def find_stalled_schemas(
                 source_type=schema.source.source_type,
                 kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
                 stalled_for=now - schema.latest_run_at,  # type: ignore[attr-defined]
-                cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
                 admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
                 has_sync_interval=schema.sync_frequency_interval is not None,
-                cdc_streaming=schema.is_cdc and schema.cdc_mode == "streaming",
                 cdc_halted=schema.cdc_halted,
             )
         )
@@ -312,18 +284,6 @@ def repair_stalled_schema(stalled: StalledSchema) -> bool:
     if schema.sync_frequency_interval is None:
         logger.info(
             "repair_stalled_schema_schedules_skipped_no_sync_interval",
-            schema_id=str(schema.id),
-            team_id=schema.team_id,
-        )
-        return False
-
-    # A paused schedule is steady state once a CDC schema is streaming — CDCExtractionWorkflow
-    # owns it and re-pauses it on its own next tick. Unpausing here does not restart a sync, it
-    # just races that workflow for nothing. Re-checked because initial_sync_complete (and so the
-    # snapshot-to-streaming flip) can land in the window between discovery and this call.
-    if schema.is_cdc and schema.cdc_mode == "streaming":
-        logger.info(
-            "repair_stalled_schema_schedules_skipped_cdc_streaming",
             schema_id=str(schema.id),
             team_id=schema.team_id,
         )

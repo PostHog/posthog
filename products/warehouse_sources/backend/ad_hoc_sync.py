@@ -15,7 +15,6 @@ from typing import Any
 
 from django.conf import settings
 
-import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
@@ -33,8 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
     BUFFER_LANE,
     resnapshot_stays_in_buffer,
 )
-
-logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -113,16 +110,15 @@ def trigger_ad_hoc_sync(
     extra_model_fields: dict[str, Any] = {}
     if reset_pipeline:
         updates["reset_pipeline"] = True
-        # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
-        # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
-        # full re-snapshot. The job is created non-billable when the caller asks for that, and on
-        # completion set_initial_sync_complete transitions it back to streaming, so ongoing CDC
-        # stays billable. The save must precede the workflow start so the source reloads
-        # cdc_mode="snapshot" instead of racing on stale "streaming".
+        # A streaming CDC schema's run consumes the change buffer, which a reset cannot restart. Flip it
+        # back to snapshot so this run does a full re-snapshot. The job is created non-billable when
+        # the caller asks for that, and on completion set_initial_sync_complete transitions it back to
+        # streaming, so ongoing CDC stays billable. The save must precede the workflow start so the
+        # source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
         if schema.is_cdc and schema.cdc_mode == "streaming":
             # Decided while the table still streams. Without the marker, the next capture run would
             # empty the buffer under the new snapshot, deleting changes an in-flight run wrote.
-            if resnapshot_stays_in_buffer(schema, logger):
+            if resnapshot_stays_in_buffer(schema):
                 updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
             updates["cdc_mode"] = "snapshot"
             removes += ["cdc_last_log_position", "cdc_deferred_runs"]

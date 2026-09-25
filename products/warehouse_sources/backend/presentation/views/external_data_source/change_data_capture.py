@@ -489,8 +489,8 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             base.logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             base.capture_exception(e, {"source_id": str(instance.id)})
 
-        # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
-        # change data with no consumer once CDC is off, and nothing else expires them.
+        # Drop each schema's S3 change buffer: its files are raw customer change data with no
+        # consumer once CDC is off, and only the 14-day lifecycle rule would expire them.
         for schema_id in cdc_schema_ids:
             base.purge_buffer_prefix(instance.team_id, str(schema_id), base.logger)
 
