@@ -5,13 +5,11 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 
 class TestBatchExportActivityLogging(ActivityLogTestHelper):
     def create_test_destination(self):
-        """Helper to create a test destination for batch exports."""
         return BatchExportDestination.objects.create(
             type=BatchExportDestination.Destination.HTTP, config={"url": "https://example.com"}
         )
 
     def test_batch_export_model_has_activity_mixin(self):
-        """Test that BatchExport has ModelActivityMixin and proper scope"""
         # Verify that BatchExport inherits from ModelActivityMixin
         from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
@@ -28,7 +26,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertEqual(batch_export.name, "Test Export")
 
     def test_batch_export_field_exclusions_configured(self):
-        """Test that field exclusions are properly configured"""
         from posthog.models.activity_logging.activity_log import field_exclusions
 
         batch_export_exclusions = field_exclusions.get("BatchExport", [])
@@ -40,7 +37,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("batchexportbackfill_set", batch_export_exclusions)
 
     def test_batch_export_scope_in_activity_log_types(self):
-        """Test that BatchExport scope is defined in ActivityScope"""
         from typing import get_args
 
         from posthog.models.activity_logging.activity_log import ActivityScope
@@ -50,7 +46,6 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
         self.assertIn("BatchExport", get_args(ActivityScope))
 
     def test_batch_export_integration_test(self):
-        """Integration test to verify the basic setup works"""
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
