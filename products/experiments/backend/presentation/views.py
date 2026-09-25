@@ -21,7 +21,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -158,6 +158,17 @@ from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+class RecalculationSchedulingUnavailable(APIException):
+    # Queueing runs through a separate service, so a start failure is transient and retryable.
+    status_code = 503
+    default_detail = (
+        "Couldn't start the recalculation. The service that runs it is temporarily unavailable, "
+        "so try again in a moment."
+    )
+    default_code = "recalculation_scheduling_unavailable"
+
 
 # Heavy JSON columns the list view never renders. Deferred for the list action so large
 # pages don't pay to read/decode detail-only data; the full serializer still loads them
@@ -1412,7 +1423,7 @@ class EnterpriseExperimentsViewSet(
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
-            except Exception:
+            except Exception as error:
                 # team-scoped filter: defense in depth so the rollback can never reach across teams even if
                 # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
                 # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
@@ -1421,13 +1432,37 @@ class EnterpriseExperimentsViewSet(
                 # where only discovery ran, the rollback wins deliberately: the mark_started and
                 # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
                 # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
+                rolled_back = ExperimentMetricsRecalculation.objects.filter(
                     team=self.team,
                     id=recalculation_id,
                     status=ExperimentMetricsRecalculation.Status.PENDING,
                     query_to__isnull=True,
                 ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+                log_context = {"recalculation_id": recalculation_id, "experiment_id": experiment.id}
+                # A zero-row update says only that the row moved on, not where it moved to: the staleness
+                # cleanup can force a long-unresolved PENDING row to FAILED. Read the landing state, so a
+                # dead row is never handed back as a run the client should poll.
+                landed_status = (
+                    None
+                    if rolled_back
+                    else ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if landed_status in (
+                    ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                    ExperimentMetricsRecalculation.Status.COMPLETED,
+                ):
+                    # The worker claimed the row, so the start landed and only the response leg failed.
+                    # Telling the client the run never started would be wrong: it is running.
+                    logger.warning(
+                        "Experiment metrics recalculation start errored after the worker claimed the run",
+                        extra=log_context,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("Failed to start the experiment metrics recalculation workflow", extra=log_context)
+                    raise RecalculationSchedulingUnavailable from error
 
         return Response(
             ExperimentMetricsRecalculationSerializer(result).data,

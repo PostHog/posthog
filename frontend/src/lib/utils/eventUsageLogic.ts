@@ -1534,9 +1534,11 @@ export interface eventUsageLogicActions {
             duration_ms?: number
             experiment_id: number
             failed?: number
+            failed_to_start?: boolean
             is_existing?: boolean
             poll_count?: number
             recalculation_id: string | null
+            status_code?: number
             succeeded?: number
             total_metrics?: number
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi
@@ -1546,9 +1548,11 @@ export interface eventUsageLogicActions {
             duration_ms?: number | undefined
             experiment_id: number
             failed?: number | undefined
+            failed_to_start?: boolean | undefined
             is_existing?: boolean | undefined
             poll_count?: number | undefined
             recalculation_id: string | null
+            status_code?: number | undefined
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
@@ -3100,6 +3104,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 failed?: number
                 duration_ms?: number
                 poll_count?: number
+                failed_to_start?: boolean
+                status_code?: number
             }
         ) => ({ status, properties }),
         reportExperimentFeatureFlagModalOpened: () => ({}),

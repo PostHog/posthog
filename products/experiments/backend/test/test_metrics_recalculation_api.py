@@ -129,11 +129,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     )
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
-        # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
-        # The DRF test client converts the exception into a 500 response rather than propagating it.
+        # When the workflow start fails, the view marks the freshly-created row FAILED and answers with a
+        # retryable 503 the client can show the user.
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
-        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert resp.json()["code"] == "recalculation_scheduling_unavailable"
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
 
@@ -143,6 +144,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # start_workflow can raise after Temporal accepted the start (RPC failure on the response leg).
         # By then the worker may have run mark_started; flipping that row to FAILED would release the
         # per-experiment uniqueness constraint and let a retry launch a second concurrent workflow.
+        # The run is genuinely running, so the response must be a normal create: a start failure would
+        # make the client report and announce a run that never started.
         exp = self._launched_experiment()
 
         def _start_lands_then_rpc_fails(*args, **kwargs):
@@ -155,9 +158,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
         mock_run.side_effect = _start_lands_then_rpc_fails
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
-        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["id"] == str(row.id)
         assert row.status == ExperimentMetricsRecalculation.Status.IN_PROGRESS
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_post_reports_start_failure_when_the_row_was_force_failed(self, mock_run, mock_connect):
+        # A start left unresolved past the staleness threshold can be force-failed by another POST. The
+        # rollback then matches no row even though no worker claimed it, so a response built on the
+        # matched-row count alone would hand the client a dead run to poll.
+        exp = self._launched_experiment()
+
+        def _row_force_failed_then_rpc_fails(*args, **kwargs):
+            ExperimentMetricsRecalculation.objects.filter(experiment=exp).update(
+                status=ExperimentMetricsRecalculation.Status.FAILED
+            )
+            raise RuntimeError("deadline exceeded")
+
+        mock_run.side_effect = _row_force_failed_then_rpc_fails
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     # ------------------------------------------------------------------
     # GET /metrics_recalculation/latest/

@@ -662,6 +662,103 @@ describe('experimentMetricsLogic', () => {
             expect(createMock).toHaveBeenCalled()
         })
 
+        describe('create failure', () => {
+            const SCHEDULER_DOWN_DETAIL = 'Scheduler is unavailable. Try again in a moment.'
+            const useFailingCreate = (): void => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            freshCompletedRecalculation,
+                        ],
+                    },
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            503,
+                            { detail: SCHEDULER_DOWN_DETAIL, code: 'recalculation_scheduling_unavailable' },
+                        ],
+                    },
+                })
+            }
+
+            it('reports a failed_to_start event so a run that never started is measurable', async () => {
+                useFailingCreate()
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toDispatchActions([
+                    logic.actionCreators.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: EXPERIMENT.id as number,
+                        recalculation_id: null,
+                        trigger: 'manual',
+                        failed_to_start: true,
+                        status_code: 503,
+                    }),
+                ])
+                expect(logic.values.recalculationLoading).toBe(false)
+            })
+
+            it('leaves failed_to_start false when the response never confirms the start', async () => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            freshCompletedRecalculation,
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
+                })
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                }).toDispatchActions([
+                    logic.actionCreators.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: EXPERIMENT.id as number,
+                        recalculation_id: null,
+                        trigger: 'manual',
+                        failed_to_start: false,
+                        status_code: 500,
+                    }),
+                ])
+            })
+
+            it('undims the rows it dimmed, so results stop reading as refreshing', async () => {
+                useFailingCreate()
+                mountLogic()
+
+                // The completed run loaded on mount populates the rows a config change then dims.
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('experiment_config_change')
+                }).toFinishAllListeners()
+
+                expect(logic.values.recalculatingMetricUuids).toEqual([])
+            })
+
+            it.each([
+                ['manual', true],
+                ['cold_run', false],
+                ['experiment_config_change', false],
+            ] as const)('toasts on a %s trigger: %s', async (trigger, toasts) => {
+                useFailingCreate()
+                mountLogic()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation(trigger)
+                }).toFinishAllListeners()
+
+                if (toasts) {
+                    expect(lemonToast.error).toHaveBeenCalledWith(SCHEDULER_DOWN_DETAIL)
+                } else {
+                    expect(lemonToast.error).not.toHaveBeenCalled()
+                }
+            })
+        })
+
         describe('queuing', () => {
             it('queues instead of posting when a run is active', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])

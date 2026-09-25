@@ -46,6 +46,9 @@ const MAX_POLL_RETRIES = 5
  * this cap every tab that resumed the run would poll its id (and the per-tick live-progress query) forever.
  */
 const MAX_POLL_DURATION_MS = 30 * 60 * 1000
+// `default_code` of the backend's RecalculationSchedulingUnavailable: the one answer that confirms the
+// workflow was never queued.
+const SCHEDULING_UNAVAILABLE_CODE = 'recalculation_scheduling_unavailable'
 
 export const RECALCULATION_STATUSES = {
     pending: 'pending',
@@ -205,9 +208,11 @@ export interface experimentMetricsLogicActions {
             duration_ms?: number
             experiment_id: number
             failed?: number
+            failed_to_start?: boolean
             is_existing?: boolean
             poll_count?: number
             recalculation_id: string | null
+            status_code?: number
             succeeded?: number
             total_metrics?: number
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi
@@ -217,9 +222,11 @@ export interface experimentMetricsLogicActions {
             duration_ms?: number | undefined
             experiment_id: number
             failed?: number | undefined
+            failed_to_start?: boolean | undefined
             is_existing?: boolean | undefined
             poll_count?: number | undefined
             recalculation_id: string | null
+            status_code?: number | undefined
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
@@ -805,6 +812,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
 
+                // Only a user-initiated run is worth a toast either way; the automatic triggers stay quiet.
+                const userInitiated = trigger === 'manual'
+
                 /**
                  * Mark loading up front so the reload button disables on click, not only once the create POST
                  * returns. Without this there's a window (the POST round-trip) where the button stays clickable.
@@ -867,7 +877,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                             actions.triggerRecalculation(queued)
                         }
                     } else {
-                        if (trigger === 'manual' && !recalculation.is_existing) {
+                        if (userInitiated && !recalculation.is_existing) {
                             lemonToast.info(
                                 'Recalculating metrics in the background. Results will update as they finish.'
                             )
@@ -879,7 +889,22 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * Re-enable the reload button: the run never started, so nothing else will clear loading.
                      */
                     actions.setRecalculationLoading(false)
-                    lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                    // Undim the rows this trigger dimmed. Nothing else will: the run never started, so no
+                    // result ever lands for them, and an automatic trigger shows no toast to explain it.
+                    actions.setRecalculatingMetricUuids([])
+                    // A run that never started emits no terminal event, so this is the only record of it.
+                    // Only the backend's own code confirms the start never happened; a dropped response
+                    // leaves it unknown, so `failed_to_start` stays false rather than guessing.
+                    actions.reportExperimentMetricRecalculation('failed', {
+                        experiment_id: resolvedIds.experimentId,
+                        recalculation_id: null,
+                        trigger,
+                        failed_to_start: error?.code === SCHEDULING_UNAVAILABLE_CODE,
+                        status_code: error?.status,
+                    })
+                    if (userInitiated) {
+                        lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
+                    }
                 } finally {
                     cache.createInFlight = false
                 }
