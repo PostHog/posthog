@@ -334,6 +334,27 @@ class TestHealthIssueAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("dismiss", {"dismissed": True}),
+            ("undismiss", {"dismissed": False}),
+            ("snooze", {"snoozed_until": "7d"}),
+            ("unsnooze", {"snoozed_until": None}),
+        ]
+    )
+    def test_patch_keeps_updated_at_at_the_last_check_run(self, _name, payload):
+        issue = self._create_issue(dismissed=True, snoozed_until=datetime.now(UTC) + timedelta(days=1))
+        last_check_run = datetime.now(UTC) - timedelta(days=3)
+        HealthIssue.objects.filter(id=issue.id).update(updated_at=last_check_run)
+
+        response = self.client.patch(self._url(f"/{issue.id}/"), payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.updated_at, last_check_run)
+        returned = datetime.fromisoformat(response.json()["updated_at"].replace("Z", "+00:00"))
+        self.assertEqual(returned, last_check_run)
+
+    @parameterized.expand(
+        [
             ("dismiss", {}, {"dismissed": True}, "health issue dismissed", {}),
             ("undismiss", {"dismissed": True}, {"dismissed": False}, "health issue undismissed", {}),
             ("snooze", {}, {"snoozed_until": "7d"}, "health issue snoozed", {"snooze_duration": "7d"}),

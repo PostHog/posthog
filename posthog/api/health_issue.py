@@ -148,6 +148,14 @@ class HealthIssueSerializer(serializers.ModelSerializer):
             "resolved_at": {"help_text": "When the issue was resolved (ISO 8601), or null if still active."},
         }
 
+    def update(self, instance: HealthIssue, validated_data: dict[str, Any]) -> HealthIssue:
+        # `updated_at` is auto_now and reads as the last check run, so a triage
+        # write must leave it where the last detection put it.
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save(update_fields=list(validated_data))
+        return instance
+
 
 class HealthIssueCountsSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Total number of issues in this group.")
