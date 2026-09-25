@@ -2,14 +2,11 @@ from django.db import migrations
 
 BATCH_SIZE = 1000
 
-# An audit entry stores the label the inbox settings show, not the column name: `changes_between`
-# resolves the field through `field_name_overrides` before it writes. The literal is frozen here
-# rather than read from that map, because what an applied migration matched must not change when
-# the label is reworded. `test_enable_pull_request_label_migration` drives the real settings
-# endpoint, so it fails if the stored shape and this filter ever disagree.
-#
-# Whole-column containment is also the only form the GIN index on `detail` serves; a filter on
-# `detail -> 'changes'` scans the whole activity history instead.
+# An audit entry stores the label the inbox settings show, not the column name, because
+# `changes_between` resolves the field through `field_name_overrides` before it writes. The literal
+# is frozen here rather than read from that map, so rewording the label cannot change what an
+# applied migration matched; the test drives the real settings endpoint to catch the two drifting
+# apart. Whole-column containment is also the only form the GIN index on `detail` serves.
 LABEL_SWITCH_CHANGE = {"changes": [{"field": "label self-driving PRs"}]}
 
 
