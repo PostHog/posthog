@@ -18,6 +18,7 @@ pub mod outputs;
 mod overflow_parity;
 pub mod payload;
 pub mod pipeline;
+pub mod producers;
 pub mod prometheus;
 pub mod quota_limiters;
 pub mod router;

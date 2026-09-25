@@ -2,7 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -10,9 +10,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PropertyOperator
+from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
 
 from posthog.models.utils import uuid7
+from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation, mcp_harness
@@ -26,6 +27,10 @@ TEST_ACCOUNT_FILTERS = [{"key": "$mcp_client_name", "value": [INTERNAL_CLIENT], 
 
 def _tool_name_filter(tool: str) -> list[AnyPropertyFilterDiscriminated]:
     return [EventPropertyFilter(key="$mcp_tool_name", value=[tool], operator=PropertyOperator.EXACT)]
+
+
+def _person_email_filter(email: str) -> list[AnyPropertyFilterDiscriminated]:
+    return [PersonPropertyFilter(key="email", value=[email], operator=PropertyOperator.EXACT)]
 
 
 def _sorted_uuid7s(n: int) -> list[str]:
@@ -134,6 +139,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
     @parameterized.expand(
         [
             ("property_filter", _tool_name_filter("query_run"), False, {"kept"}),
+            ("person_property_filter", _person_email_filter("kept@example.com"), False, {"kept"}),
             ("test_accounts", None, True, {"kept"}),
             ("both_together", _tool_name_filter("query_run"), True, {"kept"}),
             ("neither", None, False, {"kept", "dropped"}),
@@ -148,9 +154,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
     ) -> None:
         self.team.test_account_filters = TEST_ACCOUNT_FILTERS
         self.team.save()
+        create_person(team=self.team, distinct_ids=["kept_user"], properties={"email": "kept@example.com"})
+        create_person(team=self.team, distinct_ids=["dropped_user"], properties={"email": "dropped@example.com"})
         by_name = {"kept": str(uuid7()), "dropped": str(uuid7())}
-        self._seed_session(by_name["kept"], ["query_run"])
-        self._seed_session(by_name["dropped"], ["docs_search"], client_name=INTERNAL_CLIENT)
+        self._seed_session(by_name["kept"], ["query_run"], distinct_id="kept_user")
+        self._seed_session(by_name["dropped"], ["docs_search"], client_name=INTERNAL_CLIENT, distinct_id="dropped_user")
+        flush_persons_and_events()
 
         def listed(props: list[AnyPropertyFilterDiscriminated] | None, test_accounts: bool) -> set[str]:
             page = api.list_mcp_sessions(
