@@ -106,7 +106,9 @@ class TestStableChunks(SimpleTestCase):
             ("cookie on still opts safari in", "", "1", SAFARI_MAC, True),
         ]
     )
-    def test_the_flag_skips_webkit(self, _name, query, cookie, user_agent, expected):
+    def test_the_flag_skips_webkit(
+        self, _name: str, query: str, cookie: str | None, user_agent: str, expected: bool
+    ) -> None:
         request = RequestFactory().get(f"/{query}", HTTP_USER_AGENT=user_agent)
         request.user = User()
         if cookie:
