@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.pipelines import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
+    produce_sync_failed_events,
 )
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataJobPipelineVersion,
@@ -158,6 +159,7 @@ def update_external_job_status(
                 schedule_external_data_failure_digest(team_id)
             except Exception:
                 logger.exception("Failed to schedule external data failure digest")
+            produce_sync_failed_events(schema.source, [schema], model.latest_error, job_id=str(model.id))
 
     return model
 
