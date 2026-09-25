@@ -1642,7 +1642,7 @@ def web_analytics_cache_warming_dry_run_job():
 
 
 @dagster.schedule(
-    cron_schedule="0 * * * *",
+    cron_schedule="3 * * * *",
     job=web_analytics_cache_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

@@ -856,7 +856,7 @@ def postgres_to_clickhouse_etl_job():
 
 postgres_to_clickhouse_hourly_schedule = ScheduleDefinition(
     job=postgres_to_clickhouse_etl_job,
-    cron_schedule="0 * * * *",
+    cron_schedule="17 * * * *",
     name="postgres_to_clickhouse_hourly",
     execution_timezone="UTC",
 )

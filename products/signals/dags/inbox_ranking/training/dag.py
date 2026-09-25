@@ -1098,7 +1098,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
 
 # Runs after the dataset job's 3h budget (02:30 UTC start) so dt=D-1's snapshots exist.
 @dagster.schedule(
-    cron_schedule="0 6 * * *",
+    cron_schedule="13 6 * * *",
     job=inbox_ranking_training_job,
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING

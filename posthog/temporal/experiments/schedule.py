@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.conf import settings
 
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleSpec
@@ -29,7 +31,7 @@ async def create_experiment_regular_metrics_schedules(client: Client) -> None:
                 id=f'{SCHEDULE_ID_PREFIX}-{hour:02d}-{{{{.ScheduledTime.Format "2006-01-02"}}}}',
                 task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             ),
-            spec=ScheduleSpec(cron_expressions=[f"0 {hour} * * *"]),
+            spec=ScheduleSpec(cron_expressions=[f"2 {hour} * * *"], jitter=timedelta(minutes=30)),
         )
 
         if await a_schedule_exists(client, schedule_id):
@@ -71,7 +73,7 @@ async def create_experiment_saved_metrics_schedules(client: Client) -> None:
                 id=f'{SAVED_SCHEDULE_ID_PREFIX}-{hour:02d}-{{{{.ScheduledTime.Format "2006-01-02"}}}}',
                 task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             ),
-            spec=ScheduleSpec(cron_expressions=[f"0 {hour} * * *"]),
+            spec=ScheduleSpec(cron_expressions=[f"2 {hour} * * *"], jitter=timedelta(minutes=30)),
         )
 
         if await a_schedule_exists(client, schedule_id):

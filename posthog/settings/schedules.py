@@ -4,15 +4,16 @@ from posthog.settings.utils import get_from_env
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 # Schedules to recalculate cohorts. Follows crontab syntax.
+# The defaults leave out minute zero of each hour, as posthog/scheduling/jitter.py explains.
 CALCULATE_COHORTS_DAY_SCHEDULE = get_from_env(
     "CALCULATE_COHORTS_DAY_SCHEDULE",
-    "*/2 6-17 * * *",
+    "1-59/2 6-17 * * *",
 )
 CALCULATE_X_PARALLEL_COHORTS_DURING_DAY = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_DAY", 5, type_cast=int)
 
 CALCULATE_COHORTS_NIGHT_SCHEDULE = get_from_env(
     "CALCULATE_COHORTS_NIGHT_SCHEDULE",
-    "* 0-5,18-23 * * *",
+    "1-59 0-5,18-23 * * *",
 )
 CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT", 5, type_cast=int)
 

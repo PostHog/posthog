@@ -50,7 +50,12 @@ async def create_batch_trace_summarization_schedule(client: Client):
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=timedelta(minutes=COORDINATOR_EXECUTION_TIMEOUT_MINUTES),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS), offset=timedelta(minutes=2))
+            ],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 

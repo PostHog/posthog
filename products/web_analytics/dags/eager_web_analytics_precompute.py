@@ -694,10 +694,10 @@ def web_analytics_eager_backfill_job():
     # STOPPED) so the stop is an explicit operational toggle, not a silent
     # code-deploy behavior change.
     # Hourly. The lazy cache's 4h today-TTL absorbs missed cycles, so
-    # there's no need to align with shorter cadences. Offset by 5 min from
-    # the top of the hour to avoid colliding with the existing
-    # `web_analytics_cache_warming_schedule` (`0 * * * *`).
-    cron_schedule="5 * * * *",
+    # there's no need to align with shorter cadences. Minute 53 keeps it clear
+    # of `web_analytics_cache_warming_schedule`, which starts at minute 3 and
+    # releases its teams over the next ten minutes.
+    cron_schedule="53 * * * *",
     job=web_analytics_eager_baseline_warming_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

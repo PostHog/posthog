@@ -26,6 +26,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.ph_client import feature_enabled_or_false
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -492,7 +493,7 @@ def get_cdc_extraction_schedule(
     )
 
     spec = ScheduleSpec(
-        intervals=[ScheduleIntervalSpec(every=min_interval)],
+        intervals=[ScheduleIntervalSpec(every=min_interval, offset=deterministic_offset(str(source.id), min_interval))],
     )
 
     return Schedule(
@@ -846,7 +847,10 @@ def ensure_cdc_slot_cleanup_schedule() -> None:
 
     schedule = Schedule(
         action=action,
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         state=ScheduleState(note="Global CDC slot orphan cleanup and WAL lag monitor"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
