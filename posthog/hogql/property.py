@@ -1839,7 +1839,7 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
         # The materialized elements_chain_elements column contains only interactive tags, while the
         # tag_name filter matches every tag in the chain. Extract the innermost tag directly so the
         # breakdown uses the same set of values as the filter.
-        return parse_expr(r"arrayElement(extractAll(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:\.|$|:)'), 1)")
+        return parse_expr("arrayElement(extractAll(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:)'), 1)")
     # A selector filter is a regex over the whole chain, so there is no per-event value that a
     # selector breakdown could return without disagreeing with the filter.
     raise QueryError(f"Breakdown by element property '{key}' is not supported. Use 'tag_name', 'text', or 'href'.")
