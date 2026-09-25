@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -24,6 +25,7 @@ def _answer(choice: str, confidence: float) -> SystemOneResult:
     )
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestSearchIntentEndpoint(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -59,16 +61,25 @@ class TestSearchIntentEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disabled", False, None, status.HTTP_404_NOT_FOUND),
-            ("not_configured", True, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("unreachable", True, SystemOneRequestFailed("timeout"), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("refused", True, SystemOneRequestFailed("boom", status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("disabled", "US", False, None, status.HTTP_404_NOT_FOUND),
+            ("eu_cloud", "EU", True, None, status.HTTP_404_NOT_FOUND),
+            ("self_hosted", None, True, None, status.HTTP_404_NOT_FOUND),
+            ("not_configured", "US", True, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("unreachable", "US", True, SystemOneRequestFailed("timeout"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            (
+                "refused",
+                "US",
+                True,
+                SystemOneRequestFailed("boom", status_code=500),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
         ]
     )
     def test_the_picker_gets_a_plain_failure_when_there_is_no_answer(
-        self, _name, enabled, error, expected_status
+        self, _name, region, enabled, error, expected_status
     ) -> None:
         with (
+            self.settings(CLOUD_DEPLOYMENT=region),
             patch(FLAG_CHECK, return_value=enabled),
             patch(BUILD_CLIENT, side_effect=error),
         ):

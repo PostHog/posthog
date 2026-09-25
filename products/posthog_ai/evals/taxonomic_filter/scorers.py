@@ -80,6 +80,6 @@ class NoWrongSwitch(Scorer):
         intent = _intent(output)
         if not intent.get("suggests_switch"):
             return Score(name=self._name(), score=None, metadata={"reason": "No suggestion shown"})
-        # A suggestion is wrong if the active tab is already acceptable (no switch needed) or if the suggested tab is not acceptable.
+        # A switch away from an acceptable open tab is wrong, because the person is already in the right place.
         right = spec["active"] not in spec["acceptable"] and intent.get("group_type") in spec["acceptable"]
         return Score(name=self._name(), score=1.0 if right else 0.0, metadata={"intent": intent})

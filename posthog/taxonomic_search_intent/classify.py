@@ -53,8 +53,11 @@ _CACHED_INTENT = TypeAdapter(SearchIntent)
 def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
     """The flag assigns the experiment arms. Every arm asks, so any value other than off enables the endpoint.
 
-    DEBUG bypasses the flag because the analytics SDK is disabled in local development.
+    Dark launch: only local development and the US cloud, so no flag change can bring it up in the EU or on
+    self-hosted. DEBUG bypasses the flag because the analytics SDK is disabled in local development.
     """
+    if not (settings.DEBUG or (settings.CLOUD_DEPLOYMENT or "").upper() == "US"):
+        return False
     if settings.DEBUG:
         return True
     try:

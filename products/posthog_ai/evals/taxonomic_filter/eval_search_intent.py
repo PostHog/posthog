@@ -112,14 +112,14 @@ WRONG_TAB_CASES = [
         "url",
         active="person_properties",
         tabs=PROPERTY_FILTER,
-        acceptable=("event_properties", "pageview_urls"),
+        acceptable=("event_properties",),
     ),
     _case(
         "current_url_in_events_tab",
         "current url",
         active="events",
         tabs=REPLAY_FILTER,
-        acceptable=("event_properties", "pageview_urls"),
+        acceptable=("event_properties",),
         scene="Replay",
     ),
     _case(
@@ -203,7 +203,7 @@ RIGHT_TAB_CASES = [
         "url",
         active="event_properties",
         tabs=PROPERTY_FILTER,
-        acceptable=("event_properties", "pageview_urls"),
+        acceptable=("event_properties",),
     ),
     # Country is on the event and on the person, and people pick either, so both count as right.
     _case(
@@ -267,14 +267,14 @@ PARTIAL_CASES = [
         "ur",
         active="person_properties",
         tabs=PROPERTY_FILTER,
-        acceptable=("event_properties", "pageview_urls"),
+        acceptable=("event_properties",),
     ),
     _case(
         "page_address",
         "page address",
         active="person_properties",
         tabs=PROPERTY_FILTER,
-        acceptable=("event_properties", "pageview_urls"),
+        acceptable=("event_properties",),
     ),
     _case("email_in_spanish", "correo", active="events", tabs=REPLAY_FILTER, acceptable=("person_properties",)),
 ]
