@@ -47,8 +47,6 @@ import datetime
 from collections.abc import Iterator
 from typing import Any, cast
 
-from django.db.models import Q
-
 import dagster
 import pyarrow as pa
 
@@ -58,6 +56,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
@@ -108,16 +107,6 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
 )
 
 FEATURE_SCHEMA_VERSION = 6
-
-# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
-# and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
-# promotion. Suppressed and deleted are absent on purpose: authored-then-hidden is not inventory.
-BORN_VISIBLE_STATUSES = (
-    SignalReport.Status.READY,
-    SignalReport.Status.PENDING_INPUT,
-    SignalReport.Status.IN_PROGRESS,
-    SignalReport.Status.RESOLVED,
-)
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -392,21 +381,6 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             else:
                 entry["actionability"] = _judgment_value(parsed, "actionability")
     return judgments
-
-
-def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
-    """Reports that were in the inbox before the cutoff.
-
-    Two ways in, because not every visible report was promoted: the pipeline promotes a `potential`
-    report and stamps promoted_at, but the scout and custom-agent authoring paths create a report
-    already in a visible status and never stamp it. Keying only on promotion dropped every
-    directly-authored report until a user happened to interact with it, biasing the inventory toward
-    reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
-    is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
-    null) still cannot leak in through the second branch."""
-    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
-        promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
-    )
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
