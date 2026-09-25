@@ -2,7 +2,8 @@
 
 ## BatchExport (`system.batch_exports`)
 
-Batch exports define recurring data export jobs that send events, persons, or sessions to external destinations.
+Batch exports define recurring data export jobs that send data to external destinations.
+Each export sends one data model: events, persons, sessions, or the result of a HogQL query.
 
 ### Columns
 
@@ -11,7 +12,7 @@ Batch exports define recurring data export jobs that send events, persons, or se
 | `id`              | uuid              | NOT NULL | Primary key                                                                      |
 | `team_id`         | integer           | NOT NULL | Team this export belongs to                                                      |
 | `name`            | text              | NOT NULL | Human-readable name                                                              |
-| `model`           | varchar(64)       | NULL     | Data model: `events`, `persons`, or `sessions`                                   |
+| `model`           | varchar(64)       | NULL     | Data model: `events`, `persons`, `sessions`, or `hogql`                          |
 | `interval`        | varchar(64)       | NOT NULL | Schedule frequency: `hour`, `day`, `week`, `every 5 minutes`, `every 15 minutes` |
 | `paused`          | integer           | NOT NULL | Whether the export is paused (1 = paused, 0 = active)                            |
 | `deleted`         | integer           | NOT NULL | Soft-delete flag (1 = deleted, 0 = active)                                       |
@@ -34,6 +35,8 @@ Batch exports define recurring data export jobs that send events, persons, or se
 - Filter with `deleted = 0` to exclude soft-deleted exports
 - Filter with `paused = 0` to find actively running exports
 - Destination details (type, connection config) are not in this table; use the `batch-export-get` MCP tool instead
+- The `hogql` model exports the result of a HogQL query. Each run exports the rows that the query returns
+- The query itself is not a column of this table. The `batch-export-get` MCP tool returns it in the `hogql_query` field
 - Run history is not directly queryable via SQL; `batch-export-get` returns the 10 most recent runs in `latest_runs` — for older runs use the PostHog UI (the runs endpoints are not exposed as MCP tools)
 
 ---
