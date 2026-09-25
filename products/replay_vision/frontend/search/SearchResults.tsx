@@ -67,7 +67,7 @@ function WatchLink({
     /* The card clips its own corners and draws its own edge, so the poster goes edge to edge there. */
     const thumbnail = (
         <ObservationThumbnail observation={observation} className={clsx(!compact && 'rounded-none border-0')}>
-            {!expired && (
+            {expired ? undefined : (
                 /* A fixed dark scrim, not a theme surface: the chip sits on a frame of any colour, white included. */
                 <span
                     className={clsx(

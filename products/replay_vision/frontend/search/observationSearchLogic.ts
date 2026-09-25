@@ -29,7 +29,6 @@ import {
 } from '../generated/api'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
-import { couldRecordingBeExpired } from '../utils/recordingRetention'
 import { readSimilarSearchIntent } from './observationQueries'
 
 // The server's MAX_SEARCH_LIMIT. A larger value would 400.
@@ -349,13 +348,22 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                     if (sessionIds.length === 0) {
                         return []
                     }
-                    const response = await api.recordings.list({
-                        kind: NodeKind.RecordingsQuery,
-                        session_ids: sessionIds,
-                    })
-                    breakpoint()
-                    const playable = new Set(response.results.map((recording) => recording.id))
-                    return sessionIds.filter((sessionId) => !playable.has(sessionId))
+                    try {
+                        const response = await api.recordings.list({
+                            kind: NodeKind.RecordingsQuery,
+                            session_ids: sessionIds,
+                        })
+                        breakpoint()
+                        const playable = new Set(response.results.map((recording) => recording.id))
+                        return sessionIds.filter((sessionId) => !playable.has(sessionId))
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        // No session-recording access (403) or a transient failure: show no expired tags
+                        // rather than an error toast, since this action is not on initKea's allow list.
+                        return []
+                    }
                 },
             },
         ],
@@ -438,16 +446,11 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             }
         },
         searchSuccess: ({ results }) => {
-            // Only sessions older than the shortest retention period can be expired; anything younger
-            // needs no request to prove it plays.
-            const candidates = Array.from(
-                new Set(
-                    results
-                        .filter((result) => couldRecordingBeExpired(result.observation.created_at))
-                        .map((result) => result.observation.session_id)
-                )
-            )
-            actions.checkRecordingAvailability(candidates)
+            // An observation is created when its scan runs, not when the session happened, so its age
+            // cannot rule expiry out for a backfilled scan of an old session. The recordings API is the
+            // source of truth, so check every result's session in one batched request (at most 50).
+            const sessionIds = Array.from(new Set(results.map((result) => result.observation.session_id)))
+            actions.checkRecordingAvailability(sessionIds)
         },
         searchSimilar: () => actions.search(),
         search: async (_, breakpoint) => {

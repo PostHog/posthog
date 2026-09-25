@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -111,24 +110,15 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
-    it('tags a session as expired only after the recordings API confirms its recording is gone', async () => {
-        // A recording keeps the retention period it was captured under, so an old observation's
-        // recording can still play; only the API's answer decides the tag.
-        const pastMinRetention = dayjs().subtract(40, 'day').toISOString()
-        const fresh = dayjs().subtract(2, 'day').toISOString()
+    it('checks every result and tags only the sessions whose recording the API omits', async () => {
+        // created_at is analysis time, so it cannot rule expiry out for a backfilled scan of an old
+        // session; every result's session goes in the one batched check, and only omitted ones are tagged.
         searchSpy.mockImplementation(() => [
             200,
             {
                 results: [
-                    {
-                        observation: { id: 'obs-1', session_id: 's-deleted', created_at: pastMinRetention },
-                        distance: 0.1,
-                    },
-                    {
-                        observation: { id: 'obs-2', session_id: 's-playable', created_at: pastMinRetention },
-                        distance: 0.11,
-                    },
-                    { observation: { id: 'obs-3', session_id: 's-fresh', created_at: fresh }, distance: 0.12 },
+                    { observation: { id: 'obs-1', session_id: 's-deleted' }, distance: 0.1 },
+                    { observation: { id: 'obs-2', session_id: 's-playable' }, distance: 0.11 },
                 ],
             },
         ])
@@ -141,14 +131,35 @@ describe('observationSearchLogic', () => {
         logic.actions.setQuery('confused users')
         await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
 
-        // Sessions younger than the shortest retention period cannot be expired, so one batched
-        // existence check covers only the old ones.
         expect(recordingsSpy).toHaveBeenCalledTimes(1)
         const requested = JSON.parse(
             new URL(recordingsSpy.mock.calls[0][0].request.url).searchParams.get('session_ids') ?? '[]'
         )
         expect(requested).toEqual(['s-deleted', 's-playable'])
         expect(logic.values.expiredSessionIds).toEqual(new Set(['s-deleted']))
+        logic.unmount()
+    })
+
+    it('shows no expired tags and no error toast when the recordings check is forbidden', async () => {
+        // A user with Replay Vision access but no session-recording access gets a 403 here; the check
+        // must degrade to no tags rather than toast after every search.
+        searchSpy.mockImplementation(() => [
+            200,
+            { results: [{ observation: { id: 'obs-1', session_id: 's-1' }, distance: 0.1 }] },
+        ])
+        useMocks({ get: { '/api/environments/:team_id/session_recordings': () => [403, { detail: 'forbidden' }] } })
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(logic.values.results?.map((r) => r.observation.id)).toEqual(['obs-1'])
+        expect(logic.values.expiredSessionIds).toEqual(new Set())
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
         logic.unmount()
     })
 
