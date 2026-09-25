@@ -16,7 +16,6 @@ from posthog.temporal.common.activity_context import (
     current_workflow_run_id,
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -520,8 +519,9 @@ class PipelineV3(Generic[ResumableData]):
                 get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(duration)
 
             posthoganalytics.capture(
-                distinct_id=get_machine_id(),
+                distinct_id=f"team-{self._job.team_id}",
                 event="warehouse_v3_extraction_completed",
+                groups={"project": str(self._job.team_id)},
                 properties={
                     "team_id": self._job.team_id,
                     "schema_id": str(self._schema.id),

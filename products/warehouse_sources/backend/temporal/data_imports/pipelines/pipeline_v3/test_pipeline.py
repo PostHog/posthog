@@ -218,6 +218,29 @@ class TestExtractionFailureDoesNotCleanupS3:
         s3_writer.cleanup.assert_not_called()
 
 
+# A machine-scoped distinct id makes every actor count on this event measure worker pods
+# instead of teams, and nothing else in the payload shows that the attribution is wrong.
+class TestExtractionCompletedIsAttributedToTheTeam:
+    @pytest.mark.asyncio
+    async def test_the_completion_event_carries_the_team_as_actor_and_group(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._sinks = MagicMock(clear=AsyncMock(side_effect=RuntimeError("simulated extraction failure")))
+
+        with (
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+            patch(f"{_PIPELINE}.posthoganalytics") as mock_analytics,
+        ):
+            mock_activity.in_activity.return_value = False
+
+            with pytest.raises(RuntimeError, match="simulated extraction failure"):
+                await pipeline.run()
+
+        capture_kwargs = mock_analytics.capture.call_args.kwargs
+        assert capture_kwargs["event"] == "warehouse_v3_extraction_completed"
+        assert capture_kwargs["distinct_id"] == "team-1"
+        assert capture_kwargs["groups"] == {"project": "1"}
+
+
 # Both properties below are silent when wrong: a `full_refresh` overwrites the customer's table
 # with one micro-batch of changes, and a missing `cdc_write_mode` turns off enrichment and position
 # resolution while every other test still passes.
