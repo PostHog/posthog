@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import {
@@ -149,34 +150,61 @@ function confirmThen(opts: {
     })
 }
 
+type CdcAvailability = 'available' | 'unavailable_direct_query' | 'hidden_flag_off'
+
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
-        return null
-    }
-    if (source.access_method !== 'warehouse') {
-        return null
-    }
+    const supportsCdc = CDC_SOURCE_TYPES.includes(source.source_type)
+    let availability: CdcAvailability = 'available'
     if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC]) {
+        availability = 'hidden_flag_off'
+    } else if (source.access_method === 'direct') {
+        availability = 'unavailable_direct_query'
+    }
+
+    useEffect(() => {
+        if (supportsCdc) {
+            posthog.capture('warehouse cdc section viewed', {
+                source_type: source.source_type,
+                availability,
+            })
+        }
+    }, [supportsCdc, availability, source.source_type])
+
+    if (!supportsCdc) {
+        return null
+    }
+    // The flag is a kill switch for an org that must not run CDC, so it stays silent.
+    if (availability === 'hidden_flag_off') {
         return null
     }
 
     const cdc = getCdcConfig(source)
+    const isDirectQuery = availability === 'unavailable_direct_query'
 
     return (
         <div className="mt-6 rounded border p-4">
             <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-base font-semibold mb-0">Change data capture (CDC)</h3>
-                <LemonTag type="completion">Alpha</LemonTag>
-                {cdc.enabled && <LemonTag type="success">Enabled</LemonTag>}
+                {!isDirectQuery && cdc.enabled && <LemonTag type="success">Enabled</LemonTag>}
             </div>
             <p className="text-sm text-secondary mb-3">
                 Real-time sync via PostgreSQL logical replication. Captures inserts, updates, and{' '}
                 <strong>deletes</strong> with no full table scans.
             </p>
             <LemonDivider className="my-3" />
-            {cdc.enabled ? <EnabledControls source={source} /> : <DisabledControls source={source} />}
+            {isDirectQuery ? (
+                <p className="text-sm text-secondary mb-0">
+                    CDC is only available for sources that sync to the warehouse. This source is set to query directly,
+                    so there is nothing for CDC to sync. To use CDC, connect this database again and choose{' '}
+                    <strong>Sync to warehouse</strong>.
+                </p>
+            ) : cdc.enabled ? (
+                <EnabledControls source={source} />
+            ) : (
+                <DisabledControls source={source} />
+            )}
         </div>
     )
 }
