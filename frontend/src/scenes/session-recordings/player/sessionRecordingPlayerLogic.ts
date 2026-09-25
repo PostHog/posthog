@@ -1914,9 +1914,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return { kind: 'waitingForData' }
                     }
                     // No FullSnapshot anywhere, everything loaded. Only definitive once the
-                    // ingestion grace period has passed — until then a late FullSnapshot may
-                    // still arrive, so keep buffering rather than showing a terminal error.
-                    return isWithinIngestionGracePeriod(sessionPlayerData.start)
+                    // ingestion grace period has passed for this position — until then a late
+                    // FullSnapshot may still arrive, so keep buffering rather than showing a
+                    // terminal error. The grace runs from the position, not from the recording
+                    // start, or a recording longer than the grace period gets none for its tail.
+                    return isWithinIngestionGracePeriod(timestamp)
                         ? { kind: 'waitingForIngestion' }
                         : { kind: 'unplayable' }
                 }
@@ -3641,12 +3643,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         playerError: (value) => {
             if (value) {
+                const recordingEnd = values.sessionPlayerData.end
                 posthog.capture('recording player error', {
                     watchedSessionId: values.sessionRecordingId,
                     currentTimestamp: values.currentTimestamp,
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
                     error: value,
+                    // How old the data was when the error fired: recordingAgeMs for the recording
+                    // as a whole, positionAgeMs for the position the viewer was on. Both are needed
+                    // to tell a genuine capture loss from data that was still arriving.
+                    recordingAgeMs: recordingEnd ? now().diff(recordingEnd, 'millisecond') : null,
+                    positionAgeMs: values.currentTimestamp ? now().diff(values.currentTimestamp, 'millisecond') : null,
                 })
             }
         },

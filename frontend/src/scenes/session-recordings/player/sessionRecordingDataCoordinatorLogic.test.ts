@@ -509,6 +509,23 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
             },
             {
+                // A recording longer than the grace period is still ingesting its tail long after
+                // its start has aged out, so the start cannot be what the grace is measured from.
+                case: 'a long recording whose tail is still fresh is recent and invalid',
+                mocks: () => {
+                    const oldStart = dayjs().subtract(30, 'minute')
+                    return {
+                        jsonLines: incrementalOnlySnapshotsAsJSONLines(oldStart.valueOf()),
+                        metaOverride: {
+                            ...recordingMetaJson,
+                            start_time: oldStart.toISOString(),
+                            end_time: dayjs().subtract(1, 'minute').toISOString(),
+                        },
+                    }
+                },
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
+            },
+            {
                 case: 'a recording with a full snapshot is valid',
                 mocks: () => ({ jsonLines: snapshotsAsJSONLines() }),
                 expected: { snapshotsInvalid: false, isRecentAndInvalid: false, isOldAndInvalid: false },
@@ -523,6 +540,22 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 isRecentAndInvalid: logic.values.isRecentAndInvalid,
                 isOldAndInvalid: logic.values.isOldAndInvalid,
             }).toEqual(expected)
+        })
+
+        // The still-ingesting screen's only affordance. A check that cannot report an outcome is the
+        // dead end this replaced, and a poll already in flight must not hold the outcome back.
+        it('reports the outcome of a viewer-requested check even while a poll is in flight', async () => {
+            mountWithSnapshots(incrementalOnlySnapshotsAsJSONLines(dayjs().subtract(1, 'minute').valueOf()))
+            await loadFully()
+            expect(logic.values.snapshotCheckState).toBe('idle')
+
+            logic.actions.loadSnapshotSources(60000)
+            logic.actions.checkForNewSnapshots()
+            expect(logic.values.snapshotCheckState).toBe('checking')
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.snapshotCheckState).toBe('checked')
         })
     })
 
