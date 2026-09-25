@@ -87,6 +87,38 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse is not None
         self.assertNotIn("toJSONString(events.properties)", response.clickhouse)
 
+    @parameterized.expand(
+        [
+            ("typed_array", "JSONExtract(properties.scanner_output_tags, 'Array(String)')", [(["checkout"],), ([],)]),
+            ("raw_array", "JSONExtractArrayRaw(properties.scanner_output_tags)", [(['"checkout"'],), ([],)]),
+            ("keys", "JSONExtractKeys(properties.scanner_output_tags)", [([],), ([],)]),
+            (
+                "typed_map",
+                "JSONExtract(properties.scanner_output_tags, 'Map(String, String)')",
+                [({},), ({},)],
+            ),
+            # A scalar result can sit inside Nullable, so it keeps propagating NULL for a missing property.
+            ("scalar_string", "JSONExtractString(properties.scanner_output_tags, 'x')", [("",), (None,)]),
+        ]
+    )
+    def test_json_extraction_of_nested_type_from_nullable_property(
+        self, _name: str, expression: str, expected: list[tuple[Any]]
+    ) -> None:
+        _create_event(
+            team=self.team,
+            event="$recording_observed",
+            distinct_id="tagged",
+            properties={"scanner_output_tags": ["checkout"]},
+        )
+        _create_event(team=self.team, event="$recording_observed", distinct_id="untagged", properties={})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"SELECT {expression} FROM events ORDER BY distinct_id", team=self.team, pretty=False
+        )
+
+        self.assertEqual(response.results, expected)
+
     def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False) -> Any:
         if not (use_new_events_schema_snapshot or getattr(self, "_use_new_events_schema_snapshots", False)):
             self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
