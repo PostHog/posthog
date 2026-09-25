@@ -11,7 +11,7 @@ from django_redis import get_redis_connection
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
 from opentelemetry import trace
-from redis.exceptions import RedisError
+from redis.exceptions import LockNotOwnedError, RedisError
 from redis.lock import Lock
 
 logger = structlog.get_logger(__name__)
@@ -89,6 +89,8 @@ class CoalescedCacheRefresh(Generic[T]):
     def _renew(lock: Lock) -> bool:
         try:
             return lock.reacquire()
+        except LockNotOwnedError:
+            return False
         except RedisError:
             logger.warning("Could not confirm cache refresh claim renewal", exc_info=True)
             return True

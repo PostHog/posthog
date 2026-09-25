@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from django_redis.cache import RedisCache
-from redis.exceptions import RedisError
+from redis.exceptions import LockNotOwnedError, RedisError
 
 from posthog.caching.coalesced_refresh import CacheRefreshInProgress, CoalescedCacheRefresh
 
@@ -88,16 +88,19 @@ class TestCoalescedCacheRefresh(SimpleTestCase):
         cache.set(key, {"version": 1})
         lock = MagicMock()
         lock.acquire.return_value = True
-        lock.reacquire.return_value = False
+        lock.reacquire.side_effect = LockNotOwnedError("claim expired")
+        renewal_results = []
 
         def fetch(renew):
-            if not renew():
+            renewal_results.append(renew())
+            if not renewal_results[-1]:
                 raise ValueError("claim expired")
             return {"version": 2}
 
         refresh = refresh_cache(key, fetch)
         with patch.object(refresh, "_lock", return_value=lock):
             assert refresh.get() == {"version": 1}
+        assert renewal_results == [False]
         assert cache.get(f"{key}:refresh_failed") is True
 
     def test_redis_renewal_error_does_not_discard_fetched_value(self):
