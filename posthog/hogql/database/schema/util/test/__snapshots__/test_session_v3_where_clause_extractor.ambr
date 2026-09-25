@@ -209,10 +209,10 @@
       FROM
           events
       WHERE
-          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
+          and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, toDateTime64(today(), 6, %(hogql_val_0)s)))
       LIMIT 50000) AS events
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_1)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
           raw_sessions_v3.session_id_v7 AS session_id_v7
       FROM
           raw_sessions_v3
