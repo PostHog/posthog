@@ -181,7 +181,7 @@ async function renderStep(
         })
     )
     initKeaTests()
-    preflightLogic.mount()
+    // The email editor reads preflight on render, so let the common logics finish loading it first.
     await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
     const logic = workflowLogic(LOGIC_PROPS)
     logic.mount()
