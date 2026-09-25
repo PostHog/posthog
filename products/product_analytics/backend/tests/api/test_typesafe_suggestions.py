@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.egress.typesafe.client import ChoiceAnswer, NoulAnswer, SystemOneResult
@@ -76,10 +77,11 @@ class TestTypesafeSuggestionsApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"tags": ["growth"], "scores": {"billing": 0.2, "growth": 0.95}}
 
+    @parameterized.expand([("invalid", {"kind": "Nope"}), ("missing", None)])
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    def test_invalid_query_is_a_400(self, _flag) -> None:
+    def test_insight_without_a_valid_query_is_a_400(self, _name, query, _flag) -> None:
         response = self.client.post(
-            f"{self.base_url}/description/", {"subject": "insight", "query": {"kind": "Nope"}}, format="json"
+            f"{self.base_url}/description/", {"subject": "insight", "query": query}, format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
