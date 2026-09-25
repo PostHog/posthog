@@ -236,4 +236,4 @@ class ExternalDataSourceOAuthAccountsMixin(base.ExternalDataSourceViewSetBase):
             # rejects) is a 400 carrying its message; anything else stays uncaught as a 500.
             raise ValidationError(str(e))
 
-        return Response({"accounts": IntegrationAccountSerializer(accounts, many=True).data})
+        return Response(IntegrationAccountsResponseSerializer({"accounts": accounts}).data)
