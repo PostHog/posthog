@@ -146,6 +146,7 @@ mod tests {
             global_rate_limit_token_local_cache_max_entries: 300_000,
             global_rate_limit_redis_url: None,
             global_rate_limit_redis_reader_url: None,
+            global_rate_limit_max_read_outage_secs: None,
             global_rate_limit_redis_response_timeout_ms: None,
             global_rate_limit_redis_connection_timeout_ms: None,
             global_rate_limit_custom_threshold_key: None,
