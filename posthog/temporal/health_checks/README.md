@@ -174,6 +174,13 @@ Local evaluation can only decide conditions it can compute from what the gate se
 
 A release condition on any other property is inconclusive and reads as nothing, which leaves the check on its own posture.
 
+### A partial rollout opts the unmatched teams out
+
+A team that matches no release condition reads `false`, not nothing.
+A partial rollout therefore takes every unmatched team dry.
+On a check that is live today, creating its flag at 1% stops the writes for the other 99%, and their existing active issues stay active with no `resolved` event.
+Create the flag at 100% and express the exclusions as conditions, or set the check's `dry_run` to `True` in the same pull request that creates the flag.
+
 ## Execution policies
 
 | Preset                              | `batch_size` | `max_concurrent` | Use case                |
