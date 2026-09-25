@@ -1304,7 +1304,7 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetric()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual(PREFILL)
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual({ saveTarget: 0, ...PREFILL })
             openForm.mockRestore()
         })
 
