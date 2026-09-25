@@ -901,6 +901,28 @@ def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # Raw wording from a customer's own deprecation guard on a legacy table/view.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/some-project/queries/"
+        "6c2ee15f-f034-40fa-8af0-49cc721e8367?maxResults=0&location=EU&prettyPrint=false: "
+        "Deprecated legacy table/view. Please migrate to respective new views in `some-project`.",
+        # Different project and job id — the match must not rely on either.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/other-project/queries/"
+        "1a2b3c4d-0000-4fcc-a51c-09b2f4237894?maxResults=0&location=US&prettyPrint=false: "
+        "Deprecated legacy table/view. Please migrate to respective new views.",
+    ],
+)
+def test_bigquery_deprecated_legacy_table_is_non_retryable(observed_error):
+    """A table/view guarded by the customer's own deprecation check fails identically on every
+    retry until the source is pointed at the replacement table/view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Deprecated legacy table/view error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # A malformed project/dataset ID (e.g. Dataset ID set to "project.dataset") makes
         # `bq.dataset(...)`-based REST calls reject the request with this resource-name wording,
         # distinct from the "Invalid project ID"/"Invalid dataset ID" wording query jobs raise for

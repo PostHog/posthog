@@ -30,7 +30,6 @@ from products.signals.backend.ranking.features import (
     TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
-    feature_set_by_name,
 )
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.calibration import (
@@ -251,50 +250,6 @@ def chance_band(outcomes: np.ndarray, scores: np.ndarray) -> ChanceBand:
     if not aucs:
         return ChanceBand(auc=None, auc_std=None)
     return ChanceBand(auc=float(np.mean(aucs)), auc_std=float(np.std(aucs)))
-
-
-def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
-    """The feature set the model declares, or None when this build cannot produce it. Metadata
-    written before the field existed declares nothing and reads as the tabular set."""
-    return feature_set_by_name(metadata.get("feature_set"))
-
-
-def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
-    """Why the model cannot be scored, or None when it can.
-
-    A model is checked against its own declared set rather than one global contract, so a family
-    on a richer set is not rejected for disagreeing with the tabular one.
-    """
-    feature_set = model_feature_set(metadata)
-    if feature_set is None:
-        return f"feature set {metadata.get('feature_set')} is not one this build can produce"
-    version = metadata.get("feature_schema_version")
-    if version != feature_set.schema_version:
-        return f"feature_schema_version {version} is not {feature_set.name}'s {feature_set.schema_version}"
-    if tuple(metadata.get("feature_names") or ()) != feature_set.feature_names:
-        return f"feature_names differ from the {feature_set.name} feature set"
-    return None
-
-
-def readable_head_names(metadata: Mapping[str, Any]) -> frozenset[str]:
-    """The heads of a model whose holdout AUC could be read."""
-    return frozenset(entry["head"] for entry in metadata.get("heads", []) if entry.get("readable"))
-
-
-def trained_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
-    """The `<head>.ubj` object name per head the candidate fit.
-
-    Every trained head is scored, readable or not. A rare head never clears `min_holdout_positives`
-    on one day's holdout, and the pooled newborn grade over many days is the only read that can
-    ever give it a number; gating the scoring on readability means that read never starts. An
-    unreadable head has no holdout AUC to compare against, so read its grade on its own, and the
-    promotion gate still ignores it.
-    """
-    return {
-        entry["head"]: entry["file"]
-        for entry in metadata.get("heads", [])
-        if entry.get("file") and entry.get("head") in HEADS_BY_NAME
-    }
 
 
 def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFrame:

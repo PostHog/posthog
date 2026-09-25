@@ -503,6 +503,19 @@ export interface TicketFullEmailApi {
 }
 
 /**
+ * Payload for adding a private note to a ticket. It has no privacy field: the note is always private.
+ */
+export interface TicketNoteCreateRequestApi {
+    /**
+     * Note content in markdown. The note is visible to your team only and is never sent to the customer.
+     * @maxLength 5000
+     */
+    message: string
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    rich_content?: unknown
+}
+
+/**
  * Payload for updating a private note on a ticket.
  */
 export interface PatchedTicketNoteUpdateRequestApi {

@@ -255,7 +255,7 @@ the row lists both.
 | dynamics_365_business_central    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
-| e2b                              | HTTP                        | requests                                                        | ✅                          |
+| e2b                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
 | easybill                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
