@@ -99,7 +99,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive
                     menuItem
-                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
                     data-attr="insight-copy-to-project"
                     tooltip="Copy this insight to another project"
                 >
