@@ -2483,6 +2483,32 @@ class TestIntegrationAPIKeyAccess:
         assert listed_after_removal.json()["channels"] == []
         mock_slack_instance.list_channels.assert_not_called()
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 2)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_throttles_distinct_uncached_lookups(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_CHANNELS_BUDGET",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_channel_by_id.return_value = None
+        mock_slack_class.return_value = mock_slack_instance
+        client.force_login(self.user)
+
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+        # A forced lookup skips the cached list, and a miss caches nothing, so distinct ids would
+        # otherwise reach Slack one conversations.info call at a time.
+        for index, expected_status in enumerate(
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+        ):
+            response = client.get(f"{base_url}?channel_id=CPROBE{index}&force_refresh=true")
+            assert response.status_code == expected_status
+        assert mock_slack_instance.get_channel_by_id.call_count == 2
+
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
         [

@@ -185,6 +185,11 @@ export const MissingAppInChannel: Story = {
             />
         </div>
     ),
+    // The warning renders only once the membership lookup lands, so settle it before the
+    // screenshot rather than racing the banner into frame.
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Check again')
+    },
 }
 
 // Typing a channel name and clicking away drops the search, because the picker takes an option

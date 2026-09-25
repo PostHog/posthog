@@ -184,6 +184,22 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     raise error
 
 
+def _take_slack_lookup_budget(budget_key: str, limit: int, detail: str) -> None:
+    """Spend one unit of a per-integration, per-minute budget for uncached Slack lookups, or raise.
+
+    A by-id lookup that misses every cache reaches Slack, and the caller chooses the id, so without
+    a budget a loop over fabricated ids drains the workspace's Slack API quota one call at a time.
+    Misses count as well as hits, because a miss caches nothing and can be repeated for free.
+    """
+    try:
+        lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+    except ValueError:
+        # The counter expired between the add and the incr, so this request opens the next minute.
+        lookups = 1
+    if lookups > limit:
+        raise Throttled(detail=detail)
+
+
 def validate_github_repository_name(repo: str) -> str:
     """Validate repository paths accepted by GitHub integration endpoints."""
     parts = repo.split("/")
@@ -491,6 +507,11 @@ class SlackUserSerializer(serializers.Serializer):
 # How long a fetched Slack channel list stays cached. A single-channel re-check writes its live
 # answer into that list, so it reads the same constant to keep the list's original expiry.
 SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
+
+# Cap on uncached per-id channel lookups per integration per minute; each one reaches Slack's
+# conversations.info endpoint, so distinct fabricated ids must not be able to drain the workspace
+# quota. A re-check spends one per channel it warned about, well inside the cap.
+SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
@@ -1669,6 +1690,13 @@ class IntegrationViewSet(
                     for channel in data["channels"]:
                         if channel["id"] == channel_id:
                             return Response({"channels": [channel]})
+            # Past the cached list every lookup reaches Slack, and a forced one skips the list
+            # altogether, so the same per-minute budget the member lookup uses applies here.
+            _take_slack_lookup_budget(
+                f"slack/{instance.id}/channels_info_budget",
+                SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
+                "Too many Slack channel lookups. Try again in a minute.",
+            )
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
@@ -1770,13 +1798,11 @@ class IntegrationViewSet(
                 return Response({"users": cached_lookup})
             # The per-id cache doesn't bound a caller cycling through distinct fabricated ids, so
             # also cap how many uncached lookups an integration can send to Slack per minute.
-            budget_key = f"slack/{instance.id}/users_info_budget"
-            try:
-                lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
-            except ValueError:
-                lookups = 1
-            if lookups > SLACK_USERS_INFO_LOOKUPS_PER_MINUTE:
-                raise Throttled(detail="Too many Slack member lookups. Try again in a minute.")
+            _take_slack_lookup_budget(
+                f"slack/{instance.id}/users_info_budget",
+                SLACK_USERS_INFO_LOOKUPS_PER_MINUTE,
+                "Too many Slack member lookups. Try again in a minute.",
+            )
             try:
                 member = slack.get_user_by_id(user_id)
             except SlackApiError as e:
