@@ -27,6 +27,12 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Resolve psycopg's name-registered dumpers while we are still single-threaded, so a
+        # worker thread can't hit the non-atomic swap inside the driver's adapters map.
+        from posthog.helpers.psycopg_adapters import warm as warm_psycopg_adapters  # noqa: PLC0415
+
+        warm_psycopg_adapters()
+
         # Route all JSONField (jsonb) decode through orjson before any query runs.
         if settings.JSONFIELD_ORJSON_DECODE:
             from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
