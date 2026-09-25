@@ -171,6 +171,9 @@ class PostgresCDCAdapter:
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None:
         drop_slot_and_publication(conn, slot_name, pub_name)
 
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        return slot_exists(conn, slot_name)
+
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
         return get_slot_lag_bytes(conn, slot_name)
 

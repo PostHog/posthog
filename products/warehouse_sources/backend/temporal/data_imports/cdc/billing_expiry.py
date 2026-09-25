@@ -10,8 +10,10 @@ once the team is back under the limit.
 
 from __future__ import annotations
 
+import uuid
 import typing
 import datetime as dt
+from collections.abc import Sequence
 
 from posthog.models.team.team import Team
 
@@ -66,26 +68,28 @@ def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) 
     if cdc_schemas.filter(sync_type_config__has_key="cdc_broken").exists():
         return False
     cutoff = now - BUFFER_FILE_RETENTION
-    blocked = cdc_schemas.filter(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+    blocked = list(cdc_schemas.filter(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED))
     # A table blocked that long has not loaded since the cutoff either, so this rules out most sources
     # before the job history is read.
     if not any((schema.last_synced_at or schema.created_at) < cutoff for schema in blocked):
         return False
-    blocked_since = _billing_blocked_since(source)
+    blocked_since = _billing_blocked_since(source, [schema.id for schema in blocked])
     if blocked_since is None or blocked_since >= cutoff:
         return False
     team = Team.objects.only("api_token").get(id=source.team_id)
     return is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
 
-def _billing_blocked_since(source: ExternalDataSource) -> dt.datetime | None:
-    """When the source's current run of billing-blocked jobs began.
+def _billing_blocked_since(source: ExternalDataSource, schema_ids: Sequence[uuid.UUID]) -> dt.datetime | None:
+    """When the current run of billing-blocked jobs on the blocked CDC tables began.
 
-    The limit applies to the whole team, so every table of the source is blocked from the same moment:
-    the first blocked job after the last job with another outcome. A table can go longer without a load
-    for other reasons, which is why this is not the time since its last load.
+    The limit applies to the whole team, so every blocked table is blocked from the same moment: the
+    first blocked job after the last job with another outcome. Only the blocked tables' own jobs count
+    — another table of the source can fail, and a non-billable run skips the billing check and
+    completes, while these tables stay blocked. A table can also go longer without a load for other
+    reasons, which is why this is not the time since its last load.
     """
-    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id)
+    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id, schema_id__in=schema_ids)
     # One ordered lookup per status, because the (team, pipeline, status, created_at) index serves an
     # equality on status and not an exclusion.
     latest_by_outcome = [
@@ -107,10 +111,17 @@ def stop_cdc_past_billing_retention(
     The slot is dropped on the terms of the lag safety net: only a PostHog-managed slot whose owner
     left auto-drop on. Any other slot is left to its owner, and capture keeps advancing it so the
     customer's WAL does not grow, which is why that case does not pause the schedules.
+
+    Raises when the slot survives the drop, which leaves the source running for the next sweep to
+    retry: pausing capture is only safe once nothing has to advance the slot any more.
     """
     if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
         with adapter.management_connection(source, connect_timeout=10) as conn:
             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+            # drop_resources is best-effort: it logs a refused drop (an active slot, a missing grant)
+            # instead of raising.
+            if adapter.slot_exists(conn, cdc_config.slot_name):
+                raise RuntimeError(f"Replication slot {cdc_config.slot_name} still exists after the drop")
         mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_DROPPED_MESSAGE)
         return True
     mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_KEPT_MESSAGE, pause=False)

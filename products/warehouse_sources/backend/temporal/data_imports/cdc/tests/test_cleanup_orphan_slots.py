@@ -50,7 +50,7 @@ def _cdc_job_inputs(*, enabled=True, management="posthog", auto_drop_slot=True, 
     }
 
 
-def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None):
+def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=False):
     """Adapter mock that decodes config for real (proving the encrypted-job_inputs path)
     but stubs every database connection."""
     adapter = MagicMock()
@@ -63,6 +63,7 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None):
     adapter.management_connection.side_effect = _conn
     adapter.get_lag_bytes.return_value = lag_bytes
     adapter.get_retention_cap_mb.return_value = retention_cap_mb
+    adapter.slot_exists.return_value = slot_survives_drop
     return adapter
 
 
@@ -288,6 +289,42 @@ def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention
     adapter.drop_resources.assert_not_called()
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") != "billing_limit_expired"
+
+
+def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
+    # drop_resources only logs a refused drop, so pausing capture on the strength of the call alone
+    # would leave a live slot with nothing advancing it and the customer's WAL growing.
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    adapter = _mock_adapter(slot_survives_drop=True)
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _, _, mock_pause = _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    mock_pause.assert_not_called()
+    source.refresh_from_db()
+    assert source.status != ExternalDataSource.Status.ERROR
+    schema.refresh_from_db()
+    assert "cdc_broken" not in schema.sync_type_config
+
+
+def test_a_job_from_another_table_does_not_defer_the_billing_stop(team):
+    # The billing limit is team-wide, so only the blocked tables' own jobs end their blocked run: a
+    # sibling table that fails, or a non-billable run that skips the billing check and completes,
+    # would otherwise reset the clock on every tick and defer the stop indefinitely.
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    sibling = _create_cdc_schema(team, source, name="events")
+    _job(team, source, sibling, ExternalDataJob.Status.COMPLETED, dt.timedelta(hours=1))
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
 
 
 def test_a_failed_billing_check_still_checks_the_slots_lag(team):
