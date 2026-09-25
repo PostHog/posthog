@@ -1204,9 +1204,10 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
-    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
-        # The predecessor's stage is deliberately not carried forward: a stage makes the run
-        # read as pipeline-started and drops it out of the interactive duration ceiling.
+    @parameterized.expand([(False, None), (True, "implementation")])
+    def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
+        self, pipeline_rerun: bool, expected_stage: str | None
+    ):
         from products.signals.backend.models import SignalReport
 
         # The report link is present so only `internal` can withhold the stamp here.
@@ -1225,11 +1226,12 @@ class TestFacadeReadsAndMappers(TestCase):
                 self.team.id,
                 self.user.id,
                 validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                pipeline_rerun=pipeline_rerun,
             )
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertNotIn("ai_stage", new_run.state)
+        self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
 
     @parameterized.expand(
         [

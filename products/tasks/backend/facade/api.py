@@ -8080,6 +8080,7 @@ def run_task(
     *,
     validated_data: dict,
     warm_retry_token: str | None = None,
+    pipeline_rerun: bool = False,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -8087,6 +8088,8 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this. A report implementation raises
     ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
+    ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
+    fresh run and retains the predecessor's protected implementation stage.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -8229,7 +8232,11 @@ def run_task(
                 attr="codex_model_access" if codex_model_access == "own-subscription" else "claude_model_access",
             )
         )
-    warm_run = None if scheduled_at is not None or run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
+    warm_run = (
+        None
+        if pipeline_rerun or scheduled_at is not None or run_source == RunSource.AGENT
+        else _idling_warm_run_for_task(task)
+    )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
     if warm_run is not None and model_access.kind == "own-subscription":
         warm_run = None
@@ -8395,6 +8402,10 @@ def run_task(
         prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
         if prev_self_driving_head_branch:
             extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+        if pipeline_rerun and task.internal and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+            previous_ai_stage = (previous_run.state or {}).get("ai_stage")
+            if previous_ai_stage == "implementation":
+                extra_state["ai_stage"] = previous_ai_stage
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the
