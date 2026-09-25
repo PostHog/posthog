@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
+import { IconBolt, IconClock, IconCopy, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
+import { formatSessionErrorsContext } from '../tool-quality/errorContext'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
 
@@ -121,6 +123,23 @@ export function MCPSessionDetail(): JSX.Element {
                                     </CopyToClipboardInline>
                                 </span>
                             </Tooltip>
+                            {toolCalls.some((call) => call.is_error) ? (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={<IconCopy />}
+                                    tooltip="Copy this session's errors as context for a coding agent"
+                                    onClick={() =>
+                                        void copyToClipboard(
+                                            formatSessionErrorsContext(selectedSession.session_id, toolCalls),
+                                            'session errors'
+                                        )
+                                    }
+                                    data-attr="mcp-session-copy-errors"
+                                >
+                                    Copy errors for agent
+                                </LemonButton>
+                            ) : null}
                         </>
                     )}
                 </div>

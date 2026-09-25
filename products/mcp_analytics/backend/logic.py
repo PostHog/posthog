@@ -142,7 +142,8 @@ SELECT
     countIf(matches) AS tool_call_count,
     groupUniqArrayIf(tool_name, matches) AS tools_used,
     argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id,
-    argMaxIf(client_name, timestamp, matches) AS mcp_client_name
+    argMaxIf(client_name, timestamp, matches) AS mcp_client_name,
+    countIf(matches AND is_error) AS error_calls
 FROM (
     SELECT
         $session_id AS session_id,
@@ -150,6 +151,7 @@ FROM (
         distinct_id AS event_distinct_id,
         properties.$mcp_tool_name AS tool_name,
         properties.$mcp_client_name AS client_name,
+        toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
         {shared_filters} AS matches
     FROM events
     WHERE event = {event}
@@ -172,6 +174,7 @@ GROUP BY session_id
 -- Session-level inclusion: at least one *matching* event inside the requested window.
 HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
     __SEARCH__
+    __HAS_ERRORS__
 ORDER BY __ORDER__
 LIMIT {limit}
 OFFSET {offset}
@@ -186,6 +189,8 @@ _SESSION_SEARCH_FILTER = (
     "OR mcp_client_name ILIKE {search} "
     "OR arrayExists(t -> t ILIKE {search}, tools_used))"
 )
+
+_SESSION_HAS_ERRORS_FILTER = {True: "AND error_calls > 0", False: "AND error_calls = 0"}
 
 
 def _normalise_order_by(order_by: str) -> tuple[str, bool]:
@@ -213,10 +218,13 @@ def _sessions_cache_key(
     order_by: str,
     date_from: str,
     date_to: str,
+    has_errors: bool | None,
     filters: str,
     user_id: int | None,
 ) -> str:
-    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{filters}_{user_id}"
+    payload = (
+        f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{has_errors}_{filters}_{user_id}"
+    )
     return generate_cache_key(team_id, payload)
 
 
@@ -228,6 +236,7 @@ def list_mcp_sessions(
     order_by: str = "",
     date_from: str | None = None,
     date_to: str | None = None,
+    has_errors: bool | None = None,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -247,6 +256,9 @@ def list_mcp_sessions(
     ``search`` does case-insensitive substring matching across session_id,
     distinct_id, mcp_client_name, and any element of tools_used. ``order_by`` is a
     whitelisted column name; prefix with '-' for descending.
+
+    ``has_errors`` keeps only sessions with at least one errored call (``True``) or none
+    (``False``); ``None`` keeps both. It counts the same matching calls as ``tool_call_count``.
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. A session with no
     matching event is dropped; a session that keeps some reports how many of *its* calls matched
@@ -269,6 +281,7 @@ def list_mcp_sessions(
         order_by,
         effective_date_from,
         date_to or "",
+        has_errors,
         _filters_cache_fragment(team, properties, filter_test_accounts),
         # Property-level access control is evaluated per member, so two members can get different
         # rows from the same filters. Key the cache by the caller to keep them apart.
@@ -286,6 +299,7 @@ def list_mcp_sessions(
         order_by=order_by,
         date_from=effective_date_from,
         date_to=date_to,
+        has_errors=has_errors,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
         user=user,
@@ -305,6 +319,7 @@ def _query_mcp_sessions(
     order_by: str,
     date_from: str,
     date_to: str | None,
+    has_errors: bool | None,
     properties: list[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool,
     user: User | None,
@@ -346,7 +361,12 @@ def _query_mcp_sessions(
         search_text = _SESSION_SEARCH_FILTER
         placeholders["search"] = ast.Constant(value=f"%{term}%")
 
-    sql = _MCP_SESSIONS_SQL.replace("__SEARCH__", search_text).replace("__ORDER__", order_text)
+    has_errors_text = "" if has_errors is None else _SESSION_HAS_ERRORS_FILTER[has_errors]
+    sql = (
+        _MCP_SESSIONS_SQL.replace("__SEARCH__", search_text)
+        .replace("__HAS_ERRORS__", has_errors_text)
+        .replace("__ORDER__", order_text)
+    )
     query = parse_select(sql, placeholders=placeholders)
 
     # name matches the endpoint operation_id so the query is traceable in query_log
@@ -375,6 +395,7 @@ def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "tools_used": [tool for tool in (row[5] or []) if tool],
         "distinct_id": row[6] or "",
         "mcp_client_name": row[7] or "",
+        "error_calls": int(row[8] or 0),
     }
 
 
@@ -797,6 +818,7 @@ def _to_session_contract(
     return contracts.MCPSession(
         session_id=row["session_id"],
         tool_calls=row["tool_call_count"],
+        error_calls=row["error_calls"],
         session_start=row["session_start"],
         session_end=row["session_end"],
         distinct_id_count=0,

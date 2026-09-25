@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -61,6 +64,22 @@ describe('mcpSessionsLogic', () => {
         expect(toolCallsMock).toHaveBeenCalledTimes(1)
         expect(logic.values.selectedSessionId).toBe('A')
         expect(logic.values.selectedSessionToolCalls.calls.map((call) => call.event_id)).toEqual(['updated'])
+    })
+
+    it.each([true, false])('deep-links has_errors=%s into the sessions query and clears it', async (hasErrors) => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.mcpAnalyticsSessions(), { has_errors: String(hasErrors) })
+        }).toDispatchActions(['loadSessionsSuccess'])
+
+        expect(logic.values.filters.hasErrors).toBe(hasErrors)
+        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: hasErrors }))
+
+        await expectLogic(logic, () => logic.actions.setFilters({ hasErrors: null })).toDispatchActions([
+            'loadSessionsSuccess',
+        ])
+
+        expect(router.values.searchParams).not.toHaveProperty('has_errors')
+        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
     })
 
     it('ignores a failed request for a previously selected session', async () => {

@@ -14,14 +14,22 @@ import {
     mcpAnalyticsSessionsToolCalls,
 } from '../generated/api'
 import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
-import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
+import {
+    type MCPSharedQueryFilters,
+    mcpAnalyticsFiltersLogic,
+    parseUrlBoolean,
+    sharedFilterParams,
+} from '../mcpAnalyticsFiltersLogic'
 
 export interface MCPSessionsFilters {
     search: string
+    // true: sessions with at least one errored call; false: sessions with none; null: both.
+    hasErrors: boolean | null
 }
 
 const DEFAULT_FILTERS: MCPSessionsFilters = {
     search: '',
+    hasErrors: null,
 }
 
 export interface MCPSessionsDateFilter {
@@ -330,6 +338,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     }
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
                         search: values.filters.search || undefined,
+                        has_errors: values.filters.hasErrors ?? undefined,
                         order_by: orderByParam(values.sorting),
                         date_from: values.dateFilter.dateFrom || undefined,
                         date_to: values.dateFilter.dateTo || undefined,
@@ -356,13 +365,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     // page entirely if the query changed underneath us.
                     const baseSessions = values.sessions
                     const generation = cache.sessionsGeneration ?? 0
-                    const search = values.filters.search
+                    const filters = values.filters
                     const orderBy = orderByParam(values.sorting)
                     const dateFrom = values.dateFilter.dateFrom
                     const dateTo = values.dateFilter.dateTo
                     const sharedFilters = values.sharedQueryFilters
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        search: search || undefined,
+                        search: filters.search || undefined,
+                        has_errors: filters.hasErrors ?? undefined,
                         order_by: orderBy,
                         date_from: dateFrom || undefined,
                         date_to: dateTo || undefined,
@@ -372,7 +382,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     })
                     if (
                         generation !== cache.sessionsGeneration ||
-                        search !== values.filters.search ||
+                        filters !== values.filters ||
                         orderBy !== orderByParam(values.sorting) ||
                         dateFrom !== values.dateFilter.dateFrom ||
                         dateTo !== values.dateFilter.dateTo ||
@@ -638,6 +648,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 date_from: values.dateFilter.dateFrom,
                 date_to: values.dateFilter.dateTo,
                 search: values.filters.search || null,
+                has_errors: values.filters.hasErrors === null ? null : String(values.filters.hasErrors),
             }
             for (const [key, value] of Object.entries(params)) {
                 if (value) {
@@ -661,16 +672,17 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
 
             const search = typeof searchParams.search === 'string' ? searchParams.search : ''
-            const searchChanged = search !== values.filters.search
+            const hasErrors = parseUrlBoolean(searchParams.has_errors)
+            const filtersChanged = search !== values.filters.search || hasErrors !== values.filters.hasErrors
 
             // setFilters / setDateFilter each reload via their listener; only load directly when
             // neither changed and we haven't loaded yet.
-            if (searchChanged) {
-                actions.setFilters({ search })
+            if (filtersChanged) {
+                actions.setFilters({ search, hasErrors })
             }
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
-            } else if (!searchChanged && !cache.hasLoaded) {
+            } else if (!filtersChanged && !cache.hasLoaded) {
                 actions.loadSessions()
             }
             cache.hasLoaded = true
@@ -684,7 +696,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         const hasUrlParams =
             typeof searchParams.date_from === 'string' ||
             typeof searchParams.date_to === 'string' ||
-            typeof searchParams.search === 'string'
+            typeof searchParams.search === 'string' ||
+            searchParams.has_errors !== undefined
         if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.loadSessions()

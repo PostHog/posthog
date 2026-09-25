@@ -59391,6 +59391,8 @@ export namespace Schemas {
       readonly session_id: string;
       /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
+      /** How many of the session's $mcp_tool_call events have $mcp_is_error set. */
+      readonly error_calls: number;
       /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
       /** Timestamp of the most recent $mcp_tool_call event in the session. */
@@ -114056,6 +114058,11 @@ export namespace Schemas {
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
     filter_test_accounts?: boolean;
+    /**
+     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * @nullable
+     */
+    has_errors?: boolean | null;
     /**
      * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
      * @minimum 1

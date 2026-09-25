@@ -233,6 +233,15 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
     )
+    has_errors = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Filter by session outcome. true keeps sessions with at least one errored tool call "
+            "($mcp_is_error), false keeps sessions with none. Omit to list both."
+        ),
+    )
     properties = PropertyFiltersField(
         required=False,
         allow_blank=True,
@@ -327,6 +336,9 @@ class MCPSessionSerializer(serializers.Serializer):
     )
     tool_calls = serializers.IntegerField(
         read_only=True, help_text="Total number of $mcp_tool_call events in the session."
+    )
+    error_calls = serializers.IntegerField(
+        read_only=True, help_text="How many of the session's $mcp_tool_call events have $mcp_is_error set."
     )
     session_start = serializers.DateTimeField(
         read_only=True, help_text="Timestamp of the first $mcp_tool_call event in the session."

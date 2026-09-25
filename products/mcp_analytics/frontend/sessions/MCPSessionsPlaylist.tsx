@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useRef } from 'react'
 
-import { IconBolt, IconClock, IconSearch, IconSparkles } from '@posthog/icons'
+import { IconBolt, IconClock, IconSearch, IconSparkles, IconWarning } from '@posthog/icons'
 import {
     Button,
     InputGroup,
@@ -37,6 +37,12 @@ const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: 'session_start', label: 'Oldest' },
     { value: '-duration_seconds', label: 'Longest' },
     { value: '-tool_call_count', label: 'Most tool calls' },
+]
+
+const OUTCOME_OPTIONS: { value: string; label: string; hasErrors: boolean | null }[] = [
+    { value: 'all', label: 'All sessions', hasErrors: null },
+    { value: 'with_errors', label: 'With errors', hasErrors: true },
+    { value: 'without_errors', label: 'Without errors', hasErrors: false },
 ]
 
 function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
@@ -169,6 +175,27 @@ function SessionsListPanel(): JSX.Element {
                             />
                         </InputGroup>
                         <Select
+                            value={OUTCOME_OPTIONS.find((o) => o.hasErrors === filters.hasErrors)?.value}
+                            onValueChange={(value) =>
+                                setFilters({
+                                    hasErrors: OUTCOME_OPTIONS.find((o) => o.value === value)?.hasErrors ?? null,
+                                })
+                            }
+                        >
+                            <SelectTrigger data-attr="mcp-sessions-outcome">
+                                <SelectValue>
+                                    {(value: string) => OUTCOME_OPTIONS.find((o) => o.value === value)?.label ?? value}
+                                </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                                {OUTCOME_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
                         >
@@ -198,7 +225,11 @@ function SessionsListPanel(): JSX.Element {
                         ))}
                     </div>
                 ) : sessions.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-secondary">No MCP sessions yet</div>
+                    <div className="p-4 text-center text-sm text-secondary">
+                        {filters.search || filters.hasErrors !== null
+                            ? 'No sessions match these filters'
+                            : 'No MCP sessions yet'}
+                    </div>
                 ) : (
                     <>
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
@@ -276,6 +307,12 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
                         <IconBolt />
                         {session.tool_calls}
                     </span>
+                    {session.error_calls > 0 ? (
+                        <span className="flex items-center gap-1 whitespace-nowrap text-danger">
+                            <IconWarning />
+                            {session.error_calls} {session.error_calls === 1 ? 'error' : 'errors'}
+                        </span>
+                    ) : null}
                     {session.mcp_client_name ? (
                         <span className="flex items-center gap-1 truncate">
                             <IconSparkles className="shrink-0" />
