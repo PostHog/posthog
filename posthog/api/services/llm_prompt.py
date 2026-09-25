@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,9 +10,10 @@ from django.db.models import QuerySet
 from rest_framework import serializers
 
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
+from posthog.api.tagged_item import cleanup_orphan_tags, normalize_tag_names, set_tags_on_object
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
+from posthog.models import TaggedItem, Team, User
 from posthog.models.activity_logging.activity_log import Change
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
 
@@ -191,6 +193,48 @@ def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
     )
 
 
+def get_tagged_prompt_names(team: Team, tags: Iterable[str]) -> QuerySet[LLMPrompt, str]:
+    """Names of the prompts that carry any of the tags, as a subquery.
+
+    Filter by name, not by row, because a labeled list row is often an older version.
+    """
+    return LLMPrompt.objects.filter(
+        team=team, deleted=False, is_latest=True, tagged_items__tag__name__in=normalize_tag_names(tags)
+    ).values_list("name", flat=True)
+
+
+def copy_prompt_tags(source: LLMPrompt, target: LLMPrompt) -> None:
+    tagged_items = TaggedItem.objects.for_object(source).select_related("tag")
+    TaggedItem.objects.bulk_create([TaggedItem.for_content_object(item.tag, target) for item in tagged_items])
+
+
+def set_prompt_tags(team: Team, *, user: User, prompt_name: str, tags: list[str]) -> list[str]:
+    with transaction.atomic():
+        latest = (
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=False, is_latest=True)
+            .first()
+        )
+        if latest is None:
+            raise LLMPromptNotFoundError()
+
+        before = sorted(TaggedItem.objects.for_object(latest).values_list("tag__name", flat=True))
+        after = sorted(normalize_tag_names(tags))
+        if before == after:
+            return after
+
+        set_tags_on_object(after, latest)
+        cleanup_orphan_tags(team.id)
+        log_llm_prompt_activity(
+            team=team,
+            user=user,
+            prompt_name=prompt_name,
+            activity="updated",
+            changes=[Change(type="LLMPrompt", action="changed", field="tags", before=before, after=after)],
+        )
+    return after
+
+
 def publish_prompt_version(
     team: Team,
     *,
@@ -244,6 +288,8 @@ def publish_prompt_version(
             version_description=version_description,
         )
         record_prompt_references(published_prompt)
+        copy_prompt_tags(current_latest, published_prompt)
+        TaggedItem.objects.for_object(current_latest).delete()
 
         changes = [
             Change(
@@ -330,6 +376,7 @@ def duplicate_prompt(
                 raise LLMPromptDuplicateNameConflictError() from err
             raise
         record_prompt_references(new_prompt)
+        copy_prompt_tags(source_latest, new_prompt)
 
         # One entry per prompt history: the copy records where it came from, the
         # source records where it went.
@@ -375,10 +422,13 @@ def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) ->
         referencing_prompts = get_active_referencing_parent_names(team.id, prompt_name)
         if referencing_prompts:
             raise LLMPromptReferencedError(referencing_prompts=referencing_prompts)
-        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).update(
-            deleted=True,
-            is_latest=False,
+        archived_ids = list(
+            LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).values_list("id", flat=True)
         )
+        LLMPrompt.objects.filter(team=team, id__in=archived_ids).update(deleted=True, is_latest=False)
+        # A prompt created later under the same name must not inherit these tags.
+        TaggedItem.objects.for_objects(LLMPrompt, archived_ids).delete()
+        cleanup_orphan_tags(team.id)
 
         # Instance-level deletes so ModelActivityMixin logs each label removal.
         for label in LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name):

@@ -70,6 +70,7 @@ TAGGABLE_MODELS: tuple[TaggableModel, ...] = (
     TaggableModel(model_label="replay_vision.ReplayScanner", legacy_field="replay_scanner", object_field=OBJECT_UUID),
     TaggableModel(model_label="posthog.Project", legacy_field="project", object_field=OBJECT_ID),
     TaggableModel(model_label="experiments.Experiment", legacy_field="experiment", object_field=OBJECT_ID),
+    TaggableModel(model_label="ai_observability.LLMPrompt", legacy_field="llm_prompt", object_field=OBJECT_UUID),
 )
 
 _BY_LABEL: dict[str, TaggableModel] = {entry.model_label: entry for entry in TAGGABLE_MODELS}

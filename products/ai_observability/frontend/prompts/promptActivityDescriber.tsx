@@ -60,7 +60,7 @@ function describePromptCreated(logItem: ActivityLogItem, promptName: string): Hu
     }
 }
 
-// Lifecycle events (create/publish/archive/duplicate) for scope LLMPrompt, written by
+// Lifecycle events (create/publish/archive/duplicate) and tag changes for scope LLMPrompt, written by
 // log_llm_prompt_activity in backend activity_logging.py. detail.name is the prompt name.
 export function promptActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const promptName = logItem?.detail?.name ?? ''
@@ -107,6 +107,28 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
                             to <b>{duplicatedTo}</b>
                         </>
                     ) : null}
+                </>
+            ),
+        }
+    }
+
+    const tagsChange = logItem.detail?.changes?.find((change) => change.field === 'tags')
+    if (logItem.activity === 'updated' && tagsChange) {
+        const after = Array.isArray(tagsChange.after) ? tagsChange.after.join(', ') : ''
+        return {
+            summary: activityLogSummary(logItem, after ? `Set tags to ${after}` : 'Removed all tags', promptName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {after ? (
+                        <>
+                            set the tags on prompt <b>{promptName}</b> to <b>{after}</b>
+                        </>
+                    ) : (
+                        <>
+                            removed all tags from prompt <b>{promptName}</b>
+                        </>
+                    )}
                 </>
             ),
         }

@@ -1407,7 +1407,7 @@ const llmaPersonalSpend = (): ToolBase<
 
 const LlmaPromptCreateSchema = () => {
     const LlmPromptsCreateBody = orvalSchemas.LlmPromptsCreateBody()
-    return LlmPromptsCreateBody
+    return LlmPromptsCreateBody.omit({ tags: true })
 }
 
 const llmaPromptCreate = (): ToolBase<ReturnType<typeof LlmaPromptCreateSchema>, Schemas.LLMPrompt> => ({

@@ -3351,6 +3351,12 @@ export interface LLMPromptListApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /**
+     * Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
     readonly activity_item_id: string
     readonly prompt_preview: string
@@ -3407,6 +3413,12 @@ export interface LLMPromptApi {
     readonly outline: readonly LLMPromptOutlineEntryApi[]
     /** Names of the labels currently pointing at this version. */
     readonly labels: readonly string[]
+    /**
+     * Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
     readonly activity_item_id: string
 }
@@ -3513,6 +3525,15 @@ export interface LLMPromptLabelApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface LLMPromptSetTagsApi {
+    /**
+     * Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags: string[]
 }
 
 export interface LLMPromptVersionSummaryApi {
@@ -4341,6 +4362,11 @@ export type LlmPromptsListParams = {
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string
+    /**
+     * JSON-encoded list of tag names, e.g. ["support", "onboarding"]. Returns prompts that carry any of these tags. Tags group prompts and are separate from release labels.
+     * @minLength 1
+     */
+    tags?: string
 }
 
 export type LlmPromptsListContent = (typeof LlmPromptsListContent)[keyof typeof LlmPromptsListContent]

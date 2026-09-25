@@ -2489,6 +2489,10 @@ export const llmPromptsCreateBodyNameMax = 255
 
 export const llmPromptsCreateBodyVersionDescriptionMax = 400
 
+export const llmPromptsCreateBodyTagsItemMax = 255
+
+export const llmPromptsCreateBodyTagsMax = 100
+
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -2506,6 +2510,13 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsCreateBodyVersionDescriptionMax)
         .nullish()
         .describe('Optional note describing what changed in this version. Set when the version is published.'),
+    tags: zod
+        .array(zod.string().max(llmPromptsCreateBodyTagsItemMax))
+        .max(llmPromptsCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.'
+        ),
 })
 
 export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
@@ -2561,6 +2572,22 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .describe(
             'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
+        ),
+})
+
+/**
+ * Replace the tags on a prompt. Tags group prompts, e.g. by feature or agent, and stay when a new version is published. They are separate from labels, which mark the version to release.
+ */
+export const llmPromptsNameTagsUpdateBodyTagsItemMax = 255
+
+export const llmPromptsNameTagsUpdateBodyTagsMax = 100
+
+export const LlmPromptsNameTagsUpdateBody = /* @__PURE__ */ zod.object({
+    tags: zod
+        .array(zod.string().max(llmPromptsNameTagsUpdateBodyTagsItemMax))
+        .max(llmPromptsNameTagsUpdateBodyTagsMax)
+        .describe(
+            'Tags that group this prompt, e.g. by feature or agent. Tags belong to the prompt, not to one version, so they stay when a new version is published. They are separate from labels, which mark the version to release.'
         ),
 })
 
