@@ -73,6 +73,9 @@ Both functions use the same executable. The temporary entry point uses `--tempor
 Documents exceeding the shared depth limit produce `{}` in the temporary output; the permanent cleaner quarantines the original document.
 
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
+On native events, HogQL reads a property in this allowlist from `temporary_properties`: property access such as `properties.$set.email`, filters, `JSONHas`, `JSONLength`, `JSONType`, and the `JSONExtract*` functions with the property as their first key.
+Whole-document reads of `properties` do not include these properties.
+`is_temporary_event_property` in `posthog/clickhouse/events_json.py` mirrors the allowlist, so update both together.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
 
 Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. `$false` counts as active, and reads of `$feature/<key>`, `$feature_flags.<key>` and the `$feature_flags` map return it as `false`. Whole-document reads of `properties`, and batch exports of the whole `$feature_flags` map, return it as stored; single-flag export fields and filters map it back. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
