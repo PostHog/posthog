@@ -324,7 +324,7 @@ export interface broadcastWizardLogicMeta {
             scheduleMode: BroadcastScheduleMode,
             sendAt: string | null,
             recurringStartsAt: string | null,
-            selectedSender: IntegrationType | null
+            integrations: IntegrationType[] | null
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -687,7 +687,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.scheduleMode,
                 s.sendAt,
                 s.recurringStartsAt,
-                s.selectedSender,
+                s.integrations,
             ],
             (
                 goalEnabled: boolean,
@@ -696,7 +696,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 scheduleMode: BroadcastScheduleMode,
                 sendAt: string | null,
                 recurringStartsAt: string | null,
-                selectedSender: IntegrationType | null
+                integrations: IntegrationType[] | null
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -736,9 +736,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
-                // A draft can be written before the domain is verified, but every send from it would fail.
-                if (selectedSender && selectedSender.config?.verified !== true) {
-                    errors.review.push("Verify the sender's domain before sending")
+                const senderError = getSenderLaunchError(email.from?.integrationId, integrations)
+                if (senderError) {
+                    errors.review.push(senderError)
                 }
 
                 return errors
@@ -1089,6 +1089,27 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+/**
+ * Why the chosen sender can't send yet, if it can't. A draft can be written with any sender, but a
+ * launch whose sender is unverified, deleted, or not yet known would fail every email it sends.
+ */
+export function getSenderLaunchError(
+    integrationId: number | null | undefined,
+    integrations: IntegrationType[] | null
+): string | null {
+    if (!integrationId) {
+        return null
+    }
+    if (!integrations) {
+        return 'Checking the email sender. Try again in a moment.'
+    }
+    const sender = integrations.find((integration) => integration.kind === 'email' && integration.id === integrationId)
+    if (!sender) {
+        return 'The chosen email sender no longer exists. Pick another one on the content step.'
+    }
+    return sender.config?.verified === true ? null : "Verify the sender's domain before sending"
+}
 
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
 // (the audience), one email action, and an exit node.
