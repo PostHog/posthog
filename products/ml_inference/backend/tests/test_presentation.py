@@ -1,10 +1,17 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+from rest_framework.throttling import UserRateThrottle
+
+from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle
 
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
@@ -15,6 +22,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.presentation.serializers import DecideRequestSerializer
+from products.ml_inference.backend.presentation.throttles import DecisionBurstThrottle, DecisionSustainedThrottle
 
 QUESTIONS = {
     "urgent": {"type": "noul", "instructions": "Is this urgent?"},
@@ -159,3 +167,22 @@ class TestDecideEndpoint(APIBaseTest):
         response = self.client.post(self._url(), {"state": "text"}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestDecisionThrottles(SimpleTestCase):
+    @parameterized.expand([(DecisionBurstThrottle,), (DecisionSustainedThrottle,)])
+    def test_decisions_have_a_separate_per_user_budget(self, throttle_class: type[UserRateThrottle]) -> None:
+        cache.clear()
+        request = Request(APIRequestFactory().post("/"))
+        request.user = User(pk=1)
+        other_request = Request(APIRequestFactory().post("/"))
+        other_request.user = User(pk=2)
+        ai_throttle = AIBurstRateThrottle()
+        cache.set(ai_throttle.get_cache_key(request, None), [ai_throttle.timer()] * 10)
+
+        with patch.object(throttle_class, "rate", "2/minute"):
+            assert throttle_class().allow_request(request, None)
+            assert throttle_class().allow_request(request, None)
+            assert not throttle_class().allow_request(request, None)
+            assert throttle_class().allow_request(other_request, None)
