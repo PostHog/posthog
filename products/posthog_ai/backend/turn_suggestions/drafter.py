@@ -13,7 +13,7 @@ import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from posthog.llm.gateway_client import build_openai_client, team_distinct_id
+from posthog.llm.gateway_client import Product, build_openai_client, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 
 from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
@@ -32,7 +32,7 @@ DRAFT_MODEL = "gpt-6-luna"
 
 # PostHog pays for drafts, not the customer's AI credits. The Go gateway bills the wallet of the team
 # that owns its key, and the Python fallback route is one that bills no credit bucket.
-DRAFT_FALLBACK_PRODUCT = "growth"
+DRAFT_FALLBACK_PRODUCT: Product = "growth"
 DRAFT_AI_PRODUCT = "posthog_ai_turn_suggestions"
 
 # A reasoning model spends the same token budget on its thinking and on the reply, and the reply
