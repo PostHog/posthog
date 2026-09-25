@@ -1,6 +1,10 @@
-import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    HogFlowScheduleApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
-import { canEditInWizard, canMoveToDraft } from './broadcastsLogic'
+import { StoppableBroadcast, canEditInWizard, canMoveToDraft } from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -44,7 +48,16 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         expect(canEditInWizard(actions, flowEdges)).toBe(expected)
     })
 
-    it.each([
+    it.each<
+        [
+            string,
+            HogFlowApi['status'],
+            HogFlowScheduleApi['status'][],
+            HogFlowBatchJobApi['status'][] | null,
+            string | undefined,
+            boolean,
+        ]
+    >([
         ['a scheduled broadcast', 'active', ['active'], [], undefined, true],
         ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
         ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
@@ -64,10 +77,14 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ['a draft', 'draft', ['active'], [], undefined, false],
         ['a workflow the wizard cannot edit', 'active', ['active'], [], '{{ inputs.owner }}', false],
     ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, recipient, expected) => {
-        const schedules = scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus }))
-        const broadcast = { status, schedules, actions: [trigger(), email(recipient), exit], edges }
+        const broadcast: StoppableBroadcast = {
+            status,
+            schedules: scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus })),
+            actions: [trigger(), email(recipient), exit],
+            edges,
+        }
         const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
-        expect(canMoveToDraft(broadcast as any, jobs as any)).toBe(expected)
+        expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
     })
 
     it('saves the audience and email into the existing steps without replacing them', () => {

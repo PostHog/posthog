@@ -15,6 +15,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
+    HogFlowScheduleApi,
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -74,8 +75,15 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
 }
 
 /** Null batch jobs means they haven't loaded, so whether a send is running is still unknown. */
+export interface StoppableBroadcast {
+    status?: HogFlowApi['status']
+    actions?: FlowStep[] | null
+    edges?: FlowEdge[] | null
+    schedules?: Pick<HogFlowScheduleApi, 'status'>[]
+}
+
 export function canMoveToDraft(
-    broadcast: Pick<HogFlowApi, 'status' | 'actions' | 'edges' | 'schedules'> | null,
+    broadcast: StoppableBroadcast | null,
     batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
 ): boolean {
     return (
@@ -87,7 +95,7 @@ export function canMoveToDraft(
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
-        canEditInWizard(broadcast.actions as any, broadcast.edges as any)
+        canEditInWizard(broadcast.actions, broadcast.edges)
     )
 }
 

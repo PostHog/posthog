@@ -42,7 +42,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import { canMoveToDraft } from './broadcastsLogic'
+import { StoppableBroadcast, canMoveToDraft } from './broadcastsLogic'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -570,7 +570,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         canMoveToDraft: [
             (s) => [s.broadcast, s.batchJobs, s.hasLoadedBatchJobs],
             (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[], hasLoadedBatchJobs: boolean): boolean =>
-                canMoveToDraft(broadcast, hasLoadedBatchJobs ? batchJobs : null),
+                canMoveToDraft(broadcast as StoppableBroadcast | null, hasLoadedBatchJobs ? batchJobs : null),
         ],
         isReadOnly: [
             (s) => [s.broadcast],
