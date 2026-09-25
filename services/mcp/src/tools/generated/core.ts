@@ -179,6 +179,7 @@ const ProjectCreateSchema = () => {
         customer_analytics_config: true,
         workflows_config: true,
         feature_flag_policy_config: true,
+        data_management_config: true,
         base_currency: true,
         capture_dead_clicks: true,
         cookieless_server_hash_mode: true,

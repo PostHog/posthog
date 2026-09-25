@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { isDefinitionStale, staleEventSeconds } from 'lib/utils/definitions'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { EventDefinition, TeamPublicType } from '~/types'
+import { EventDefinition, TeamPublicType, TeamType } from '~/types'
 
 /** Why an action match group matches nothing new, or is about to stop. */
 export type EventHealthIssue = { status: 'stale'; lastSeenAt: string } | { status: 'missing' }
@@ -51,7 +51,7 @@ export interface actionEventHealthLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         eventHealthIssues: (
             definitions: EventDefinitionsByName,
-            currentTeam: TeamPublicType | null
+            currentTeam: TeamPublicType | TeamType | null
         ) => Record<string, EventHealthIssue>
     }
 }
@@ -148,7 +148,7 @@ export const actionEventHealthLogic = kea<actionEventHealthLogicType>([
             (s) => [s.definitions, teamLogic.selectors.currentTeam],
             (
                 definitions: EventDefinitionsByName,
-                currentTeam: TeamPublicType | null
+                currentTeam: TeamPublicType | TeamType | null
             ): Record<string, EventHealthIssue> => {
                 const staleSeconds = staleEventSeconds(currentTeam)
                 const issues: Record<string, EventHealthIssue> = Object.create(null)
