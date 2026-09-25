@@ -6,6 +6,7 @@ import {
   CLOUD_HOSTS,
   type CloudRegion,
   refreshOAuth,
+  type SignInOptions,
   signInWithOAuth,
 } from "@/lib/oauth";
 
@@ -33,7 +34,10 @@ interface AuthState {
   generation: number;
   hydrate: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  loginWithOAuth: (region: CloudRegion, signup?: boolean) => Promise<void>;
+  loginWithOAuth: (
+    region: CloudRegion,
+    options?: SignInOptions,
+  ) => Promise<void>;
   // Swaps an expired OAuth access token; returns the new bearer.
   refresh: () => Promise<string>;
   logout: () => Promise<void>;
@@ -214,9 +218,9 @@ export const useAuth = create<AuthState>((set, get) => {
 
     login: (email, password) => login(() => loginWithPassword(email, password)),
 
-    loginWithOAuth: (region, signup) =>
+    loginWithOAuth: (region, options) =>
       login(async () => {
-        const tokens = await signInWithOAuth(region, signup);
+        const tokens = await signInWithOAuth(region, options);
         return describeSession({
           region,
           host: CLOUD_HOSTS[region],

@@ -57,11 +57,19 @@ async function tokenRequest(
   return (await response.json()) as OAuthTokens;
 }
 
-// With `signup`, the browser opens account creation first and lands on the
-// authorize page afterwards, so a new user ends up signed in to the app.
+export interface SignInOptions {
+  // Open account creation first; the browser lands on the authorize page
+  // afterwards, so a new user ends up signed in to the app.
+  signup?: boolean;
+  // Run in a private browser session with no shared Safari cookies. The web
+  // login form always shows, so a person can pick a different account instead
+  // of being auto-signed into the existing web session.
+  switchAccount?: boolean;
+}
+
 export async function signInWithOAuth(
   region: CloudRegion,
-  signup = false,
+  { signup = false, switchAccount = false }: SignInOptions = {},
 ): Promise<OAuthTokens> {
   const host = CLOUD_HOSTS[region];
   const request = new AuthSession.AuthRequest({
@@ -74,11 +82,9 @@ export async function signInWithOAuth(
   const discovery = { authorizationEndpoint: `${host}/oauth/authorize` };
   const authUrl = await request.makeAuthUrlAsync(discovery);
   const next = encodeURIComponent(authUrl.slice(host.length));
-  // Ephemeral: no shared Safari cookies, so logging out of the app really
-  // logs out — otherwise the web session auto-signs the old account back in.
   const result = await request.promptAsync(discovery, {
     url: signup ? `${host}/signup?next=${next}` : authUrl,
-    preferEphemeralSession: true,
+    preferEphemeralSession: switchAccount,
   });
   if (result.type !== "success" || !result.params.code) {
     throw new Error(
