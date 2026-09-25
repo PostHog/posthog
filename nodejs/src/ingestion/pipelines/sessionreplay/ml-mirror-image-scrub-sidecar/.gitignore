@@ -4,6 +4,8 @@ package-lock.json
 # Downloaded by `npm run setup` — not committed (see binaries/data decision in README).
 models/
 test-data/
+# Built from rust/replay-anonymizer-node by `npm run build:native`
+native/
 # Generated/transient
 corpus/
 code-corpus/

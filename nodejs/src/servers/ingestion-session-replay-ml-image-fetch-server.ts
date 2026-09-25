@@ -310,18 +310,18 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 !this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE ||
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE === tableName
             ) {
-                throw new Error('ML v2 requires a separate image fetch history table')
+                throw new Error('ML v3 requires a separate image fetch history table')
             }
             this.keyManager = new MlKeyManager(this.config)
             await this.keyManager.start()
-            const v2 = new DynamoDBCrawlHistory(
+            const v3 = new DynamoDBCrawlHistory(
                 this.crawlHistoryClient,
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE,
                 dynamoDBTimeoutMs,
                 STORE_BATCH_BUDGET_MS
             )
-            await v2.validateAccess(Date.now())
-            crawlHistory = new VersionedCrawlHistory(legacyCrawlHistory, v2)
+            await v3.validateAccess(Date.now())
+            crawlHistory = new VersionedCrawlHistory(legacyCrawlHistory, v3)
         }
 
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
