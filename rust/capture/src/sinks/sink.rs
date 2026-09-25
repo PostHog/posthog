@@ -90,9 +90,6 @@ impl SinkResult {
 #[async_trait]
 pub(crate) trait Sink {
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
-
-    /// Flush any buffered/pending data before shutdown.
-    fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
 /// Collapse per-event results into the v0 whole-request response:

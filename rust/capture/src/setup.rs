@@ -127,7 +127,8 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
-    pub outputs: Arc<OutputRegistry>,
+    /// `None` with the print or noop sink, which produce to no Kafka.
+    pub producers: Option<Arc<ProducerRegistry>>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
@@ -296,12 +297,11 @@ pub async fn build_components(
         _ => None,
     };
 
-    let outputs = Arc::new(
+    let (outputs, producers) =
         create_output_registry(&config, &producer_configs, sink_handle, advisory_handle)
             .await
-            .expect("failed to create the output registry"),
-    );
-    let outputs_for_flush = outputs.clone();
+            .expect("failed to create the output registry");
+    let outputs = Arc::new(outputs);
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
         create_event_restriction_service(
@@ -433,7 +433,7 @@ pub async fn build_components(
     CaptureComponents {
         app,
         server_handle: server,
-        outputs: outputs_for_flush,
+        producers: producers.map(Arc::new),
         v1_sink_router,
         event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
@@ -622,9 +622,10 @@ async fn create_output_registry(
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<OutputRegistry> {
-    let output = create_output(config, producer_configs, sink_handle, advisory_handle).await?;
-    Ok(OutputRegistry::new(output))
+) -> anyhow::Result<(OutputRegistry, Option<ProducerRegistry>)> {
+    let (output, producers) =
+        create_output(config, producer_configs, sink_handle, advisory_handle).await?;
+    Ok((OutputRegistry::new(output), producers))
 }
 
 async fn create_output(
@@ -632,13 +633,13 @@ async fn create_output(
     producer_configs: &HashMap<ProducerName, ProducerConfig>,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Output> {
+) -> anyhow::Result<(Output, Option<ProducerRegistry>)> {
     if config.print_sink {
-        return Ok(Output::single(PrintSink {}));
+        return Ok((Output::single(PrintSink {}), None));
     }
     if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        return Ok(Output::single(NoOpSink::new()));
+        return Ok((Output::single(NoOpSink::new()), None));
     }
 
     // Runs before any producer connects, so a blank topic refuses boot
@@ -669,7 +670,7 @@ async fn create_output(
     let kafka_sink = KafkaSink::new(&producers, outputs, config.replay_envelope_compression);
 
     if !config.s3_fallback_enabled {
-        return Ok(Output::single(kafka_sink));
+        return Ok((Output::single(kafka_sink), Some(producers)));
     }
 
     let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
@@ -685,11 +686,12 @@ async fn create_output(
     .await
     .expect("failed to create S3 sink");
 
-    Ok(Output::failover(
+    let output = Output::failover(
         Output::single(kafka_sink),
         Output::single(s3_sink),
         kafka_handle,
-    ))
+    );
+    Ok((output, Some(producers)))
 }
 
 // Fixed fire-and-forget tuning for the warnings producer. These are

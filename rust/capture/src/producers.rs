@@ -18,7 +18,7 @@ use rdkafka::ClientConfig;
 use tracing::log::{debug, info};
 
 use crate::sinks::kafka::KafkaContext;
-use crate::sinks::producer::RdKafkaProducer;
+use crate::sinks::producer::{KafkaProducer, RdKafkaProducer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProducerName {
@@ -228,6 +228,14 @@ impl ProducerRegistry {
 
     pub fn get(&self, name: ProducerName) -> ProducerHandle {
         Arc::clone(&self.producers[&name])
+    }
+
+    /// Blocks until every producer's queue drains or times out.
+    pub fn flush(&self) -> anyhow::Result<()> {
+        for producer in self.producers.values() {
+            producer.flush()?;
+        }
+        Ok(())
     }
 }
 

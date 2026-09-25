@@ -26,10 +26,6 @@ pub trait PublishEvents: Send + Sync {
     /// One method for any batch size: a backend that serves a one-event
     /// batch more cheaply specializes inside its own impl.
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        Ok(())
-    }
 }
 
 pub struct Output {
@@ -83,13 +79,6 @@ impl PublishEvents for Output {
             Inner::Failover(failover) => failover.publish_events(events).await,
         }
     }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        match &self.inner {
-            Inner::Single(leaf) => leaf.flush(),
-            Inner::Failover(failover) => failover.flush(),
-        }
-    }
 }
 
 struct Failover {
@@ -126,10 +115,6 @@ impl Failover {
             self.fallback.publish_events(events).await
         }
     }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        self.primary.flush()
-    }
 }
 
 /// The (pipeline, lane) → output map the deployment state holds.
@@ -156,10 +141,6 @@ impl OutputRegistry {
     /// property of the request, not of the output it lands on.
     pub async fn publish(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.output.publish_events(events).await
-    }
-
-    pub fn flush(&self) -> Result<(), anyhow::Error> {
-        self.output.flush()
     }
 }
 
@@ -338,6 +319,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(leaf.get_events().len(), 3);
-        registry.flush().unwrap();
     }
 }

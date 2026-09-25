@@ -15,14 +15,14 @@
 //! * `otel::otel_handler` (`/i/v0/ai/otel`, multi-span batch)
 //!
 //! Keeping routing policy out of the sink keeps the clone-per-spawned-task
-//! cost in the scatter-gather batch path at two `Arc::clone` calls (output
-//! table + producers) rather than deep copies of limiter state.
+//! cost in the scatter-gather batch path at one `Arc::clone` call (the output
+//! table) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
-use crate::producers::{ProducerName, ProducerRegistry};
+use crate::producers::ProducerRegistry;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
@@ -180,15 +180,14 @@ impl rdkafka::ClientContext for KafkaContext {
 /// Generic Kafka sink that can use any producer implementation.
 ///
 /// Holds only the output table, each target carrying its producer handle,
-/// the replay envelope compression setting, and the producers to flush. No limiter state — overflow and replay-overflow routing
+/// and the replay envelope compression setting. No limiter state — overflow and replay-overflow routing
 /// decisions are stamped upstream in the pipeline onto
 /// `ProcessedEventMetadata::overflow_reason` and read here.
-/// Both Arc fields are cheap to clone (two atomic ref-count increments),
+/// The Arc field is cheap to clone (one atomic ref-count increment),
 /// which matters under the scatter-gather batch produce path where the sink
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     outputs: Arc<OutputTable<Arc<P>>>,
-    producers: Arc<[Arc<P>]>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -196,7 +195,6 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     fn clone(&self) -> Self {
         Self {
             outputs: Arc::clone(&self.outputs),
-            producers: Arc::clone(&self.producers),
             replay_envelope_compression: self.replay_envelope_compression,
         }
     }
@@ -249,10 +247,6 @@ impl KafkaSink {
     ) -> KafkaSink {
         KafkaSinkBase {
             outputs: Arc::new(outputs.map_producers(|name| producers.get(*name))),
-            producers: ProducerName::ALL
-                .iter()
-                .map(|name| producers.get(*name))
-                .collect(),
             replay_envelope_compression,
         }
     }
@@ -275,7 +269,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let producer = Arc::new(producer);
         Self {
             outputs: Arc::new(outputs.map_producers(|_| Arc::clone(&producer))),
-            producers: Arc::new([producer]),
             replay_envelope_compression,
         }
     }
@@ -602,13 +595,6 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
             }
         }
     }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        for producer in self.producers.iter() {
-            producer.flush().map_err(|e| anyhow::anyhow!(e))?;
-        }
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -627,10 +613,6 @@ impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
 
         let payloads = self.prepare_batch(events).await?;
         fold_results(Sink::publish(self, payloads).await)
-    }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        Sink::flush(self)
     }
 }
 
