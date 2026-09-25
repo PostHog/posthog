@@ -325,6 +325,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
+            # `max_result_rows` limit rejected our extraction query because the table
+            # (or incremental window) is larger than that limit allows. Like Code: 241
+            # and Code: 243 this is a capacity/config limit on the customer's database,
+            # not something we can change our side, so retrying just replays the same
+            # oversized query against the same limit. We match the ClickHouse error-code
+            # name rather than "Code: 396" because some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this error without the usual "Code: NNN. DB::Exception:"
+            # native wording.
+            "TOO_MANY_ROWS_OR_BYTES": "Your ClickHouse server's result size limit was exceeded while reading this table. Raise the max_result_bytes/max_result_rows limit for the user PostHog connects with, sync fewer columns, or switch this table to an incremental sync so each run reads a smaller window, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
@@ -339,6 +349,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_IDENTIFIER (code 47): a column our extraction query references no longer
+            # resolves against the table at query time, even though `system.columns` listed it at
+            # discovery time — typically a View whose underlying table had a column renamed or
+            # dropped after the View was created (ClickHouse doesn't keep a View's column list in
+            # sync with the tables it selects from). The query reissues the same column list on
+            # every attempt, so it fails identically forever. We match the numeric code, like the
+            # other `Code: NNN` entries above, rather than the `(UNKNOWN_IDENTIFIER)` name suffix —
+            # that suffix comes from the server's own exception text, but the code itself is the
+            # more fundamental, guaranteed-present signal.
+            "Code: 47": "A column referenced during sync no longer exists in your ClickHouse table (UNKNOWN_IDENTIFIER). This usually means a column was renamed or dropped in the underlying table or view — refresh this table's schema, deselect the missing column, or update the incremental field or row filter that references it, then resync.",
             # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
             # query as Arrow: a selected column has a type ClickHouse can't serialize
             # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
