@@ -23,6 +23,7 @@ from products.posthog_ai.evals.experiments.setup_scorers import (
     BUCKETING_PERSIST_OR_DEVICE_ID,
     CreatedExperiment,
     bucketing_fits,
+    closing_texts,
     primary_metric_matches,
     windows_without_unit,
 )
@@ -288,3 +289,44 @@ def test_windows_without_unit(metric: dict, expected_problems: int) -> None:
 )
 def test_primary_metric_matches(metric: dict, spec: dict, expected_pass: bool) -> None:
     assert primary_metric_matches(metric, spec) is expected_pass
+
+
+def _assistant(*blocks: dict) -> dict:
+    return {"role": "assistant", "content": list(blocks)}
+
+
+def _text(text: str) -> dict:
+    return {"type": "text", "text": text}
+
+
+def _tool(name: str) -> dict:
+    return {"type": "tool_use", "name": name}
+
+
+_SUMMARY = "Bucketing: default. Primary metric: upgraded_plan funnel."
+_SIGN_OFF = "Left everything as a draft."
+
+
+@pytest.mark.parametrize(
+    "messages,expected",
+    [
+        ([_assistant(_text(_SUMMARY))], [_SUMMARY]),
+        (
+            [
+                _assistant(_text(_SUMMARY), _tool("mcp__posthog-code-tools__show_actions")),
+                _assistant(_text(_SIGN_OFF), _tool("mcp__posthog-code-tools__finish")),
+            ],
+            [_SUMMARY, _SIGN_OFF],
+        ),
+        (
+            [
+                _assistant(_text("Creating it now."), _tool("mcp__posthog__exec")),
+                _assistant(_text(_SUMMARY)),
+            ],
+            [_SUMMARY],
+        ),
+        ([_assistant(_tool("mcp__posthog__exec"))], []),
+    ],
+)
+def test_closing_texts(messages: list[dict], expected: list[str]) -> None:
+    assert closing_texts(messages) == expected

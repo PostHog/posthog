@@ -5,8 +5,9 @@ tool calls, so a setting changed by a later `experiment-update` or set on the fl
 counts. A scorer that does not apply to a case returns `score=None`, which the engine leaves out
 of the mean.
 
-The two judges read the agent's final message: one checks that the summary separates confident
-choices from guesses and open decisions, the other checks the case-specific facts it must name.
+The two judges read the agent's closing summary (`closing_texts`, not the harness's
+`last_message`): one checks that the summary separates confident choices from guesses and open
+decisions, the other checks the case-specific facts it must name.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ __all__ = [
     "SharedMetricReused",
     "SingleFlagCreated",
     "bucketing_fits",
+    "closing_texts",
     "load_created_experiment",
     "primary_metric_matches",
     "windows_without_unit",
@@ -313,9 +315,44 @@ class SingleFlagCreated(_CreatedExperimentScorer):
         )
 
 
+_HARNESS_TOOL_PREFIX = "mcp__posthog-code-tools__"
+
+
+def closing_texts(messages: Sequence[Any]) -> list[str]:
+    """The assistant's prose after its last tool call that did real work, oldest first.
+
+    The harness's `last_message` is only the final assistant text block. An agent that
+    writes its summary, calls a harness-control tool, then signs off leaves the summary
+    one block further back, so a judge reading `last_message` sees the sign-off alone.
+    The `posthog-code-tools` calls are session bookkeeping rather than work, so prose on
+    either side of one belongs to the same closing statement.
+    """
+    texts: list[str] = []
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
+        if any(
+            block.get("type") == "tool_use" and not str(block.get("name") or "").startswith(_HARNESS_TOOL_PREFIX)
+            for block in blocks
+        ):
+            break
+        texts = [
+            block["text"]
+            for block in blocks
+            if block.get("type") == "text" and isinstance(block.get("text"), str) and block["text"].strip()
+        ] + texts
+    return texts
+
+
 def _final_message(output: Any) -> str | None:
     if not isinstance(output, dict):
         return None
+    messages = output.get("messages")
+    if isinstance(messages, list):
+        texts = closing_texts(messages)
+        if texts:
+            return "\n\n".join(texts)
     message = output.get("last_message")
     return message if isinstance(message, str) and message.strip() else None
 
