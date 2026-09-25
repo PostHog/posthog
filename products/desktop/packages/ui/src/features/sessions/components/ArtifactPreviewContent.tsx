@@ -10,7 +10,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { isAllowedImageMimeType } from "@posthog/shared";
+import {
+  isAllowedImageMimeType,
+  isAllowedVideoMimeType,
+} from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
@@ -90,7 +93,7 @@ export function ArtifactPreviewContent({
   onResolutionsChange,
   imageCommenting,
   setImageCommenting,
-  onImageError,
+  onMediaError,
   editableKind,
   artifactResult,
 }: {
@@ -120,7 +123,7 @@ export function ArtifactPreviewContent({
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
   imageCommenting: boolean;
   setImageCommenting: Dispatch<SetStateAction<boolean>>;
-  onImageError: () => void;
+  onMediaError: () => void;
   editableKind: EditableArtifactKind | null;
   artifactResult: ArtifactPreviewResult | undefined;
 }): ReactElement {
@@ -276,7 +279,7 @@ export function ArtifactPreviewContent({
             onCommentingChange={setImageCommenting}
             onActivateThread={activateThread}
             onCreate={createAnchoredComment}
-            onError={onImageError}
+            onError={onMediaError}
           />
         </div>
       </div>
@@ -286,6 +289,31 @@ export function ArtifactPreviewContent({
   const documentActions = (
     <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
   );
+
+  if (previewData instanceof Blob && isAllowedVideoMimeType(previewData.type)) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <GenericArtifactHeader
+          name={name}
+          versionNav={versionNav}
+          actions={documentActions}
+        />
+        {commentLoadError}
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+          <video
+            className="max-h-full max-w-full"
+            controls
+            muted
+            preload="metadata"
+            aria-label={name}
+            src={previewUrl}
+            onError={onMediaError}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (
