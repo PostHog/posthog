@@ -60,7 +60,14 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
-from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import (
+    DEFAULT_REPORT_STATUSES,
+    LISTABLE_REPORT_STATUSES,
+    SignalReport,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalSourceConfig,
+)
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -75,7 +82,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v14"
+INVENTORY_SOURCE_VERSION = "v15"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -141,7 +148,7 @@ def build_inventory(team: Team) -> Inventory:
             "signal_source_configs": _signal_source_configs(team),
             "emit_eligibility": _emit_eligibility(team),
             "scout_fleet": _scout_fleet(team),
-            "existing_inbox_reports": _existing_inbox_reports(team),
+            "existing_inbox_reports": existing_inbox_reports(team),
             "recent_activity": _recent_activity(team),
             "recent_reviewer_corrections": _recent_reviewer_corrections(team),
             "recent_dashboards": _recent_dashboards(team),
@@ -360,25 +367,39 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     }
 
 
-def _existing_inbox_reports(team: Team) -> dict[str, Any]:
+def existing_inbox_reports(team: Team) -> dict[str, Any]:
     """Counts of existing inbox reports grouped by `status`.
 
     `SignalReport` doesn't carry source_product/source_type directly (those live on the
     upstream signals + emission records); status is what the scout actually wants —
     "how many things are already candidates vs ready vs in_progress in this team's
-    inbox?" Suppressed and deleted statuses are excluded since they're not actively
-    surfaced to humans.
+    inbox?"
+
+    The counts mirror the two scopes `inbox-reports-list` serves, so a scout can compare a
+    number here against a list it fetched instead of guessing why they differ. `total` is the
+    default list scope (human-dismissed reports hidden), `total_including_dismissed` is the
+    `include_all_statuses=true` scope a scout dedupes against, and `by_status` covers the wider
+    of the two so the gap between them is readable. Deleted reports are terminal and appear in
+    neither.
+
+    `counted_at` is the moment these counts were read. A stored profile row is a cache, so the
+    counts age with it while the inbox keeps moving; the timestamp is what lets a reader tell a
+    stale count from a disagreeing one. `SignalProjectProfileViewSet.current` re-derives the
+    whole section per request, so what a scout reads there is live.
     """
-    excluded = {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
     rows = (
-        SignalReport.objects.filter(team=team)
-        .exclude(status__in=excluded)
+        SignalReport.objects.filter(team=team, status__in=sorted(LISTABLE_REPORT_STATUSES))
         .values("status")
         .annotate(count=Count("id"))
         .order_by("status")
     )
     by_status = [{"status": row["status"], "count": row["count"]} for row in rows]
-    return {"total": sum(row["count"] for row in by_status), "by_status": by_status}
+    return {
+        "counted_at": timezone.now().isoformat(),
+        "total": sum(row["count"] for row in by_status if row["status"] in DEFAULT_REPORT_STATUSES),
+        "total_including_dismissed": sum(row["count"] for row in by_status),
+        "by_status": by_status,
+    }
 
 
 def _recent_dashboards(team: Team) -> list[dict[str, Any]]:

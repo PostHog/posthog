@@ -107,6 +107,8 @@ from products.signals.backend.implementation_pr import (
     pull_request_matches_id,
 )
 from products.signals.backend.models import (
+    DEFAULT_REPORT_STATUSES,
+    LISTABLE_REPORT_STATUSES,
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
@@ -1149,9 +1151,10 @@ class SignalReportViewSet(
         return queryset.annotate(channel_id=channel_id_subquery)
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
-    # actions) and is never a valid filter target either.
-    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
-    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
+    # actions) and is never a valid filter target either. Shared with the project profile's
+    # inbox counts so the two surfaces report the same inbox.
+    _FILTERABLE_STATUSES = LISTABLE_REPORT_STATUSES
+    _DEFAULT_STATUSES = DEFAULT_REPORT_STATUSES
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
     _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})

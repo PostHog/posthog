@@ -137,7 +137,17 @@ class StatusCount(_Section):
 
 
 class ExistingInboxReports(_Section):
+    """Inbox report counts, in the same scopes `inbox-reports-list` serves.
+
+    `total` matches a default list (human-dismissed reports hidden).
+    `total_including_dismissed` matches `include_all_statuses=true`, the scope a scout dedupes
+    against. `by_status` covers the wider scope, so the gap between the two totals is readable.
+    """
+
+    # When the counts were read. Optional because a row built before this field carries none.
+    counted_at: str | None = None
     total: int
+    total_including_dismissed: int
     by_status: list[StatusCount]
 
 

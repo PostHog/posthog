@@ -2044,12 +2044,40 @@ class InboxReportStatusBucketSerializer(serializers.Serializer):
 
 
 class ExistingInboxReportsSerializer(serializers.Serializer):
-    """`inventory.existing_inbox_reports` — what's already been surfaced to the inbox."""
+    """`inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
 
-    total = serializers.IntegerField(help_text="Total non-deleted, non-suppressed reports for this team.")
+    The two totals match the two scopes `inbox-reports-list` serves, so a count here can be
+    compared against a list fetched in the same run.
+    """
+
+    counted_at = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp these counts were read. The profile endpoint re-reads this "
+            "section per request, so what it returns is live; a stored profile row carries the "
+            "time its counts were built. Null for a row built before this field existed."
+        ),
+    )
+    total = serializers.IntegerField(
+        help_text=(
+            "Reports in the default `inbox-reports-list` scope: every status except deleted and "
+            "suppressed (human-dismissed)."
+        ),
+    )
+    total_including_dismissed = serializers.IntegerField(
+        help_text=(
+            "Reports in the `include_all_statuses=true` scope — the same set, plus human-dismissed "
+            "ones. This is what to compare against when you dedupe a new finding against the full "
+            "inbox."
+        ),
+    )
     by_status = serializers.ListField(
         child=InboxReportStatusBucketSerializer(),
-        help_text="Per-status breakdown of inbox reports.",
+        help_text=(
+            "Per-status breakdown over the wider scope, so the gap between the two totals is "
+            "readable. Deleted reports are terminal and appear in neither."
+        ),
     )
 
 
@@ -2589,7 +2617,8 @@ class ProjectProfileSummarySerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Counts of reports already in the inbox, grouped by status, which is what a new finding "
-            "would be deduped against. Null for a stored profile built before this section existed."
+            "would be deduped against. Read live per request, and `counted_at` says when. Null for a "
+            "stored profile built before this section existed."
         ),
     )
 

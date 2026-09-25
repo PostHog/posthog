@@ -51,7 +51,6 @@ from products.signals.backend.scout_harness.profile.builders import (
     TOP_EVENTS_LOOKBACK_DAYS,
     _business_knowledge,
     _emit_eligibility,
-    _existing_inbox_reports,
     _external_data_sources,
     _integrations,
     _product_intents,
@@ -72,6 +71,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _scout_fleet,
     _signal_source_configs,
     _top_events,
+    existing_inbox_reports,
 )
 from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
 from products.signals.backend.scout_harness.tools.emit import emit_eligibility, emit_eligibility_for_run
@@ -466,22 +466,27 @@ class TestScoutFleet(BaseTest):
 
 
 class TestExistingInboxReports(BaseTest):
-    def test_groups_by_status_excluding_deleted_and_suppressed(self) -> None:
+    def test_groups_by_status_excluding_deleted(self) -> None:
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.POTENTIAL)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.POTENTIAL)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
-        result = _existing_inbox_reports(self.team)
+        result = existing_inbox_reports(self.team)
+        # `total` is the default list scope, so a human-dismissed report is out of it, while
+        # `total_including_dismissed` is the wider scope a scout dedupes against.
         assert result["total"] == 3
+        assert result["total_including_dismissed"] == 4
         by_status = {row["status"]: row["count"] for row in result["by_status"]}
-        assert by_status == {"potential": 2, "ready": 1}
+        assert by_status == {"potential": 2, "ready": 1, "suppressed": 1}
+        assert result["counted_at"] is not None
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
         SignalReport.objects.create(team=other, status=SignalReport.Status.READY)
-        result = _existing_inbox_reports(self.team)
+        result = existing_inbox_reports(self.team)
         assert result["total"] == 0
+        assert result["total_including_dismissed"] == 0
 
 
 class TestRecentDashboards(BaseTest):
