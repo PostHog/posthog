@@ -8,10 +8,13 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 
+export const PROJECT_TAGS_TRIGGER_ID = 'project-tags-trigger'
+
 export function ProjectTags(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { updateCurrentProject } = useActions(projectLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     // Projects carry no resource-level access controls, so tag writes are gated by project
     // membership, which is exactly what the API's own permission check requires.
@@ -25,7 +28,7 @@ export function ProjectTags(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return <ObjectTags tags={currentProject.tags ?? []} staticOnly data-attr="project-tags" />
+        return <ObjectTags tags={currentProject.tags ?? []} staticOnly shrinkToContent data-attr="project-tags" />
     }
 
     return (
@@ -33,7 +36,10 @@ export function ProjectTags(): JSX.Element {
             tags={currentProject.tags ?? []}
             tagsAvailable={tagsAvailable}
             onChange={(tags) => updateCurrentProject({ tags })}
+            onEdit={loadTagsIfNeeded}
             saving={currentProjectLoading}
+            id={PROJECT_TAGS_TRIGGER_ID}
+            shrinkToContent
             data-attr="project-tags"
         />
     )

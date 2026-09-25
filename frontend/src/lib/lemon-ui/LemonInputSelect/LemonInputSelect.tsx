@@ -161,6 +161,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
     'data-attr'?: string
+    /** Set on the inner `<input>`, so a `<label htmlFor>` can point at it. */
+    id?: string
     className?: string
     popoverClassName?: string
     size?: 'xsmall' | 'small' | 'medium' | 'large'
@@ -202,6 +204,7 @@ export function LemonInputSelect<T = string>({
     className,
     popoverClassName,
     'data-attr': dataAttr,
+    id,
     size = 'medium',
     transparentBackground,
     autoWidth = true,
@@ -1089,6 +1092,7 @@ export function LemonInputSelect<T = string>({
                     className
                 )}
                 data-attr={dataAttr}
+                id={id}
                 size={size}
                 status={status}
             />
