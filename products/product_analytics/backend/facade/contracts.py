@@ -12,11 +12,13 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)

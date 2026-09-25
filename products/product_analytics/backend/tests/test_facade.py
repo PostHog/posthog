@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.db import connection, transaction
 from django.utils.timezone import now
 
@@ -236,3 +237,122 @@ class TestRunCachedTrendsQuery(BaseTest):
             session_org_kwargs = org_limiter.return_value.run.call_args.kwargs
             assert session_team_kwargs["is_api"] is False
             assert session_org_kwargs["is_api"] is False
+
+
+class TestConcurrentInsightViewed(NonAtomicBaseTest):
+    def test_concurrent_first_requests_create_one_context(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        from django.db import connections
+
+        from products.product_analytics.backend.facade.api import record_insight_view_context
+
+        insight = Insight.objects.create(team=self.team)
+        team_id, insight_id = self.team.pk, insight.pk
+        barrier = Barrier(2)
+
+        def request() -> None:
+            try:
+                barrier.wait(timeout=10)
+                record_insight_view_context(user_id=None, source="web", team_id=team_id, insight_ids=[insight_id])
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first, second = executor.submit(request), executor.submit(request)
+            first.result(timeout=20)
+            second.result(timeout=20)
+        assert apps.get_model("product_analytics", "InsightViewed").objects.filter(insight=insight).count() == 1
+
+
+class TestInsightViewedRecording(BaseTest):
+    @parameterized.expand(
+        [
+            ("anonymous_standalone", False, False),
+            ("user_standalone", True, False),
+            ("anonymous_dashboard", False, True),
+            ("user_dashboard", True, True),
+        ]
+    )
+    def test_context_access_is_monotonic_per_viewer_and_source(
+        self, _name: str, identified: bool, on_dashboard: bool
+    ) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_view_context
+
+        demand = apps.get_model("product_analytics", "InsightViewed")
+        insight = Insight.objects.create(team=self.team)
+        dashboard = apps.get_model("dashboards", "Dashboard").objects.create(team=self.team) if on_dashboard else None
+        if dashboard:
+            apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
+        viewer_id = self.user.pk if identified else None
+        context = {"user_id": viewer_id, "source": "web", "dashboard_id": dashboard.pk if dashboard else None}
+        first = now()
+        with time_machine.travel(first, tick=False):
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        with time_machine.travel(first + timedelta(seconds=30), tick=False):
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_viewed_at == first
+        with time_machine.travel(first + timedelta(minutes=2), tick=False):
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        with time_machine.travel(first - timedelta(days=1), tick=False):
+            record_insight_view_context(**context, team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight).last_viewed_at == first + timedelta(minutes=2)
+        record_insight_view_context(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk],
+            user_id=viewer_id,
+            source="mcp",
+            dashboard_id=dashboard.pk if dashboard else None,
+        )
+        record_insight_view_context(
+            team_id=self.team.pk,
+            insight_ids=[insight.pk],
+            user_id=None if identified else self.user.pk,
+            source="web",
+            dashboard_id=dashboard.pk if dashboard else None,
+        )
+        assert demand.objects.filter(insight=insight).count() == 3
+        assert demand.objects.get(insight=insight, **context).last_viewed_at == first + timedelta(minutes=2)
+        assert not InsightViewed.objects.filter(insight=insight, source="").exists()
+
+    def test_dashboard_demand_is_distinct_and_requires_a_live_tile(self) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_view_context
+
+        demand = apps.get_model("product_analytics", "InsightViewed")
+        dashboard = apps.get_model("dashboards", "Dashboard").objects.create(team=self.team)
+        insight = Insight.objects.create(team=self.team)
+        record_insight_view_context(
+            user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk
+        )
+        assert not demand.objects.exists()
+        apps.get_model("dashboards", "DashboardTile").objects.create(insight=insight, dashboard=dashboard)
+        record_insight_view_context(
+            user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk], dashboard_id=dashboard.pk
+        )
+        record_insight_view_context(user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.filter(insight=insight).count() == 2
+        other_team = Team.objects.create(organization=self.organization)
+        record_insight_view_context(user_id=None, source="web", team_id=other_team.pk, insight_ids=[insight.pk])
+        assert not demand.objects.filter(team=other_team).exists()
+        insight.deleted = True
+        insight.save()
+        at = demand.objects.get(insight=insight, dashboard=None).last_viewed_at
+        with time_machine.travel(now() + timedelta(days=1), tick=False):
+            record_insight_view_context(user_id=None, source="web", team_id=self.team.pk, insight_ids=[insight.pk])
+        assert demand.objects.get(insight=insight, dashboard=None).last_viewed_at == at
+
+    def test_context_reads_are_team_scoped(self) -> None:
+        from products.product_analytics.backend.facade.api import insight_view_contexts
+
+        contexts = apps.get_model("product_analytics", "InsightViewed")
+        insight = Insight.objects.create(team=self.team)
+        row = contexts.objects.create(
+            team=self.team, insight=insight, source="web", last_viewed_at=now() - timedelta(days=31)
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_insight = Insight.objects.create(team=other_team)
+        contexts.objects.create(
+            team=other_team, insight=other_insight, source="web", last_viewed_at=now() - timedelta(days=31)
+        )
+        assert list(insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk, other_insight.pk])) == [row]

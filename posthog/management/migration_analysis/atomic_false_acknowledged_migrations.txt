@@ -46,3 +46,7 @@ signals.0154_backfill_report_actionability
 # Drops the 13 legacy tagged item foreign keys one per transaction, so each drop locks one busy parent and
 # the child instead of all 14 tables at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
 posthog.1383_taggeditem_untrack_legacy_keys
+
+# Builds replacement view-context uniqueness before concurrently dropping the old anonymous index.
+# Existing consumers must be fully deployed from PR106552 first; both index operations are retry-safe.
+product_analytics.0013_insight_viewed_context_uniqueness

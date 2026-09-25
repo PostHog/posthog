@@ -54033,7 +54033,29 @@ export namespace Schemas {
       values_query_connection_id?: string | null;
     }
 
+    /**
+     * * `standalone` - standalone
+     * * `dashboard` - dashboard
+     */
+    export type QueryContextEnum = typeof QueryContextEnum[keyof typeof QueryContextEnum];
+
+
+    export const QueryContextEnum = {
+      Standalone: 'standalone',
+      Dashboard: 'dashboard',
+    } as const;
+
     export interface InsightViewedRequest {
+      /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
+       *
+       * * `standalone` - standalone
+       * * `dashboard` - dashboard */
+      query_context?: QueryContextEnum;
+      /**
+         * Dashboard containing the viewed tiles. Required for dashboard context.
+         * @minimum 1
+         */
+      dashboard_id?: number;
       /**
          * Insight IDs that were just viewed by the current user. At most 2500 ids per request.
          * @maxItems 2500

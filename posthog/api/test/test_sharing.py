@@ -1777,6 +1777,66 @@ class TestExportRendererTokenFlow(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
+class TestSharedViewDemand(APIBaseTest):
+    @parameterized.expand([("standalone", False), ("dashboard", True)])
+    @mock_exporter_template
+    def test_shared_view_records_its_context(self, _name, dashboard_context):
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Shared view",
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
+        )
+        dashboard = Dashboard.objects.create(team=self.team) if dashboard_context else None
+        config = SharingConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            dashboard=dashboard,
+            enabled=True,
+        )
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        view = insight.insightviewed_set.get(source="")
+        from products.product_analytics.backend.facade.api import insight_view_contexts
+
+        rows = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="")
+        if dashboard_context:
+            # No live tile exists in this fixture, so no context is attributed.
+            assert not rows.exists()
+        else:
+            row = rows.get()
+            assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
+            assert row.last_viewed_at >= view.last_viewed_at
+
+    @mock_exporter_template
+    def test_shared_notebook_consumes_standalone_insight_context(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Notebook insight",
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
+        )
+        notebook = Notebook.objects.create(
+            team=self.team,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                    }
+                ],
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        view = insight.insightviewed_set.get(source="")
+        from products.product_analytics.backend.facade.api import insight_view_contexts
+
+        row = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk]).exclude(source="").get()
+        assert row.user_id is None and row.source == "shared" and row.dashboard_id is None
+        assert row.last_viewed_at >= view.last_viewed_at
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):

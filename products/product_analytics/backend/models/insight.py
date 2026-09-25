@@ -462,7 +462,16 @@ class InsightViewed(models.Model):
     )
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
+        constraints = [
+            models.UniqueConstraint(
+                models.functions.Coalesce("team", models.Value(0)),
+                models.functions.Coalesce("user", models.Value(0)),
+                models.F("insight"),
+                models.F("source"),
+                models.functions.Coalesce("dashboard", models.Value(0)),
+                name="insightviewed_context_unique",
+            )
+        ]
         indexes = [
             models.Index(fields=["team_id", "user_id", "-last_viewed_at"]),
             models.Index(fields=["insight_id", "-last_viewed_at"], name="insightviewed_insight_lva_idx"),

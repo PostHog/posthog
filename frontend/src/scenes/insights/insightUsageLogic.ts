@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
@@ -10,11 +9,14 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Node } from '~/queries/schema/schema-general'
+import { isNodeWithSource } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
+
+import { insightsViewedCreate } from 'products/product_analytics/frontend/generated/api'
 
 import type { DataNode } from '../../queries/schema/schema-general'
 import type { InsightModel } from '../../types'
-import { insightLogic } from './insightLogic'
+import { insightLogic, insightOverridesPresent } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { keyForInsightLogicProps } from './sharedUtils'
 
@@ -24,6 +26,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export interface insightUsageLogicValues {
     query: DataNode<Record<string, any>> // dataNodeLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    savedInsight: Partial<InsightModel<Node<Record<string, any>>>>
     currentProjectId: number | null // projectLogic
     isFirstLoad: boolean
 }
@@ -74,7 +77,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             projectLogic,
             ['currentProjectId'],
             insightLogic(props),
-            ['insight'],
+            ['insight', 'savedInsight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['query'],
         ],
@@ -95,7 +98,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
             const logic = insightSceneLogic.findMounted()
@@ -107,10 +110,18 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
 
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
-            if (values.insight.id && !isSharedView()) {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                void api.create(`api/projects/${values.currentProjectId}/insights/viewed`, {
+            if (values.insight.id && values.currentProjectId && !isSharedView()) {
+                const savedQuery = isNodeWithSource(values.savedInsight.query)
+                    ? values.savedInsight.query.source
+                    : values.savedInsight.query
+                const matchesSavedContext =
+                    savedQuery &&
+                    objectsEqual(query, savedQuery) &&
+                    !insightOverridesPresent(props.filtersOverride, props.variablesOverride, props.tileFiltersOverride)
+                void insightsViewedCreate(String(values.currentProjectId), {
                     insight_ids: [values.insight.id],
+                    query_context: matchesSavedContext ? (props.dashboardId ? 'dashboard' : 'standalone') : undefined,
+                    dashboard_id: matchesSavedContext ? props.dashboardId : undefined,
                 })
             }
 
