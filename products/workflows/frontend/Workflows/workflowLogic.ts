@@ -103,7 +103,7 @@ export const NEW_WORKFLOW: HogFlow = {
             type: 'continue',
         },
     ],
-    conversion: { window_minutes: null, filters: [] },
+    conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
     status: 'draft',
@@ -1006,7 +1006,6 @@ export interface workflowLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -1863,7 +1862,6 @@ export interface workflowLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
