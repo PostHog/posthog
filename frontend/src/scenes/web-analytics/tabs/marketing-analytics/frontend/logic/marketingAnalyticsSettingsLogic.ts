@@ -651,6 +651,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. marketingAnalyticsTestMappingCreate() from 'products/marketing_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create(
                         `api/projects/${values.currentTeamId}/marketing_analytics/test_mapping/`,
                         { table_id: tableId, source_map: sourceMap }

@@ -150,6 +150,12 @@ codes and public request fields, replaces upstream messages with controlled text
 and masks unrecognized failures. The shared MCP client handles these errors without
 a billing-specific tool wrapper.
 
+The billing usage/spend tools accept `usage_types` as an array of strings.
+Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
+The MCP client JSON-encodes the array for the HTTP API.
+The billing overview, usage, and spend tools do not need a rollout flag.
+API scopes and billing access checks still apply.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
