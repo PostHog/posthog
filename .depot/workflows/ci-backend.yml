@@ -26,10 +26,10 @@
 # - permissions: read-only in every job, so the ambient token never writes. Canonical grants
 #   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
 #   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
-#   .depot/actions/commit-snapshots). check-migrations mints that token itself, with
-#   checks:write added for the Migration risk check, before it posts SQL and risk sections,
-#   and it skips each write when the mint fails. Canonical posts the sections with
-#   github.token and mints the app token only for the check.
+#   .depot/actions/commit-snapshots). check-migrations mints that token before its SQL and
+#   risk steps, and skips each section write when the mint fails, where canonical posts the
+#   sections with github.token. Its Migration risk check token (checks:write only) is minted
+#   after those steps, as in canonical.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -1877,43 +1877,51 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            - name: Get app token for migration reports
-              # Depot's ambient token must not write, so the CI report sections and the
-              # Migration risk check post with a posthog-tests token. When the mint fails,
-              # the token output is empty and every report write below skips, so a mint
+            - name: Get app token for CI report
+              # Depot's ambient token must not write, so the CI report sections post with a
+              # posthog-tests token that can write pull requests and nothing else. When the
+              # mint fails, the CI report check below marks the report unavailable, so a mint
               # failure never reddens migration validation.
               if: needs.wait-for-handoff.outputs.handed_off == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
-              id: migration-reports-app-token
+              id: ci-report-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-checks: write
                   permission-pull-requests: write
             - name: Set up Node.js
-              if: steps.migration-reports-app-token.outputs.token != ''
+              if: steps.ci-report-app-token.outputs.token != ''
+              continue-on-error: true
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ steps.migration-reports-app-token.outputs.token }}
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+            - name: Check for CI report tooling
+              # A checkout whose update-ci-report.mjs does not adopt tests-posthog[bot] comments
+              # would add a new comment on every write, so the report steps skip it.
+              id: ci-report
+              if: steps.ci-report-app-token.outputs.token != ''
+              run: |
+                  if command -v node > /dev/null && grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Skipping the CI report sections: Node.js is missing, or this checkout predates Depot CI authorship"
+                  fi
             - name: Check migrations and post SQL to CI report
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
-                  CI_REPORT_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+                  CI_REPORT_TOKEN: ${{ steps.ci-report.outputs.available == 'true' && steps.ci-report-app-token.outputs.token || '' }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The PR checkout above uses the PR branch, which on unrebased PRs
-                  # predates this script — skip the CI report section rather than fail.
-                  # An empty token would leave the ambient Depot token in place, and a checkout
-                  # whose update-ci-report.mjs does not adopt tests-posthog[bot] comments would
-                  # add a comment per write, so both of those skip the section too.
+                  # predates this script, so skip the CI report section rather than fail.
+                  # An empty token would leave the ambient Depot token in place, so the
+                  # section skips without one too.
                   post_migration_section() {
                     if [ -z "$CI_REPORT_TOKEN" ]; then
-                      echo "Skipping Django migration section: no CI report token"
-                    elif ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
-                      echo "Skipping Django migration section: this checkout predates Depot CI authorship"
+                      echo "Skipping Django migration section: the CI report is not available"
                     elif [ -f .github/scripts/post-django-migration-section.mjs ]; then
                       GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
                     else
@@ -1936,7 +1944,6 @@ jobs:
                     git fetch --no-tags --prune --depth=1 origin "$BASE_SHA" || echo "::warning::Could not fetch base SHA $BASE_SHA — all changed migrations will be shown as new"
                   fi
 
-                  # Initialize comment body for SQL changes
                   COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
                   HAS_NEW_MIGRATIONS=false
                   MIGRATION_COUNT=0
@@ -1992,7 +1999,6 @@ jobs:
                         SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
                       fi
 
-                      # Add to comment body
                       COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
@@ -2004,13 +2010,11 @@ jobs:
                       exit 0
                   fi
 
-                  # Add timestamp and commit SHA to SQL changes
                   TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
                   COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
                   COMMIT_SHORT="${COMMIT_SHA:0:7}"
                   COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
 
-                  # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
                   if [ "$MIGRATION_COUNT" -eq 1 ]; then
@@ -2024,23 +2028,20 @@ jobs:
               if: github.event_name == 'pull_request'
               # Step timeout: an analyzer hang fails THIS step (a failure, which
               # !cancelled() still publishes as a definitive verdict) instead of
-              # running out the job timeout — a job timeout counts as a
+              # running out the job timeout. A job timeout counts as a
               # cancellation, which the publish step skips, silently stranding
               # the consumer. Normal analysis finishes in well under a minute.
               timeout-minutes: 5
               env:
-                  CI_REPORT_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+                  CI_REPORT_TOKEN: ${{ steps.ci-report.outputs.available == 'true' && steps.ci-report-app-token.outputs.token || '' }}
               run: |
                   # The PR checkout above uses the PR branch, which on unrebased PRs
-                  # predates this script — skip the CI report section rather than fail.
-                  # An empty token would leave the ambient Depot token in place, and a checkout
-                  # whose update-ci-report.mjs does not adopt tests-posthog[bot] comments would
-                  # add a comment per write, so both of those skip the section too.
+                  # predates this script, so skip the CI report section rather than fail.
+                  # An empty token would leave the ambient Depot token in place, so the
+                  # section skips without one too.
                   post_migration_section() {
                     if [ -z "$CI_REPORT_TOKEN" ]; then
-                      echo "Skipping Django migration section: no CI report token"
-                    elif ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
-                      echo "Skipping Django migration section: this checkout predates Depot CI authorship"
+                      echo "Skipping Django migration section: the CI report is not available"
                     elif [ -f .github/scripts/post-django-migration-section.mjs ]; then
                       GITHUB_TOKEN="$CI_REPORT_TOKEN" node .github/scripts/post-django-migration-section.mjs "$@"
                     else
@@ -2051,18 +2052,16 @@ jobs:
                   # Get risk analysis for all unapplied migrations (including third-party).
                   # --output-json gives downstream consumers (the check-run step
                   # below, and any other tool) a stable structured shape to read.
-                  set +e  # Don't exit immediately on error
+                  set +e
                   RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
                   EXIT_CODE=$?
-                  set -e  # Re-enable exit on error
+                  set -e
 
-                  # Save analysis to file for artifact upload
                   if [ -n "$RISK_ANALYSIS" ]; then
                     echo "$RISK_ANALYSIS" > migration_analysis.md
                   fi
 
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Add timestamp and commit SHA to analysis
                     TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
                     COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
                     COMMIT_SHORT="${COMMIT_SHA:0:7}"
@@ -2086,6 +2085,20 @@ jobs:
                   if [ $EXIT_CODE -ne 0 ]; then
                     exit $EXIT_CODE
                   fi
+
+            - name: Get app token for Migration risk check
+              # A separate token with checks:write only, minted after the steps that run
+              # PR code, so that code never holds a token that can publish this check.
+              # continue-on-error: publishing the check is auxiliary. On failure the
+              # token output is empty and the publish step below is skipped.
+              if: ${{ !cancelled() && needs.wait-for-handoff.outputs.handed_off == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
+              id: migration-risk-app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: write
 
             - name: Publish Migration risk check
               # Migration risk classification is published as a GitHub check on
@@ -2112,9 +2125,9 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would fall back to the ambient
               # Depot token.
-              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-reports-app-token.outputs.token != '' }}
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
               env:
-                  GH_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
               run: |
@@ -2157,7 +2170,7 @@ jobs:
 
                   # Embed the analyzed file paths in the summary as a hidden
                   # marker. Stamphog parses this to scope its deny-list bypass
-                  # to exactly the files the analyzer classified — heuristics
+                  # to exactly the files the analyzer classified, because heuristics
                   # over directory names produce false bypasses for unrelated
                   # systems (ClickHouse, async migrations) that share the
                   # `migrations/` directory naming.
@@ -2356,7 +2369,7 @@ jobs:
                       file="ch_sql_env/${idx}.md"
                       # Render once per environment; the same output feeds both the log group and the comment.
                       # On failure (e.g. an import error in the migration) write a visible marker rather than
-                      # silently dropping the environment — stderr still shows in the step log for debugging.
+                      # silently dropping the environment. stderr still shows in the step log for debugging.
                       if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown "${changed_migrations[@]}" > "$file"; then
                           echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
                       fi
@@ -2377,7 +2390,6 @@ jobs:
                       fi
                   done
                   if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
-                      # Every environment renders the same SQL — collapse the environment level.
                       echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
                       echo '' >> ch_migration_sql_comment.md
                       cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
@@ -2391,19 +2403,15 @@ jobs:
             - name: Post CH migration SQL to CI report comment
               # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
-              # unread. Skipped without a posthog-tests token, because an empty token would
-              # leave the ambient Depot token in place.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && steps.migration-reports-app-token.outputs.token != ''
+              # unread. Skipped when the CI report is not available, because an empty token
+              # would leave the ambient Depot token in place.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') && steps.ci-report.outputs.available == 'true'
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
-                  GITHUB_TOKEN: ${{ steps.migration-reports-app-token.outputs.token }}
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
               run: |
-                  # A checkout whose update-ci-report.mjs does not adopt tests-posthog[bot]
-                  # comments would add a comment per write.
-                  if ! grep -qF 'tests-posthog[bot]' frontend/bin/ci-report/update-ci-report.mjs 2>/dev/null; then
-                      echo "Skipping CH migration section: this checkout predates Depot CI authorship"
-                  elif [ -f .github/scripts/post-ch-migration-section.mjs ]; then
+                  if [ -f .github/scripts/post-ch-migration-section.mjs ]; then
                       node .github/scripts/post-ch-migration-section.mjs
                       node frontend/bin/ci-report/delete-legacy-comments.mjs
                   else
