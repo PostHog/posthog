@@ -29,7 +29,11 @@ from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingP
 from social_django.models import UserSocialAuth
 from social_django.utils import load_strategy
 
-from posthog.api.authentication import social_identity_matches_session
+from posthog.api.authentication import (
+    GITHUB_EMAIL_LOOKUP_ERROR,
+    UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    social_identity_matches_session,
+)
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
@@ -959,7 +963,13 @@ class TestEEAuthenticationAPI(APILicensedTest):
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
 
-    def _complete_github_login(self, github_id: int, emails: list[dict[str, Any]]) -> HttpResponse:
+    def _complete_github_login(
+        self,
+        github_id: int,
+        emails: list[dict[str, Any]],
+        emails_status: int = 200,
+        profile_email: str | None = None,
+    ) -> HttpResponse:
         with (
             self.settings(**GITHUB_MOCK_SETTINGS),
             responses.RequestsMock(assert_all_requests_are_fired=False) as mock_github,
@@ -968,15 +978,15 @@ class TestEEAuthenticationAPI(APILicensedTest):
             mock_github.add(
                 responses.GET,
                 "https://api.github.com/user",
-                json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": None},
+                json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": profile_email},
             )
-            mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails)
+            mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails, status=emails_status)
             self.client.get("/login/github/")
             state = self.client.session["github_state"]
             response = self.client.get(f"/complete/github/?code=2&state={state}")
         return response
 
-    def _complete_google_login(self, email_verified: bool) -> HttpResponse:
+    def _complete_google_login(self, email: str, email_verified: bool) -> HttpResponse:
         with (
             self.settings(**GOOGLE_MOCK_SETTINGS),
             patch("social_core.backends.base.BaseAuth.request") as mock_request,
@@ -985,7 +995,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
             state = self.client.session["google-oauth2_state"]
             mock_request.return_value.json.return_value = {
                 "access_token": "123",
-                "email": self.user.email,
+                "email": email,
                 "email_verified": email_verified,
                 "sub": "google-sub-new",
             }
@@ -1012,7 +1022,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
             )
         else:
-            response = self._complete_google_login(email_verified=provider_verified)
+            response = self._complete_google_login(email=self.user.email, email_verified=provider_verified)
 
         self.user.refresh_from_db()
         is_linked = UserSocialAuth.objects.filter(user=self.user, provider=provider).exists()
@@ -1025,6 +1035,36 @@ class TestEEAuthenticationAPI(APILicensedTest):
             self.assertFalse(is_linked)
             self.assertTrue(self.user.check_password(cast(str, self.CONFIG_PASSWORD)))
             self.assertFalse(self.user.is_email_verified)
+
+    @parameterized.expand(
+        [
+            ("github_unverified", "github", False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("google_unverified", "google-oauth2", False, 200, UNVERIFIED_SOCIAL_EMAIL_ERROR),
+            ("github_public_email_lookup_fails", "github", True, 502, GITHUB_EMAIL_LOOKUP_ERROR),
+        ]
+    )
+    def test_social_signup_refuses_an_email_the_provider_has_not_verified(
+        self, _name, provider, has_public_email, emails_status, expected_error
+    ):
+        self.client.logout()
+        email = "new-person@example.com"
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=5151,
+                emails=[{"email": email, "primary": True, "verified": False}],
+                emails_status=emails_status,
+                profile_email=email if has_public_email else None,
+            )
+        else:
+            response = self._complete_google_login(email=email, email_verified=False)
+
+        location = urlparse(response["Location"])
+        self.assertEqual(location.path, "/login")
+        self.assertEqual(parse_qs(location.query)["error_detail"], [expected_error])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(User.objects.filter(email=email).exists())
+        self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
 
     def test_already_linked_github_identity_logs_in_without_a_verified_email(self):
         self.client.logout()

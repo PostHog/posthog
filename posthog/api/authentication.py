@@ -1375,6 +1375,7 @@ def social_identity_matches_session(
 UNVERIFIED_SOCIAL_EMAIL_ERROR = (
     "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
 )
+GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
 
 def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bool:
@@ -1382,11 +1383,12 @@ def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bo
         emails = backend.get_json(
             urljoin(backend.api_url(), "user/emails"), headers={"Authorization": f"token {access_token}"}
         )
-    except (RequestException, ValueError):
+    except (RequestException, AuthConnectionError, ValueError) as error:
         logger.warning("github_email_verification_lookup_failed", exc_info=True)
-        return False
+        raise AuthFailed(backend, GITHUB_EMAIL_LOOKUP_ERROR) from error
     if not isinstance(emails, list):
-        return False
+        logger.warning("github_email_verification_lookup_unexpected_response")
+        raise AuthFailed(backend, GITHUB_EMAIL_LOOKUP_ERROR)
     return any(
         isinstance(entry, dict)
         and entry.get("verified") is True
