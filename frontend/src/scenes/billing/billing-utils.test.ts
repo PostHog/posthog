@@ -7,25 +7,20 @@ import {
 } from './billing-utils'
 
 describe('getUsageTypeOptions', () => {
-    it('omits captured mobile recordings and keeps billable mobile recordings in both views', () => {
+    it('includes informational Desktop component metrics in Usage but not Spend', () => {
         const usageOptions = getUsageTypeOptions()
         const spendOptions = getSpendTypeOptions()
-        const usageOnlyTypes = [
+        const componentTypes = [
             'posthog_code_token_credits_used_in_period',
             'sandbox_compute_credits_used_in_period',
             'sandbox_compute_cpu_millicore_seconds_in_period',
             'sandbox_compute_memory_mib_seconds_in_period',
         ]
 
-        for (const usageType of usageOnlyTypes) {
+        for (const usageType of componentTypes) {
             expect(usageOptions.some((option) => option.key === usageType)).toBe(true)
             expect(spendOptions.some((option) => option.key === usageType)).toBe(false)
         }
-
-        expect(usageOptions.some((option) => option.key === 'mobile_billable_recording_count_in_period')).toBe(true)
-        expect(spendOptions.some((option) => option.key === 'mobile_billable_recording_count_in_period')).toBe(true)
-        expect(usageOptions.some((option) => option.key === 'mobile_recording_count_in_period')).toBe(false)
-        expect(spendOptions.some((option) => option.key === 'mobile_recording_count_in_period')).toBe(false)
     })
 
     it('reports only selectable Spend types in interaction analytics', () => {
