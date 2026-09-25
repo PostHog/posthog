@@ -275,6 +275,75 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.account).toEqual(account)
     })
 
+    describe('account editor', () => {
+        beforeEach(async () => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mountLogic()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('saves account details without replacing external ID or unrelated properties', async () => {
+            const currentAccount = {
+                ...account,
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-old',
+                },
+            }
+            const updatedAccount = {
+                ...currentAccount,
+                name: 'Renamed account',
+            }
+            mockAccountsRetrieve.mockResolvedValueOnce(currentAccount).mockResolvedValueOnce(updatedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
+
+            logic.actions.openAccountEditor()
+            expect(logic.values.accountForm.name).toBe(account.name)
+            logic.actions.setAccountFormValues({
+                name: '  Renamed account  ',
+                website_domain: 'example.com',
+                billing_id: 'billing-1',
+                slack_channel_id: 'C123',
+                sfdc_id: 'salesforce-1',
+                stripe_customer_id: 'stripe-new',
+            })
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                name: 'Renamed account',
+                properties: {
+                    hubspot_deal_id: 'deal-1',
+                    usage_dashboard_link: 'https://example.com/usage',
+                    metabase_link: 'https://example.com/metabase',
+                    stripe_customer_id: 'stripe-new',
+                    website_domain: 'example.com',
+                    billing_id: 'billing-1',
+                    slack_channel_id: 'C123',
+                    sfdc_id: 'salesforce-1',
+                },
+            })
+            expect(logic.values.accountEditorOpen).toBe(false)
+            expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Renamed account')
+        })
+
+        it('keeps the draft open when the save fails', async () => {
+            mockAccountsPartialUpdate.mockRejectedValue(new ApiError('Unavailable', 500))
+            jest.spyOn(posthog, 'captureException').mockImplementation()
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('name', 'Draft account')
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountEditorOpen).toBe(true)
+            expect(logic.values.accountForm.name).toBe('Draft account')
+            expect(logic.values.account?.name).toBe(account.name)
+        })
+    })
+
     describe('tag updates', () => {
         beforeEach(async () => {
             mockAccountsRetrieve.mockResolvedValue(account)

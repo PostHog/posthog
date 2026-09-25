@@ -5,6 +5,7 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -20,25 +21,79 @@ jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
 
-describe('AccountSidebar refresh recovery', () => {
+const account: AccountApi = {
+    id: 'account-1',
+    name: 'Example account',
+    notebooks: [],
+    ignored_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    tags: [],
+    properties: { stripe_customer_id: 'cus_example' },
+}
+
+describe('AccountSidebar', () => {
     afterEach(() => {
         cleanup()
         resumeKeaLoadersErrors()
     })
 
+    it('shows event stream setup before account editing', async () => {
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:project_id/accounts/:account_id/': account,
+                '/api/projects/:project_id/user_customer_analytics_config/@me/': { pinned_properties: [] },
+                '/api/projects/:project_id/custom_property_definitions/': { count: 0, results: [] },
+                '/api/projects/:project_id/account_relationship_definitions/': { count: 0, results: [] },
+            },
+            post: {
+                '/api/projects/:project_id/accounts/:account_id/presence/': [],
+            },
+        })
+        const { container } = render(
+            <BindLogic
+                logic={customerAnalyticsAccountSceneLogic}
+                props={{ accountId: account.id, projectId: projectLogic.values.currentProjectId! }}
+            >
+                <AccountSidebar account={account} />
+            </BindLogic>
+        )
+        await act(async () => {
+            await expectLogic(
+                customerAnalyticsAccountSceneLogic({
+                    accountId: account.id,
+                    projectId: projectLogic.values.currentProjectId!,
+                })
+            ).toFinishAllListeners()
+        })
+
+        const actions = container.querySelectorAll(
+            '[data-attr="account-sidebar-event-stream"], [data-attr="account-sidebar-edit"]'
+        )
+        expect(actions).toHaveLength(2)
+        expect(actions[0]).toHaveAttribute(
+            'href',
+            expect.stringContaining(urls.customerAnalyticsConfiguration('customer-analytics-event-stream'))
+        )
+        expect(actions[1]).toHaveAttribute('aria-label', 'Edit account')
+        fireEvent.click(actions[1])
+        expect(screen.getByDisplayValue(account.name)).toBeVisible()
+        expect(screen.getByText('Account IDs')).toBeVisible()
+        expect(screen.getByText('Website domain')).toBeVisible()
+        expect(screen.getByText('Billing ID')).toBeVisible()
+        expect(screen.getByText('Slack channel ID')).toBeVisible()
+        expect(screen.getByText('Salesforce ID')).toBeVisible()
+        expect(screen.getByText('Stripe ID')).toBeVisible()
+        expect(screen.queryByText('External ID')).not.toBeInTheDocument()
+        expect(screen.queryByText('Usage dashboard link')).not.toBeInTheDocument()
+        expect(screen.queryByText('Metabase link')).not.toBeInTheDocument()
+    })
+
     it('keeps the typed draft mounted when a refresh fails', async () => {
         initKeaTests()
         silenceKeaLoadersErrors()
-        const account: AccountApi = {
-            id: 'account-1',
-            name: 'Example account',
-            notebooks: [],
-            ignored_at: null,
-            created_at: '2026-01-01T00:00:00Z',
-            created_by: null,
-            updated_at: null,
-            tags: [],
-        }
         const definition: CustomPropertyDefinitionApi = {
             id: 'property-1',
             name: 'Plan',
