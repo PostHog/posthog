@@ -136,16 +136,19 @@ effective_level(entry, now) =
 This models the natural drain of events from the sliding window,
 keeping the local estimate useful for much longer than a simple stale/fresh binary.
 
-**While reads fail, `local_pending` cannot limit a key.**
+**Once reads have failed for `max_read_outage`, `local_pending` cannot limit a key.**
 `local_pending` is a correction to the last fleet count this node read, and only a successful read clears it.
 Nothing else ages it, so while reads to Redis fail it grows without bound.
 Given a long enough read outage, one node's count reaches the threshold on its own and limits a key that is under its limit.
 Everywhere else the limiter fails open when Redis cannot answer, so this path would fail closed.
 
-So each Redis instance tracks how many ticks in a row its reads have failed.
-A tick with any successful read resets the count, a tick whose every read failed adds one, and a tick with no reads leaves it alone.
-The count therefore rises only while reads are tried and keep failing, never during a quiet period.
-Once it reaches `max_read_outage` worth of ticks, a key that instance owns is judged by its decayed fleet count alone:
+So this node records, for each Redis instance, when its current run of failed reads began.
+A tick with any successful read clears the record, a tick whose every read failed starts it if it is not running, and a tick with no reads leaves it alone.
+A quiet period before a failure therefore never counts. A quiet period after a failure does, because no read has confirmed the count since.
+A read fails only when the client cannot complete it.
+With the read/write split client, a replica read that the primary then answers counts as a success, so the guard trips only when both fail.
+The record is wall-clock time, not a tick count, because during an outage one tick can wait seconds on timeouts and reconnects.
+Once reads have failed for `max_read_outage`, a key that instance owns is judged by its decayed fleet count alone:
 
 ```text
 limit_level = reads failing ? max(0, estimated_count - leak_rate × elapsed)
@@ -159,10 +162,11 @@ It does not reset the entry, change its counts, or change when it syncs, and it 
 The signal is per instance, not global.
 With more than one instance, a global signal would let a healthy instance hide a dead one, and the dead one's keys would fail closed again.
 `max_read_outage` defaults to one `window_interval`.
-A key under its limit spreads across the fleet's N nodes, so one node's share reaches the threshold only after about N windows of failed reads.
-The guard engages after one window, so it always acts first when N is 2 or more.
-A single-node deployment is the exception.
-There one node carries all of a key's traffic, and `local_pending` builds up from the last successful read rather than from the start of the outage, so set `max_read_outage` below `window_interval - sync_interval`.
+A key under its limit sees fewer than `threshold` events in any one window, so this node's count for it can reach the threshold only once that count spans more than one window.
+The count spans the outage plus the time since the key's last read before it, which is about one sync cadence of the key's tier.
+So a false limit can happen only in that last cadence before the guard engages, and only for a key whose traffic lands mostly on this node.
+For example, with steady traffic and a window eight times the sync interval, only a key above about 94% of its limit is exposed, for at most half a sync interval.
+To close even that gap, set `max_read_outage` to `window_interval - sync_interval` or less. That bound holds while `sync_interval` is at most a third of `window_interval`.
 
 ```text
   Level
@@ -293,7 +297,7 @@ running value so an alert can compare them.
 | `window_interval` | 60s | `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` | Sliding window size for the 2-epoch counter |
 | `sync_interval` | 15s | `GLOBAL_RATE_LIMIT_SYNC_INTERVAL_SECS` | Base staleness before re-sync (adaptive tiers multiply this) |
 | `tick_interval` | 1s | `GLOBAL_RATE_LIMIT_TICK_INTERVAL_MS` | Background pipeline cadence |
-| `max_read_outage` | `window_interval` | `GLOBAL_RATE_LIMIT_MAX_READ_OUTAGE_SECS` | How long reads to an instance must keep failing before its keys stop limiting on this node's unconfirmed counts. Derived from the configured window, not the default. `0` disables the guard |
+| `max_read_outage` | `window_interval` | `GLOBAL_RATE_LIMIT_MAX_READ_OUTAGE_SECS` | How long, in wall-clock time, reads to an instance must keep failing before its keys stop limiting on this node's unconfirmed counts. A replica read that the primary answers counts as a success. Derived from the configured window, not the default. `0` disables the guard |
 | `custom_keys` | empty | `GLOBAL_RATE_LIMIT_OVERRIDES_CSV` | Per-key threshold overrides (`key=limit,...`) |
 
 #### Local cache (Moka)
@@ -461,7 +465,7 @@ never hashes. Two things to know before that changes.
 | `global_rate_limiter_eval_counts_total` | Counter | Core allow/limit decisions |
 | `global_rate_limiter_cache_counts_total` | Counter | Cache hit/miss/sync_queued, exactly one per evaluation |
 | `global_rate_limiter_outage_limit_skipped_total` | Counter | Limits withheld because the key's instance was in a read outage. It stays at zero while reads work |
-| `global_rate_limiter_read_failed_ticks` | Gauge | Consecutive ticks whose every read to one instance failed, per `redis_idx`. The guard engages once it reaches `max_read_outage` worth of ticks |
+| `global_rate_limiter_read_failing_seconds` | Gauge | Seconds since reads to one instance began failing, per `redis_idx`, set on each tick that reads. Zero while reads succeed. The guard engages once it reaches `max_read_outage` |
 | `global_rate_limiter_pipeline_ms` | Histogram | Redis pipeline latency |
 | `global_rate_limiter_tick_ms` | Histogram | Full tick duration |
 | `global_rate_limiter_pipeline_size` | Histogram | Entities per pipeline (read/write) |
