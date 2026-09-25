@@ -189,7 +189,11 @@ export const FailedProvisioning: Story = {
         progress: progress({
             phase: 'error',
             steps: steps(['failed', 'pending', 'pending', 'pending']),
-            error: { title: 'Installation failed', detail: 'Could not provision a sandbox, capacity limit reached.' },
+            error: {
+                title: 'Installation failed',
+                detail: 'Could not provision a sandbox, capacity limit reached.',
+                kind: 'failed',
+            },
         }),
     },
 }
@@ -199,7 +203,11 @@ export const FailedClone: Story = {
         progress: progress({
             phase: 'error',
             steps: steps(['completed', 'failed', 'pending', 'pending']),
-            error: { title: 'Installation failed', detail: 'git clone failed: repository not found or no access.' },
+            error: {
+                title: 'Installation failed',
+                detail: 'git clone failed: repository not found or no access.',
+                kind: 'failed',
+            },
         }),
     },
 }
@@ -209,7 +217,11 @@ export const FailedWizard: Story = {
         progress: progress({
             phase: 'error',
             steps: steps(['completed', 'completed', 'failed', 'pending']),
-            error: { title: 'Installation failed', detail: 'PostHog setup wizard failed with exit code 1.' },
+            error: {
+                title: 'Installation failed',
+                detail: 'PostHog setup wizard failed with exit code 1.',
+                kind: 'failed',
+            },
         }),
     },
 }
@@ -223,6 +235,7 @@ export const LostContact: Story = {
             error: {
                 title: 'Setup lost contact',
                 detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+                kind: 'lost_contact',
             },
         }),
     },
@@ -233,7 +246,7 @@ export const FailedNoDetail: Story = {
         progress: progress({
             phase: 'error',
             steps: steps(['completed', 'completed', 'completed', 'failed']),
-            error: { title: 'Installation failed', detail: null },
+            error: { title: 'Installation failed', detail: null, kind: 'failed' },
         }),
     },
 }
@@ -317,7 +330,9 @@ export const Playground: StoryObj<PlaygroundArgs> = {
             steps: steps(statuses, args.currentTask ? { at: args.completedSteps, text: args.currentTask } : undefined),
             prUrl: args.prReady || args.phase === 'completed' ? 'https://github.com/acme-co/web/pull/42' : null,
             error:
-                args.phase === 'error' ? { title: 'Installation failed', detail: 'Something stopped the run.' } : null,
+                args.phase === 'error'
+                    ? { title: 'Installation failed', detail: 'Something stopped the run.', kind: 'failed' as const }
+                    : null,
         })
         return <InstallationProgressContent progress={built} onRetryLocally={() => {}} />
     },

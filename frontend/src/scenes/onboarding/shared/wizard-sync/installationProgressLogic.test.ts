@@ -210,6 +210,7 @@ describe('installationProgressLogic merge', () => {
             ).toEqual({
                 title: 'Installation failed',
                 detail: 'boom',
+                kind: 'failed',
             })
         })
 
@@ -223,7 +224,7 @@ describe('installationProgressLogic merge', () => {
                     false,
                     NOW
                 ).error
-            ).toEqual({ title: 'Installation failed', detail: 'wizard boom' })
+            ).toEqual({ title: 'Installation failed', detail: 'wizard boom', kind: 'failed' })
         })
 
         it('error detail is null when neither source has a message', () => {
@@ -231,6 +232,7 @@ describe('installationProgressLogic merge', () => {
                 {
                     title: 'Installation failed',
                     detail: null,
+                    kind: 'failed',
                 }
             )
         })
@@ -299,6 +301,7 @@ describe('installationProgressLogic merge', () => {
             expect(localProgress(session({ run_phase: 'running', is_stale: true }), 'open', true).error).toEqual({
                 title: 'Setup lost contact',
                 detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+                kind: 'lost_contact',
             })
         })
 
@@ -308,6 +311,7 @@ describe('installationProgressLogic merge', () => {
             ).toEqual({
                 title: 'Wizard hit an error',
                 detail: 'wizard boom',
+                kind: 'failed',
             })
         })
 
@@ -315,6 +319,7 @@ describe('installationProgressLogic merge', () => {
             expect(localProgress(session({ run_phase: 'error', error: null }), 'open', true).error).toEqual({
                 title: 'Wizard hit an error',
                 detail: null,
+                kind: 'failed',
             })
         })
 
@@ -451,7 +456,7 @@ describe('installationProgressLogic merge', () => {
         it('surfaces the persisted error on failed runs', () => {
             const result = progressFromFinishedLocalRun(handle({ runPhase: 'error', error: { message: 'boom' } }))
             expect(result.phase).toBe('error')
-            expect(result.error).toEqual({ title: 'Wizard hit an error', detail: 'boom' })
+            expect(result.error).toEqual({ title: 'Wizard hit an error', detail: 'boom', kind: 'failed' })
         })
     })
 
