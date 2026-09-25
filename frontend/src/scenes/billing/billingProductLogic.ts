@@ -1185,6 +1185,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         handleProductUpgrade: async ({ products, redirectPath }) => {
             try {
                 const body: Record<string, string> = { products }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response = await api.create('api/billing/activate', body)
 
                 if (response.success) {
@@ -1268,6 +1269,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/billing/trials/activate`, {
                     type: 'autosubscribe',
                     target: props.product.type,
@@ -1284,6 +1286,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsCancelCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
                 if (values.surveyID) {
@@ -1306,6 +1309,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         removeBillingLimitNextPeriod: async ({ productType }) => {
             actions.setRemovingBillingLimitNextPeriod(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update('api/billing', { reset_limit_next_period: productType })
                 lemonToast.success('Billing limit for next period has been removed.')
             } catch (error) {

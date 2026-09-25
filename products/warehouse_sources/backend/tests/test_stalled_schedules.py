@@ -107,6 +107,37 @@ class TestStalledSchedules(BaseTest):
 
         assert str(schema.id) not in found
 
+    def test_a_schema_whose_runs_found_nothing_to_import_is_not_stalled(self) -> None:
+        self._schema(
+            synced_ago=timedelta(days=5),
+            sync_type_config={"last_full_run_at": (timezone.now() - timedelta(hours=1)).isoformat()},
+        )
+        stalled = self._schema(synced_ago=timedelta(days=4))
+
+        assert [s.schema_id for s in find_stalled_schemas(limit=1)] == [str(stalled.id)]
+
+    def test_a_schema_whose_runs_also_stopped_is_still_stalled(self) -> None:
+        schema = self._schema(
+            synced_ago=timedelta(days=5),
+            sync_type_config={"last_full_run_at": (timezone.now() - timedelta(days=4)).isoformat()},
+        )
+
+        stalled = [s for s in find_stalled_schemas() if s.schema_id == str(schema.id)]
+
+        assert len(stalled) == 1
+        assert timedelta(days=4) <= stalled[0].stalled_for < timedelta(days=5)
+
+    @parameterized.expand(
+        [
+            ("unparseable", "whenever"),
+            ("naive", (timezone.now() - timedelta(hours=1)).replace(tzinfo=None).isoformat()),
+        ]
+    )
+    def test_an_unusable_run_stamp_falls_back_to_the_sync_stamp(self, _name: str, stamp: str) -> None:
+        schema = self._schema(synced_ago=timedelta(days=5), sync_type_config={"last_full_run_at": stamp})
+
+        assert str(schema.id) in {s.schema_id for s in find_stalled_schemas()}
+
     def test_a_schema_with_a_running_job_is_a_wedged_run_not_a_stalled_schedule(self) -> None:
         schema = self._schema(synced_ago=timedelta(days=5))
         ExternalDataJob.objects.create(

@@ -1195,8 +1195,8 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_team"."project_id" = 99999
          AND NOT ("posthog_dashboarditem"."deleted"))
-  ORDER BY "posthog_dashboarditem"."order" ASC,
-           "posthog_dashboarditem"."id" ASC
+  ORDER BY "posthog_dashboarditem"."last_modified_at" DESC,
+           "posthog_dashboarditem"."id" DESC
   LIMIT 100
   '''
 # ---
@@ -1276,19 +1276,6 @@
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id",
-         "posthog_taggeditem"."account_id",
-         "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id",
-         "posthog_taggeditem"."experiment_id",
          "posthog_taggeditem"."content_type_id",
          "posthog_taggeditem"."object_id",
          "posthog_taggeditem"."object_uuid",
@@ -1306,19 +1293,6 @@
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id",
-         "posthog_taggeditem"."account_id",
-         "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id",
-         "posthog_taggeditem"."experiment_id",
          "posthog_taggeditem"."content_type_id",
          "posthog_taggeditem"."object_id",
          "posthog_taggeditem"."object_uuid",

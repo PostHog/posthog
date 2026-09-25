@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -946,7 +947,7 @@ class TestReplayScannerTags(_VisionAPITestCase):
 
     def _tag_names(self, scanner_id: str) -> list[str]:
         return sorted(
-            TaggedItem.objects.filter(replay_scanner_id=scanner_id).values_list("tag__name", flat=True),
+            TaggedItem.objects.for_objects(ReplayScanner, [scanner_id]).values_list("tag__name", flat=True),
         )
 
     @parameterized.expand(
@@ -5194,6 +5195,84 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
             response = self.client.get(f"{self.scanners_url}{scanner.id}/self_driving_stats/")
 
         assert response.status_code == 403, response.json()
+
+
+class TestObservationSignalReportsAPI(_VisionAPITestCase):
+    def test_returns_the_reports_this_observations_signals_landed_in(self) -> None:
+        # Wiring guard: the endpoint must narrow the signals slice to this observation; a dropped
+        # extra filter would list every report the scanner ever contributed to.
+        scanner = self._create_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="sess-signal-reports",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        report_id = uuid.uuid4()
+        created_at = timezone.now()
+        reports = [
+            SignalSourceSliceReport(id=str(report_id), title="Checkout stalls", status="ready", created_at=created_at)
+        ]
+        with patch(
+            "products.replay_vision.backend.api.observations.get_reports_for_signal_source_slice",
+            return_value=reports,
+        ) as mock_reports:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/vision/observations/{observation.id}/signal_reports/"
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == [
+            {
+                "id": str(report_id),
+                "title": "Checkout stalls",
+                "status": "ready",
+                "created_at": created_at.isoformat().replace("+00:00", "Z"),
+            }
+        ]
+        kwargs = mock_reports.call_args.kwargs
+        assert kwargs["source_product"] == "replay_vision"
+        assert kwargs["source_type"] == "scanner_finding"
+        assert kwargs["extra_equals"] == {"observation_id": str(observation.id)}
+
+    def test_denied_without_inbox_read_access(self) -> None:
+        # Scopes only gate API keys, so a session member denied inbox access must not read titles here.
+        scanner = self._create_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="sess-no-inbox",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "task",
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/vision/observations/{observation.id}/signal_reports/"
+            )
+
+        assert response.status_code == 403, response.json()
+
+    def test_resolves_the_observation_through_a_list_filter(self) -> None:
+        # Without the detail-read exemption, a filter the observation does not match 404s the reports.
+        scanner = self._create_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="sess-filtered",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        with patch(
+            "products.replay_vision.backend.api.observations.get_reports_for_signal_source_slice",
+            return_value=[],
+        ):
+            response = self.client.get(
+                f"{self.observations_url(str(scanner.id))}{observation.id}/signal_reports/?status=succeeded"
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == []
 
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")

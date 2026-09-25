@@ -130,6 +130,9 @@ pub enum Commands {
     /// environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
     Login,
 
+    /// Update posthog-cli to the latest version
+    Update,
+
     /// Experimental commands, not quite ready for prime time
     Exp {
         #[command(subcommand)]
@@ -268,6 +271,7 @@ impl Commands {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
             Commands::Login => "login",
+            Commands::Update => "update",
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -385,6 +389,9 @@ impl Cli {
         if !matches!(
             self.command,
             Commands::Login
+                // Updating talks to the release bucket, never to PostHog, so
+                // requiring credentials would lock out anyone without a token.
+                | Commands::Update
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -404,6 +411,9 @@ impl Cli {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
+            }
+            Commands::Update => {
+                crate::update::update()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {

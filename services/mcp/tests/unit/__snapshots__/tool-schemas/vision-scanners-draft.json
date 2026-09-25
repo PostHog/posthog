@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.",
+    "properties": {
+        "goal": {
+            "description": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "monthly_credit_budget": {
+            "description": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+            "maximum": 100000000,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["goal"],
+    "type": "object"
+}
