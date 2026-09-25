@@ -24,6 +24,21 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
 
+GROUP_KEY_FILTER: dict[str, Any] = {
+    "key": "$group_key",
+    "type": "group",
+    "operator": "exact",
+    "value": ["acme"],
+    "group_type_index": 0,
+}
+PROVIDER_FILTER: dict[str, Any] = {
+    "key": "provider_id",
+    "type": "group",
+    "operator": "exact",
+    "value": ["provider-1"],
+    "group_type_index": 0,
+}
+
 
 def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[str, Any]:
     """Build a filters dict with the rollout_percentage at the specified path."""
@@ -65,6 +80,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         view = MagicMock()
         view.get_object.return_value = flag
         view.team = self.team
+        view.context = {"get_team": lambda: self.team}
         return view
 
     @parameterized.expand(UpdateFeatureFlagAction.ROLLOUT_PERCENTAGE_PATHS)
@@ -109,6 +125,72 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
         result = UpdateFeatureFlagAction.detect(request, view)
 
         assert result is False
+
+    @parameterized.expand(
+        [
+            ("group_key_value_edited", [GROUP_KEY_FILTER], [{**GROUP_KEY_FILTER, "value": ["acme-2"]}], None, True),
+            ("operator_edited", [GROUP_KEY_FILTER], [{**GROUP_KEY_FILTER, "operator": "is_not"}], None, True),
+            ("property_added", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER, PROVIDER_FILTER], None, True),
+            ("property_removed", [GROUP_KEY_FILTER, PROVIDER_FILTER], [GROUP_KEY_FILTER], None, True),
+            ("aggregation_changed", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], 1, True),
+            (
+                "properties_reordered",
+                [GROUP_KEY_FILTER, PROVIDER_FILTER],
+                [PROVIDER_FILTER, GROUP_KEY_FILTER],
+                None,
+                False,
+            ),
+            (
+                "display_only_keys_added",
+                [GROUP_KEY_FILTER],
+                [{**GROUP_KEY_FILTER, "label": "Acme", "group_key_names": {"acme": "Acme"}}],
+                None,
+                False,
+            ),
+            ("null_operator_is_exact", [{**GROUP_KEY_FILTER, "operator": None}], [GROUP_KEY_FILTER], None, False),
+            (
+                "operator_alias_normalized",
+                [{**PROVIDER_FILTER, "operator": "min"}],
+                [{**PROVIDER_FILTER, "operator": "gte"}],
+                None,
+                False,
+            ),
+            ("variant_override_set", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], None, True, "test"),
+            ("early_exit_enabled", [GROUP_KEY_FILTER], [GROUP_KEY_FILTER], None, True, None, True),
+        ]
+    )
+    def test_detect_release_condition_changes(
+        self,
+        _name: str,
+        old_properties: list[dict[str, Any]],
+        new_properties: list[dict[str, Any]],
+        new_aggregation: int | None,
+        expected: bool,
+        new_variant: str | None = None,
+        new_early_exit: bool = False,
+    ):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={"type": "any_change", "field": "release_conditions"},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        flag = self._create_flag(
+            {"aggregation_group_type_index": 0, "groups": [{"properties": old_properties, "rollout_percentage": 100}]}
+        )
+        new_filters = {
+            "aggregation_group_type_index": 0 if new_aggregation is None else new_aggregation,
+            "groups": [{"properties": new_properties, "rollout_percentage": 100, "variant": new_variant}],
+            "early_exit": new_early_exit,
+        }
+        request = self._mock_request("PATCH", {"filters": new_filters})
+        view = self._mock_view(flag)
+
+        result = UpdateFeatureFlagAction.detect(request, view)
+
+        assert result is expected
 
 
 class TestDetectFromValidatedData(APIBaseTest):
@@ -319,6 +401,26 @@ class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
         assert "before" in display_data
         assert "after" in display_data
         assert "rollout percentage" in display_data["description"].lower()
+
+    def test_get_display_data_names_release_condition_changes(self):
+        intent_data = {
+            "flag_key": "test-flag",
+            "current_state": {
+                "rollout_percentage": [{"path": "groups[0].rollout_percentage", "value": 100}],
+                "release_conditions": [{"path": "groups[0]", "value": {"properties": [GROUP_KEY_FILTER]}}],
+            },
+            "gated_changes": {
+                "rollout_percentage": [{"path": "groups[0].rollout_percentage", "value": 100}],
+                "release_conditions": [{"path": "groups[0]", "value": {"properties": []}}],
+            },
+            "triggered_paths": ["groups[0]"],
+        }
+
+        display_data = UpdateFeatureFlagAction.get_display_data(intent_data)
+
+        assert display_data["description"] == (
+            "Update release conditions for feature flag 'test-flag': release conditions at groups[0]"
+        )
 
 
 class TestCheckStaleness(APIBaseTest):
@@ -620,6 +722,102 @@ class TestMultiPolicyConflictDetection(APIBaseTest):
             data = response.json()
             assert data.get("code") == "policy_conflict"
             assert "conflicting_policies" in data
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestReleaseConditionGating(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "release_conditions_policy_gates_it",
+                [("feature_flag.update", {"type": "any_change", "field": "release_conditions"})],
+                False,
+                "feature_flag.update",
+            ),
+            (
+                "rollout_change_policy_ignores_it",
+                [("feature_flag.update", {"type": "any_change", "field": "rollout_percentage"})],
+                False,
+                None,
+            ),
+            (
+                "rollout_threshold_policy_ignores_it",
+                [
+                    (
+                        "feature_flag.update",
+                        {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                    )
+                ],
+                False,
+                None,
+            ),
+            (
+                "rollout_change_amount_policy_ignores_it",
+                [
+                    (
+                        "feature_flag.update",
+                        {"type": "change_amount", "field": "rollout_percentage", "operator": "<", "value": 10},
+                    )
+                ],
+                False,
+                None,
+            ),
+            ("empty_conditions_policy_ignores_it", [("feature_flag.update", {})], False, None),
+            (
+                "enable_with_rollout_policy_stays_a_single_enable_request",
+                [
+                    ("feature_flag.enable", {}),
+                    ("feature_flag.update", {"type": "any_change", "field": "rollout_percentage"}),
+                ],
+                True,
+                "feature_flag.enable",
+            ),
+        ]
+    )
+    def test_targeting_only_edit(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        policies: list[tuple[str, dict[str, Any]]],
+        also_enable: bool,
+        expected_change_request_action: str | None,
+    ):
+        email_filter = {"key": "email", "type": "person", "operator": "exact", "value": ["a@example.com"]}
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="targeted-flag",
+            active=not also_enable,
+            filters={"groups": [{"properties": [email_filter], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        for action_key, conditions in policies:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                conditions=conditions,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+        body: dict[str, Any] = {
+            "filters": {
+                "groups": [{"properties": [{**email_filter, "value": ["b@example.com"]}], "rollout_percentage": 100}]
+            }
+        }
+        if also_enable:
+            body["active"] = True
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        change_requests = list(ChangeRequest.objects.filter(team=self.team).values_list("action_key", flat=True))
+        flag.refresh_from_db()
+        if expected_change_request_action is None:
+            assert response.status_code == 200, response.json()
+            assert change_requests == []
+            assert flag.filters["groups"][0]["properties"][0]["value"] == ["b@example.com"]
+        else:
+            assert change_requests == [expected_change_request_action]
+            assert flag.filters["groups"][0]["properties"][0]["value"] == ["a@example.com"]
 
 
 class TestActionRegistrationAndIntegration(APIBaseTest):

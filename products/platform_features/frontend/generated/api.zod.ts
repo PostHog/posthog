@@ -305,7 +305,12 @@ export const approvalPoliciesCreateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({
     action_key: zod.string().max(approvalPoliciesCreateBodyActionKeyMax),
-    conditions: zod.unknown().optional(),
+    conditions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Which changes require approval. Empty means every change the action detects. Otherwise {\"type\": ..., \"field\": ...}. For feature_flag.update, field is \"rollout_percentage\" or \"release_conditions\". Type \"any_change\" works for both. Types \"before_after\" and \"change_amount\" also take \"operator\" (>, >=, <, <=, ==, !=) and a numeric \"value\", and apply only to \"rollout_percentage\". Release conditions are gated only by a policy that selects them.'
+        ),
     approver_config: zod.unknown(),
     allow_self_approve: zod.boolean().optional(),
     bypass_org_membership_levels: zod.unknown().optional(),
@@ -318,7 +323,12 @@ export const approvalPoliciesUpdateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesUpdateBody = /* @__PURE__ */ zod.object({
     action_key: zod.string().max(approvalPoliciesUpdateBodyActionKeyMax),
-    conditions: zod.unknown().optional(),
+    conditions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Which changes require approval. Empty means every change the action detects. Otherwise {\"type\": ..., \"field\": ...}. For feature_flag.update, field is \"rollout_percentage\" or \"release_conditions\". Type \"any_change\" works for both. Types \"before_after\" and \"change_amount\" also take \"operator\" (>, >=, <, <=, ==, !=) and a numeric \"value\", and apply only to \"rollout_percentage\". Release conditions are gated only by a policy that selects them.'
+        ),
     approver_config: zod.unknown(),
     allow_self_approve: zod.boolean().optional(),
     bypass_org_membership_levels: zod.unknown().optional(),
@@ -331,7 +341,12 @@ export const approvalPoliciesPartialUpdateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
     action_key: zod.string().max(approvalPoliciesPartialUpdateBodyActionKeyMax).optional(),
-    conditions: zod.unknown().optional(),
+    conditions: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Which changes require approval. Empty means every change the action detects. Otherwise {\"type\": ..., \"field\": ...}. For feature_flag.update, field is \"rollout_percentage\" or \"release_conditions\". Type \"any_change\" works for both. Types \"before_after\" and \"change_amount\" also take \"operator\" (>, >=, <, <=, ==, !=) and a numeric \"value\", and apply only to \"rollout_percentage\". Release conditions are gated only by a policy that selects them.'
+        ),
     approver_config: zod.unknown().optional(),
     allow_self_approve: zod.boolean().optional(),
     bypass_org_membership_levels: zod.unknown().optional(),

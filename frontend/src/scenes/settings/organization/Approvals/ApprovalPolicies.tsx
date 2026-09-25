@@ -29,8 +29,9 @@ import { ApprovalPolicy, AvailableFeature } from '~/types'
 import { approvalPoliciesLogic } from './approvalPoliciesLogic'
 
 // Available fields that can be gated
-const GATEABLE_FIELDS: Record<string, { label: string; type: 'number' | 'boolean' | 'string' }> = {
+const GATEABLE_FIELDS: Record<string, { label: string; type: 'number' | 'boolean' | 'string' | 'filters' }> = {
     rollout_percentage: { label: 'Rollout percentage', type: 'number' },
+    release_conditions: { label: 'Release conditions', type: 'filters' },
 }
 
 const CONDITION_TYPES = [
@@ -359,7 +360,8 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                             </div>
                         )}
 
-                        {availableFields.length > 0 && (
+                        {/* A policy stores one condition, so a second field would be dropped on save. */}
+                        {rules.length === 0 && availableFields.length > 0 && (
                             <LemonSelect
                                 placeholder="+ Add field"
                                 value={null}
@@ -484,6 +486,9 @@ function RuleRow({
 }): JSX.Element {
     const fieldConfig = GATEABLE_FIELDS[rule.field]
     const isNumeric = fieldConfig?.type === 'number'
+    const conditionTypeOptions = isNumeric
+        ? CONDITION_TYPES
+        : CONDITION_TYPES.filter((conditionType) => conditionType.value === 'any_change')
 
     return (
         <div className="flex items-center gap-2 p-2 bg-bg-light border rounded">
@@ -493,7 +498,7 @@ function RuleRow({
                 size="small"
                 value={rule.type}
                 onChange={(value) => onChange({ type: value })}
-                options={CONDITION_TYPES}
+                options={conditionTypeOptions}
             />
 
             {rule.type !== 'any_change' && isNumeric && (
