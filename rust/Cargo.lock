@@ -2712,6 +2712,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum 0.7.9",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "clap",
@@ -3924,15 +3925,17 @@ dependencies = [
  "object_store",
  "parquet",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "arrow",
  "arrow-array",
