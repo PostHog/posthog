@@ -5,7 +5,6 @@ import { useEffect } from 'react'
 import { IconPencil } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
@@ -30,7 +29,6 @@ type NotebookNodeCustomerJourneyAttributes = {
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourneyAttributes>): JSX.Element | null => {
-    const isJourneysEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_JOURNEYS')
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems, setTitlePlaceholder, setSettingsDisabledReason } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
@@ -79,7 +77,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
         return <CustomerJourneysEmptyState embedded />
     }
 
-    if (!isJourneysEnabled || !expanded || !filteredQuery) {
+    if (!expanded || !filteredQuery) {
         return null
     }
 
