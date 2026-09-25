@@ -1,10 +1,13 @@
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
@@ -657,3 +660,50 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLCohortQuery(cohort=cohort)
         with self.assertRaises(Cohort.DoesNotExist):
             hogql_query.query_str("clickhouse")
+
+    def _performed_event_regularly_cohort(self, name: str, operator: Optional[str], operator_value: int) -> Cohort:
+        behavioral_filter: dict = {
+            "key": "$pageview",
+            "type": "behavioral",
+            "value": "performed_event_regularly",
+            "event_type": "events",
+            "operator_value": operator_value,
+            "time_value": 1,
+            "time_interval": "day",
+            "min_periods": 2,
+            "total_periods": 3,
+        }
+        if operator is not None:
+            behavioral_filter["operator"] = operator
+        return Cohort.objects.create(
+            team=self.team,
+            name=name,
+            filters={"properties": {"type": "AND", "values": [{"type": "AND", "values": [behavioral_filter]}]}},
+        )
+
+    @parameterized.expand(
+        [
+            (None, "equals", 3),
+            ("exact", "equals", 3),
+            ("gte", "greaterOrEquals", 3),
+            ("lte", "lessOrEquals", 3),
+            ("gt", "greaterOrEquals", 4),
+            ("lt", "lessOrEquals", 2),
+        ]
+    )
+    def test_performed_event_regularly_count_operators(
+        self, operator: Optional[str], expected_function: str, expected_value: int
+    ) -> None:
+        # A filter without an operator, or with `gt`/`lt`, has no stickiness equivalent. It must
+        # still compile: a failure here stops the whole cohort from recalculating.
+        cohort = self._performed_event_regularly_cohort(f"regularly-{operator}", operator, 3)
+
+        query = HogQLCohortQuery(cohort=cohort).query_str("hogql")
+        self.assertIn(f"{expected_function}(count(), {expected_value})", query)
+
+    def test_performed_event_regularly_rejects_unsatisfiable_lt(self) -> None:
+        # `lt 1` means zero events in a period, which stickiness cannot express.
+        cohort = self._performed_event_regularly_cohort("regularly-lt-one", "lt", 1)
+
+        with self.assertRaises(ValidationError):
+            HogQLCohortQuery(cohort=cohort).query_str("hogql")
