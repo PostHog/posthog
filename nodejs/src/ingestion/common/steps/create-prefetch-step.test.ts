@@ -1,6 +1,6 @@
 import { logger } from '~/common/utils/logger'
+import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
-import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
 
 type TestInput = { key: string | null }
 
