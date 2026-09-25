@@ -1,10 +1,11 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from posthog.api import search as search_module
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
@@ -270,16 +271,19 @@ class TestSearch(APIBaseTest):
         self.assertEqual(qs_key_filter.count(), 1)
         self.assertEqual(next(iter(qs_key_filter))["extra_fields"]["key"], "filter_active1")
 
-    def test_search_query_count_with_and_without_counts(self):
+    @staticmethod
+    def _mock_view():
         mock_view = Mock()
         mock_view.user_access_control.filter_queryset_by_access_level = lambda qs: qs
+        return mock_view
 
+    def test_counts_cost_no_extra_queries_when_entities_fit_the_page(self):
         with CaptureQueriesContext(connection) as ctx_with:
-            search_entities(
+            _, counts, total_count = search_entities(
                 entities=set(ENTITY_MAP.keys()),
                 query="sec",
                 project_id=self.team.project_id,
-                view=mock_view,
+                view=self._mock_view(),
                 entity_map=ENTITY_MAP,
                 include_counts=True,
             )
@@ -289,13 +293,87 @@ class TestSearch(APIBaseTest):
                 entities=set(ENTITY_MAP.keys()),
                 query="sec",
                 project_id=self.team.project_id,
-                view=mock_view,
+                view=self._mock_view(),
                 entity_map=ENTITY_MAP,
                 include_counts=False,
             )
 
-        assert len(ctx_with) - len(ctx_without) >= 13
-        assert len(ctx_without) == 1
+        assert len(ctx_with) == len(ctx_without)
+        assert counts is not None
+        assert counts["dashboard"] == 1
+        assert total_count == 4
+
+    def test_a_cancelled_entity_drops_out_instead_of_failing_the_search(self):
+        def slow_insights(*args, **kwargs):
+            qs, entity_name = class_queryset(*args, **kwargs)
+            if entity_name == "insight":
+                qs = qs.extra(where=["pg_sleep(1) IS NOT NULL"])
+            return qs, entity_name
+
+        with (
+            patch.object(search_module, "class_queryset", slow_insights),
+            patch.object(search_module, "ENTITY_STATEMENT_TIMEOUT_MS", 100),
+        ):
+            results, counts, total_count = search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+            )
+
+        assert [result["type"] for result in results] == ["dashboard"]
+        assert counts is not None
+        assert counts["insight"] is None
+        assert counts["dashboard"] == 1
+        assert total_count is None  # the dropped entity's rows are missing from the total too
+
+    def test_every_page_is_fetched_before_any_count_runs(self):
+        with CaptureQueriesContext(connection) as ctx:
+            search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+                limit=1,  # both entities fill the page, so both need a count query
+            )
+
+        selects = [query["sql"] for query in ctx.captured_queries if query["sql"].startswith("SELECT")]
+        assert ["COUNT(" in select for select in selects] == [False, False, True, True]
+
+    def test_a_spent_budget_skips_the_remaining_entities(self):
+        with patch.object(search_module, "SEARCH_BUDGET_MS", 0):
+            results, counts, total_count = search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+            )
+
+        assert results == []
+        assert counts is not None
+        assert counts["insight"] is None
+        assert counts["dashboard"] is None
+        assert total_count is None
+
+    def test_the_callers_statement_timeout_survives_the_search(self):
+        # `SET LOCAL` lasts until the caller's transaction ends, not until the search returns.
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout = '7331ms'")
+
+        search_entities(
+            entities=set(ENTITY_MAP.keys()),
+            query="sec",
+            project_id=self.team.project_id,
+            view=self._mock_view(),
+            entity_map=ENTITY_MAP,
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW statement_timeout")
+            assert cursor.fetchone()[0] == "7331ms"
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):
@@ -350,15 +428,16 @@ class TestSearch(APIBaseTest):
             limit=3,
             offset=0,
         )
-        results_page2, _, total_count2 = search_entities(
-            entities={"insight"},
-            query="pagination offset",
-            project_id=self.team.project_id,
-            view=mock_view,
-            entity_map=ENTITY_MAP,
-            limit=3,
-            offset=3,
-        )
+        with CaptureQueriesContext(connection) as ctx:
+            results_page2, _, total_count2 = search_entities(
+                entities={"insight"},
+                query="pagination offset",
+                project_id=self.team.project_id,
+                view=mock_view,
+                entity_map=ENTITY_MAP,
+                limit=3,
+                offset=3,
+            )
 
         self.assertEqual(total_count1, 10)
         self.assertEqual(total_count2, 10)
@@ -368,6 +447,12 @@ class TestSearch(APIBaseTest):
         page1_ids = {r["result_id"] for r in results_page1}
         page2_ids = {r["result_id"] for r in results_page2}
         self.assertEqual(len(page1_ids & page2_ids), 0)
+
+        # One entity does not merge, so the database skips the earlier page instead of shipping it
+        page_query = next(
+            sql for q in ctx.captured_queries if (sql := q["sql"]).startswith("SELECT") and "COUNT(" not in sql
+        )
+        assert "LIMIT 3 OFFSET 3" in page_query
 
 
 @pytest.mark.django_db
