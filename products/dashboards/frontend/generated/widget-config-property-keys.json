@@ -1,5 +1,6 @@
 {
     "configPropertyKeys": {
+        "notebook_widget": ["notebookShortId", "snapshotId"],
         "activity_events_list": [
             "dateRange",
             "eventName",
@@ -52,6 +53,14 @@
         ]
     },
     "configPropertyTrees": {
+        "notebook_widget": {
+            "notebookShortId": {
+                "$type": "string"
+            },
+            "snapshotId": {
+                "$type": "string"
+            }
+        },
         "activity_events_list": {
             "dateRange": {
                 "date_from": {

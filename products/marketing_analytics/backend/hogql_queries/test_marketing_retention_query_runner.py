@@ -542,4 +542,5 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_retention_sql(self, _name: str, kwargs: dict):
-        assert self._printed_sql(**kwargs) == self.snapshot
+        printed = self._printed_sql(**kwargs)
+        assert printed == self.sql_snapshot(printed)

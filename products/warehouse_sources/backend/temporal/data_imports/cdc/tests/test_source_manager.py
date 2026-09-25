@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     CDCSourceManager,
     ReplayFilter,
     build_output_lanes,
+    captures_to_buffer,
     consumes_buffer,
     has_batches_in_flight,
     scheduled_sync_consumes_buffer,
@@ -287,6 +289,50 @@ class TestServedLanes:
         # no query reads — the companion is keyed on `name`, like its snapshot seed.
         schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
         assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
+
+
+class TestSnapshotCapture:
+    @parameterized.expand(
+        [
+            ("streaming", {}, True),
+            (
+                "snapshotting_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                True,
+            ),
+            ("snapshotting_on_deferred_runs", {"cdc_mode": "snapshot", "initial_sync_complete": False}, False),
+            ("not_cdc", {"is_cdc": False}, False),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}, False),
+        ]
+    )
+    def test_capture_follows_the_snapshot_lane(self, _name, overrides, captured):
+        assert captures_to_buffer(_schema(**overrides)) is captured
+
+    @parameterized.expand(
+        [
+            ("streaming_on_a_buffered_source", {}, True, True),
+            ("flag_off", {}, False, False),
+            ("legacy_source", {"job_inputs": {}}, True, False),
+            ("deferred_runs_pending", {"sync_type_config": {"cdc_deferred_runs": [{"run": 1}]}}, True, False),
+            ("snapshotting_outside_the_buffer", {"cdc_mode": "snapshot", "initial_sync_complete": False}, True, False),
+            (
+                "already_in_the_buffer",
+                {"cdc_mode": "snapshot", "sync_type_config": {"cdc_snapshot_lane": "buffer"}},
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_a_resnapshot_stays_in_the_buffer_only_when_the_buffer_holds_every_change(
+        self, _name, overrides, flag, stays
+    ):
+        schema = _schema(**{"job_inputs": {"cdc_ingest_mode": "buffered"}, **overrides})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.is_buffered_snapshot_enabled",
+            return_value=flag,
+        ):
+            assert resnapshot_stays_in_buffer(schema, MagicMock()) is stays
 
 
 class TestBufferedGating:

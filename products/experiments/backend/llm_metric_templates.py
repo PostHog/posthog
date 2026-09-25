@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from posthog.schema import (
     EventPropertyFilter,
@@ -11,12 +10,6 @@ from posthog.schema import (
     HogQLPropertyFilter,
     PropertyOperator,
 )
-
-from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.models.experiment import Experiment
-
-if TYPE_CHECKING:
-    from posthog.models import User
 
 LLMMetric = ExperimentMeanMetric | ExperimentRatioMetric
 
@@ -63,6 +56,9 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
     # The applicable guard excludes N/A evaluations (applicable=false) but keeps events
     # where the property isn't set at all (JSONExtractRaw returns '' for missing keys).
     applicable_filter = HogQLPropertyFilter(key="JSONExtractRaw(properties, '$ai_evaluation_applicable') != 'false'")
+    boolean_filter = HogQLPropertyFilter(
+        key="JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')"
+    )
     return ExperimentRatioMetric(
         name="Eval pass rate",
         numerator=EventsNode(
@@ -71,6 +67,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
                 _prompt_filter(prompt_name),
                 HogQLPropertyFilter(key="JSONExtractBool(properties, '$ai_evaluation_result')"),
                 applicable_filter,
+                boolean_filter,
             ],
         ),
         denominator=EventsNode(
@@ -78,6 +75,7 @@ def build_eval_pass_rate_metric(prompt_name: str) -> ExperimentRatioMetric:
             properties=[
                 _prompt_filter(prompt_name),
                 applicable_filter,
+                boolean_filter,
             ],
         ),
     )
@@ -115,25 +113,3 @@ def build_template(name: str, prompt_name: str) -> LLMMetric:
 
 def list_templates() -> list[dict[str, str]]:
     return [{"key": name, **_TEMPLATE_METADATA[name]} for name in _TEMPLATES]
-
-
-def apply_metric_to_experiment(
-    experiment: Experiment,
-    template_name: str,
-    prompt_name: str,
-    *,
-    user: "User",
-    replace: bool = False,
-) -> Experiment:
-    new_metric = build_template(template_name, prompt_name).model_dump(exclude_none=True)
-
-    if replace:
-        next_metrics = [new_metric]
-    else:
-        next_metrics = [*(experiment.metrics or []), new_metric]
-
-    service = ExperimentService(team=experiment.team, user=user)
-    # The templates hardcode known LLM event names, so the typo-guard validation in
-    # update_experiment adds no value but rejects the common case of attaching a
-    # metric before any matching event has been ingested.
-    return service.update_experiment(experiment, {"metrics": next_metrics}, allow_unknown_events=True)

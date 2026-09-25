@@ -19,7 +19,6 @@ jest.mock('lib/utils/async', () => ({
 
 describe('metricsSetupLogic', () => {
     beforeEach(() => {
-        localStorage.clear()
         initKeaTests()
     })
 

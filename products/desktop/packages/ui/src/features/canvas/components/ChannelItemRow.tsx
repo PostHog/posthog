@@ -390,7 +390,6 @@ export function ChannelItemRow({
   bulk,
   optionValue,
   spaceName,
-  withPrStatus = true,
   onContextMenuOpenChange,
 }: {
   item: ChannelItemModel;
@@ -424,14 +423,9 @@ export function ChannelItemRow({
   optionValue?: string;
   /** Named in the subtitle by a list that spans spaces, where it is not implied. */
   spaceName?: string;
-  /**
-   * Off for a long list that spans spaces: the lookup is a query per row into
-   * git. The PR still shows where the task carries its own `prUrl`.
-   */
-  withPrStatus?: boolean;
   onContextMenuOpenChange?: (open: boolean) => void;
 }) {
-  const status = useChannelTaskStatus(item, { withPrStatus });
+  const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item, spaceName);
   const archivePresentation = useArchivingTasksStore((state) =>
     item.kind !== "task"

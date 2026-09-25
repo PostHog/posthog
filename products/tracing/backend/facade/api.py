@@ -34,6 +34,10 @@ from posthog.schema import (
     TraceSpansSymbolStatsQueryResponse,
 )
 
+from products.tracing.backend.ai_events import (
+    TraceAiEvent,
+    fetch_trace_ai_events as _fetch_trace_ai_events,
+)
 from products.tracing.backend.attribute_breakdown_query_runner import (
     FACET_COLUMNS as _FACET_COLUMNS,
     run_attribute_breakdown_query as _run_attribute_breakdown_query,
@@ -56,7 +60,7 @@ from products.tracing.backend.self_time import annotate_self_time as _annotate_s
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 # Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
@@ -240,3 +244,12 @@ def count_session_exceptions(
     A session with no such exceptions is absent from the result rather than present with a zero.
     """
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
+
+
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
+    """List the LLM analytics events whose `$ai_trace_id` is the trace id, as lowercase hex or as
+    the hyphenated UUID the LLM gateway writes, earliest start first. The events side of the
+    trace-to-AI-events join, which the caller finishes. The user's property access rules apply to
+    the returned columns.
+    """
+    return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id)

@@ -13,6 +13,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 export const errorTrackingSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ERROR_TRACKING,
     path: ['products', 'error_tracking', 'frontend', 'emptyState', 'errorTrackingSetupLogic'],
+    cacheHasData: true,
     detect: async () => {
         const response = await new ApiRequest().errorTrackingIssuesExists().get()
         if (response?.exists === true) {

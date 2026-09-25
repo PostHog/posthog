@@ -27,6 +27,7 @@ export async function fetchInsightsUsingVariable(teamId: number, variableId: str
 
         // Paginate through all insights
         while (true) {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
             const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                 `api/projects/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
             )

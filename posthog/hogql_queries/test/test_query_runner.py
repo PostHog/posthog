@@ -19,7 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from pydantic import BaseModel
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import (
     ActorsQuery,
@@ -1420,6 +1420,15 @@ class TestQueryRunner(BaseTest):
                 SloOutcome.FAILURE,
                 "query_performance_error",
                 True,
+            ),
+            (
+                # A runner that cannot find the row the user asked for — rendered as a 404,
+                # so it must not fail the SLO or reach error tracking.
+                "drf_not_found",
+                lambda: NotFound("No matching fingerprints found"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
             ),
             (
                 # A follower whose leader left nothing to serve fails the SLO; the leader's capture and
