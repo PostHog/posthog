@@ -5,6 +5,13 @@ import { DecideRequestApiQuestions, DecideResponseApi } from 'products/ml_infere
 import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { productsItemName } from './productsCatalog'
 
+export const APP_MATCH_THRESHOLD = 0.5
+
+export interface AppMatchGroups {
+    matching: FileSystemImport[]
+    other: FileSystemImport[]
+}
+
 export function buildAppRankingQuestions(items: FileSystemImport[]): DecideRequestApiQuestions[] {
     const batches: DecideRequestApiQuestions[] = []
     for (let offset = 0; offset < items.length; offset += 32) {
