@@ -144,6 +144,10 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
+    _RANGE_FUNCTIONS: set[str] = {"greater", "greaterOrEquals", "less", "lessOrEquals"}
+
+    # A comparison under these calls still filters the rows of the enclosing WHERE, so pruning still applies to it.
+    _BOOLEAN_CONNECTIVES: set[str] = {"and", "or", "not"}
 
     # These always return a DateTime or DateTime64, which ClickHouse compares with the bare column as an instant.
     # Wrapping them again with toDateTime64(..., 6, tz) would also truncate a bound with more than 6 decimals.
@@ -203,7 +207,10 @@ class PropertySwapper(CloningVisitor):
         # The CloningVisitor.visit_select_query visits fields in a fixed order.
         # We replicate that here, wrapping only where/prewhere with our flag.
         saved_where_depth = self._inside_where_depth
+        saved_call_depth = self._inside_call_depth
         self._inside_where_depth = 0  # each SelectQuery gets its own scope
+        # A call around the subquery, as in countIf(x IN (SELECT ...)), does not wrap the subquery's own WHERE.
+        self._inside_call_depth = 0
 
         # Visit everything except where/prewhere normally (depth=0, no stripping)
         ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
@@ -224,6 +231,7 @@ class PropertySwapper(CloningVisitor):
         interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
 
         self._inside_where_depth = saved_where_depth  # restore parent scope
+        self._inside_call_depth = saved_call_depth
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -260,18 +268,26 @@ class PropertySwapper(CloningVisitor):
         if rewritten is not None:
             return rewritten
 
+        can_move_timezone = node.name in self._RANGE_FUNCTIONS and len(node.args) == 2 and self._can_move_timezone()
+
         # Track whether the immediate enclosing call parses its argument as a
         # string. Re-evaluated per call, so nested non-parsing calls (e.g.
         # toFloatOrZero(toString(prop))) correctly reset the flag.
         saved_suppress = self._suppress_numeric_conversion
         self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
 
-        self._inside_call_depth += 1
+        call_depth_step = 0 if node.name in self._BOOLEAN_CONNECTIVES else 1
+        self._inside_call_depth += call_depth_step
         try:
             result = super().visit_call(node)
         finally:
-            self._inside_call_depth -= 1
+            self._inside_call_depth -= call_depth_step
             self._suppress_numeric_conversion = saved_suppress
+
+        if can_move_timezone and isinstance(result, ast.Call):
+            moved = self._move_timezone_to_other_side(result.args[0], result.args[1])
+            if moved is not None:
+                result.args = list(moved)
 
         return self._maybe_extract_exception_string_array(result)
 
@@ -547,18 +563,21 @@ class PropertySwapper(CloningVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
 
-        if (
-            not self.setTimeZones
-            or result.op not in self._RANGE_OPS
-            or self._inside_call_depth > 0
-            or self._inside_where_depth == 0
-        ):
+        if result.op not in self._RANGE_OPS or not self._can_move_timezone():
             return result
 
-        return self._move_timezone_from_field_to_constant(result) or result
+        moved = self._move_timezone_to_other_side(result.left, result.right)
+        if moved is None:
+            return result
+        return ast.CompareOperation(left=moved[0], right=moved[1], op=result.op)
 
-    def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
-        """Move toTimeZone() from the field side to the constant side of a range comparison.
+    def _can_move_timezone(self) -> bool:
+        """Only WHERE and PREWHERE gain from pruning. A comparison inside a call other than and(), or() or not()
+        does not filter the rows of the scan, as in if(timestamp >= ..., 1, 0), so it keeps its toTimeZone()."""
+        return self.setTimeZones and self._inside_where_depth > 0 and self._inside_call_depth == 0
+
+    def _move_timezone_to_other_side(self, left: ast.Expr, right: ast.Expr) -> tuple[ast.Expr, ast.Expr] | None:
+        """Move toTimeZone() from the field side to the other side of a range comparison.
 
         ClickHouse DateTime values are epoch seconds internally, and toTimeZone()
         only changes display metadata — not the underlying value. So for range
@@ -572,25 +591,24 @@ class PropertySwapper(CloningVisitor):
 
         This lets the query planner use the partition key (toYYYYMM(timestamp))
         and primary key (toDate(timestamp)) for pruning, which it can't do when
-        the field is wrapped in a function call. The timezone on the constant
+        the field is wrapped in a function call. It also skips evaluating toTimeZone()
+        per granule in the timestamp skip index. The timezone on the other side
         ensures ClickHouse interprets it in the correct timezone.
 
-        We only do this for top-level range comparisons (not inside function
-        calls like if(), coalesce()) via the _inside_call_depth guard.
+        Returns the new (left, right) operands, or None if neither side is toTimeZone(field, tz).
         """
-        parts = self._extract_toTimeZone_parts(node)
+        parts = self._extract_toTimeZone_parts(left, right)
         if parts is None:
             return None
 
-        tz_constant = self._anchor_to_timezone(parts.other_side, parts.timezone)
+        anchored = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
         if parts.swapped:
-            return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
-        else:
-            return ast.CompareOperation(left=parts.bare_field, right=tz_constant, op=node.op)
+            return anchored, parts.bare_field
+        return parts.bare_field, anchored
 
     @staticmethod
-    def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
+    def _extract_toTimeZone_parts(left: ast.Expr, right: ast.Expr) -> ToTimeZoneParts | None:
         """Extract the bare field, timezone, other side and side from a comparison
         where one side is toTimeZone(field, tz).
 
@@ -598,11 +616,12 @@ class PropertySwapper(CloningVisitor):
         swapped=True means the toTimeZone was on the right side.
         """
         for left_is_tz in (True, False):
-            tz_side = node.left if left_is_tz else node.right
-            other_side = node.right if left_is_tz else node.left
+            tz_side = left if left_is_tz else right
+            other_side = right if left_is_tz else left
 
             inner = tz_side
-            if isinstance(inner, ast.Alias):
+            # A subquery cloned and resolved again, as in the sessions id pushdown, nests one Alias per resolution.
+            while isinstance(inner, ast.Alias):
                 inner = inner.expr
             if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
                 tz_arg = inner.args[1]
