@@ -393,9 +393,12 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # trigger, expect_reuse: only a metric-scoped change reuses the prior completed window.
+            # trigger, expect_reuse: only metric-scoped triggers reuse the prior completed window.
             (ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE, True),
+            (ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY, True),
+            (ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN, True),
             (ExperimentMetricsRecalculation.Trigger.EXPERIMENT_CONFIG_CHANGE, False),
+            (ExperimentMetricsRecalculation.Trigger.COLD_RUN, False),
             (ExperimentMetricsRecalculation.Trigger.MANUAL, False),
             (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
         ]

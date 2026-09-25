@@ -182,7 +182,13 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 
 # Triggers that keep the prior window so unchanged metrics hit the (experiment, metric, query_to, fingerprint)
 # cache and only new or changed metrics recompute. Every other trigger advances the window to now.
-_REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE})
+_REUSE_WINDOW_TRIGGERS = frozenset(
+    {
+        ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE,
+        ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY,
+        ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN,
+    }
+)
 
 
 def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:

@@ -40720,6 +40720,8 @@ export namespace Schemas {
      * * `auto_refresh` - Auto Refresh
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change
+     * * `manual_retry` - Manual Retry
+     * * `heal_latest_run` - Heal Latest Run
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
@@ -40737,6 +40739,8 @@ export namespace Schemas {
       AutoRefresh: 'auto_refresh',
       ExperimentConfigChange: 'experiment_config_change',
       MetricConfigChange: 'metric_config_change',
+      ManualRetry: 'manual_retry',
+      HealLatestRun: 'heal_latest_run',
       ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
@@ -40825,6 +40829,8 @@ export namespace Schemas {
        * * `auto_refresh` - Auto Refresh
        * * `experiment_config_change` - Experiment Config Change
        * * `metric_config_change` - Metric Config Change
+       * * `manual_retry` - Manual Retry
+       * * `heal_latest_run` - Heal Latest Run
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -40870,6 +40876,26 @@ export namespace Schemas {
          */
       estimated_rows_total?: number | null;
     }
+
+    /**
+     * * `manual` - Manual
+     * * `manual_retry` - Manual Retry
+     * * `cold_run` - Cold Run
+     * * `heal_latest_run` - Heal Latest Run
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
+     */
+    export type ExperimentMetricsRecalculationRequestTriggerEnum = typeof ExperimentMetricsRecalculationRequestTriggerEnum[keyof typeof ExperimentMetricsRecalculationRequestTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationRequestTriggerEnum = {
+      Manual: 'manual',
+      ManualRetry: 'manual_retry',
+      ColdRun: 'cold_run',
+      HealLatestRun: 'heal_latest_run',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
+    } as const;
 
     /**
      * * `uploading` - Uploading
@@ -85375,21 +85401,15 @@ export namespace Schemas {
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
-      /** What triggered this recalculation (manual is the default for user-initiated runs)
+      /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp and timeseries_sync are set by the server.
        *
        * * `manual` - Manual
-       * * `agent_mcp` - Agent (MCP)
+       * * `manual_retry` - Manual Retry
        * * `cold_run` - Cold Run
-       * * `stale_refresh` - Stale Refresh
-       * * `auto_refresh` - Auto Refresh
+       * * `heal_latest_run` - Heal Latest Run
        * * `experiment_config_change` - Experiment Config Change
-       * * `metric_config_change` - Metric Config Change
-       * * `config_change` - Config Change
-       * * `experiment_launch` - Experiment Launch
-       * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update
-       * * `timeseries_sync` - Timeseries Sync */
-      trigger?: ExperimentMetricsRecalculationTriggerEnum;
+       * * `metric_config_change` - Metric Config Change */
+      trigger?: ExperimentMetricsRecalculationRequestTriggerEnum;
     }
 
     export interface RecapHighlight {
