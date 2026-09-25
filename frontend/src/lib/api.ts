@@ -18,14 +18,6 @@ import {
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication } from 'lib/logic/apiStatusLogic'
-import type {
-    TypesafeDashboardCandidate,
-    TypesafeDashboardSuggestion,
-    TypesafeSubjectPayload,
-    TypesafeTagSuggestion,
-    TypesafeTextSuggestion,
-} from 'lib/components/TypesafeSuggest/types'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -789,10 +781,6 @@ export class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
-    }
-
-    public typesafeSuggestions(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('typesafe_suggestions')
     }
 
     // # Logs
@@ -3064,23 +3052,6 @@ const api = {
     tags: {
         async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
             return new ApiRequest().tags(projectId).get()
-        },
-    },
-
-    typesafeSuggestions: {
-        async title(payload: TypesafeSubjectPayload): Promise<TypesafeTextSuggestion> {
-            return await new ApiRequest().typesafeSuggestions().withAction('title').create({ data: payload })
-        },
-        async description(payload: TypesafeSubjectPayload): Promise<TypesafeTextSuggestion> {
-            return await new ApiRequest().typesafeSuggestions().withAction('description').create({ data: payload })
-        },
-        async tags(payload: TypesafeSubjectPayload): Promise<TypesafeTagSuggestion> {
-            return await new ApiRequest().typesafeSuggestions().withAction('tags').create({ data: payload })
-        },
-        async dashboard(
-            payload: TypesafeSubjectPayload & { dashboards: TypesafeDashboardCandidate[] }
-        ): Promise<TypesafeDashboardSuggestion> {
-            return await new ApiRequest().typesafeSuggestions().withAction('dashboard').create({ data: payload })
         },
     },
 

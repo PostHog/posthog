@@ -47,11 +47,10 @@ Code that branches on the literal region (`get_instance_region()`, `region == "U
 
 See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Desktop sandbox providers.
 
-## TypeSafe metadata suggestions
+## Insight title and tag suggestions
 
-Insights and dashboards can offer sparkle buttons that ask TypeSafe's Jev model to pick a title, a description, which existing tags apply, and which dashboard an insight belongs on.
+Insights can offer sparkle buttons that ask the Jev decision model to pick a title and to say which of the project's existing tags apply.
 Jev picks from candidates the backend builds; it never writes text.
-The buttons appear only when the `product-analytics-typesafe-suggestions` feature flag is on for the project and the organization has approved AI data processing.
-The backend also needs `TYPESAFE_API_KEY` in `.env.local`; without it the endpoint answers 403 and the frontend hides nothing, so set the flag only where the key exists.
-TypeSafe is not a listed PostHog subprocessor, so keep the flag off for customer projects until that changes.
-The egress budget lives in `posthog/egress/typesafe/README.md`.
+The calls go through the `ml_inference` facade to `POST /v1/systemone` on the AI gateway, so they need `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` in `.env.local`.
+The buttons appear only when the `product-analytics-metadata-suggestions` feature flag is on for the project and the organization has approved AI data processing.
+The backend also checks the `ml_inference` enrollment, which is on in local development and follows the `ml-inference-decisions` flag in the US cloud.

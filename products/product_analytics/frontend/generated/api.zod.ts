@@ -306,6 +306,62 @@ export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Asks the Jev decision model, for each of the project's most used tags, whether it applies to the insight. Returns the tags above the confidence threshold. No new tags are invented.
+ * @summary Suggest insight tags
+ */
+export const metadataSuggestionsTagsCreateBodyNameDefault = ``
+export const metadataSuggestionsTagsCreateBodyNameMax = 400
+
+export const metadataSuggestionsTagsCreateBodyDescriptionDefault = ``
+export const metadataSuggestionsTagsCreateBodyDescriptionMax = 2000
+
+export const MetadataSuggestionsTagsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            "The insight's query as a JSON object with kind `InsightVizNode`, `ActorsQuery`, `EventsQuery` or `GroupsQuery`. Candidates are built from it server-side. The model sees only a plain-language outline, and filter values that look like personal data are left out."
+        ),
+    name: zod
+        .string()
+        .max(metadataSuggestionsTagsCreateBodyNameMax)
+        .default(metadataSuggestionsTagsCreateBodyNameDefault)
+        .describe('The current name. Given to the model as context and offered as one of the candidates.'),
+    description: zod
+        .string()
+        .max(metadataSuggestionsTagsCreateBodyDescriptionMax)
+        .default(metadataSuggestionsTagsCreateBodyDescriptionDefault)
+        .describe('The current description. Given to the model as context only.'),
+})
+
+/**
+ * Builds candidate titles from the query and asks the Jev decision model to pick the best one. Jev only picks; it never writes text.
+ * @summary Suggest an insight title
+ */
+export const metadataSuggestionsTitleCreateBodyNameDefault = ``
+export const metadataSuggestionsTitleCreateBodyNameMax = 400
+
+export const metadataSuggestionsTitleCreateBodyDescriptionDefault = ``
+export const metadataSuggestionsTitleCreateBodyDescriptionMax = 2000
+
+export const MetadataSuggestionsTitleCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            "The insight's query as a JSON object with kind `InsightVizNode`, `ActorsQuery`, `EventsQuery` or `GroupsQuery`. Candidates are built from it server-side. The model sees only a plain-language outline, and filter values that look like personal data are left out."
+        ),
+    name: zod
+        .string()
+        .max(metadataSuggestionsTitleCreateBodyNameMax)
+        .default(metadataSuggestionsTitleCreateBodyNameDefault)
+        .describe('The current name. Given to the model as context and offered as one of the candidates.'),
+    description: zod
+        .string()
+        .max(metadataSuggestionsTitleCreateBodyDescriptionMax)
+        .default(metadataSuggestionsTitleCreateBodyDescriptionDefault)
+        .describe('The current description. Given to the model as context only.'),
+})
+
+/**
  * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
  * @summary Convert a journey segment to a funnel
  */

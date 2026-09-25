@@ -726,6 +726,8 @@ depends_on = [
     # A trends query filtering on a first-pageview-aware property builds it through
     # web analytics' attribution helper. Core held this import before trends moved.
     "products.web_analytics",
+    # Title and tag suggestions ask the Jev decision model through the ml_inference facade.
+    "products.ml_inference",
 ]
 layer = "modules"
 

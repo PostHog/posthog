@@ -1,14 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { TypesafeSuggestButton, TypesafeSuggestButtonProps } from './TypesafeSuggestButton'
+import { SuggestMetadataButton, SuggestMetadataButtonProps } from './SuggestMetadataButton'
 
-type Story = StoryObj<TypesafeSuggestButtonProps>
-const meta: Meta<TypesafeSuggestButtonProps> = {
-    title: 'Components/TypesafeSuggestButton',
-    component: TypesafeSuggestButton,
+type Story = StoryObj<SuggestMetadataButtonProps>
+const meta: Meta<SuggestMetadataButtonProps> = {
+    title: 'Components/SuggestMetadataButton',
+    component: SuggestMetadataButton,
     args: {
         label: 'Suggest a title',
-        dataAttr: 'story-typesafe-suggest',
+        dataAttr: 'story-suggest-metadata',
         onClick: () => {},
     },
     tags: ['autodocs'],

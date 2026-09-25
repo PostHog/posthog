@@ -16,10 +16,10 @@ import {
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { SuggestMetadataButton } from 'lib/components/MetadataSuggest/SuggestMetadataButton'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { TypesafeSuggestButton } from 'lib/components/TypesafeSuggest/TypesafeSuggestButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -236,12 +236,9 @@ type SceneMainTitleProps = {
      * Whether metadata generation is currently in progress
      */
     isGeneratingMetadata?: boolean
-    /** Optional callback that asks TypeSafe to pick a name. Renders a sparkle button next to the name field. */
+    /** Optional callback that asks the Jev decision model to pick a name. Renders a sparkle button next to the name field. */
     onSuggestName?: () => void
     isSuggestingName?: boolean
-    /** Optional callback that asks TypeSafe to pick a description. Renders a sparkle button next to the description. */
-    onSuggestDescription?: () => void
-    isSuggestingDescription?: boolean
     /**
      * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
@@ -277,8 +274,6 @@ export function SceneTitleSection({
     isGeneratingMetadata,
     onSuggestName,
     isSuggestingName,
-    onSuggestDescription,
-    isSuggestingDescription,
     maxToolProps,
     maxButtonLabel,
     descriptionMaxLength,
@@ -451,8 +446,6 @@ export function SceneTitleSection({
                         saveOnBlur={saveOnBlur}
                         maxLength={descriptionMaxLength}
                         isGeneratingMetadata={isGeneratingMetadata}
-                        onSuggestDescription={onSuggestDescription}
-                        isSuggestingDescription={isSuggestingDescription}
                     />
                 </div>
             )}
@@ -614,11 +607,11 @@ export function SceneName({
                             </Tooltip>
                         )}
                         {onSuggestName && (
-                            <TypesafeSuggestButton
-                                label="Suggest a name with TypeSafe"
+                            <SuggestMetadataButton
+                                label="Suggest a title"
                                 onClick={onSuggestName}
                                 loading={isSuggestingName}
-                                dataAttr="scene-name-typesafe-suggest"
+                                dataAttr="scene-name-suggest-title"
                             />
                         )}
                     </div>
@@ -697,8 +690,6 @@ type SceneDescriptionProps = {
     maxLength?: number
     /** When true, description field is read-only (title AI control may be generating body copy too). */
     isGeneratingMetadata?: boolean
-    onSuggestDescription?: () => void
-    isSuggestingDescription?: boolean
 }
 
 function SceneDescription({
@@ -712,8 +703,6 @@ function SceneDescription({
     saveOnBlur = false,
     maxLength,
     isGeneratingMetadata = false,
-    onSuggestDescription,
-    isSuggestingDescription = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
@@ -870,18 +859,7 @@ function SceneDescription({
 
     return (
         <div className="scene-description relative focus-within:z-20">
-            <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-1">
-                <div className="flex-1 min-w-0">{Element}</div>
-                {onSuggestDescription && onChange && canEdit && (
-                    <TypesafeSuggestButton
-                        label="Suggest a description with TypeSafe"
-                        onClick={onSuggestDescription}
-                        loading={isSuggestingDescription}
-                        dataAttr="scene-description-typesafe-suggest"
-                        size="xsmall"
-                    />
-                )}
-            </div>
+            <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )
 }

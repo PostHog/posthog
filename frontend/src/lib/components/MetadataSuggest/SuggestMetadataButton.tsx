@@ -3,10 +3,10 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-export const TYPESAFE_DATA_NOTICE =
-    'This sends the name, description, tags, a plain-language outline of the query (events, filters, breakdown, dates) and the names of related insights and dashboards to TypeSafe. Filter values that look like personal data are left out. TypeSafe is not on the PostHog list of subprocessors, so your agreements with PostHog do not cover it.'
+export const METADATA_SUGGESTION_DATA_NOTICE =
+    "A PostHog-hosted AI model picks from options built from this insight. It reads the name, the description, your project's tags and a plain outline of the query. Filter values that look like personal data are left out."
 
-export interface TypesafeSuggestButtonProps {
+export interface SuggestMetadataButtonProps {
     /** What the button fills in, shown as the tooltip title. Example: "Suggest a title". */
     label: string
     onClick: () => void
@@ -17,21 +17,21 @@ export interface TypesafeSuggestButtonProps {
     size?: 'xsmall' | 'small'
 }
 
-/** A sparkle icon button that asks TypeSafe's Jev model to pick a value for a metadata field. */
-export function TypesafeSuggestButton({
+/** A sparkle icon button that asks the Jev decision model to pick a value for a metadata field. */
+export function SuggestMetadataButton({
     label,
     onClick,
     loading = false,
     disabledReason,
     dataAttr,
     size = 'small',
-}: TypesafeSuggestButtonProps): JSX.Element {
+}: SuggestMetadataButtonProps): JSX.Element {
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <span className="font-semibold">{loading ? 'Asking TypeSafe...' : label}</span>
-                    <span>{TYPESAFE_DATA_NOTICE}</span>
+                    <span className="font-semibold">{loading ? 'Picking...' : label}</span>
+                    <span>{METADATA_SUGGESTION_DATA_NOTICE}</span>
                 </div>
             }
         >

@@ -3,17 +3,14 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useEffect } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconHome, IconPinFilled, IconSparkles, IconUser } from '@posthog/icons'
+import { IconHome, IconPinFilled, IconUser } from '@posthog/icons'
 
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { TypesafeSuggestButton } from 'lib/components/TypesafeSuggest/TypesafeSuggestButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
@@ -29,7 +26,6 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
-    isSuggested: boolean
     currentUserUuid: string | null
     style: CSSProperties
 }
@@ -38,7 +34,6 @@ const DashboardRelationRow = ({
     style,
     isHighlighted,
     isAlreadyOnDashboard,
-    isSuggested,
     dashboard,
     insightProps,
     canEditInsight,
@@ -85,13 +80,6 @@ const DashboardRelationRow = ({
                     </span>
                 </Tooltip>
             )}
-            {isSuggested && (
-                <Tooltip title="TypeSafe picked this dashboard as the best home for the insight">
-                    <LemonTag type="highlight" icon={<IconSparkles />}>
-                        Suggested
-                    </LemonTag>
-                </Tooltip>
-            )}
             <span className="grow" />
             <LemonButton
                 type="secondary"
@@ -124,7 +112,6 @@ interface DashboardRowProps {
     canEditInsight: boolean
     scrollIndex: number
     currentUserUuid: string | null
-    suggestedDashboardId: number | null
 }
 
 const DashboardRow = ({
@@ -136,7 +123,6 @@ const DashboardRow = ({
     canEditInsight,
     scrollIndex,
     currentUserUuid,
-    suggestedDashboardId,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -151,7 +137,6 @@ const DashboardRow = ({
             isAlreadyOnDashboard={currentDashboards.some(
                 (currentDashboard) => currentDashboard.id === orderedDashboards[index].id
             )}
-            isSuggested={suggestedDashboardId === orderedDashboards[index].id}
             currentUserUuid={currentUserUuid}
             style={style}
         />
@@ -175,19 +160,10 @@ export function AddToDashboardModal({
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic(insightProps)
 
-    const {
-        searchQuery,
-        currentDashboards,
-        orderedDashboards,
-        scrollIndex,
-        user,
-        suggestedDashboardId,
-        typesafeDashboardSuggestionLoading,
-    } = useValues(logic)
-    const { setSearchQuery, addNewDashboard, suggestDashboardWithTypesafe } = useActions(logic)
+    const { searchQuery, currentDashboards, orderedDashboards, scrollIndex, user } = useValues(logic)
+    const { setSearchQuery, addNewDashboard } = useActions(logic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
-    const typesafeSuggestionsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS')
     const listRef = useListRef(null)
 
     useEffect(() => {
@@ -209,7 +185,6 @@ export function AddToDashboardModal({
         canEditInsight,
         scrollIndex,
         currentUserUuid: user?.uuid ?? null,
-        suggestedDashboardId,
     }
 
     return (
@@ -243,26 +218,15 @@ export function AddToDashboardModal({
             }
         >
             <div className="deprecated-space-y-2 w-192 max-w-full">
-                <div className="flex items-center gap-2">
-                    <LemonInput
-                        data-attr="dashboard-searchfield"
-                        type="search"
-                        fullWidth
-                        placeholder="Search for dashboards..."
-                        value={searchQuery}
-                        onChange={(newValue) => setSearchQuery(newValue)}
-                        autoFocus
-                    />
-                    {typesafeSuggestionsEnabled && canEditInsight && (
-                        <TypesafeSuggestButton
-                            label="Suggest a dashboard with TypeSafe"
-                            onClick={suggestDashboardWithTypesafe}
-                            loading={typesafeDashboardSuggestionLoading}
-                            disabledReason={dashboardsLoading ? 'Loading dashboards...' : undefined}
-                            dataAttr="add-to-dashboard-typesafe-suggest"
-                        />
-                    )}
-                </div>
+                <LemonInput
+                    data-attr="dashboard-searchfield"
+                    type="search"
+                    fullWidth
+                    placeholder="Search for dashboards..."
+                    value={searchQuery}
+                    onChange={(newValue) => setSearchQuery(newValue)}
+                    autoFocus
+                />
                 <div className="text-secondary">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}

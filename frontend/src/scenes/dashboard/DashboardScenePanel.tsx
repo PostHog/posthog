@@ -52,10 +52,7 @@ export function DashboardScenePanel(): JSX.Element | null {
         apiUrl,
         tiles,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen, suggestTagsWithTypesafe } =
-        useActions(dashboardLogic)
-    const { typesafeTagSuggestionLoading } = useValues(dashboardLogic)
-    const typesafeSuggestionsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS')
+    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -78,8 +75,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                     tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
                     dataAttrKey={RESOURCE_TYPE}
                     loading={isSavingTags}
-                    onSuggest={typesafeSuggestionsEnabled ? suggestTagsWithTypesafe : undefined}
-                    suggesting={typesafeTagSuggestionLoading}
                 />
                 <SceneFile dataAttrKey={RESOURCE_TYPE} />
                 <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />

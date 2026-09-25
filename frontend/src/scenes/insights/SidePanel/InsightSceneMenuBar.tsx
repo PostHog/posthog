@@ -101,9 +101,10 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         canEditInsight,
         isSavingTags,
         insightDuplicating,
-        typesafeTagSuggestionLoading,
+        tagSuggestionLoading,
+        metadataSuggestionsAvailable,
     } = useValues(theInsightLogic)
-    const { duplicateInsight, deleteInsight, setInsightMetadata, suggestTagsWithTypesafe } = useActions(theInsightLogic)
+    const { duplicateInsight, deleteInsight, setInsightMetadata, suggestTags } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
     const {
@@ -448,12 +449,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}
-                        onSuggest={
-                            featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS]
-                                ? suggestTagsWithTypesafe
-                                : undefined
-                        }
-                        suggesting={typesafeTagSuggestionLoading}
+                        onSuggest={metadataSuggestionsAvailable ? suggestTags : undefined}
+                        suggesting={tagSuggestionLoading}
                     />
                     <SceneActivityIndicator
                         at={insight.last_modified_at}

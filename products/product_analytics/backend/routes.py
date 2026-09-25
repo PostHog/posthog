@@ -7,8 +7,8 @@ from products.product_analytics.backend.presentation.events_retention import Eve
 from products.product_analytics.backend.presentation.insight import InsightViewSet
 from products.product_analytics.backend.presentation.insight_ee import EnterpriseInsightsViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
+from products.product_analytics.backend.presentation.metadata_suggestion_views import MetadataSuggestionViewSet
 from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
-from products.product_analytics.backend.presentation.typesafe_suggestions import TypesafeSuggestionViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -54,8 +54,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"events_retention",
         EventsRetentionViewSet,
         "project_events_retention",
-        r"typesafe_suggestions",
-        TypesafeSuggestionViewSet,
-        "project_typesafe_suggestions",
+        ["team_id"],
+    )
+
+    routers.projects.register(
+        r"metadata_suggestions",
+        MetadataSuggestionViewSet,
+        "project_metadata_suggestions",
         ["team_id"],
     )

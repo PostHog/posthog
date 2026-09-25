@@ -78,10 +78,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         currentDashboardVariables,
         tiles,
         apiUrl,
-        typesafeTagSuggestionLoading,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen, suggestTagsWithTypesafe } =
-        useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -342,12 +340,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
                         dataAttrKey={RESOURCE_TYPE}
                         loading={isSavingTags}
-                        onSuggest={
-                            featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_TYPESAFE_SUGGESTIONS]
-                                ? suggestTagsWithTypesafe
-                                : undefined
-                        }
-                        suggesting={typesafeTagSuggestionLoading}
                     />
                     <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
                     {showMetalytics && (

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { TypesafeSuggestButton } from 'lib/components/TypesafeSuggest/TypesafeSuggestButton'
+import { SuggestMetadataButton } from 'lib/components/MetadataSuggest/SuggestMetadataButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -18,7 +18,7 @@ type SceneTagsProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
-        /** Asks TypeSafe which of the team's existing tags apply. Renders a sparkle button in the label. */
+        /** Asks the Jev decision model which of the project's existing tags apply. Renders a sparkle button in the label. */
         onSuggest?: () => void
         suggesting?: boolean
     }
@@ -56,11 +56,11 @@ export const SceneTags = ({
             Tags
             {loading || tagsLoading ? <Spinner className="text-sm" /> : null}
             {onSuggest && canEdit && onSave ? (
-                <TypesafeSuggestButton
-                    label="Suggest tags with TypeSafe"
+                <SuggestMetadataButton
+                    label="Suggest tags"
                     onClick={onSuggest}
                     loading={suggesting}
-                    dataAttr={`${dataAttrKey}-tags-typesafe-suggest`}
+                    dataAttr={`${dataAttrKey}-tags-suggest`}
                     size="xsmall"
                 />
             ) : null}
