@@ -9,7 +9,7 @@ import { authorFrictionLogic } from './authorFrictionLogic'
 
 /** A team's median friction and its members by friction. Members keep their repository-wide ranks. */
 export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX.Element {
-    const { friction, frictionLoading, frictionFailed, sourceId } = useValues(authorFrictionLogic)
+    const { friction, frictionLoading, frictionFailed, frictionNotConnected, sourceId } = useValues(authorFrictionLogic)
     const { loadFriction } = useActions(authorFrictionLogic)
 
     const members = (friction?.items ?? []).filter((item) => (item.teams ?? []).includes(githubTeam))
@@ -37,7 +37,7 @@ export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX
         >
             {frictionFailed ? (
                 <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
-            ) : friction && !friction.available ? (
+            ) : frictionNotConnected || (friction && !friction.available) ? (
                 <div className="text-sm text-secondary">
                     Friction is not ready for this project yet. It needs a GitHub source with workflow runs, workflow
                     jobs and pull requests synced, and it refreshes every 12 hours.
