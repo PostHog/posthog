@@ -213,6 +213,10 @@ export const OrganizationsProjectsCreateBody = () => zod
             .number()
             .nullish()
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
+        home_tab_dashboard: zod
+            .number()
+            .nullish()
+            .describe('ID of the dashboard shown on the product analytics Home tab.'),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
             .array(zod.string().max(organizationsProjectsCreateBodyRecordingDomainsItemMax).nullable())
@@ -2899,6 +2903,10 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .number()
             .nullish()
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
+        home_tab_dashboard: zod
+            .number()
+            .nullish()
+            .describe('ID of the dashboard shown on the product analytics Home tab.'),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
