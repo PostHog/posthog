@@ -141,10 +141,11 @@ class TestUniqueMigrationPrefixes(TestCase):
         """Walk a migration's operations and return any convention violations.
 
         ``full=False`` is used for per-deployment passes: it only runs the cheap, deployment-
-        agnostic checks (ON CLUSTER + missing _sql) so cloud-gated branches don't get flagged
-        against legacy ALTER-TABLE flag rules they already shipped past.
+        agnostic checks (ON CLUSTER + missing _sql + crash_log flush) so cloud-gated branches
+        don't get flagged against legacy ALTER-TABLE flag rules they already shipped past.
         """
         violations: list[dict] = []
+        flushed_roles: set[NodeRole] = set()
         for idx, operation in enumerate(operations):
             sql = getattr(operation, "_sql", None)
             if sql is None:
@@ -170,6 +171,15 @@ class TestUniqueMigrationPrefixes(TestCase):
             errors: list[str] = []
             if "ON CLUSTER" in sql:
                 errors.append("ON CLUSTER is not supposed to be used in migrations")
+            # ClickHouse creates system.crash_log on the first flush rather than at startup, so a
+            # node that never crashed has no such table and the read fails with UNKNOWN_TABLE.
+            if re.search(r"\bSYSTEM\s+FLUSH\s+LOGS\b", sql, re.IGNORECASE):
+                flushed_roles.update(operation._node_roles)
+            elif "system.crash_log" in sql and not self._covered_by_flush(operation._node_roles, flushed_roles):
+                errors.append(
+                    'reads system.crash_log without an earlier run_sql_with_exceptions("SYSTEM FLUSH LOGS", ...) '
+                    "on the same node roles"
+                )
             if full:
                 errors += self.check_alter_table(
                     sql,
@@ -191,6 +201,12 @@ class TestUniqueMigrationPrefixes(TestCase):
                     }
                 )
         return violations
+
+    @staticmethod
+    def _covered_by_flush(node_roles: list[NodeRole], flushed_roles: set[NodeRole]) -> bool:
+        if NodeRole.ALL in flushed_roles:
+            return True
+        return set(node_roles) <= flushed_roles
 
     @staticmethod
     def _checked_modules():
