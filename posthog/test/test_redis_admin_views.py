@@ -125,13 +125,15 @@ class TestRedisEditTTLView(BaseTest):
 
         assert response.status_code == 405
 
-    def test_post_without_csrf_token_returns_403(self) -> None:
+    def test_cross_site_post_returns_403(self) -> None:
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)
 
         response = csrf_client.post(
             "/admin/redis/edit-ttl",
             data={"key": "test:cache:key", "ttl_seconds": "3600"},
+            HTTP_SEC_FETCH_SITE="cross-site",
+            HTTP_ORIGIN="https://attacker.example.com",
         )
 
         assert response.status_code == 403

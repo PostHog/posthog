@@ -186,7 +186,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_authorization_rejects_cross_site_post_without_csrf_token(self):
+    def test_authorization_rejects_cross_site_post(self):
         from rest_framework.test import APIClient
 
         csrf_client = APIClient(enforce_csrf_checks=True)
@@ -195,6 +195,8 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         response = csrf_client.post(
             "/api/cli-auth/authorize/",
             {"user_code": self.user_code, "project_id": self.team.id},
+            HTTP_SEC_FETCH_SITE="cross-site",
+            HTTP_ORIGIN="https://attacker.example.com",
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

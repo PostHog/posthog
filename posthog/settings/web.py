@@ -145,6 +145,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "social_django",
     "django_filters",
+    "modern_csrf",
     "axes",
     "django_structlog",
     "drf_spectacular",

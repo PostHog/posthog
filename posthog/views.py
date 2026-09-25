@@ -20,10 +20,11 @@ from django.shortcuts import redirect, render
 from django.template import loader
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_exempt, csrf_protect, requires_csrf_token
+from django.views.decorators.csrf import csrf_exempt, requires_csrf_token
 from django.views.decorators.http import require_http_methods
 
 import structlog
+from modern_csrf.decorators import csrf_protect
 from opentelemetry import trace
 from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, multiprocess
 
