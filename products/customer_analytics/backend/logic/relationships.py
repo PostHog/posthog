@@ -5,10 +5,11 @@ Account row, applies the controlled-relationship policy, advances the control ti
 customer analytics controls that relationship on the account, and writes its activity row inside
 the same transaction, so a mutation without an audit record cannot commit. A person's change to a
 controlled relationship on a linked account first enrolls the account under every controlled
-definition. Accounts thus reach managed ownership without a manual adoption run. That enrollment
-locks definitions before the account. A caller that already holds either lock must therefore not
-pass a person as the actor. The Salesforce claim procedure in ``logic/ownership_claims.py`` writes
-through the public helpers here under the same lock and audit rules.
+definition. The enrollment for a person's edit locks definitions before the account, so a caller
+that already holds either lock must not pass a person as the actor. An accepted Salesforce claim
+enrolls the account in the same way, under locks the claim procedure in
+``logic/ownership_claims.py`` takes itself, and writes through the public helpers here under the
+same lock and audit rules. Accounts thus reach managed ownership without a manual adoption run.
 """
 
 import dataclasses
@@ -16,7 +17,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.db.models.signals import post_save
 from django.utils import timezone
 
@@ -315,7 +316,7 @@ def enroll(
         if locked_definition is None or not locked_definition.is_controlled:
             raise DefinitionNotControlledError(str(definition.id))
         locked_account = _lock_or_raise(team_id, account.id)
-        return _enroll_locked(team_id, locked_account, locked_definition, actor)
+        return enroll_locked(team_id, locked_account, locked_definition, actor)
 
 
 def _enroll_on_human_edit(team_id: int, account_id: str | UUID, definition_id: UUID, actor: Actor) -> None:
@@ -359,19 +360,24 @@ def _enroll_on_human_edit(team_id: int, account_id: str | UUID, definition_id: U
     if account is None or not account.external_id:
         return
     for definition in definitions:
-        _enroll_locked(team_id, account, definition, actor)
+        enroll_locked(team_id, account, definition, actor)
 
 
-def _enroll_locked(
-    team_id: int, account: Account, definition: AccountRelationshipDefinition, actor: Actor
+def enroll_locked(
+    team_id: int,
+    account: Account,
+    definition: AccountRelationshipDefinition,
+    actor: Actor,
+    controlled_at: datetime | None = None,
 ) -> AccountRelationshipControl:
-    """Enroll under the definition and Account locks the caller holds."""
+    """Enroll under the definition and Account locks the caller holds. ``controlled_at`` is the
+    instant control starts from when it is not the database clock's now."""
     control = ownership.control_for(account, definition)
     if control is not None:
         return control
     holder = active_relationships(team_id, account, definition).first()
     holder_user = holder.user if holder is not None else None
-    control = ownership.enroll(account, definition, actor.user)
+    control = ownership.enroll(account, definition, actor.user, controlled_at)
     record_transition(
         account=account,
         actor=actor,
@@ -456,6 +462,17 @@ def active_relationships(
         .select_related("user")
         .order_by("started_at")
     )
+
+
+def last_change_at(team_id: int, account: Account, definition: AccountRelationshipDefinition) -> datetime | None:
+    """When any writer last assigned or ended the relationship on the account, or None when it never
+    had one."""
+    latest = (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account=account, definition=definition)
+        .aggregate(started=Max("started_at"), ended=Max("ended_at"))
+    )
+    return max((value for value in latest.values() if value is not None), default=None)
 
 
 def _enforce_managed_role_policy(control: AccountRelationshipControl | None, actor: Actor) -> None:

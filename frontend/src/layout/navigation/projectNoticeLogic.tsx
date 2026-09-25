@@ -369,6 +369,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use proxyRecordsList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {

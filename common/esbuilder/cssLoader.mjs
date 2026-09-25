@@ -127,3 +127,118 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
         })();
     `
 }
+
+export const CSS_LOAD_GLOBAL = 'ESBUILD_LOAD_CSS'
+
+/**
+ * Inline loader for the stable build's split stylesheets (see frontend/bin/stableCssPlan.mjs).
+ *
+ * The eager layers load in order, and `window.ESBUILD_CSS_READY` resolves once all of them apply.
+ * `window.ESBUILD_LOAD_CSS(entries)` loads the stylesheets a lazy chunk waits on before it runs.
+ * Each entry is `[url, rank]`, where rank is the group's place in the full stylesheet. Lazy
+ * stylesheets are inserted in rank order, so the cascade among them does not depend on the order
+ * scenes load in. `null` in place of the entries asks for the full stylesheet.
+ *
+ * When a stable stylesheet fails or stalls, the loader runs `cssLoaderScript` for the full
+ * stylesheet, which holds every rule, with its whole retry and reporting ladder. A failure in the
+ * stable build therefore ends up where the default build starts. A load that fails for good
+ * resolves `false` and is forgotten, so the next attempt fetches again.
+ */
+export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallback) {
+    return `
+        (function () {
+            var fullStylesheet = null;
+            var fullStylesheetApplied = false;
+            function loadFullStylesheet() {
+                if (!fullStylesheet) {
+                    ${cssLoaderScript(fullCssFile, fullCssFileFallback)}
+                    fullStylesheet = window.${CSS_READY_GLOBAL}.then(function (applied) {
+                        if (applied) {
+                            fullStylesheetApplied = true;
+                        } else {
+                            fullStylesheet = null;
+                        }
+                        return applied;
+                    });
+                }
+                return fullStylesheet;
+            }
+
+            var lazyLinks = [];
+            function insertLink(link, rank) {
+                if (rank === null) {
+                    document.head.appendChild(link);
+                    return;
+                }
+                var before = null;
+                for (var i = 0; i < lazyLinks.length; i++) {
+                    if (lazyLinks[i].rank > rank) { before = lazyLinks[i].link; break; }
+                }
+                lazyLinks.push({ rank: rank, link: link });
+                lazyLinks.sort(function (a, b) { return a.rank - b.rank; });
+                if (before) {
+                    document.head.insertBefore(link, before);
+                } else {
+                    document.head.appendChild(link);
+                }
+            }
+
+            function loadStylesheet(href, rank) {
+                return new Promise(function (resolve) {
+                    var link = document.createElement("link");
+                    link.rel = "stylesheet";
+                    link.crossOrigin = "anonymous";
+                    link.href = href;
+                    var timer = setTimeout(function () { resolve(false); }, ${CSS_ATTEMPT_TIMEOUT_MS});
+                    link.addEventListener("load", function () { clearTimeout(timer); resolve(!!link.sheet); });
+                    link.addEventListener("error", function () { clearTimeout(timer); resolve(false); });
+                    insertLink(link, rank);
+                });
+            }
+
+            var requested = {};
+            function loadEntries(entries) {
+                return Promise.all(entries.map(function (entry) {
+                    var url = Array.isArray(entry) ? entry[0] : entry;
+                    var rank = Array.isArray(entry) ? entry[1] : null;
+                    if (!requested[url]) {
+                        requested[url] = loadStylesheet(url, rank).then(function (applied) {
+                            if (applied) { return true; }
+                            console.error('[PostHog] Stylesheet did not apply, loading the full stylesheet: ' + url);
+                            return loadFullStylesheet().then(function (fullApplied) {
+                                if (!fullApplied) { delete requested[url]; }
+                                return fullApplied;
+                            });
+                        });
+                    }
+                    return requested[url];
+                })).then(function (results) {
+                    return results.every(Boolean);
+                });
+            }
+            window.${CSS_LOAD_GLOBAL} = function (entries) {
+                // The full stylesheet holds every rule. A split stylesheet inserted after it would
+                // override its later rules, so once it applies nothing else is loaded.
+                if (fullStylesheetApplied) {
+                    return Promise.resolve(true);
+                }
+                if (entries === null) {
+                    return loadFullStylesheet();
+                }
+                if (fullStylesheet) {
+                    // A full load from an earlier fallback is still in flight: wait for it, since a
+                    // split link inserted now could land after it and reorder the cascade.
+                    return fullStylesheet.then(function (applied) {
+                        return applied ? true : loadEntries(entries);
+                    });
+                }
+                return loadEntries(entries);
+            };
+
+            var eager = ${JSON.stringify(eagerFiles)}.map(function (file) {
+                return (window.JS_URL || '') + '/static/' + file;
+            });
+            window.${CSS_READY_GLOBAL} = window.${CSS_LOAD_GLOBAL}(eager);
+        })();
+    `
+}

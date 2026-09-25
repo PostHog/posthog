@@ -34,6 +34,18 @@ describe('getChartDisplayOptions', () => {
             'This type currently only supports insights with one series, and this insight has multiple series.',
         ],
         [
+            'a breakdown',
+            { ...RENDERS_EVERYTHING, breakdowns: [{ property: '$browser' }] },
+            ChartDisplayType.BoldNumber,
+            "This type doesn't support breakdowns.",
+        ],
+        [
+            'a breakdown on the box plot',
+            { ...RENDERS_EVERYTHING, breakdown: '$browser' },
+            ChartDisplayType.BoxPlot,
+            "This type doesn't support breakdowns.",
+        ],
+        [
             'box plot without a numeric property',
             { ...RENDERS_EVERYTHING, boxPlotMissingProperty: true },
             ChartDisplayType.BoxPlot,

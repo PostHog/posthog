@@ -402,7 +402,11 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     """
     if schema.sync_type_config.get("cdc_deferred_runs"):
         return True
+    return has_queued_batches(schema)
 
+
+def has_queued_batches(schema: ExternalDataSchema) -> bool:
+    """Whether any batch of this schema is still waiting or loading in the queue."""
     conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
     try:
         age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(

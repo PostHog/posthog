@@ -336,7 +336,7 @@ def tombstone_orphaned_ch_persons(
         )
         result.tombstoned_persons += 1
 
-    publication = PersonTombstonePublication(team_id=team_id)
+    publication = PersonTombstonePublication(team_id=team_id, source="orphan_repair")
     publication.publish(to_republish)
     result.republished_persons = len(to_republish)
 

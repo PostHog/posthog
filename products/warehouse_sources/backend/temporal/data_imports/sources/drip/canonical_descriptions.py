@@ -42,6 +42,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time at which the campaign was created.",
         },
     },
+    "campaign_subscribers": {
+        "description": "Membership of an email series campaign: one row per subscriber per campaign, across active, unsubscribed and removed statuses.",
+        "docs_url": "https://developer.drip.com/#list-all-subscribers-to-a-campaign",
+        "columns": {
+            "campaign_id": "Identifier of the campaign the subscriber belongs to.",
+            "campaign_subscription_status": "Subscription status the row was listed under: active, unsubscribed or removed.",
+            "id": "Unique identifier for the subscriber.",
+            "email": "The subscriber's email address.",
+            "status": "The subscriber's account-level subscription status.",
+            "created_at": "Time at which the subscriber was created.",
+            "updated_at": "Time at which the subscriber was last updated.",
+        },
+    },
     "broadcasts": {
         "description": "A one-time email blast sent to a segment of subscribers.",
         "docs_url": "https://developer.drip.com/#broadcasts",
@@ -86,6 +99,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The goal's name.",
             "status": "Goal status (e.g. active, inactive).",
             "created_at": "Time at which the goal was created.",
+        },
+    },
+    "tags": {
+        "description": "Every tag used in the account. Tags are the labels Drip segmentation and automation trigger on.",
+        "docs_url": "https://developer.drip.com/#list-all-tags-used-in-an-account",
+        "columns": {
+            "tag": "The tag, as applied to subscribers.",
+        },
+    },
+    "custom_field_identifiers": {
+        "description": "Every active custom field key used on subscriber records in the account.",
+        "docs_url": "https://developer.drip.com/#list-all-custom-field-identifiers-used-in-an-account",
+        "columns": {
+            "identifier": "The custom field key, matching a key in a subscriber's custom_fields.",
         },
     },
 }
