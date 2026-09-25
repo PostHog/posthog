@@ -5,10 +5,12 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { AlertsRecommendationCard } from './AlertsRecommendationCard'
 import { LongRunningIssuesRecommendationCard } from './LongRunningIssuesRecommendationCard'
+import { QuietIssuesRecommendationCard } from './QuietIssuesRecommendationCard'
 import { RateLimitsRecommendationCard } from './RateLimitsRecommendationCard'
 import {
     isAlertsRecommendation,
     isLongRunningIssuesRecommendation,
+    isQuietIssuesRecommendation,
     isRateLimitsRecommendation,
     isSourceMapsRecommendation,
     recommendationsTabLogic,
@@ -28,6 +30,9 @@ function RecommendationCardForType({
     }
     if (isLongRunningIssuesRecommendation(recommendation)) {
         return <LongRunningIssuesRecommendationCard recommendation={recommendation} dismissed={dismissed} />
+    }
+    if (isQuietIssuesRecommendation(recommendation)) {
+        return <QuietIssuesRecommendationCard recommendation={recommendation} dismissed={dismissed} />
     }
     if (isRateLimitsRecommendation(recommendation)) {
         return <RateLimitsRecommendationCard recommendation={recommendation} dismissed={dismissed} />

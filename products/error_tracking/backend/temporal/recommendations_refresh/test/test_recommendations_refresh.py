@@ -41,6 +41,9 @@ _ALERTS_COMPUTE_BATCH = (
     "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute_batch"
 )
 _LONG_RUNNING_COMPUTE_BATCH = "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
+_QUIET_COMPUTE_BATCH = (
+    "products.error_tracking.backend.logic.recommendations.quiet_issues.QuietIssuesRecommendation.compute_batch"
+)
 _SOURCE_MAPS_COMPUTE_BATCH = (
     "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
 )
@@ -50,6 +53,7 @@ _RATE_LIMITS_COMPUTE_BATCH = (
 
 _ALERTS_META = {"alerts": [{"key": "error-tracking-issue-created", "enabled": False}]}
 _LONG_RUNNING_META: dict = {"issues": []}
+_QUIET_META: dict = {"quiet_days": 30, "total": 0, "issues": []}
 _SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 _RATE_LIMITS_META = {"rate_limits": [{"key": "project", "enabled": False}, {"key": "per_issue", "enabled": False}]}
 
@@ -104,48 +108,53 @@ class TestPackTeamBatches:
 class TestRefreshRecommendationsBatchActivity(APIBaseTest):
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_computes_recommendations_for_all_teams(self, _alerts, _long, _source, _rate_limits):
+    def test_computes_recommendations_for_all_teams(self, _alerts, _long, _quiet, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
         assert result.teams_processed == 2
-        assert result.recommendations_kicked == 8
+        assert result.recommendations_kicked == 10
         for team_id in (self.team.id, team_b.id):
             recs = ErrorTrackingRecommendation.objects.filter(team_id=team_id)
-            assert recs.count() == 4
+            assert recs.count() == 5
             for rec in recs:
                 assert rec.status == ErrorTrackingRecommendation.Status.READY
                 assert rec.computed_at is not None
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _source, _rate_limits):
+    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _quiet, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
         first = _run_batch_activity(batch)
-        assert first.recommendations_kicked == 8
+        assert first.recommendations_kicked == 10
 
         second = _run_batch_activity(batch)
         # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
-        # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
+        # long_running_issues, quiet_issues and source_maps all have one and are still fresh.
         assert second.recommendations_kicked == 4
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=Exception("boom"))
-    def test_failing_recommendation_reverts_claims_and_spares_others(self, _alerts, _long, _source, _rate_limits):
+    def test_failing_recommendation_reverts_claims_and_spares_others(
+        self, _alerts, _long, _quiet, _source, _rate_limits
+    ):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
-        assert result.recommendations_kicked == 6
+        assert result.recommendations_kicked == 8
         alerts_rows = ErrorTrackingRecommendation.objects.filter(type="alerts")
         assert alerts_rows.count() == 2
         for row in alerts_rows:
@@ -154,9 +163,10 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_skips_deleted_teams_without_failing_batch(self, _alerts, _long, _source, _rate_limits):
+    def test_skips_deleted_teams_without_failing_batch(self, _alerts, _long, _quiet, _source, _rate_limits):
         # ClickHouse retains events for teams later deleted from Postgres; the batch must
         # process surviving teams and not blow up on the missing team_id foreign key.
         deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
@@ -167,15 +177,16 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
         # teams_processed reflects only the surviving team, not the raw input count.
         assert result.teams_processed == 1
-        assert result.recommendations_kicked == 4
-        assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 4
+        assert result.recommendations_kicked == 5
+        assert ErrorTrackingRecommendation.objects.filter(team_id=self.team.id).count() == 5
         assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_all_teams_deleted_kicks_nothing(self, _alerts, _long, _source, _rate_limits):
+    def test_all_teams_deleted_kicks_nothing(self, _alerts, _long, _quiet, _source, _rate_limits):
         deleted_team = Team.objects.create(organization=self.organization, name="Doomed")
         deleted_team_id = deleted_team.id
         deleted_team.delete()
@@ -188,12 +199,13 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_QUIET_COMPUTE_BATCH, side_effect=_batch_meta(_QUIET_META))
     @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=lambda team_ids: {})
-    def test_missing_meta_reverts_claim(self, _alerts, _long, _source, _rate_limits):
+    def test_missing_meta_reverts_claim(self, _alerts, _long, _quiet, _source, _rate_limits):
         result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id]))
 
-        assert result.recommendations_kicked == 3
+        assert result.recommendations_kicked == 4
         alerts_row = ErrorTrackingRecommendation.objects.get(team_id=self.team.id, type="alerts")
         assert alerts_row.status == ErrorTrackingRecommendation.Status.READY
         assert alerts_row.computed_at is None
