@@ -1,16 +1,22 @@
+import uuid
 from types import SimpleNamespace
 
 import pytest
 
 import dagster
+import psycopg2
+import psycopg2.extras
 from parameterized import parameterized
 
 from posthog.dags.personhog_shadow_lane import (
     ShadowLaneStartConfig,
     _reset_shadow_state,
+    read_shadow_write_counter,
     require_shadow_dsn,
+    wait_for_deployments,
     wait_for_quiescence,
 )
+from posthog.persons_db import persons_db_url
 
 
 class TestRequireShadowDsn:
@@ -78,6 +84,28 @@ class TestWaitForQuiescence:
             )
 
 
+class TestWaitForDeployments:
+    @parameterized.expand(
+        [
+            ("all_settle", {"consumer": 2, "processor": 1}, 60, set()),
+            ("deadline_passed", {"consumer": 0, "processor": 0}, 0, {"consumer", "processor"}),
+        ]
+    )
+    def test_returns_what_is_still_pending(
+        self, _name: str, settles_on_check: dict[str, int], timeout_seconds: int, expected_pending: set[str]
+    ) -> None:
+        checks: dict[str, int] = dict.fromkeys(settles_on_check, 0)
+
+        def is_settled(deployment: str) -> bool:
+            checks[deployment] += 1
+            return 0 < settles_on_check[deployment] <= checks[deployment]
+
+        pending = wait_for_deployments(
+            settles_on_check, is_settled, timeout_seconds=timeout_seconds, sleep=lambda _seconds: None
+        )
+        assert pending == expected_pending
+
+
 class _FakeAppsApi:
     def __init__(self, desired_replicas: int) -> None:
         self.desired_replicas = desired_replicas
@@ -90,3 +118,37 @@ def test_reset_refuses_while_lane_wants_pods() -> None:
     context = dagster.build_op_context()
     with pytest.raises(dagster.Failure, match="stop-and-compare"):
         _reset_shadow_state(context, ShadowLaneStartConfig(reset_state=True), _FakeAppsApi(desired_replicas=2))
+
+
+@pytest.mark.persons_db_direct
+@pytest.mark.django_db(transaction=True)
+def test_write_counter_ignores_lifecycle_op_tables() -> None:
+    connection = psycopg2.connect(persons_db_url(writer=True), cursor_factory=psycopg2.extras.RealDictCursor)
+    connection.autocommit = True
+    op_id = str(uuid.uuid4())
+    person_uuid = str(uuid.uuid4())
+    try:
+        before = read_shadow_write_counter(connection)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO lifecycle_op_tmp (op_id, op_type, team_id, step, request) "
+                "VALUES (%s, 'merge', 2, 'start', '{}')",
+                (op_id,),
+            )
+            cursor.execute("DELETE FROM lifecycle_op_tmp WHERE op_id = %s", (op_id,))
+            cursor.execute("SELECT pg_stat_force_next_flush()")
+        assert read_shadow_write_counter(connection) == before
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id, is_deleted) "
+                "VALUES (now(), '{}', false, %s, 1, 2, false)",
+                (person_uuid,),
+            )
+            cursor.execute("SELECT pg_stat_force_next_flush()")
+        assert read_shadow_write_counter(connection) == before + 1
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_person WHERE uuid = %s", (person_uuid,))
+        connection.close()

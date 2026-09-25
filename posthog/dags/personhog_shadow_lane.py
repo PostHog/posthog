@@ -20,7 +20,7 @@ these jobs apply. Both are charts-side prerequisites.
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import closing
 from urllib.parse import parse_qs, urlparse
 
@@ -55,14 +55,21 @@ LEGACY_STATE_TABLES = [
     "posthog_group",
     "posthog_grouptypemapping",
 ]
-PERSONHOG_STATE_TABLES = [
-    "personhog_person_tmp",
-    "personhog_persondistinctid_tmp",
-    "personhog_featureflaghashkeyoverride_tmp",
+# Saga bookkeeping the identity sweeper rewrites on every pass: it garbage-collects
+# completed ops past retention and re-claims failing ones. Excluded from the drain
+# counter because that activity never stops, and any saga step that changes person
+# state also lands in the person, distinct id or override tables.
+LIFECYCLE_OP_TABLES = [
     "lifecycle_op",
     "lifecycle_op_person",
     "lifecycle_op_tmp",
     "lifecycle_op_person_tmp",
+]
+PERSONHOG_STATE_TABLES = [
+    "personhog_person_tmp",
+    "personhog_persondistinctid_tmp",
+    "personhog_featureflaghashkeyoverride_tmp",
+    *LIFECYCLE_OP_TABLES,
     "person_pg_cleanup_queue",
     "person_tombstone_publish_queue",
 ]
@@ -164,6 +171,30 @@ def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: 
     return deployment.status.ready_replicas or 0
 
 
+def wait_for_deployments(
+    deployments: Iterable[str],
+    is_settled: Callable[[str], bool],
+    *,
+    timeout_seconds: float,
+    poll_seconds: float = 10,
+    sleep: Callable[[float], None] = time.sleep,
+) -> set[str]:
+    """Poll each deployment until is_settled accepts it or the deadline passes.
+
+    Returns the deployments still pending at the deadline, so the caller
+    decides how to report them.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    pending = set(deployments)
+    while pending and time.monotonic() < deadline:
+        for deployment in sorted(pending):
+            if is_settled(deployment):
+                pending.discard(deployment)
+        if pending:
+            sleep(poll_seconds)
+    return pending
+
+
 def wait_for_quiescence(
     read_write_counter: Callable[[], int],
     *,
@@ -199,24 +230,20 @@ def wait_for_quiescence(
 
 
 def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
-    """Sum the whole database's tuple-write counters.
+    """Sum the database's tuple-write counters, minus the sweeper's bookkeeping tables.
 
     The shadow database serves only the lane, so a stable sum means every
     writer has drained; a table allowlist would silently go stale when the
-    lane gains a table. The connection must be in autocommit so each poll is
-    its own transaction and reads a fresh pg_stat snapshot instead of the
-    first transaction's cached one.
+    lane gains a table. LIFECYCLE_OP_TABLES are the one exception, because
+    the identity sweeper keeps them moving while the lane is stopped. The
+    connection must be in autocommit so each poll is its own transaction and
+    reads a fresh pg_stat snapshot instead of the first transaction's cached one.
     """
     with connection.cursor() as cursor:
-        # The identity service's lifecycle GC deletes completed lifecycle_op
-        # rows past retention on a timer, and it keeps running while the lane
-        # is scaled to zero. After a run longer than the retention window those
-        # deletes land every sweep, so counting them would never let the wait
-        # settle. They remove nothing the reset would otherwise keep.
         cursor.execute(
-            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
-            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
-            " FROM pg_stat_user_tables"
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes "
+            "FROM pg_stat_user_tables WHERE relname != ALL(%(excluded)s)",
+            {"excluded": LIFECYCLE_OP_TABLES},
         )
         return int(cursor.fetchone()["writes"])
 
@@ -306,21 +333,20 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
         context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
         scale_deployment(apps, config.namespace, deployment, replicas)
 
-    deadline = time.monotonic() + config.ready_timeout_seconds
-    pending = dict(targets)
-    while pending and time.monotonic() < deadline:
-        for deployment, replicas in list(pending.items()):
-            ready = deployment_ready_replicas(apps, config.namespace, deployment)
-            if ready >= replicas:
-                context.log.info(f"{deployment} is ready with {ready} replica(s)")
-                del pending[deployment]
-        if pending:
-            time.sleep(10)
+    wanted = dict(targets)
 
+    def is_ready(deployment: str) -> bool:
+        ready = deployment_ready_replicas(apps, config.namespace, deployment)
+        if ready < wanted[deployment]:
+            return False
+        context.log.info(f"{deployment} is ready with {ready} replica(s)")
+        return True
+
+    pending = wait_for_deployments(wanted, is_ready, timeout_seconds=config.ready_timeout_seconds)
     if pending:
         raise dagster.Failure(
             description=(
-                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(pending)}. "
+                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(sorted(pending))}. "
                 "The scale was applied; check the pods in the lane namespace."
             )
         )
