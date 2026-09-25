@@ -1,8 +1,9 @@
 import type { z } from 'zod'
 
+import { wrapError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
+import type { CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationSetActiveSchema
 
@@ -15,19 +16,22 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     params: Params
 ) => {
     const { orgId } = params
+    const orgResult = await context.api.organizations().get({ orgId })
+    if (!orgResult.success) {
+        throw wrapError(
+            `Could not switch to organization ${orgId}: it was not found or you don't have access. Use \`organizations-get\` to list available organizations.`,
+            orgResult.error
+        )
+    }
+
     await context.cache.set('orgId', orgId)
     // Record the switch on the MCP session so a pinned connection's resent pin
     // doesn't revert it on the next request.
     await context.setSessionActiveContext?.({ orgId })
 
-    // Fetch fresh org data and cache it
-    let org: CachedOrg | undefined
-    const orgResult = await context.api.organizations().get({ orgId })
-    if (orgResult.success) {
-        org = orgResult.data
-        await context.cache.set(`cachedOrg:${orgId}` as const, org)
-        await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
-    }
+    const org = orgResult.data
+    await context.cache.set(`cachedOrg:${orgId}` as const, org)
+    await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
 
     // Read cached project for full metadata block
     const projectId = (await context.cache.get('projectId')) ?? 'unknown'
