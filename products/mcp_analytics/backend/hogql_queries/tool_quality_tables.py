@@ -43,6 +43,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    CONVERSATION_ID_SQL,
     EFFECTIVE_TOOL_SQL,
     mcp_query_date_range,
     shared_filter_exprs,
@@ -219,7 +220,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
                     round(quantileIf(0.99)(duration_ms, is_current)) AS p99_duration_ms,
                     uniqIf(distinct_id, is_current) AS users,
-                    countDistinctIf(session_id, is_current AND session_id != '') AS sessions,
+                    uniqIf(session_id, is_current) AS sessions,
                     minIf(timestamp, is_current) AS first_seen,
                     maxIf(timestamp, is_current) AS last_seen
                 FROM (
@@ -228,7 +229,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                         timestamp >= {current_from} AS is_current,
                         toBool(properties.$mcp_is_error) AS is_error,
                         toFloat(properties.$mcp_duration_ms) AS duration_ms,
-                        toString(properties.$session_id) AS session_id,
+                        nullIf({conversation_id}, '') AS session_id,
                         distinct_id,
                         timestamp
                     FROM events
@@ -244,6 +245,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             placeholders={
                 "_EFFECTIVE_TOOL": parse_expr(EFFECTIVE_TOOL_SQL),
                 "current_from": current_range.date_from_as_hogql(),
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "_min_k": ast.Constant(value=_TREND_SCORE_MIN_K),
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
                 # Scans only the two windows, so every row outside the current one is a previous call.
@@ -279,11 +281,12 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         # Ignores category and search so that narrowing the table does not turn a tool's share into 100%.
         return parse_select(
             """
-            SELECT countDistinctIf(toString(properties.$session_id), toString(properties.$session_id) != '')
+            SELECT uniq(nullIf({conversation_id}, ''))
             FROM events
             WHERE {where}
             """,
             placeholders={
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": _named_tool_where(
                     _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
                     None,

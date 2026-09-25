@@ -46,6 +46,7 @@ def _emit(
     is_error: bool = False,
     duration_ms: float = 100,
     session_id: str = "s1",
+    mcp_session_id: str | None = None,
     distinct_id: str = "d1",
     timestamp: datetime | None = None,
 ) -> None:
@@ -56,6 +57,8 @@ def _emit(
         "$mcp_duration_ms": duration_ms,
         "$session_id": session_id,
     }
+    if mcp_session_id is not None:
+        properties["$mcp_session_id"] = mcp_session_id
     if category is not None:
         properties["$mcp_tool_category"] = category
     if exec_tool_name is not None:
@@ -239,6 +242,15 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
 
         assert [(row.tool, row.sessions) for row in response.results] == [("query_run", 1)]
         assert response.totalSessions == 2
+
+    def test_sessions_count_the_mcp_session_id_when_there_is_no_posthog_session(self) -> None:
+        _emit(self.team, tool_name="query_run", session_id="", mcp_session_id="conv_1")
+        _emit(self.team, tool_name="query_run", session_id="", mcp_session_id="conv_2")
+        flush_persons_and_events()
+
+        response = self._run()
+
+        assert (response.results[0].sessions, response.totalSessions) == (2, 2)
 
     def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
         now = datetime.now(tz=UTC)

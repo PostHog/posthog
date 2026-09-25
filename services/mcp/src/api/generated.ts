@@ -53183,7 +53183,7 @@ export namespace Schemas {
       p50_duration_ms: number;
       p95_duration_ms: number;
       p99_duration_ms: number;
-      /** Calls in the equal-length period immediately before the selected window. */
+      /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
       previous_calls: number;
       sessions: number;
       tool: string;

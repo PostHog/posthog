@@ -3735,7 +3735,7 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
-    /** Calls in the equal-length period immediately before the selected window. */
+    /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
     previous_calls: integer
     errors: integer
     error_rate_pct: number

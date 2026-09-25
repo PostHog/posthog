@@ -6075,7 +6075,11 @@ class MCPToolQualityRowItem(BaseModel):
     p99_duration_ms: float
     previous_calls: int = Field(
         ...,
-        description=("Calls in the equal-length period immediately before the selected window."),
+        description=(
+            "Calls in the previous period: the same length of time right before the"
+            ' window, or for a to-date range ("This month") the same part of the'
+            " previous unit."
+        ),
     )
     sessions: int
     tool: str
