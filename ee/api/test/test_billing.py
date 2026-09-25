@@ -1558,6 +1558,7 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             response = self.client.get(path, {"start_date": "2025-01-01", "usage_types": '["logs_mb_in_period"]'})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_fetch.call_args[0][1]["usage_types"], '["logs_mb_in_period"]')
         self.assertIn("logs_mb_in_period", response.json()["detail"])
         self.assertNotIn("private-input", response.content.decode())
 
