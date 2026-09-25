@@ -851,6 +851,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
     if not runs or not runs[0].is_terminal:
         raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
     previous_run = runs[0]
+    free_trial_enabled = self_driving_free_trial_enabled(team)
     with transaction.atomic():
         current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)
         if (
@@ -868,6 +869,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             request.team_id,
             request.user_id,
             pipeline_rerun=True,
+            free_trial_enabled=free_trial_enabled,
             validated_data={
                 "mode": "background",
                 "run_source": "signal_report",

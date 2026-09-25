@@ -8081,6 +8081,7 @@ def run_task(
     validated_data: dict,
     warm_retry_token: str | None = None,
     pipeline_rerun: bool = False,
+    free_trial_enabled: bool | None = None,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -8140,6 +8141,7 @@ def run_task(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,
                 stage="task_run",
+                enabled=free_trial_enabled,
             )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also

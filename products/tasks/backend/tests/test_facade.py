@@ -2518,3 +2518,34 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         flag_mock.assert_not_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
+
+    def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+
+        with (
+            self._on_trial() as flag_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background"},
+                free_trial_enabled=False,
+            )
+        flag_mock.assert_not_called()
+        assert result is not None and result.error is None
+        self.assertTrue(task.runs.exists())

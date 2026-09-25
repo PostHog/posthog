@@ -7,6 +7,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.client import WorkflowExecutionStatus
@@ -30,11 +31,14 @@ from products.tasks.backend.facade.usage import task_run_usage_limited
 
 
 class Command(BaseCommand):
-    help = "Restart research for one completed signal report, then request a fresh implementation run if it remains actionable."
+    help = (
+        "Restart research for one signal report without a running workflow, then request implementation if actionable."
+    )
 
     researchable_statuses = frozenset(
         {
             SignalReport.Status.POTENTIAL,
+            SignalReport.Status.CANDIDATE,
             SignalReport.Status.PENDING_INPUT,
             SignalReport.Status.READY,
             SignalReport.Status.RESOLVED,
@@ -137,9 +141,13 @@ class Command(BaseCommand):
             previous_promoted_at = report.promoted_at
             previous_run_count = report.run_count
             update_fields = set()
-            if report.status not in {SignalReport.Status.POTENTIAL, SignalReport.Status.READY}:
+            if report.status == SignalReport.Status.CANDIDATE:
+                report.promoted_at = timezone.now()
+                update_fields.update({"promoted_at", "updated_at"})
+            elif report.status not in {SignalReport.Status.POTENTIAL, SignalReport.Status.READY}:
                 update_fields.update(report.transition_to(SignalReport.Status.POTENTIAL))
-            update_fields.update(report.transition_to(SignalReport.Status.CANDIDATE))
+            if report.status != SignalReport.Status.CANDIDATE:
+                update_fields.update(report.transition_to(SignalReport.Status.CANDIDATE))
             report.save(update_fields=update_fields)
             promoted_at = report.promoted_at
 

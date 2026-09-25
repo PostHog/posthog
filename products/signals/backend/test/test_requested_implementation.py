@@ -97,6 +97,9 @@ class TestRequestedImplementation(BaseTest):
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
+            patch(
+                "products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False
+            ) as free_trial_flag,
             patch.object(tasks_facade, "run_task", side_effect=fake_run_task) as run_task,
         ):
             new_run_id = start_requested_implementation(self.request())
@@ -106,6 +109,8 @@ class TestRequestedImplementation(BaseTest):
         assert self.report.implemented_at_run_count == 2
         assert run_task.call_count == 1
         assert run_task.call_args.kwargs["pipeline_rerun"] is True
+        assert run_task.call_args.kwargs["free_trial_enabled"] is False
+        free_trial_flag.assert_called_once()
         assert "Fix the updated checkout path" in run_task.call_args.kwargs["validated_data"]["pending_user_message"]
         assert SignalReportArtefact.objects.filter(
             team_id=self.team.id, report_id=self.report.id, type="task_run", content__contains=new_run_id

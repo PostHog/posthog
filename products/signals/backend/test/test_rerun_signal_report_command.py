@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -66,6 +68,7 @@ class TestRerunSignalReportCommand(BaseTest):
     @parameterized.expand(
         [
             ("ready", SignalReport.Status.READY),
+            ("candidate", SignalReport.Status.CANDIDATE),
             ("failed", SignalReport.Status.FAILED),
             ("pending_input", SignalReport.Status.PENDING_INPUT),
             ("resolved", SignalReport.Status.RESOLVED),
@@ -79,9 +82,12 @@ class TestRerunSignalReportCommand(BaseTest):
     ) -> None:
         self.report.status = status
         self.report.save(update_fields=["status"])
+        previous_promoted_at = self.report.promoted_at
         assert "Started research" in self.command(execute=True)
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.CANDIDATE
+        if status == SignalReport.Status.CANDIDATE:
+            assert self.report.promoted_at != previous_promoted_at
         start.assert_awaited_once()
         assert start.await_args is not None
         inputs = start.await_args.args[0]
@@ -100,14 +106,22 @@ class TestRerunSignalReportCommand(BaseTest):
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
 
-    @parameterized.expand([("ready", SignalReport.Status.READY), ("failed", SignalReport.Status.FAILED)])
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("failed", SignalReport.Status.FAILED),
+            ("candidate", SignalReport.Status.CANDIDATE),
+        ]
+    )
     @patch.object(Command, "_start_workflow", new_callable=AsyncMock, side_effect=RuntimeError("start failed"))
     @patch.object(Command, "_workflow_is_running", new_callable=AsyncMock, return_value=False)
     def test_failed_workflow_start_restores_original_status(
         self, _name: str, status: SignalReport.Status, _running: AsyncMock, _start: AsyncMock
     ) -> None:
         self.report.status = status
-        self.report.save(update_fields=["status"])
+        self.report.promoted_at = timezone.now() - timedelta(minutes=1)
+        self.report.save(update_fields=["status", "promoted_at"])
+        original_promoted_at = self.report.promoted_at
         try:
             self.command(execute=True)
         except CommandError as error:
@@ -116,3 +130,4 @@ class TestRerunSignalReportCommand(BaseTest):
             raise AssertionError("A failed workflow start appeared successful")
         self.report.refresh_from_db()
         assert self.report.status == status
+        assert self.report.promoted_at == original_promoted_at
