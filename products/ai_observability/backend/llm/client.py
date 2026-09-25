@@ -9,13 +9,13 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
 from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
+from products.ai_observability.backend.llm.system_one import SystemOneClient
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
     StreamChunk,
 )
-from products.ai_observability.backend.llm.typesafe import TypeSafeClient
 
 if TYPE_CHECKING:
     from products.ai_observability.backend.llm.config import ProviderConfig
@@ -83,21 +83,21 @@ class Client:
     def validate_key(cls, provider: str, api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an API key for a provider. Returns (state, error_message)."""
         if provider == "typesafe":
-            return TypeSafeClient.validate_key(api_key)
+            return SystemOneClient.validate_key(api_key, **kwargs)
         return _get_provider(provider).validate_key(api_key, **kwargs)
 
     @classmethod
     def list_models(cls, provider: str, api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available models for a provider."""
         if provider == "typesafe":
-            return [TypeSafeClient.MODEL]
+            return [kwargs.get("model", SystemOneClient.MODEL)]
         return _get_provider(provider).list_models(api_key, **kwargs)
 
     @classmethod
     def recommended_models(cls, provider: str) -> set[str]:
         """Return the set of curated/recommended model IDs for a provider."""
         if provider == "typesafe":
-            return {TypeSafeClient.MODEL}
+            return {SystemOneClient.MODEL}
         return _get_provider(provider).recommended_models()
 
 

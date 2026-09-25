@@ -49,7 +49,11 @@ from products.ai_observability.backend.llm import (
     get_playground_models,
 )
 from products.ai_observability.backend.llm.errors import UnsupportedProviderError
-from products.ai_observability.backend.models.provider_keys import LLMProviderKey, llm_completion_provider_choices
+from products.ai_observability.backend.models.provider_keys import (
+    LLMProvider,
+    LLMProviderKey,
+    llm_completion_provider_choices,
+)
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
@@ -63,7 +67,7 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
 
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
-    "typesafe": "TypeSafe",
+    "typesafe": "System One (Jev)",
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
@@ -190,7 +194,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             raise ValueError("Provider key not found")
 
         api_key = key.encrypted_config.get("api_key")
-        if not api_key:
+        if not api_key and key.provider != LLMProvider.TYPESAFE:
             raise ValueError("No API key configured for this provider key")
 
         if touch_last_used:

@@ -22,7 +22,7 @@ class LLMProvider(models.TextChoices):
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
-    TYPESAFE = "typesafe", "TypeSafe"
+    TYPESAFE = "typesafe", "System One (Jev)"
 
 
 def llm_provider_choices() -> list[tuple[str, str | Promise]]:
@@ -67,6 +67,10 @@ class LLMProviderKey(UUIDTModel):
         extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``). Most
         providers return an empty dict.
         """
+        if self.provider == LLMProvider.TYPESAFE:
+            return {
+                field: self.encrypted_config[field] for field in ("base_url", "model") if field in self.encrypted_config
+            }
         if self.provider == LLMProvider.AZURE_OPENAI:
             return {
                 "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),

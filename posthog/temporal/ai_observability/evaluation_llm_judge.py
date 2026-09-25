@@ -46,8 +46,8 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.system_one import SystemOneClient, SystemOneRateLimitError
 from products.ai_observability.backend.llm.types import CompletionResponse, Usage
-from products.ai_observability.backend.llm.typesafe import TypeSafeClient, TypeSafeRateLimitError
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
@@ -343,15 +343,18 @@ def call_llm_judge(
         if provider == "typesafe":
             if provider_key is not None and provider_key.provider != provider:
                 raise ProviderMismatchError(provider_key.provider, provider)
-            typesafe_result = TypeSafeClient.evaluate_boolean(
+            system_one_result = SystemOneClient.evaluate_boolean(
                 api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
+                base_url=provider_key.encrypted_config.get("base_url", SystemOneClient.BASE_URL)
+                if provider_key
+                else SystemOneClient.BASE_URL,
                 model=model,
                 prompt=evaluation["evaluation_config"]["prompt"],
                 source=user_prompt,
                 allows_na=allows_na,
             )
-            probability = typesafe_result.answers["verdict"].noul
-            applicable = not allows_na or typesafe_result.answers["applicable"].noul >= 0.5
+            probability = system_one_result.answers["verdict"].noul
+            applicable = not allows_na or system_one_result.answers["applicable"].noul >= 0.5
             parsed: BooleanEvalResult | BooleanWithNAEvalResult = (
                 BooleanWithNAEvalResult(
                     reasoning="", applicable=applicable, verdict=probability >= 0.5 if applicable else None
@@ -359,15 +362,15 @@ def call_llm_judge(
                 if allows_na
                 else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
             )
-            model = typesafe_result.model
+            model = system_one_result.model
             response = CompletionResponse(
                 content="",
                 model=model,
                 parsed=parsed,
                 usage=Usage(
-                    input_tokens=typesafe_result.usage.input_tokens,
-                    output_tokens=typesafe_result.usage.output_tokens,
-                    total_tokens=typesafe_result.usage.input_tokens + typesafe_result.usage.output_tokens,
+                    input_tokens=system_one_result.usage.input_tokens,
+                    output_tokens=system_one_result.usage.output_tokens,
+                    total_tokens=system_one_result.usage.input_tokens + system_one_result.usage.output_tokens,
                 ),
             )
         else:
@@ -380,7 +383,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except TypeSafeRateLimitError as e:
+    except SystemOneRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(
             str(e),

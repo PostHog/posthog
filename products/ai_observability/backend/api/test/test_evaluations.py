@@ -57,13 +57,11 @@ class TestModelConfigurationSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_key", "jev-1.13.0", None, False),
-            ("unsupported_model", "other-model", str(uuid4()), False),
+            ("custom_model", "other-model", str(uuid4()), True),
             ("configured", "jev-1.13.0", str(uuid4()), True),
         ]
     )
-    def test_typesafe_requires_supported_model_and_explicit_key(
-        self, _name: str, model: str, key_id: str | None, valid: bool
-    ) -> None:
+    def test_system_one_requires_explicit_key(self, _name: str, model: str, key_id: str | None, valid: bool) -> None:
         serializer = ModelConfigurationSerializer(
             data={"provider": "typesafe", "model": model, "provider_key_id": key_id}
         )

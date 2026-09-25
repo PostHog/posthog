@@ -5,13 +5,15 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LLMProviderEnumApi } from '../generated/api.schemas'
+import type { LLMProviderEnumApi, LLMProviderKeyApi } from '../generated/api.schemas'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
 export type LLMProvider = LLMProviderEnumApi
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
+export const DEFAULT_SYSTEM_ONE_BASE_URL: string = 'https://api.typesafe.ai/v1'
+export const DEFAULT_SYSTEM_ONE_MODEL: string = 'jev-1.13.0'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -23,7 +25,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     together_ai: 'Together AI',
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
-    typesafe: 'TypeSafe',
+    typesafe: 'System One (Jev)',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -57,6 +59,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
 
     const normalized = provider.trim().toLowerCase()
+    if (normalized === 'system one (jev)') {
+        return 'typesafe'
+    }
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'
     }
@@ -76,7 +81,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
 
-export interface LLMProviderKey {
+export interface LLMProviderKey extends Partial<
+    Pick<LLMProviderKeyApi, 'base_url_display' | 'system_one_model_display'>
+> {
     id: string
     provider: LLMProvider
     name: string
@@ -138,7 +145,7 @@ export interface EvaluationConfig {
     updated_at: string
 }
 
-export interface CreateLLMProviderKeyPayload {
+export interface CreateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     provider: LLMProvider
     name: string
     api_key: string
@@ -147,7 +154,7 @@ export interface CreateLLMProviderKeyPayload {
     api_version?: string
 }
 
-export interface UpdateLLMProviderKeyPayload {
+export interface UpdateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     name?: string
     api_key?: string
     azure_endpoint?: string
@@ -194,6 +201,8 @@ export interface llmProviderKeysLogicValues {
     providerKeys: LLMProviderKey[]
     providerKeysLoading: boolean
     requiresProviderKey: boolean
+    systemOneBaseUrl: string
+    systemOneModel: string
     validatingKeyId: string | null
 }
 
@@ -350,6 +359,12 @@ export interface llmProviderKeysLogicActions {
     setNewKeyModalOpen: (open: boolean) => {
         open: boolean
     }
+    setSystemOneBaseUrl: (baseUrl: string) => {
+        baseUrl: string
+    }
+    setSystemOneModel: (model: string) => {
+        model: string
+    }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
         payload: UpdateLLMProviderKeyPayload
@@ -416,6 +431,8 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'ai_observability', 'settings', 'llmProviderKeysLogic']),
 
     actions({
+        setSystemOneBaseUrl: (baseUrl: string) => ({ baseUrl }),
+        setSystemOneModel: (model: string) => ({ model }),
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
@@ -424,6 +441,22 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     }),
 
     reducers({
+        systemOneBaseUrl: [
+            DEFAULT_SYSTEM_ONE_BASE_URL,
+            {
+                setSystemOneBaseUrl: (_, { baseUrl }) => baseUrl,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_BASE_URL,
+                setEditingKey: (_, { key }) => key?.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL,
+            },
+        ],
+        systemOneModel: [
+            DEFAULT_SYSTEM_ONE_MODEL,
+            {
+                setSystemOneModel: (_, { model }) => model,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_MODEL,
+                setEditingKey: (_, { key }) => key?.system_one_model_display ?? DEFAULT_SYSTEM_ONE_MODEL,
+            },
+        ],
         newKeyModalOpen: [
             false,
             {

@@ -34,12 +34,22 @@ They sample the combined input, tool definitions, and output only when that text
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
-## Jev boolean judge
+## System One boolean judges
 
-Jev is available under the existing LLM judge option with a customer-provided TypeSafe API key.
-Select the key and `jev-1.13.0` on each evaluation; TypeSafe keys cannot become the shared active provider key used by other AI features.
+System One-compatible models are available under the existing LLM judge option.
+Add a connection under **System One (Jev)** in provider key settings.
+The default endpoint is TypeSafe's `https://api.typesafe.ai/v1`, with model `jev-1.13.0` and a TypeSafe API key.
+Advanced configuration accepts a different public HTTPS base URL and model ID for compatible services.
+The client appends `/systemone` to the base URL and sends the API key as a bearer token.
+An empty key selects no authentication for a custom endpoint; TypeSafe requires a key.
+Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
+Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
+Saving a connection validates it with a short synthetic input and two Noul questions, including applicability, without sending evaluation data.
+Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
-Jev supports boolean evaluations only and uses the same formatted text for generation, trace, and session targets.
+This integration supports boolean evaluations only and uses the same formatted text for generation, trace, and session targets.
+API compatibility does not guarantee equivalent judgments or calibration across models.
+Compare results on representative inputs when changing models.
 
 The evaluation prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
@@ -48,7 +58,7 @@ Uncertainty alone does not produce N/A.
 The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
 Jev provides no written reasoning, so reports inspect the original source when explaining outcomes.
 
-TypeSafe rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
+Rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
 If retries fail, the run fails and the evaluation stays enabled.
 Invalid probabilities or missing answers fail the evaluation rather than producing a false result.
 Inputs rejected for exceeding the model's context window are skipped.

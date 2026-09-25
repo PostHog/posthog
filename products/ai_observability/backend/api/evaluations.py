@@ -43,7 +43,6 @@ from products.access_control.backend.presentation.access_control import (
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
-from ..llm.typesafe import TypeSafeClient
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -253,10 +252,10 @@ class ModelConfigurationSerializer(serializers.Serializer):
         if errors:
             raise serializers.ValidationError(errors, code="required")
         if data["provider"] == LLMProvider.TYPESAFE:
-            if data["model"] != TypeSafeClient.MODEL:
-                raise serializers.ValidationError({"model": "Select a supported Jev model."})
             if not data.get("provider_key_id"):
-                raise serializers.ValidationError({"provider_key_id": "Select a TypeSafe API key for this evaluation."})
+                raise serializers.ValidationError(
+                    {"provider_key_id": "Select a System One connection for this evaluation."}
+                )
         return data
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:

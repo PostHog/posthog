@@ -85,14 +85,31 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
 
 
 @pytest.mark.parametrize(
+    "connection_config,base_url,model",
+    [
+        ({"api_key": "test-typesafe-key"}, "https://api.typesafe.ai/v1", "jev-1.13.0"),
+        (
+            {"api_key": "", "base_url": "https://decisions.example.com/v1"},
+            "https://decisions.example.com/v1",
+            "custom-model",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
     "probability,applicability,allows_na,verdict",
     [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
 )
 def test_typesafe_judge_emits_boolean_probability_without_reasoning(
-    probability: float, applicability: float, allows_na: bool, verdict: bool | None
+    probability: float,
+    applicability: float,
+    allows_na: bool,
+    verdict: bool | None,
+    connection_config: dict[str, str],
+    base_url: str,
+    model: str,
 ) -> None:
-    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
-    resolved = MagicMock(provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True)
+    key = MagicMock(provider="typesafe", encrypted_config=connection_config)
+    resolved = MagicMock(provider="typesafe", model=model, provider_key=key, is_byok=True)
     response = MagicMock(status_code=200)
     response.json.return_value = {
         "model": "jev-1.13.0",
@@ -110,7 +127,7 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     }
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("requests.request", return_value=response),
+        patch("products.ai_observability.backend.llm.system_one.pinned_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
@@ -120,6 +137,8 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
             allows_na=allows_na,
         )
 
+    assert request.call_args.args[1] == f"{base_url}/systemone"
+    assert request.call_args.kwargs["json"]["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result["probability"] == probability
@@ -136,7 +155,10 @@ def test_typesafe_rate_limit_retries_without_disabling_the_evaluation() -> None:
     key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("requests.request", return_value=MagicMock(status_code=429, headers={"Retry-After": "15"})),
+        patch(
+            "products.ai_observability.backend.llm.system_one.pinned_request",
+            return_value=MagicMock(status_code=429, headers={"Retry-After": "15"}),
+        ),
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(

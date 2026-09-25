@@ -36259,7 +36259,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
-     * * `typesafe` - TypeSafe
+     * * `typesafe` - System One (Jev)
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -36477,6 +36477,23 @@ export namespace Schemas {
       readonly error_message: string | null;
       api_key?: string;
       readonly api_key_masked: string;
+      /** System One API base URL, including /v1. Defaults to TypeSafe. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint. Defaults to jev-1.13.0.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured System One base URL.
+         * @nullable
+         */
+      readonly base_url_display: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
@@ -70055,6 +70072,23 @@ export namespace Schemas {
       readonly error_message?: string | null;
       api_key?: string;
       readonly api_key_masked?: string;
+      /** System One API base URL, including /v1. Defaults to TypeSafe. */
+      base_url?: string;
+      /**
+         * Model ID served by the System One endpoint. Defaults to jev-1.13.0.
+         * @maxLength 100
+         */
+      system_one_model?: string;
+      /**
+         * Configured System One base URL.
+         * @nullable
+         */
+      readonly base_url_display?: string | null;
+      /**
+         * Configured System One model ID.
+         * @nullable
+         */
+      readonly system_one_model_display?: string | null;
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**

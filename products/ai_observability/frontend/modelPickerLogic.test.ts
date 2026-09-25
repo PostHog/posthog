@@ -45,39 +45,42 @@ describe('modelPickerLogic', () => {
     })
 
     describe('loadByokModels', () => {
-        it('offers Jev only to evaluation model pickers', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'key-typesafe', provider: 'typesafe', name: 'TypeSafe', state: 'ok' }],
+        it.each(['jev-1.13.0', 'custom-model'])(
+            'offers System One model %s only to evaluation model pickers',
+            async (model) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                            results: [{ id: 'key-typesafe', provider: 'typesafe', name: 'TypeSafe', state: 'ok' }],
+                        },
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                        '/api/llm_proxy/models/': ({ request }) =>
+                            new URL(request.url).searchParams.get('provider_key_id')
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One (Jev)',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
-                    '/api/llm_proxy/models/': ({ request }) =>
-                        new URL(request.url).searchParams.get('provider_key_id')
-                            ? [
-                                  200,
-                                  [
-                                      {
-                                          id: 'jev-1.13.0',
-                                          name: 'jev-1.13.0',
-                                          provider: 'TypeSafe',
-                                          is_recommended: true,
-                                      },
-                                  ],
-                              ]
-                            : [200, []],
-                },
-            })
-            logic = modelPickerLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
+                })
+                logic = modelPickerLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.evaluationProviderModelGroups[0].models[0].id).toBe('jev-1.13.0')
-            expect(logic.values.providerModelGroups).toEqual([])
-            expect(logic.values.generativeByokModels).toEqual([])
-            expect(logic.values.hasByokKeys).toBe(false)
-            expect(logic.values.evaluationModelNotice).toBeNull()
-        })
+                expect(logic.values.evaluationProviderModelGroups[0].models[0].id).toBe(model)
+                expect(logic.values.providerModelGroups).toEqual([])
+                expect(logic.values.generativeByokModels).toEqual([])
+                expect(logic.values.hasByokKeys).toBe(false)
+                expect(logic.values.evaluationModelNotice).toBeNull()
+            }
+        )
 
         it('should load and attach providerKeyId to models from valid keys', async () => {
             useMocks({

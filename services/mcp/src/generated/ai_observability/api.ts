@@ -743,7 +743,7 @@ export const EvaluationsCreateBody = () => zod
                                 'typesafe',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - TypeSafe'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One (Jev)'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -970,7 +970,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                                 'typesafe',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - TypeSafe'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One (Jev)'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod

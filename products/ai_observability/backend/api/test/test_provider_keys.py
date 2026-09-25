@@ -17,7 +17,9 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
 from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
 from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
+from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
+from products.ai_observability.backend.llm.system_one import SystemOneClient
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
@@ -53,6 +55,12 @@ class TestProviderKeySerializer(SimpleTestCase):
         )
         self.assertFalse(serializer.is_valid())
         self.assertIn("set_as_active", serializer.errors)
+
+    @parameterized.expand([("https://decisions.example.com/v1", False), (SystemOneClient.BASE_URL, True)])
+    def test_endpoint_change_requires_explicit_credentials(self, base_url: str, valid: bool) -> None:
+        key = LLMProviderKey(provider="typesafe", encrypted_config={"api_key": "example-token"})
+        serializer = LLMProviderKeySerializer(key, data={"base_url": base_url}, partial=True)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
 
 def _setup_team():
@@ -140,7 +148,62 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         self.assertEqual(response.data["api_key_masked"], "sk-t...2345")
         self.assertNotIn("api_key", response.data)
-        mock_validate.assert_called_once_with(provider, "sk-test-key-12345")
+        expected_config = (
+            {"base_url": SystemOneClient.BASE_URL, "model": SystemOneClient.MODEL} if provider == "typesafe" else {}
+        )
+        mock_validate.assert_called_once_with(provider, "sk-test-key-12345", **expected_config)
+
+    @patch("products.ai_observability.backend.llm.system_one.pinned_request")
+    def test_custom_system_one_connection_round_trip(self, request: Mock) -> None:
+        request.return_value = Mock(status_code=200)
+        request.return_value.json.return_value = {
+            "model": "custom-model",
+            "answers": {"verdict": {"type": "noul", "noul": 1.0}, "applicable": {"type": "noul", "noul": 1.0}},
+            "usage": {"input_tokens": 12, "output_tokens": 0},
+        }
+        url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"
+        response = self.client.post(
+            url,
+            {
+                "provider": "typesafe",
+                "name": "Custom",
+                "api_key": "",
+                "base_url": "https://decisions.example.com/v1/",
+                "system_one_model": "custom-model",
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["base_url_display"], "https://decisions.example.com/v1")
+        key = LLMProviderKey.objects.get(id=response.data["id"])
+        self.assertEqual(Client.list_models("typesafe", **key.provider_extra_kwargs()), ["custom-model"])
+        model_config = LLMModelConfiguration(provider="typesafe", model="custom-model", provider_key=key)
+        self.assertEqual(model_config.get_available_models(), ["custom-model"])
+        self.assertEqual(request.call_args.kwargs["headers"], {})
+        request.reset_mock()
+        response = self.client.patch(f"{url}{key.id}/", {"base_url": "https://other.example.com/v1"})
+        self.assertEqual(response.status_code, 400)
+        request.assert_not_called()
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
+        request.return_value.status_code = 401
+        response = self.client.patch(
+            f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
+        )
+        self.assertEqual(response.status_code, 400)
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
+        self.assertEqual(key.encrypted_config["api_key"], "")
+        request.return_value.status_code = 200
+        response = self.client.patch(
+            f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        key.refresh_from_db()
+        self.assertEqual(key.encrypted_config["base_url"], "https://other.example.com/v1")
+        self.assertEqual(request.call_args.kwargs["headers"], {"Authorization": "Bearer fake-token"})
+        response = self.client.post(f"{url}{key.id}/validate/")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(request.call_args.args[1], "https://other.example.com/v1/systemone")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_provider_key_with_set_as_active(self, mock_validate):
