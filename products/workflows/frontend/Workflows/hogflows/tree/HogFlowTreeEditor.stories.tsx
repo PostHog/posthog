@@ -41,7 +41,7 @@ const COMPLEX_WORKFLOW: HogFlow = {
             actions: [],
         },
     },
-    conversion: { window_minutes: 10080, filters: [] },
+    conversion: { window: '7d', filters: [] },
     exit_condition: 'exit_only_at_end',
     variables: [
         { key: 'account_stage', type: 'string', label: 'Account stage', default: 'new' },
