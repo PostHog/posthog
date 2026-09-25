@@ -304,6 +304,7 @@ export function InsightsTable({
                             item={item}
                             formatItemBreakdownLabel={formatItemBreakdownLabel}
                             breakdownFilter={breakdownFilter}
+                            multipleBreakdownIndex={index}
                         />
                     )
                 },

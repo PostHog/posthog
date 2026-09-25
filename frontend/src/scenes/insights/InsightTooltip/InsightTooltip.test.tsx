@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -26,7 +28,7 @@ function renderTooltip(seriesData: SeriesDatum[], breakdownFilter: BreakdownFilt
     return container
 }
 
-describe('InsightTooltip column layout', () => {
+describe('InsightTooltip', () => {
     beforeEach(() => {
         initKeaTests()
     })
@@ -85,5 +87,41 @@ describe('InsightTooltip column layout', () => {
         expect(container.textContent).toContain('10')
         expect(container.textContent).toContain('20')
         expect(container.textContent).toContain('5')
+    })
+
+    // Regression: the footnote kept the first explanation across all rows, so a breakdown on two
+    // properties named one property while another row on screen lacked the other property.
+    it('explains every property that a breakdown row has no value for', () => {
+        const multipleBreakdown: BreakdownFilter = {
+            breakdowns: [
+                { type: 'event', property: '$browser' },
+                { type: 'event', property: '$pathname' },
+            ],
+        }
+        const seriesData: SeriesDatum[] = [
+            {
+                id: 0,
+                dataIndex: 0,
+                datasetIndex: 0,
+                order: 0,
+                breakdown_value: [BREAKDOWN_NULL_STRING_LABEL, '/pricing'],
+                label: 'A',
+                count: 10,
+            },
+            {
+                id: 1,
+                dataIndex: 0,
+                datasetIndex: 1,
+                order: 0,
+                breakdown_value: ['Chrome', BREAKDOWN_NULL_STRING_LABEL],
+                label: 'B',
+                count: 4,
+            },
+        ]
+
+        const container = renderTooltip(seriesData, multipleBreakdown)
+
+        expect(container.textContent).toContain('No value for the event property Browser.')
+        expect(container.textContent).toContain('No value for the event property Path name.')
     })
 })
