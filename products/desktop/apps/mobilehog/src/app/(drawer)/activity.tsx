@@ -138,11 +138,25 @@ export default function ActivityScreen() {
           <Pressable
             accessibilityRole="button"
             disabled={markRead.isPending}
-            onPress={() => markRead.mutate(unreadItems)}
+            onPress={() =>
+              Alert.alert(
+                "Mark activity as read?",
+                `This marks ${unreadItems.length} loaded update${unreadItems.length === 1 ? "" : "s"} as read. New updates will stay unread.`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Mark as read",
+                    onPress: () => markRead.mutate(unreadItems),
+                  },
+                ],
+              )
+            }
             style={styles.readAction}
           >
             <Text style={styles.actionText}>
-              {markRead.isPending ? "Saving" : "Mark as read"}
+              {markRead.isPending
+                ? "Marking as read"
+                : `✓ Mark ${unreadItems.length} update${unreadItems.length === 1 ? "" : "s"} as read`}
             </Text>
           </Pressable>
         ) : null}

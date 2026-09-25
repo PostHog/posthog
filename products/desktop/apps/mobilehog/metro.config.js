@@ -4,6 +4,9 @@ const path = require("node:path");
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
 
+// Expo 57 loses shared chunks when it exports a DOM component. Keep its bundle together.
+process.env.EXPO_NO_BUNDLE_SPLITTING = "1";
+
 const config = getDefaultConfig(projectRoot);
 
 config.watchFolders = [monorepoRoot];

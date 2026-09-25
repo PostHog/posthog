@@ -6,7 +6,10 @@ const KEY = "mobilehog_prefs";
 
 export type AppearanceMode = "light" | "dark" | "system";
 
+export type ReportSort = "newest" | "oldest" | "priority" | "updated";
+
 interface Prefs {
+  reportSort: ReportSort;
   hedgehogMode: boolean;
   appearance: AppearanceMode;
 }
@@ -16,7 +19,11 @@ interface PrefsState extends Prefs {
   set: (patch: Partial<Prefs>) => Promise<void>;
 }
 
-const defaults: Prefs = { hedgehogMode: true, appearance: "system" };
+const defaults: Prefs = {
+  hedgehogMode: true,
+  appearance: "system",
+  reportSort: "newest",
+};
 
 function applyAppearance(mode: AppearanceMode): void {
   Appearance.setColorScheme(mode === "system" ? "unspecified" : mode);
@@ -37,11 +44,11 @@ export const usePrefs = create<PrefsState>((set, get) => ({
   },
   set: async (patch) => {
     set(patch);
-    const { hedgehogMode, appearance } = { ...get(), ...patch };
+    const { hedgehogMode, appearance, reportSort } = { ...get(), ...patch };
     applyAppearance(appearance);
     await SecureStore.setItemAsync(
       KEY,
-      JSON.stringify({ hedgehogMode, appearance }),
+      JSON.stringify({ hedgehogMode, appearance, reportSort }),
     );
   },
 }));

@@ -4,9 +4,18 @@ import {
   isSafeExternalUrl,
   unescapeXmlAttr,
 } from "@posthog/shared";
-import { type ColorValue, Linking, StyleSheet, Text, View } from "react-native";
+import {
+  type ColorValue,
+  Linking,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 import { ChatImage } from "@/components/ChatImage";
 import { InsightCard } from "@/components/InsightCard";
+import MermaidDiagram from "@/components/MermaidDiagram";
+import { artifactDownloadPath } from "@/lib/images";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -98,6 +107,7 @@ function parseBlocks(text: string): NodeType[] {
   let code: { lang: string; lines: string[] } | null = null;
   let paragraph: string[] = [];
   let ordinal = 0;
+  let objectBlock: { tag: string; lines: string[] } | null = null;
 
   const flush = (): void => {
     if (paragraph.length > 0) {
@@ -107,6 +117,17 @@ function parseBlocks(text: string): NodeType[] {
   };
 
   for (const line of lines) {
+    if (objectBlock) {
+      objectBlock.lines.push(line);
+      if (
+        line.includes(`</${objectBlock.tag}>`) ||
+        line.trimEnd().endsWith("/>")
+      ) {
+        nodes.push({ type: "paragraph", text: objectBlock.lines.join("\n") });
+        objectBlock = null;
+      }
+      continue;
+    }
     if (code) {
       if (line.trim().startsWith("```")) {
         nodes.push({ type: "code", ...code });
@@ -120,6 +141,16 @@ function parseBlocks(text: string): NodeType[] {
     if (fence) {
       flush();
       code = { lang: fence[1] ?? "", lines: [] };
+      continue;
+    }
+    const objectStart = /^\s*<(hogql|insight)\b/.exec(line);
+    if (
+      objectStart &&
+      !line.includes(`</${objectStart[1]}>`) &&
+      !line.trimEnd().endsWith("/>")
+    ) {
+      flush();
+      objectBlock = { tag: objectStart[1], lines: [line] };
       continue;
     }
     if (line.trim() === "") {
@@ -180,18 +211,27 @@ function RichText({ text, color }: { text: string; color: ColorValue }) {
             />,
           ];
         const parts = segment.value.split(
-          /(!\[[^\]]*\]\([^)]+\)|<file\s+path="[^"]+"\s*\/>)/g,
+          /(!?\[[^\]]*\]\([^)]+\)|<file\s+[^>]*\/>)/g,
         );
         return parts.filter(Boolean).map((part, partIndex) => {
           const key = `${index}-${partIndex}`;
-          const image = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
-          if (image)
+          const image = /^!?\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
+          if (
+            image &&
+            (part.startsWith("!") ||
+              isRasterImageFile(image[2].split("?")[0]) ||
+              artifactDownloadPath(image[2]))
+          )
             return (
               <ChatImage key={key} uri={image[2]} label={image[1] || "Image"} />
             );
-          const file = /^<file\s+path="([^"]+)"\s*\/>$/.exec(part);
+          const file = /^<file\s+[^>]*?path="([^"]+)"[^>]*\/>$/.exec(part);
           const path = file ? unescapeXmlAttr(file[1]) : null;
-          if (path && isRasterImageFile(path))
+          if (
+            path &&
+            (isRasterImageFile(path.split("?")[0]) ||
+              artifactDownloadPath(path))
+          )
             return (
               <ChatImage key={key} uri={path} label={path.split("/").pop()} />
             );
@@ -208,12 +248,44 @@ function RichText({ text, color }: { text: string; color: ColorValue }) {
 
 export function Markdown({ text, color = colors.ink }: MarkdownProps) {
   const nodes = parseBlocks(text);
+  const dark = useColorScheme() === "dark";
   return (
     <View style={styles.root}>
       {nodes.map((node, index) => {
         const key = `${index}-${node.type}`;
         switch (node.type) {
           case "code":
+            if (node.lang.toLowerCase() === "mermaid")
+              return (
+                <View key={key} style={styles.codeBlock}>
+                  <MermaidDiagram
+                    code={node.lines.join("\n")}
+                    dark={dark}
+                    dom={{
+                      useExpoDOMWebView: false,
+                      matchContents: true,
+                      scrollEnabled: false,
+                      style: { backgroundColor: "transparent", minHeight: 160 },
+                      allowUniversalAccessFromFileURLs: false,
+                      javaScriptCanOpenWindowsAutomatically: false,
+                      setSupportMultipleWindows: false,
+                      injectedJavaScriptBeforeContentLoaded: `(() => {
+                    const apply = () => {
+                      if (!document.head) return;
+                      const meta = document.createElement('meta');
+                      meta.httpEquiv = 'Content-Security-Policy';
+                      meta.content = "img-src data:; connect-src 'self'; font-src 'self' data:; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+                      document.head.append(meta);
+                      observer.disconnect();
+                    };
+                    const observer = new MutationObserver(apply);
+                    observer.observe(document.documentElement || document, { childList: true, subtree: true });
+                    apply();
+                  })(); true;`,
+                    }}
+                  />
+                </View>
+              );
             return (
               <View key={key} style={styles.codeBlock}>
                 {node.lang ? (

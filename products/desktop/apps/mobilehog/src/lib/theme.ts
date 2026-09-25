@@ -1,9 +1,14 @@
 import { colors as brand } from "@posthog/brand/colors";
-import { DynamicColorIOS } from "react-native";
+import { Appearance, DynamicColorIOS, Platform } from "react-native";
 
 // Every token resolves per trait collection, so static stylesheets follow the
 // scheme without re-rendering. Light is posthog.com's tan and ink; dark inverts.
-const dyn = (light: string, dark: string) => DynamicColorIOS({ light, dark });
+const dyn = (light: string, dark: string) =>
+  Platform.OS === "ios"
+    ? DynamicColorIOS({ light, dark })
+    : Appearance.getColorScheme() === "dark"
+      ? dark
+      : light;
 
 export const colors = {
   bg: dyn("#EEEFE9", "#151515"),

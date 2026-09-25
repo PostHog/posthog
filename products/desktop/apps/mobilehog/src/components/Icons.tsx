@@ -53,6 +53,43 @@ export function StopIcon({ color = colors.darkText }: { color?: ColorValue }) {
   return <View style={[styles.stop, { backgroundColor: color }]} />;
 }
 
+export function MicrophoneIcon() {
+  return (
+    <View style={{ width: 22, height: 24, alignItems: "center" }}>
+      <View
+        style={{
+          width: 8,
+          height: 14,
+          borderRadius: 4,
+          borderWidth: 2,
+          borderColor: colors.ink,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          top: 7,
+          width: 16,
+          height: 12,
+          borderWidth: 2,
+          borderTopWidth: 0,
+          borderBottomLeftRadius: 8,
+          borderBottomRightRadius: 8,
+          borderColor: colors.ink,
+        }}
+      />
+      <View
+        style={{
+          width: 2,
+          height: 5,
+          backgroundColor: colors.ink,
+          marginTop: 4,
+        }}
+      />
+    </View>
+  );
+}
+
 export function Logomark({ size = 56 }: { size?: number }) {
   return (
     <Image

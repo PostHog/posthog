@@ -103,13 +103,13 @@ Before sharing a build:
   Confirm that the task appears. Disconnect the network and check that refresh shows an error with Retry.
 - Tap the login button twice quickly.
   Only one login flow should start.
-- Open Self-driving inbox with reports for different suggested reviewers. Only your reports should appear, with P0 first.
+- Open Self-driving with reports for different suggested reviewers. Only your reports should appear, with P0 first.
   Open a report, mark loaded reports read, and confirm that the drawer indicator clears. Restart and check read state.
   Dismiss a report and confirm it leaves the project inbox. Disconnect the network and check that failed actions permit another attempt.
 - Open Activity with no items, then with only read items. Confirm that no mark-as-read action appears.
   Mark one unread item read, then mark the remaining visible items read. Confirm that the action disappears and the badge updates.
   Load older items. New activity that arrives during a read action must remain unread.
-- Open Self-driving inbox with no reports. Confirm that the empty state has no read or triage action and no report instructions.
+- Open Self-driving with no reports. Confirm that the empty state has no read or triage action and no report instructions.
   Disconnect the network and refresh. Confirm that the screen shows a request error with Retry, rather than a successful empty state.
 - Open a task with an uploaded image, a Markdown image, and a saved insight. Expand the images and read chart values.
   Reopen the task and check that stored attachments still load. Check an unavailable image and insight, then retry.
@@ -127,3 +127,22 @@ Before sharing a build:
 
 Native checks need an iOS simulator or a device.
 Type checks alone do not validate WebView messages, native appearance, or cloud login.
+
+## Rich content, dictation, and report controls
+
+- Sign out and sign in to grant insight access. Open a saved insight and a SQL chart with multiple lines.
+  Open a report with attached charts. Check loading, data, unavailable content, and Retry.
+- Open Mermaid flow and sequence diagrams in a stored conversation. Check light and dark appearance.
+  Check an invalid diagram and Show diagram source. Diagrams must not load external content or run links.
+- Open a cloud attachment after returning to an older task. Retry a failed image load and expand the image.
+- In Self-driving, check all four sort orders across two pages. Open a report directly from the list.
+  Start triage from the options menu. Mark loaded reports as read and confirm that unloaded reports do not change.
+- Check the compact and expanded composer with the keyboard open and closed.
+  Check a narrow iPhone screen, a long model name, photos, dictation, and a task that is still working.
+- Dictate into a new task and an existing reply. Stop manually, then repeat and wait for silence.
+  Check that each transcript appears once and stays editable before sending.
+  Deny permission, cancel dictation, leave the screen, and put the app in the background.
+  The microphone must stop, the existing text must remain, and the app must permit another attempt.
+
+Dictation needs a new native build. Existing sign-ins need renewed authorization for saved insights.
+The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup and feature limits.

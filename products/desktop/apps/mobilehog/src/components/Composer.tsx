@@ -13,12 +13,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Glass } from "@/components/Glass";
-import { ArrowUpIcon, StopIcon } from "@/components/Icons";
+import { ArrowUpIcon, MicrophoneIcon, StopIcon } from "@/components/Icons";
 import { useComposer } from "@/lib/composer";
 import { MAX_PHOTOS, type PendingPhoto, pickPhoto } from "@/lib/photos";
 import { useModels } from "@/lib/queries";
-import { colors, fonts, radius } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
+import { useDictation } from "@/lib/useDictation";
 
 interface ComposerProps {
   placeholder: string;
@@ -44,6 +44,14 @@ export function Composer({
 }: ComposerProps) {
   const router = useRouter();
   const [text, setText] = useState("");
+  const inputRef = useRef<TextInput>(null);
+  const [focused, setFocused] = useState(false);
+  const voice = useDictation((value) => {
+    setText(
+      (current) => `${current.trimEnd()}${current.trim() ? " " : ""}${value}`,
+    );
+  });
+  const dictating = voice.status !== "idle";
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -60,7 +68,8 @@ export function Composer({
     !sending &&
     !submitting &&
     !picking &&
-    !disabled;
+    !disabled &&
+    !dictating;
 
   const addPhoto = async (): Promise<void> => {
     if (picking || photos.length >= MAX_PHOTOS) return;
@@ -81,6 +90,7 @@ export function Composer({
     if (
       (!value && !photos.length) ||
       picking ||
+      dictating ||
       sending ||
       disabled ||
       submittingRef.current
@@ -103,8 +113,83 @@ export function Composer({
     }
   };
 
+  const expanded = focused || text.length > 0 || photos.length > 0 || dictating;
+  const photoButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Add photo"
+      onPress={() => void addPhoto()}
+      disabled={
+        picking ||
+        submitting ||
+        sending ||
+        disabled ||
+        dictating ||
+        photos.length >= MAX_PHOTOS
+      }
+      style={styles.iconButton}
+    >
+      {picking ? (
+        <ActivityIndicator size="small" color={colors.ink} />
+      ) : (
+        <Text style={styles.addText}>+</Text>
+      )}
+    </Pressable>
+  );
+  const voiceButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={dictating ? "Stop dictation" : "Dictate message"}
+      disabled={
+        disabled ||
+        submitting ||
+        sending ||
+        picking ||
+        voice.status === "starting" ||
+        voice.status === "stopping"
+      }
+      onPress={() =>
+        voice.status === "recording" ? voice.stop() : void voice.start()
+      }
+      style={styles.iconButton}
+    >
+      {voice.status === "starting" || voice.status === "stopping" ? (
+        <ActivityIndicator size="small" color={colors.accent} />
+      ) : dictating ? (
+        <StopIcon color={colors.accent} />
+      ) : (
+        <MicrophoneIcon />
+      )}
+    </Pressable>
+  );
+  const sendButton =
+    busy && onStop ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Stop task"
+        onPress={onStop}
+        style={styles.send}
+      >
+        <StopIcon />
+      </Pressable>
+    ) : (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Send message"
+        onPress={() => void submit()}
+        disabled={!canSend}
+        style={[styles.send, !canSend && styles.sendDisabled]}
+      >
+        {sending || submitting ? (
+          <ActivityIndicator size="small" color={colors.darkText} />
+        ) : (
+          <ArrowUpIcon />
+        )}
+      </Pressable>
+    );
+
   return (
-    <Glass style={styles.shell}>
+    <View style={styles.shell}>
       {photos.length > 0 ? (
         <View style={styles.photos}>
           {photos.map((photo) => (
@@ -127,100 +212,128 @@ export function Composer({
           ))}
         </View>
       ) : null}
-      <TextInput
-        value={text}
-        onChangeText={setText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.inkMute}
-        style={styles.input}
-        multiline
-        autoFocus={autoFocus}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.row}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Add photo"
-          onPress={() => void addPhoto()}
-          disabled={
-            picking || submitting || sending || photos.length >= MAX_PHOTOS
-          }
-          style={[
-            styles.addPhoto,
-            photos.length >= MAX_PHOTOS && styles.sendDisabled,
-          ]}
-        >
-          {picking ? (
-            <ActivityIndicator size="small" color={colors.ink} />
-          ) : (
-            <Text style={styles.addText}>+</Text>
-          )}
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/config")}
-          style={({ pressed }) => [styles.pill, pressed && { opacity: 0.6 }]}
-        >
-          <Text style={styles.pillText} numberOfLines={1}>
-            {found ? formatGatewayModelName(found) : model}
-            {effort ? <Text style={styles.pillMuted}> {effort}</Text> : null}
+      <View style={styles.inputRow}>
+        {!expanded ? photoButton : null}
+        <TextInput
+          ref={inputRef}
+          value={text}
+          onChangeText={setText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          accessibilityLabel={placeholder}
+          placeholderTextColor={colors.inkMute}
+          style={styles.input}
+          editable={!submitting && !sending && !disabled && !dictating}
+          multiline
+          autoFocus={autoFocus}
+        />
+        {!expanded ? (
+          <>
+            {voiceButton}
+            {sendButton}
+          </>
+        ) : null}
+      </View>
+      {dictating ? (
+        <View style={styles.dictation}>
+          <Text style={styles.dictationText}>
+            {voice.preview ||
+              (voice.status === "recording"
+                ? "Listening"
+                : voice.status === "stopping"
+                  ? "Finishing dictation"
+                  : "Starting microphone")}
           </Text>
-        </Pressable>
-        {repository !== undefined ? (
           <Pressable
-            onPress={() => router.push("/picker")}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel dictation"
+            onPress={voice.cancel}
+            style={styles.iconButton}
+          >
+            <Text style={styles.addText}>×</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {error || voice.error ? (
+        <Text style={styles.error}>{error || voice.error}</Text>
+      ) : null}
+      {expanded ? (
+        <View style={styles.row}>
+          {photoButton}
+          <Pressable
+            onPress={() => router.push("/config")}
+            accessibilityRole="button"
+            accessibilityLabel="Choose model"
             style={({ pressed }) => [
               styles.pill,
-              styles.pillWide,
+              styles.model,
               pressed && { opacity: 0.6 },
             ]}
           >
             <Text style={styles.pillText} numberOfLines={1}>
-              {repository
-                ? (repository.split("/")[1] ?? repository)
-                : "No repo"}
+              {found ? formatGatewayModelName(found) : model}
+              {effort ? <Text style={styles.pillMuted}> {effort}</Text> : null}
             </Text>
           </Pressable>
-        ) : null}
-        <View style={{ flex: 1 }} />
-        {busy && onStop ? (
-          <Pressable
-            onPress={onStop}
-            style={({ pressed }) => [styles.send, pressed && { opacity: 0.7 }]}
-          >
-            <StopIcon />
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={submit}
-            disabled={!canSend}
-            style={({ pressed }) => [
-              styles.send,
-              !canSend && styles.sendDisabled,
-              pressed && { opacity: 0.7 },
-            ]}
-          >
-            {sending || submitting ? (
-              <ActivityIndicator size="small" color={colors.darkText} />
-            ) : (
-              <ArrowUpIcon />
-            )}
-          </Pressable>
-        )}
-      </View>
-    </Glass>
+          {repository !== undefined ? (
+            <Pressable
+              onPress={() => router.push("/picker")}
+              style={({ pressed }) => [
+                styles.pill,
+                styles.pillWide,
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={styles.pillText} numberOfLines={1}>
+                {repository
+                  ? (repository.split("/")[1] ?? repository)
+                  : "No repo"}
+              </Text>
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1 }} />
+          {voiceButton}
+          {sendButton}
+        </View>
+      ) : null}
+      {!expanded && repository !== undefined ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose repository"
+          onPress={() => router.push("/picker")}
+          style={styles.pill}
+        >
+          <Text style={styles.pillText} numberOfLines={1}>
+            {repository ? repository.split("/").pop() : "Choose repository"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   shell: {
     borderRadius: 28,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    gap: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 4,
     overflow: "hidden",
   },
-  photos: { flexDirection: "row", gap: 10 },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: 2 },
+  model: { flexShrink: 1 },
+  dictation: { flexDirection: "row", alignItems: "center", paddingLeft: 8 },
+  dictationText: {
+    flex: 1,
+    color: colors.inkSoft,
+    fontFamily: fonts.sans,
+    fontSize: 15,
+  },
+  photos: { flexDirection: "row", gap: 10, padding: 8 },
   photo: { width: 56, height: 56 },
   thumbnail: { width: 56, height: 56, borderRadius: 10 },
   removePhoto: {
@@ -242,25 +355,22 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: colors.ink,
     maxHeight: 140,
-    paddingTop: 0,
+    flex: 1,
+    minHeight: 40,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
-  row: { flexDirection: "row", alignItems: "center", gap: 8 },
-  addPhoto: {
+  row: { flexDirection: "row", alignItems: "center", gap: 2 },
+  iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.fill,
     alignItems: "center",
     justifyContent: "center",
   },
   addText: { fontFamily: fonts.sansMedium, fontSize: 26, color: colors.ink },
-  pill: {
-    backgroundColor: colors.fill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-  },
-  pillWide: { maxWidth: 150 },
+  pill: { paddingHorizontal: 8, minHeight: 40, justifyContent: "center" },
+  pillWide: { maxWidth: 110, flexShrink: 1 },
   pillText: { fontFamily: fonts.sansMedium, fontSize: 13, color: colors.ink },
   pillMuted: { color: colors.inkMute },
   send: {

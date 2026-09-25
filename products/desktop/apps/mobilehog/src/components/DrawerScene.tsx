@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useDrawerProgress } from "expo-router/drawer";
 import type { ReactNode } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   interpolate,
@@ -11,7 +11,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
-import { Glass } from "@/components/Glass";
 import { useNavHistory } from "@/lib/history";
 import { colors, drawer } from "@/lib/theme";
 
@@ -23,9 +22,7 @@ function swipeNavigate(direction: "back" | "forward"): void {
   router.navigate(target as never);
 }
 
-// The chat surface is a frosted layer that slides over the menu: it dims and
-// rounds its corner while the drawer is open. Its shadow is painted by the
-// drawer (see DrawerEdgeShadow), because the native screen clips to bounds.
+// The drawer paints the shadow because the native screen clips to bounds.
 export function DrawerScene({ children }: { children: ReactNode }) {
   const progress = useDrawerProgress() as SharedValue<number>;
   const startX = useSharedValue(0);
@@ -33,8 +30,7 @@ export function DrawerScene({ children }: { children: ReactNode }) {
     opacity: interpolate(progress.value, [0, 1], [1, 0.82]),
     borderRadius: interpolate(progress.value, [0, 1], [0, drawer.sceneRadius]),
   }));
-  // Solid while closed so the drawer never ghosts through; fades out as the
-  // drawer opens to let the glass edge frost it.
+  // Fade the shared background with the scene when the drawer opens.
   const backing = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0, 1], [1, 0]),
   }));
@@ -60,9 +56,7 @@ export function DrawerScene({ children }: { children: ReactNode }) {
         <Animated.View
           style={[StyleSheet.absoluteFill, styles.backing, backing]}
         />
-        <Glass style={styles.scene} tint={colors.sceneTint}>
-          {children}
-        </Glass>
+        <View style={styles.scene}>{children}</View>
       </Animated.View>
     </GestureDetector>
   );
