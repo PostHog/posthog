@@ -6,7 +6,9 @@ from ee.hogai.tools.replay.empty_result_diagnosis import (
     SESSION_ID_DOCS_URL,
     EmptyResultCause,
     EventSessionLinkage,
+    SearchScope,
     describe,
+    describe_scope,
     diagnose,
 )
 
@@ -95,3 +97,29 @@ class TestEmptyResultDiagnosis(SimpleTestCase):
         guidance = describe(diagnose(_linkages(counts), match_any=False, recording_enabled=recording_enabled))
 
         self.assertIn("Do not offer a Replay Vision scanner", guidance)
+
+
+class TestEventlessSearchGuidance(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("test accounts excluded", True, None, "excluded test accounts", "-3d to now"),
+            ("test accounts included", False, "2025-01-20", "included test accounts", "-3d to 2025-01-20"),
+        ]
+    )
+    def test_guidance_names_the_range_and_the_test_account_setting(
+        self, _name: str, filter_test_accounts: bool, date_to: str | None, expected_accounts: str, expected_range: str
+    ) -> None:
+        scope = SearchScope(date_from="-3d", date_to=date_to, filter_test_accounts=filter_test_accounts)
+
+        guidance = describe_scope(scope, recording_enabled=True)
+
+        self.assertIn(expected_range, guidance)
+        self.assertIn(expected_accounts, guidance)
+        self.assertIn("Do not offer a Replay Vision scanner", guidance)
+
+    def test_disabled_replay_outranks_the_range(self) -> None:
+        scope = SearchScope(date_from="-3d", date_to=None, filter_test_accounts=True)
+
+        guidance = describe_scope(scope, recording_enabled=False)
+
+        self.assertIn("session replay is disabled", guidance)

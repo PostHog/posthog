@@ -10,6 +10,10 @@ from posthog.dataclasses import frozen
 
 UNLINKED_COVERAGE_THRESHOLD = 0.1
 SESSION_ID_DOCS_URL = "https://posthog.com/docs/data/sessions#server-sdks-and-sessions"
+RECORDING_DISABLED_GUIDANCE = (
+    "session replay is disabled for this project, so no recordings were captured. "
+    "Suggest enabling session replay in project settings. Do not offer a Replay Vision scanner."
+)
 
 
 class EmptyResultCause(StrEnum):
@@ -32,6 +36,15 @@ class EventSessionLinkage:
     @property
     def is_unlinked(self) -> bool:
         return self.total > 0 and self.coverage < UNLINKED_COVERAGE_THRESHOLD
+
+
+@frozen
+class SearchScope:
+    """The parts of an event-less search that decide whether any recording can match."""
+
+    date_from: str
+    date_to: str | None
+    filter_test_accounts: bool
 
 
 @frozen
@@ -89,14 +102,25 @@ def describe(diagnosis: EmptyResultDiagnosis) -> str:
         )
 
     if diagnosis.cause == EmptyResultCause.RECORDING_DISABLED:
-        return (
-            f"\n\nDiagnosis: {names} events exist and carry session ids, but session replay is disabled for this "
-            "project, so no recordings were captured. Suggest enabling session replay in project settings. "
-            "Do not offer a Replay Vision scanner."
-        )
+        return f"\n\nDiagnosis: {names} events exist and carry session ids, but {RECORDING_DISABLED_GUIDANCE}"
 
     return (
         f"\n\nDiagnosis: {names} events exist and are linked to recordings, so the cause is elsewhere: another "
         "filter, the replay sample rate or minimum duration, or retention. Suggest widening the date range or "
         "dropping a filter. Do not offer a Replay Vision scanner."
+    )
+
+
+def describe_scope(scope: SearchScope, *, recording_enabled: bool) -> str:
+    """Guidance for a search that named no event, so event linkage cannot be the cause."""
+    if not recording_enabled:
+        return f"\n\nDiagnosis: {RECORDING_DISABLED_GUIDANCE}"
+
+    accounts = "excluded test accounts" if scope.filter_test_accounts else "included test accounts"
+    return (
+        "\n\nDiagnosis: this search named no event, so only the date range and the remaining filters decide "
+        f"the result. It covered {scope.date_from} to {scope.date_to or 'now'} and {accounts}. The user did not "
+        "necessarily choose either, so name the date range and the filters the search used instead of reporting "
+        "a bare empty result. Say that no recording in that range matched, not that the behavior never happened. "
+        "Suggest widening the date range first, then dropping a filter. Do not offer a Replay Vision scanner."
     )
