@@ -25,9 +25,11 @@ from products.ml_inference.backend.facade.contracts import (
 )
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     GROUP_WORDS,
+    MAX_STATE_CHARS,
     PERSON_WORDS,
     ActorWords,
     InsightContext,
+    InsightTooLargeForSuggestions,
     humanize_date_range,
     math_reading,
     suggest_tags,
@@ -189,22 +191,53 @@ class TestMetadataSuggestionRanking(SimpleTestCase):
         assert "query" not in state["subject"]
         assert "Pageviews" not in sent.questions["title"].instructions
 
-    def test_paths_start_and_end_points_never_reach_the_model(self) -> None:
-        context = InsightContext(
-            query=_viz(
+    @parameterized.expand(
+        [
+            (
+                "paths_start_and_end_points",
+                {"kind": "PathsQuery", "pathsFilter": {"startPoint": "/users/secret", "endPoint": "/users/secret"}},
+            ),
+            (
+                "hogql_math_with_a_literal",
                 {
-                    "kind": "PathsQuery",
-                    "pathsFilter": {"startPoint": "/users/start-secret", "endPoint": "/users/end-secret"},
-                }
-            )
-        )
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "hogql",
+                            "math_hogql": "countIf(person.properties.email = 'secret@example.com')",
+                        }
+                    ],
+                },
+            ),
+            (
+                "formula_with_a_literal",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"formulaNodes": [{"formula": "if(A > 0, 'secret', 'none')"}]},
+                },
+            ),
+        ]
+    )
+    def test_typed_values_never_reach_the_model(self, _name: str, source: dict) -> None:
         with patch(DECIDE) as decide:
             decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
-            suggest_title(1, context)
+            suggest_title(1, InsightContext(query=_viz(source)))
 
-        sent = repr(_sent(decide))
-        assert "start-secret" not in sent
-        assert "end-secret" not in sent
+        assert "secret" not in repr(_sent(decide))
+
+    def test_state_stays_inside_the_model_window(self) -> None:
+        long_series = [{"kind": "EventsNode", "event": "$pageview", "custom_name": "x" * 1000} for _ in range(40)]
+        with patch(DECIDE) as decide:
+            decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
+            suggest_title(1, InsightContext(query=_trends(series=long_series)))
+        assert len(_sent(decide).state) <= MAX_STATE_CHARS
+
+        with patch(DECIDE) as decide, self.assertRaises(InsightTooLargeForSuggestions):
+            suggest_title(1, InsightContext(query=_trends(), description="y" * (MAX_STATE_CHARS + 1)))
+        decide.assert_not_called()
 
     def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
         context = InsightContext(

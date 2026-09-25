@@ -63,6 +63,11 @@ MAX_TAGS = 3 * MAX_QUESTIONS_PER_REQUEST
 MAX_TEXT_CANDIDATES = MAX_OPTIONS_PER_QUESTION
 # Insight.name holds at most this many characters, so a longer picked title would fail to save.
 MAX_TITLE_CHARS = 400
+# Each question is one row of the model's 8,192-token window, and the row repeats the state, so the
+# state stays near 4,000 tokens to leave room for the instructions and 16 title options.
+MAX_STATE_CHARS = 16_000
+MAX_SUMMARY_LINES = 30
+MAX_SUMMARY_LINE_CHARS = 200
 
 
 @frozen
@@ -75,6 +80,10 @@ class InsightContext:
     description: str = ""
     # Group type index to (singular, plural), so "unique users" becomes "unique organizations".
     group_type_names: GroupNames = field(default_factory=dict)
+
+
+class InsightTooLargeForSuggestions(ValueError):
+    """The insight's outline does not fit the model's window, so no call was made."""
 
 
 @frozen
@@ -290,7 +299,7 @@ def math_reading(item: object, label: str, actors: ActorWords = PERSON_WORDS) ->
         "actor": actors.singular,
         "actors": actors.plural,
         "prop": humanize_property(str(math_property)) if math_property else "value",
-        "hogql": str(getattr(item, "math_hogql", None) or "custom expression"),
+        "hogql": _shown_expression(getattr(item, "math_hogql", None)) or "custom expression",
     }
     title_base, summary, distinct, per_unit = row
     return MathReading(
@@ -413,7 +422,8 @@ def _read_formula(source: object, formula: str, custom_name: str | None, group_n
             elif operator == "*":
                 titles += [f"{sentence_case(x)} times {y}"]
     if not titles:
-        titles.append(f"Formula {formula}")
+        shown = _shown_expression(formula)
+        titles.append(f"Formula {shown}" if shown else "Custom formula")
     return FormulaReading(formula=formula, custom_name=custom_name, titles=tuple(titles))
 
 
@@ -602,6 +612,15 @@ _LOOKS_PERSONAL = re.compile(r"@|^[A-Za-z0-9+/=_-]{24,}$|^\+?\d[\d\s().-]{7,}$")
 _MAX_FILTER_VALUE_CHARS = 60
 
 
+def _shown_expression(expression: object) -> str | None:
+    """A HogQL expression or formula as it may appear in a title, or None when it must stay in PostHog.
+    A quoted literal is where a typed value such as an email lives, and a long expression makes a bad title."""
+    text = " ".join(str(expression or "").split())
+    if not text or len(text) > _MAX_FILTER_VALUE_CHARS or re.search(r"['\"`]", text) or _LOOKS_PERSONAL.search(text):
+        return None
+    return text
+
+
 def _filter_value_words(key: str, value: object) -> str | None:
     """A filter value as it may appear in a title, or None when it must stay in PostHog."""
     values = value if isinstance(value, list | tuple) else [value]
@@ -683,7 +702,10 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
         lines.append(line)
     for formula, custom_name in _formulas(source):
         reading = _read_formula(source, formula, custom_name, group_names)
-        lines.append(f"Formula: {formula}, which means {reading.titles[0].lower()}. Only the formula is plotted.")
+        lines.append(
+            f"Formula: {_shown_expression(formula) or 'a custom formula'}, which means {reading.titles[0].lower()}. "
+            "Only the formula is plotted."
+        )
     funnels_filter = getattr(source, "funnelsFilter", None)
     if funnels_filter is not None and getattr(funnels_filter, "funnelWindowInterval", None):
         unit = str(getattr(funnels_filter, "funnelWindowIntervalUnit", None) or "day").split(".")[-1].lower()
@@ -736,12 +758,22 @@ def _state(context: InsightContext, tags: Mapping[str, str] | None = None) -> st
         "subject": {
             "name": context.name,
             "description": context.description,
-            "summary": _query_summary(context.query, context.group_type_names),
+            "summary": [
+                _clip(line, MAX_SUMMARY_LINE_CHARS)
+                for line in _query_summary(context.query, context.group_type_names)[:MAX_SUMMARY_LINES]
+            ],
         }
     }
     if tags:
         state["tags"] = dict(tags)
-    return json.dumps(state, ensure_ascii=False)
+    serialized = json.dumps(state, ensure_ascii=False)
+    if len(serialized) > MAX_STATE_CHARS:
+        raise InsightTooLargeForSuggestions()
+    return serialized
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def suggest_title(team_id: int, context: InsightContext) -> TextSuggestion:

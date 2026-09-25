@@ -28,6 +28,7 @@ from products.product_analytics.backend.presentation.metadata_suggestions import
     MAX_TAGS,
     ActorWords,
     InsightContext,
+    InsightTooLargeForSuggestions,
     suggest_tags,
     suggest_title,
     suggestions_enabled,
@@ -207,6 +208,10 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return run()
         except (DecisionsDisabledError, GatewayNotConfiguredError) as error:
             raise PermissionDenied("Suggestions are not enabled for this project") from error
+        except InsightTooLargeForSuggestions as error:
+            raise ValidationError(
+                "This insight is too large for suggestions. Shorten its series names or filters."
+            ) from error
         except DecisionGatewayUnreachableError as error:
             raise MetadataSuggestionsBusy() from error
         except DecisionGatewayError as error:
