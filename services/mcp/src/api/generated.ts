@@ -20989,6 +20989,22 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface CohortUsedInEnvironment {
+      /** Environment (team) database ID */
+      id: number;
+      /** Environment display name */
+      name: string;
+    }
+
+    export interface CohortUsedInEnvironmentsBlock {
+      /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+      results: CohortUsedInEnvironment[];
+      /** Total number of environments using this cohort in their test account filters, before truncation */
+      total: number;
+      /** True when more environments exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
     export interface CohortUsedInFlag {
       /** Feature flag database ID */
       id: number;
@@ -20999,6 +21015,8 @@ export namespace Schemas {
          * @nullable
          */
       name: string | null;
+      /** True when the flag is enabled. Only active flags prevent the cohort from being deleted */
+      active: boolean;
     }
 
     export interface CohortUsedInFlagsBlock {
@@ -21035,6 +21053,8 @@ export namespace Schemas {
       insights: CohortUsedInInsightsBlock;
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
+      /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+      test_account_filters: CohortUsedInEnvironmentsBlock;
     }
 
     /**

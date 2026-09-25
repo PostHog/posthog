@@ -584,6 +584,8 @@ export interface CohortUsedInFlagApi {
      * @nullable
      */
     name: string | null
+    /** True when the flag is enabled. Only active flags prevent the cohort from being deleted */
+    active: boolean
 }
 
 export interface CohortUsedInFlagsBlockApi {
@@ -629,6 +631,22 @@ export interface CohortUsedInCohortsBlockApi {
     has_more: boolean
 }
 
+export interface CohortUsedInEnvironmentApi {
+    /** Environment (team) database ID */
+    id: number
+    /** Environment display name */
+    name: string
+}
+
+export interface CohortUsedInEnvironmentsBlockApi {
+    /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+    results: CohortUsedInEnvironmentApi[]
+    /** Total number of environments using this cohort in their test account filters, before truncation */
+    total: number
+    /** True when more environments exist beyond the truncation cap */
+    has_more: boolean
+}
+
 export interface CohortUsedInResponseApi {
     /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
     feature_flags: CohortUsedInFlagsBlockApi
@@ -636,6 +654,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+    test_account_filters: CohortUsedInEnvironmentsBlockApi
 }
 
 export type CohortsStaffListParams = {

@@ -14,7 +14,7 @@ import {
     IconUpload,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -32,6 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { pluralize } from 'lib/utils/strings'
 import { StaticCohortMode, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
@@ -51,7 +52,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
+import { ActivityScope, CohortType, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
@@ -60,7 +61,10 @@ import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
+import { cohortUsedInSections } from './cohortUsedIn'
+import { CohortUsedInList } from './CohortUsedInList'
 import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
+import { openDeleteCohortDialog } from './DeleteCohortDialog'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -78,45 +82,14 @@ interface UsedInSummaryProps {
 }
 
 function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps): JSX.Element | null {
-    const sections = [
-        {
-            title: 'Feature flags',
-            noun: 'feature flag',
-            block: usedIn.feature_flags,
-            items: usedIn.feature_flags.results.map((flag) => ({
-                key: `flag-${flag.id}`,
-                url: urls.featureFlag(flag.id),
-                label: flag.name || flag.key,
-            })),
-        },
-        {
-            title: 'Insights',
-            noun: 'insight',
-            block: usedIn.insights,
-            items: usedIn.insights.results.map((insight) => ({
-                key: `insight-${insight.id}`,
-                url: urls.insightView(insight.short_id as InsightShortId),
-                label: insight.name,
-            })),
-        },
-        {
-            title: 'Cohorts',
-            noun: 'cohort',
-            block: usedIn.cohorts,
-            items: usedIn.cohorts.results.map((c) => ({
-                key: `cohort-${c.id}`,
-                url: urls.cohort(c.id),
-                label: c.name,
-            })),
-        },
-    ].filter((section) => section.items.length > 0)
+    const sections = cohortUsedInSections(usedIn)
 
     if (sections.length === 0) {
         return null
     }
 
-    // `total` counts every use, while `results` stops at the API's truncation cap.
-    const counts = sections.map(({ block, noun }) => `${block.total} ${noun}${block.total === 1 ? '' : 's'}`)
+    // `total` counts every use, while the section's items stop at the API's truncation cap.
+    const counts = sections.map(({ total, noun }) => pluralize(total, noun))
     const summary = counts.length > 1 ? `${counts.slice(0, -1).join(', ')} and ${counts[counts.length - 1]}` : counts[0]
 
     return (
@@ -133,22 +106,8 @@ function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps
                 Used in {summary}
             </LemonButton>
             {isExpanded && (
-                <div className="max-h-60 overflow-y-auto flex flex-col gap-y-2 pl-2">
-                    {sections.map(({ title, block, items }) => (
-                        <div key={title}>
-                            <h5 className="text-xs font-semibold uppercase opacity-60 mb-0">
-                                {title}
-                                {block.has_more && ` (${block.results.length} of ${block.total} shown)`}
-                            </h5>
-                            <ul className="list-disc pl-4 mb-0">
-                                {items.map(({ key, url, label }) => (
-                                    <li key={key}>
-                                        <Link to={url}>{label}</Link>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ))}
+                <div className="max-h-60 overflow-y-auto pl-2">
+                    <CohortUsedInList sections={sections} />
                 </div>
             )}
         </div>
@@ -350,20 +309,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete cohort?',
-                                            description: `Are you sure you want to delete "${cohort.name}"?`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteCohort(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openDeleteCohortDialog({
+                                            cohortId: cohort.id,
+                                            cohortName: cohort.name,
+                                            onConfirm: () => deleteCohort(),
                                         })
                                     }}
                                     variant="danger"
