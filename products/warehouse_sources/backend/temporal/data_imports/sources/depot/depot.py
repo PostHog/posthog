@@ -22,8 +22,9 @@ JSONObject = dict[str, Any]
 DEPOT_CI_SERVICE_URL = "https://api.depot.dev/depot.ci.v1.CIService"
 REQUEST_TIMEOUT_SECONDS = 60
 # ListRuns pages on the run's creation second: when a page ends inside a second, the next page skips
-# the rest of that second's runs. A second walk with a page size that shares no factor with the first
-# ends its pages at other runs, so it returns the runs the first walk dropped. Depot caps pages at 100.
+# the rest of that second's runs. A second walk with another page size ends its pages at other runs,
+# so it returns most of what the first walk skipped. A run that both walks skip is still lost, and
+# only a fix to Depot's page cursor closes that. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
 IN_FLIGHT_STATUSES = ["queued", "running"]
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
@@ -76,27 +77,28 @@ def _walk_runs(session: Session, repository: str, statuses: list[str], page_size
 
 def _list_runs(
     session: Session, repository: str, statuses: list[str], created_after: dt.datetime | None = None
-) -> list[JSONObject]:
-    """The runs in ``statuses``, newest first, down to the first run created before ``created_after``.
+) -> list[tuple[dt.datetime, JSONObject]]:
+    """The runs in ``statuses`` with their creation time, oldest first, created at or after ``created_after``.
 
-    ListRuns has no time filter but returns runs newest first, so each walk stops at that run.
+    ListRuns has no time filter but returns runs newest first, so each walk stops at the first older run.
+    A run both walks return keeps the second walk's copy, which is the more recent status.
     """
-    runs: dict[str, JSONObject] = {}
+    runs: dict[str, tuple[dt.datetime, JSONObject]] = {}
     for page_size in LIST_RUNS_PAGE_SIZES:
         for run in _walk_runs(session, repository, statuses, page_size):
-            if created_after is not None and _parse_timestamp(run["createdAt"]) < created_after:
+            created_at = _parse_timestamp(run["createdAt"])
+            if created_after is not None and created_at < created_after:
                 break
-            runs.setdefault(run["runId"], run)
-    return sorted(runs.values(), key=lambda run: (_parse_timestamp(run["createdAt"]), run["runId"]), reverse=True)
+            runs[run["runId"]] = (created_at, run)
+    return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
 
 
-# The sync only takes runs created before every recent in-flight run, so the watermark never passes
-# a run that has not finished and each run is fetched once, after it is terminal. A job that is
-# retried after its run was synced is therefore never picked up.
+# The sync only takes runs created before every recent in-flight run, so the watermark does not pass a
+# run that is still going. A stuck run past its cutoff is the exception: if it finishes later, no sync
+# reads it. A job that is retried after its run was synced is not picked up either.
 def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
     horizon = now
-    for run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
-        created_at = _parse_timestamp(run["createdAt"])
+    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
         max_age = RUNNING_MAX_AGE if run["status"] == "running" else QUEUED_MAX_AGE
         if created_at > now - max_age:
             horizon = min(horizon, created_at)
@@ -110,7 +112,7 @@ def _runs_to_sync(
     # and a sync that stopped partway through a second saved that second as the watermark, so its other
     # runs would otherwise never be read. The merge on attempt_id drops the rows read twice.
     runs = _list_runs(session, repository, TERMINAL_STATUSES, created_after)
-    return [run for run in reversed(runs) if _parse_timestamp(run["createdAt"]) < created_before]
+    return [run for created_at, run in runs if created_at < created_before]
 
 
 def _attempt_rows(run: JSONObject, workflow: JSONObject, run_workflow_count: int) -> list[JSONObject]:

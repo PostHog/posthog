@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    ci_job_history,
     depot_ci,
     job_costs,
     pull_requests,
@@ -334,7 +335,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         depot = depot_ci.DepotJobAttempts(table=depot_table, repository="PostHog/posthog")
         runs = depot_ci.with_depot_runs(runs_table, depot, prs_table)
-        jobs = depot_ci.with_depot_jobs(jobs_table, depot, prs_table)
+        jobs = depot_ci.with_depot_jobs(jobs_table, depot)
 
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
@@ -346,18 +347,22 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (244340689655172, "Timing", "failure", 0, None, 600, "PostHog", 1),
         ]
         assert self._select(
-            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy, head_branch "
+            "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
             f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
         ) == [
-            # Jobs take their run's branch, because the job views expose it and branch filters read it.
-            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0, "feature/depot"),
-            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0, "feature/depot"),
-            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0, "feature/depot"),
+            (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
+            (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
         ]
+        # Depot job rows carry no branch, so the job views take the run's.
         assert self._select(
-            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
-            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c"
-        ) == [("depot", 2, 1)]
+            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890"
+        ) == [("depot", 2, 1, "feature/depot")]
+        assert self._select(
+            "SELECT DISTINCT head_branch "
+            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs)}) AS h WHERE run_id = 80213453736890"
+        ) == [("feature/depot",)]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.

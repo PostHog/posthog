@@ -192,19 +192,20 @@ def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: 
     return f"(SELECT {', '.join(columns)} FROM {github_table} UNION ALL {depot_select})"
 
 
-def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None = None) -> str:
+def with_depot_runs(runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced."""
     if depot is None:
         return runs_table
     return _union(runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_attempts(depot, pull_requests_table)))
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None = None) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Depot job rows take their run's branch from the PR snapshot, because the job cost and history
-    views expose the job's branch and the job aggregates filter on it.
+    Depot job rows carry no branch. The jobs builder scans its source twice, so a PR snapshot lookup
+    here would add two full PR scans to every jobs read. A reader that needs a job's branch takes its
+    run's instead (``job_costs``, ``ci_job_history`` and the job aggregates do).
     """
     if depot is None:
         return jobs_table
-    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table)))
+    return _union(jobs_table, WORKFLOW_JOBS_COLUMNS, _jobs(_attempts(depot, pull_requests_table=None)))

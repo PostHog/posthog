@@ -268,7 +268,8 @@ def build_query(
                         j.name AS job_name,
                         j.run_id AS run_id,
                         j.run_attempt AS run_attempt,
-                        j.head_branch AS head_branch,
+                        -- Depot job rows carry no branch, so they take their run's.
+                        coalesce(nullIf(j.head_branch, ''), r.head_branch) AS head_branch,
                         j.status AS status,
                         j.conclusion AS conclusion,
                         j.runner_name AS runner_name,

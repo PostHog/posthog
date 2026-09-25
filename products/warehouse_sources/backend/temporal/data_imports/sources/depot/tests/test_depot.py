@@ -54,7 +54,7 @@ def _fake_session(
     terminal_pages: list[list[dict[str, Any]]],
     in_flight_runs: list[dict[str, Any]] | None = None,
     workflows_by_run: dict[str, list[dict[str, Any]]] | None = None,
-    dropped_by_page_size: dict[int, set[str]] | None = None,
+    cursor_skips_rest_of_second: bool = False,
 ) -> mock.MagicMock:
     workflows = workflows_by_run or {
         run["runId"]: [_single_attempt_workflow(run)] for page in terminal_pages for run in page
@@ -66,11 +66,18 @@ def _fake_session(
         if method == "ListRuns" and json["status"] == IN_FLIGHT:
             return _response(200, {"runs": in_flight_runs or []}, method)
         if method == "ListRuns":
+            if cursor_skips_rest_of_second:
+                # Depot's cursor: a page that ends inside a second makes the next page skip the rest of it.
+                runs = [run for page in terminal_pages for run in page]
+                start = int(json.get("pageToken", "0"))
+                page = runs[start : start + json["pageSize"]]
+                end = start + len(page)
+                while end < len(runs) and runs[end]["createdAt"] == page[-1]["createdAt"]:
+                    end += 1
+                return _response(200, {"runs": page, "nextPageToken": str(end) if end < len(runs) else ""}, method)
             page_index = int(json.get("pageToken", "0"))
             next_page_token = str(page_index + 1) if page_index + 1 < len(terminal_pages) else ""
-            dropped = (dropped_by_page_size or {}).get(json["pageSize"], set())
-            runs = [run for run in terminal_pages[page_index] if run["runId"] not in dropped]
-            return _response(200, {"runs": runs, "nextPageToken": next_page_token}, method)
+            return _response(200, {"runs": terminal_pages[page_index], "nextPageToken": next_page_token}, method)
         if method == "GetRunStatus":
             run_workflows = workflows.get(json["runId"], [])
             return _response(200, {"workflows": [{"workflowId": w["workflowId"]} for w in run_workflows]}, method)
@@ -138,35 +145,21 @@ class TestDepotSource:
         assert [row["run_id"] for row in rows] == expected_run_ids
 
     @pytest.mark.parametrize(
-        "created_after, dropped_by_page_size, expected_run_ids, expected_terminal_pages",
+        "created_after, expected_run_ids, expected_terminal_pages",
         [
-            (WATERMARK, None, ["r3", "r4", "r5", "r6"], 6),
+            (WATERMARK, ["r3", "r4", "r5", "r6"], 6),
             # A watermark in a run's own second reads that run again, because a sync that stopped
             # partway through the second may not have read it.
-            (_iso(WATERMARK), None, ["r2", "r3", "r4", "r5", "r6"], 6),
-            (None, None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 8),
-            # ListRuns drops the runs that share a second with the end of a page. The other walk,
-            # with a different page size, still returns them.
-            (WATERMARK, {100: {"r4"}}, ["r3", "r4", "r5", "r6"], 6),
-            (WATERMARK, {57: {"r5"}}, ["r3", "r4", "r5", "r6"], 6),
+            (_iso(WATERMARK), ["r2", "r3", "r4", "r5", "r6"], 6),
+            (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 8),
         ],
         # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
-        ids=[
-            "datetime_watermark",
-            "watermark_in_a_runs_second",
-            "no_watermark",
-            "dropped_by_first_walk",
-            "dropped_by_second_walk",
-        ],
+        ids=["datetime_watermark", "watermark_in_a_runs_second", "no_watermark"],
     )
     def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_oldest_first(
-        self,
-        created_after: dt.datetime | str | None,
-        dropped_by_page_size: dict[int, set[str]] | None,
-        expected_run_ids: list[str],
-        expected_terminal_pages: int,
+        self, created_after: dt.datetime | str | None, expected_run_ids: list[str], expected_terminal_pages: int
     ) -> None:
-        session = _fake_session(TERMINAL_PAGES, dropped_by_page_size=dropped_by_page_size)
+        session = _fake_session(TERMINAL_PAGES)
 
         rows = _synced_rows(session, created_after)
 
@@ -175,6 +168,30 @@ class TestDepotSource:
             body for method, body in _requests(session) if method == "ListRuns" and body["status"] == TERMINAL
         ]
         assert len(terminal_list_calls) == expected_terminal_pages
+
+    @pytest.mark.parametrize(
+        "page_sizes, expected_run_ids",
+        [
+            ((3,), ["oldest", "tied-0", "tied-1", "newest"]),
+            ((3, 4), ["oldest", "tied-0", "tied-1", "tied-2", "newest"]),
+        ],
+        ids=["one_walk_skips_the_rest_of_the_second", "a_second_walk_returns_it"],
+    )
+    def test_a_second_walk_returns_runs_a_page_end_skips(
+        self, page_sizes: tuple[int, ...], expected_run_ids: list[str]
+    ) -> None:
+        # The first page of 3 ends inside the second the three tied runs share.
+        runs = [
+            _run("newest", dt.timedelta(minutes=10)),
+            *[_run(f"tied-{index}", dt.timedelta(hours=1)) for index in range(3)],
+            _run("oldest", dt.timedelta(hours=2)),
+        ]
+        session = _fake_session([runs], cursor_skips_rest_of_second=True)
+
+        with mock.patch(f"{MODULE}.LIST_RUNS_PAGE_SIZES", page_sizes):
+            rows = _synced_rows(session, None)
+
+        assert [row["run_id"] for row in rows] == expected_run_ids
 
     def test_request_shapes(self) -> None:
         session = _fake_session(TERMINAL_PAGES[:2])

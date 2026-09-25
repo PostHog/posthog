@@ -68,7 +68,7 @@ _AGGREGATE_SELECT = f"""
     -- with the earlier attempt's timestamps. Counting those would double every duration sample and
     -- report retry pressure for jobs nobody retried.
     WHERE NOT is_rerun_copy
-        AND workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        AND workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __JOBS_BRANCH__
         __JOBS_RUN_SCOPE__
     GROUP BY job_name
     ORDER BY job_count DESC
@@ -139,6 +139,13 @@ def query_job_aggregates(
     runs_date_to_clause = date_to_filter_clause(date_to, placeholders, column="run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
     runs_branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
+    # Depot job rows carry no branch, so a job without one matches through its run's branch.
+    jobs_branch_clause = (
+        "AND (ifNull(head_branch, '') = {branch} OR (ifNull(head_branch, '') = '' AND run_id IN "
+        "(SELECT id FROM __RUNS_SOURCE__ AS r WHERE workflow_name = {workflow_name} AND head_branch = {branch})))"
+        if branch_clause
+        else ""
+    )
     runs_run_scope_clause = run_scope_filter_clause(run_scope)
     cost_run_scope_clause = cost_run_scope_filter_clause(run_scope)
     jobs_run_scope_clause = _RUNS_SCOPE_SUBQUERY if runs_run_scope_clause else ""
@@ -148,6 +155,7 @@ def query_job_aggregates(
             template.replace("__JOBS_SOURCE__", jobs_source)
             .replace("__COST_SOURCE__", cost_source)
             .replace("__JOBS_RUN_SCOPE__", jobs_run_scope_clause)
+            .replace("__JOBS_BRANCH__", jobs_branch_clause)
             .replace("__COST_RUN_SCOPE__", cost_run_scope_clause)
             .replace("__RUNS_RUN_SCOPE__", runs_run_scope_clause)
             .replace("__RUNS_SOURCE__", curated.run_source())
