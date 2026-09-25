@@ -117,12 +117,25 @@ describe('taxonomicSearchIntentLogic', () => {
         })
     })
 
-    it('drops the suggestion as soon as the search changes', async () => {
+    it('keeps the suggestion while the next search is in flight and drops it when the answer changes', async () => {
         enroll('banner')
         filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
         await search('email')
 
+        answer = { ...PERSON_PROPERTIES_ANSWER, suggests_switch: false }
         filterLogic.actions.setSearchQuery('emails sent')
+        expect(logic.values.suggestedSwitch).not.toBeNull()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.suggestedSwitch).toBeNull()
+    })
+
+    it('drops the suggestion when the search is cleared', async () => {
+        enroll('banner')
+        filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
+        await search('email')
+
+        await search('')
 
         expect(logic.values.suggestedSwitch).toBeNull()
     })
@@ -142,17 +155,21 @@ describe('taxonomicSearchIntentLogic', () => {
                 variant: 'control',
                 predictedGroupType: 'person_properties',
                 suggestsSwitch: true,
-                wouldPromote: true,
+                wouldPromote: false,
                 shown: false,
             })
         )
     })
 
     it.each([
-        ['before the results reveal', TaxonomicFilterGroupType.PersonProperties, false],
-        ['after the results reveal', TaxonomicFilterGroupType.EventProperties, true],
-    ])('in the promote arm, an answer that lands %s puts %s first', async (_, first, revealed) => {
+        ['on the All tab before the results reveal', TaxonomicFilterGroupType.PersonProperties, false, false],
+        ['on the All tab after the results reveal', TaxonomicFilterGroupType.EventProperties, true, false],
+        ['on a specific tab', TaxonomicFilterGroupType.EventProperties, false, true],
+    ])('in the promote arm, an answer that lands %s puts %s first', async (_, first, revealed, onSpecificTab) => {
         enroll('promote')
+        if (onSpecificTab) {
+            filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
+        }
         filterLogic.actions.setSearchQuery('email')
         if (revealed) {
             filterLogic.actions.openRevealBarrier()

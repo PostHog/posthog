@@ -34,11 +34,11 @@ export interface SuggestedSwitch {
     groupName: string
 }
 
-// One 404 means the project is not enrolled in decisions, so the rest of the page load does not ask again.
-let searchIntentUnavailable = false
+// A 404 means the project is not enrolled in decisions, so the rest of the page load does not ask again for it.
+const unavailableProjectIds = new Set<number>()
 
 export function resetSearchIntentAvailabilityForTests(): void {
-    searchIntentUnavailable = false
+    unavailableProjectIds.clear()
 }
 
 export function isSearchIntentVariant(value: unknown): value is SearchIntentVariant {
@@ -51,7 +51,6 @@ export interface taxonomicSearchIntentLogicValues {
     currentProjectId: number | null // projectLogic
     activeTab: TaxonomicFilterGroupType // taxonomicFilterLogic
     revealBarrierOpen: boolean // taxonomicFilterLogic
-    searchQuery: string // taxonomicFilterLogic
     taxonomicGroupTypes: TaxonomicFilterGroupType[] // taxonomicFilterLogic
     taxonomicGroups: TaxonomicFilterGroup[] // taxonomicFilterLogic
     intent: SearchIntent | null
@@ -89,7 +88,6 @@ export interface taxonomicSearchIntentLogicMeta {
             intent: SearchIntent | null,
             variant: SearchIntentVariant | null,
             activeTab: TaxonomicFilterGroupType,
-            searchQuery: string,
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => SuggestedSwitch | null
@@ -118,7 +116,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             projectLogic,
             ['currentProjectId'],
             taxonomicFilterLogic(props),
-            ['activeTab', 'revealBarrierOpen', 'searchQuery', 'taxonomicGroupTypes', 'taxonomicGroups'],
+            ['activeTab', 'revealBarrierOpen', 'taxonomicGroupTypes', 'taxonomicGroups'],
         ],
         actions: [taxonomicFilterLogic(props), ['setActiveTab', 'setIntentPromotedGroupType', 'setSearchQuery']],
     })),
@@ -131,8 +129,8 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
         intent: [
             null as SearchIntent | null,
             {
+                // A new search keeps the last answer until its own answer arrives, so the banner does not flash per keystroke.
                 setIntent: (_, { intent }) => intent,
-                setSearchQuery: () => null,
             },
         ],
         variant: [
@@ -144,12 +142,11 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
     }),
     selectors({
         suggestedSwitch: [
-            (s) => [s.intent, s.variant, s.activeTab, s.searchQuery, s.taxonomicGroupTypes, s.taxonomicGroups],
+            (s) => [s.intent, s.variant, s.activeTab, s.taxonomicGroupTypes, s.taxonomicGroups],
             (
                 intent: SearchIntent | null,
                 variant: SearchIntentVariant | null,
                 activeTab: TaxonomicFilterGroupType,
-                searchQuery: string,
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[]
             ): SuggestedSwitch | null => {
@@ -157,8 +154,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                     variant !== 'banner' ||
                     !intent?.suggests_switch ||
                     !intent.group_type ||
-                    intent.activeTab !== activeTab ||
-                    intent.query !== searchQuery.trim()
+                    intent.activeTab !== activeTab
                 ) {
                     return null
                 }
@@ -174,14 +170,19 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
     listeners(({ actions, values }) => ({
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const query = searchQuery.trim()
-            if (searchIntentUnavailable || query.length < MIN_QUERY_LENGTH || query.length > MAX_QUERY_LENGTH) {
+            if (query.length < MIN_QUERY_LENGTH || query.length > MAX_QUERY_LENGTH) {
+                actions.setIntent(null)
+                return
+            }
+            if (values.currentProjectId !== null && unavailableProjectIds.has(values.currentProjectId)) {
                 return
             }
             await breakpoint(SEARCH_INTENT_DEBOUNCE_MS)
 
             // Read the flag only for a search the model can answer, so exposure means "could have seen a change".
             const variant = values.variant ?? values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]
-            if (!isSearchIntentVariant(variant) || values.currentProjectId === null) {
+            const projectId = values.currentProjectId
+            if (!isSearchIntentVariant(variant) || projectId === null) {
                 return
             }
             if (values.variant === null) {
@@ -191,7 +192,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             const activeTab = values.activeTab
             let response: SearchIntentResponseApi
             try {
-                response = await mlInferenceSearchIntentClassifyCreate(String(values.currentProjectId), {
+                response = await mlInferenceSearchIntentClassifyCreate(String(projectId), {
                     query,
                     active_group_type: activeTab,
                     available_group_types: values.taxonomicGroupTypes,
@@ -199,8 +200,10 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 })
             } catch (error: any) {
                 if (error?.status === 404) {
-                    searchIntentUnavailable = true
+                    unavailableProjectIds.add(projectId)
                 }
+                breakpoint()
+                actions.setIntent(null)
                 return
             }
             breakpoint()
@@ -210,9 +213,18 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             if (!intent || !values.variant) {
                 return
             }
-            const canPromote = intent.method === 'model' && intent.is_confident && !!intent.group_type
+            // Only the All tab reads the promoted group order, so a promotion from another tab changes nothing.
+            const canPromote =
+                intent.method === 'model' &&
+                intent.is_confident &&
+                !!intent.group_type &&
+                intent.activeTab === TaxonomicFilterGroupType.SuggestedFilters
             // Promote only while the results still show skeletons, so no row moves under the cursor.
-            const promoted = values.variant === 'promote' && canPromote && !values.revealBarrierOpen
+            const promoted =
+                values.variant === 'promote' &&
+                canPromote &&
+                !values.revealBarrierOpen &&
+                values.activeTab === intent.activeTab
             if (promoted) {
                 actions.setIntentPromotedGroupType(intent.group_type as TaxonomicFilterGroupType)
             }

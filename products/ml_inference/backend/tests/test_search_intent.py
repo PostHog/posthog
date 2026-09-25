@@ -21,9 +21,11 @@ from products.ml_inference.backend.logic.search_intent import classify_search_in
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 
 
-def _search(query: str, available: tuple[str, ...] = ALL_TABS, active: str = "events") -> SearchIntentRequest:
+def _search(
+    query: str, available: tuple[str, ...] = ALL_TABS, active: str = "events", team_id: int = 7
+) -> SearchIntentRequest:
     return SearchIntentRequest(
-        team_id=7, query=query, active_group_type=active, available_group_types=available, scene="Insight"
+        team_id=team_id, query=query, active_group_type=active, available_group_types=available, scene="Insight"
     )
 
 
@@ -54,6 +56,7 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("url_value", "https://example.com/pricing", ALL_TABS, "pageview_urls", SearchIntentSource.RULE),
             ("path_value", "/pricing", ALL_TABS, "pageview_urls", SearchIntentSource.RULE),
             ("id_like", "user 12345678", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]
@@ -108,14 +111,16 @@ class TestClassifySearchIntent(SimpleTestCase):
 
         assert classify_search_intent(_search("paying users")).source == SearchIntentSource.SKIPPED
 
-    def test_the_same_search_is_answered_once(self, decide: MagicMock) -> None:
+    def test_the_same_search_is_answered_once_per_team(self, decide: MagicMock) -> None:
         decide.return_value = _answer("event_properties", 0.8)
 
         first = classify_search_intent(_search("current url"))
         second = classify_search_intent(_search("  current   url "))
-
         assert first == second
         assert decide.call_count == 1
+
+        classify_search_intent(_search("current url", team_id=8))
+        assert decide.call_count == 2
 
 
 class TestSearchIntentEndpoint(APIBaseTest):

@@ -26,8 +26,8 @@ SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
 # The frontend acts on an answer only above this confidence. Tune it from the eval suite, not by feel.
 CONFIDENT_THRESHOLD = 0.6
 CACHE_TTL_SECONDS = 24 * 60 * 60
-# The state carries no team data, so one cached answer serves every team that types the same search.
-CACHE_KEY_PREFIX = "ml_inference:search_intent:v1"
+# Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
+CACHE_KEY_PREFIX = "ml_inference:search_intent:v2"
 
 # The tabs the model can choose from, with the meaning the model reads. A tab the picker does not show is not offered.
 SEARCH_INTENT_OPTIONS: dict[str, str] = {
@@ -54,6 +54,8 @@ _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
 _PATH_VALUE = re.compile(r"^/[\w\-./]*$")
 # Long digit runs are ids or phone numbers, which are not ours to send.
 _DIGIT_RUN = re.compile(r"\d{6,}")
+# One word of 8+ characters that mixes letters with two or more digits is a token or an id, such as a session id.
+_OPAQUE_TOKEN = re.compile(r"^(?=\S*[a-z])(?=\S*\d\S*\d)\S{8,}$", re.IGNORECASE)
 _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _QUESTION_ID = "tab"
@@ -81,7 +83,7 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
         if "pageview_urls" in available_group_types:
             return _rule_match("pageview_urls")
         return _skipped()
-    if _DIGIT_RUN.search(query):
+    if _DIGIT_RUN.search(query) or _OPAQUE_TOKEN.match(query):
         return _skipped()
     return None
 
@@ -95,9 +97,9 @@ def search_intent_state(query: str, active_group_type: str, scene: str | None) -
     return "\n".join(lines)
 
 
-def _cache_key(model: str, state: str, options: dict[str, str]) -> str:
+def _cache_key(team_id: int, model: str, state: str, options: dict[str, str]) -> str:
     digest = hashlib.sha256("\n".join([model, state, *sorted(options)]).encode()).hexdigest()
-    return f"{CACHE_KEY_PREFIX}:{digest}"
+    return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
 
 
 # The cross-category tab already shows every group, so there is no better tab to suggest from it.
@@ -145,7 +147,7 @@ def _classify(request: SearchIntentRequest, *, use_cache: bool) -> SearchIntent:
             )
         },
     )
-    key = _cache_key(decision.model, decision.state, options)
+    key = _cache_key(request.team_id, decision.model, decision.state, options)
     if use_cache:
         cached = cache.get(key)
         if isinstance(cached, SearchIntent):
