@@ -686,6 +686,7 @@ class TestSurveyBypassMatrix(FeatureFlagBypassMatrixBase):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             {
+                "name": "Renamed survey",
                 "targeting_flag_filters": {
                     "groups": [
                         {
@@ -696,7 +697,7 @@ class TestSurveyBypassMatrix(FeatureFlagBypassMatrixBase):
                             ],
                         }
                     ]
-                }
+                },
             },
             format="json",
         )
@@ -705,6 +706,11 @@ class TestSurveyBypassMatrix(FeatureFlagBypassMatrixBase):
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 20
         self._assert_one_pending_zero_applied()
+
+        # update() writes the targeting flag before it saves the survey row, so the 409 leaves
+        # neither changed. Reordering those two would leave a half-saved survey behind.
+        survey.refresh_from_db()
+        assert survey.name == "Adopting survey"
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
