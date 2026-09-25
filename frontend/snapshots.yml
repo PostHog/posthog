@@ -6532,6 +6532,14 @@ snapshots:
         hash: v1.k794b7964.f93f5836e1334a281785def757008dc8ffa21aa628abdad3699de6be7dfc57da.3fn8SNwLnaHNnbN_MopoEAmij74NXlwTFqZ_0EvbX5I
     products-notebooks-dashboard-widget--saved-results--light:
         hash: v1.k794b7964.f12c96e51ba15ba72a9e624e28c236e2117b2b1702aa983d7a0ad522c3d1e75e.ZrLMAxC9Z4gZ5qqJz7qFUUC7ykih0WvLmTJxitYD9Mg
+    products-notebooks-dashboard-widget--search-dashboard-by-creator--narrow--dark:
+        hash: v1.k794b7964.420b88ad149d19152ff8f1239ea9d8d35319e0b1bf4c1aae14cb773d958a1ae2.b7tEuMNcWeYGsqZkDKNZCz7H-xg8-d3H11AK-HWJzOY
+    products-notebooks-dashboard-widget--search-dashboard-by-creator--narrow--light:
+        hash: v1.k794b7964.c461f66b8a15203df372652f6322e407dc9f5fa6cf45156480bdc88822a30ce6.zx8iNjt1xP_kfZ3uydSe4Nj_F171G4DgizV_-l8lcBA
+    products-notebooks-dashboard-widget--search-dashboard-by-creator--wide--dark:
+        hash: v1.k794b7964.123382b87f95f9b8839032c88505de0eaf4eceed9092e1f25c24e87af669720c.Cg1vVScDMXtN7SDdxobEI3LqaI3-78O9-Xi8rRwWk54
+    products-notebooks-dashboard-widget--search-dashboard-by-creator--wide--light:
+        hash: v1.k794b7964.1a1fd60764b15bdd8ab1072705aae80fe0ac8e20846d7b0d3dddf0cbbf320f89.qBmud_ddtUDMuW4A3gkMxRN2UbQRoJ-0SgT4QmEJHn8
     products-notebooks-notebook-widget-trust-controls--gate--dark:
         hash: v1.k794b7964.97a5e7b5f92071f677d09773a3dea88ead3c9a71e85dbd6f6de8875ffc7a3036.9u2VOZ-O_aSU002VK8iAydGcjIYBXzRIacAelaDLJ6Y
     products-notebooks-notebook-widget-trust-controls--gate--light:
