@@ -599,7 +599,7 @@ describe('Hono MCP analytics contexts', () => {
 
         function skillsState(): ResolvedState {
             return makeState({
-                clientProfile: { isClaudeChatHost: () => false } as any,
+                clientProfile: { isClaudeChatHost: () => false, isAnthropicConnector: () => false } as any,
                 toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
             })
         }
