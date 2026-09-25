@@ -7,6 +7,70 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `ci` - CI
+ * * `review` - REVIEW
+ * * `queue` - QUEUE
+ * * `rework` - REWORK
+ */
+export type FrictionGroupEnumApi = (typeof FrictionGroupEnumApi)[keyof typeof FrictionGroupEnumApi]
+
+export const FrictionGroupEnumApi = {
+    Ci: 'ci',
+    Review: 'review',
+    Queue: 'queue',
+    Rework: 'rework',
+} as const
+
+export interface FrictionGroupShareApi {
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+     *
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK */
+    group: FrictionGroupEnumApi
+    /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+    score: number
+}
+
+export interface AuthorFrictionApi {
+    /** The score split by the kind of friction. */
+    groups: FrictionGroupShareApi[]
+    /** GitHub login. */
+    author: string
+    /** The author's GitHub avatar, or empty when the pull requests carry none. */
+    avatar_url: string
+    /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+    score: number
+    /** The author's merged pull requests in the window. */
+    pr_count: number
+    /** Position by friction in the repository, 1 is the most. */
+    rank: number
+    /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
+    rank_low: number
+    /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
+    rank_high: number
+}
+
+export interface AuthorFrictionListApi {
+    /** Authors by friction, most first. */
+    items: AuthorFrictionApi[]
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
+    /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+    ranked_author_count: number
+    /**
+     * The team the list is filtered to, or null for every author.
+     * @nullable
+     */
+    github_team: string | null
+    /** False when the team membership table isn't synced, so a team filter matches nobody. */
+    has_membership_data: boolean
+}
+
 export interface WorkflowCostApi {
     /** GitHub Actions workflow name this cost is for. */
     workflow_name: string
@@ -2089,6 +2153,21 @@ export interface WorkflowRunnerCostApi {
      * @nullable
      */
     estimated_cost_usd: number | null
+}
+
+export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
 }
 
 export type EngineeringAnalyticsAuthorWorkflowCostsParams = {

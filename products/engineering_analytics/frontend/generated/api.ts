@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AuthorFrictionListApi,
     BranchPRMatchApi,
     BrokenTestsResultApi,
     CICardSummaryApi,
@@ -19,6 +20,7 @@ import type {
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAuthorFrictionParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
@@ -74,6 +76,39 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAuthorFrictionUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsAuthorFrictionParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_friction/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_friction/`
+}
+
+/**
+ * Every author's friction over pull requests merged in the last 30 days, most first: red CI they did not cause, re-runs that failed again, CI waits, the wait for the first approval, merge-queue time and kickouts, and rework. The score is a multiple of the typical author and never counts how much or how fast someone ships. Bots are excluded, and authors need at least 3 merged pull requests.
+ */
+export const engineeringAnalyticsAuthorFriction = async (
+    projectId: string,
+    params?: EngineeringAnalyticsAuthorFrictionParams,
+    options?: RequestInit
+): Promise<AuthorFrictionListApi> => {
+    return apiMutator<AuthorFrictionListApi>(getEngineeringAnalyticsAuthorFrictionUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
     projectId: string,

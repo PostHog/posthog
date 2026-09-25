@@ -1756,6 +1756,53 @@ class TeamReadyToMergeMedians:
     medians: ReadyToMergeMedians | None
 
 
+class FrictionGroup(StrEnum):
+    """The kinds of friction an author meets, each a share of the friction score."""
+
+    CI = "ci"
+    REVIEW = "review"
+    QUEUE = "queue"
+    REWORK = "rework"
+
+
+@dataclass(frozen=True)
+class FrictionGroupShare:
+    group: FrictionGroup
+    # This group's part of the author's score, in the same "× typical" unit. The parts add up to the score.
+    score: float
+
+
+@dataclass(frozen=True)
+class AuthorFriction:
+    """What the dev loop put one author through, as a multiple of the typical author (1.0).
+
+    Friction counts only what happened to the author, never how much or how fast they ship (SPEC §2).
+    ``rank`` orders experiences, and ``rank_low``..``rank_high`` is the band it stays in when the author's
+    pull requests are resampled, so a reader sees how settled a position is.
+    """
+
+    author: str
+    avatar_url: str
+    score: float
+    groups: list[FrictionGroupShare]
+    pr_count: int
+    rank: int
+    rank_low: int
+    rank_high: int
+
+
+@dataclass(frozen=True)
+class AuthorFrictionList:
+    # False when the team has no per-PR friction view yet (it needs runs, jobs and pull requests synced).
+    available: bool
+    window_days: int
+    # Authors scored in the repository. A team list keeps their ranks, so this is the ranks' denominator.
+    ranked_author_count: int
+    github_team: str | None
+    has_membership_data: bool
+    items: list[AuthorFriction]
+
+
 @dataclass(frozen=True)
 class DeliveryComparison:
     """How long an author's pull requests take from ready to merged, next to their team's and the
