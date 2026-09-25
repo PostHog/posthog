@@ -1,6 +1,6 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
-import type { WorkflowProposalApi, WorkflowProposalOutcomeApi } from '../generated/api.schemas'
+import type { WorkflowProposalApi, WorkflowProposalOutcomeApi } from '../../generated/api.schemas'
 import { WorkflowMetricReading } from './WorkflowMetricReading'
 
 export function WorkflowAppliedOutcome({

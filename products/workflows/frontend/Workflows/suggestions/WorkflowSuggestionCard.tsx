@@ -9,8 +9,8 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { WorkflowProposalApi } from '../generated/api.schemas'
-import { workflowLogic } from './workflowLogic'
+import type { WorkflowProposalApi } from '../../generated/api.schemas'
+import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionDetails } from './WorkflowSuggestionDetails'
 import { WorkflowSuggestionEvidence } from './WorkflowSuggestionEvidence'

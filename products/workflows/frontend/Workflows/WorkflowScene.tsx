@@ -24,6 +24,9 @@ import { ActivityScope } from '~/types'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
+import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
@@ -42,9 +45,6 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
-import { WorkflowSuggestions } from './WorkflowSuggestions'
-import { WorkflowSuggestionsNotice } from './WorkflowSuggestionsNotice'
-import { WorkflowSuggestionsTabLabel } from './WorkflowSuggestionsTabLabel'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {

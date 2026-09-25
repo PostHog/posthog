@@ -11,14 +11,14 @@ import {
     hogFlowsProposalsList,
     hogFlowsProposalsOutcomeRetrieve,
     hogFlowsProposalsRejectCreate,
-} from '../generated/api'
+} from '../../generated/api'
 import type {
     PaginatedWorkflowProposalListApi,
     WorkflowProposalApi,
     WorkflowProposalOutcomeApi,
-} from '../generated/api.schemas'
-import type { HogFlow } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+} from '../../generated/api.schemas'
+import type { HogFlow } from '../hogflows/types'
+import { workflowLogic } from '../workflowLogic'
 
 // Applied is terminal and each one costs an outcome request, so only the newest few load.
 const APPLIED_OUTCOME_LIMIT = 3
@@ -143,7 +143,7 @@ export type workflowProposalsLogicType = MakeLogicType<
 >
 
 export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
-    path(['products', 'workflows', 'frontend', 'Workflows', 'workflowProposalsLogic']),
+    path(['products', 'workflows', 'frontend', 'Workflows', 'suggestions', 'workflowProposalsLogic']),
     props({} as WorkflowProposalsLogicProps),
     key(({ id }) => id),
     connect(({ id }: WorkflowProposalsLogicProps) => ({

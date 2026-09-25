@@ -5,7 +5,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { workflowLogic } from './workflowLogic'
+import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 jest.mock('lib/lemon-ui/LemonDialog', () => ({ LemonDialog: { open: jest.fn() } }))

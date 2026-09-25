@@ -1,6 +1,6 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import type { WorkflowProposalMetricApi } from '../generated/api.schemas'
+import type { WorkflowProposalMetricApi } from '../../generated/api.schemas'
 import { MIN_EVIDENCE_SAMPLE, formatValue } from './suggestionEvidence'
 
 export function WorkflowMetricReading({ reading }: { reading: WorkflowProposalMetricApi }): JSX.Element {

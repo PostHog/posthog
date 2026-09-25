@@ -1,4 +1,4 @@
-import type { WorkflowProposalApi } from '../generated/api.schemas'
+import type { WorkflowProposalApi } from '../../generated/api.schemas'
 
 export function WorkflowSuggestionDetails({ proposal }: { proposal: WorkflowProposalApi }): JSX.Element {
     const changedFields = Object.keys(proposal.content)
