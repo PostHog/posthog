@@ -285,7 +285,7 @@ class FamiliarityFactsCollector:
             commits[fact[0]] = fact[1]
             return fact[0]
 
-        futures = [*blame_futures.values(), *history_futures]
+        futures: list[Future[Any]] = [*blame_futures.values(), *history_futures]
         if any(
             isinstance(future.exception(), GitHubRateLimitError | GitHubEgressBudgetExhausted) for future in futures
         ):

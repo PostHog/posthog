@@ -339,6 +339,17 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
             None,
             id="size-folders-unknown",
         ),
+        # sym/AGENT_APPROVALS.md is a symlink out of the repo, which the sandbox would follow, so the
+        # folder files are unknown and the size band stays with the sandbox.
+        pytest.param(
+            [_big_api_file("sym/big.py", 900)],
+            None,
+            False,
+            False,
+            "not_final:size_folder_override",
+            None,
+            id="size-with-a-symlinked-folder-file",
+        ),
         # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
         pytest.param(
             [_big_api_file("src/deep/big.py", 900)],
@@ -373,6 +384,7 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox(
     )
 
     stamphog_chain.recorder.repo_files[(REPO, "src/AGENT_APPROVALS.md")] = _LIFTING_FOLDER_FILE
+    stamphog_chain.recorder.repo_symlinks[(REPO, "sym/AGENT_APPROVALS.md")] = "../../shared/policy.md"
 
     engine_failure = EnginePregateError("the engine pre-check exited with code 1") if engine_breaks else None
     with (

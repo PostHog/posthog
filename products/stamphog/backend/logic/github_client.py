@@ -1165,6 +1165,36 @@ class StamphogGitHubClient:
                 break
         return sorted(set(full_names))
 
+    def get_file_at_ref(self, repo: str, path: str, ref: str) -> tuple[str, str] | None:
+        """``(type, text)`` of ``path`` at ``ref`` from the contents API, or ``None`` if it doesn't exist.
+
+        ``type`` is the contents API's own: ``file`` for a regular file, and also for a symlink whose
+        target is a regular file in the repository, in which case the text is the target's, the same
+        text a checkout that follows the link reads. Any other type comes back with empty text.
+        """
+        response = self._request(
+            "GET",
+            f"/repos/{repo}/contents/{path}",
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref},
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch {repo}:{path}@{ref}: {response.text[:200]}", status_code=response.status_code
+            )
+        data = self._json(response, f"/repos/{repo}/contents/{path}")
+        if not isinstance(data, dict):
+            return "dir", ""
+        kind = str(data.get("type") or "")
+        if kind != "file" or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
+            return kind or "unknown", ""
+        try:
+            return kind, base64.b64decode(data["content"]).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
+
     def get_default_branch_file(self, repo: str, path: str) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 

@@ -55,6 +55,8 @@ _OWNERS_SUBDIR = Path("tools") / "owners" / "owners_yaml"
 # Mirrors _FOLDER_POLICY_FILENAME in the engine's policy.py, which the backend cannot import.
 FOLDER_POLICY_FILENAME = "AGENT_APPROVALS.md"
 _FOLDER_POLICY_BUDGET_SECONDS = 10
+# Well past the ancestor directories of any real PR, and small enough to stay one or two probes.
+_MAX_FOLDER_POLICY_CANDIDATES = 300
 
 # A gate-only run imports the engine and evaluates a few regexes. A run that takes longer than this
 # is broken, and the caller then falls through to the sandbox review.
@@ -98,12 +100,18 @@ def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: s
     return None
 
 
-def folder_policy_candidates(files: list[dict]) -> list[str]:
+def folder_policy_candidates(files: list[dict]) -> list[str] | None:
     """Every AGENT_APPROVALS.md path that could govern a changed file: one per ancestor directory.
 
-    The engine walks the same chain from each changed file's directory up to the repo root.
+    The engine walks the same chain from each changed file's directory up to the repo root. The PR
+    controls the paths, so past _MAX_FOLDER_POLICY_CANDIDATES the answer is None rather than a
+    truncated list, which the pre-check must never treat as complete.
     """
-    directories = {parent for entry in files for parent in PurePosixPath(entry.get("filename") or "").parents}
+    directories: set[PurePosixPath] = set()
+    for entry in files:
+        directories.update(PurePosixPath(entry.get("filename") or "").parents)
+        if len(directories) > _MAX_FOLDER_POLICY_CANDIDATES:
+            return None
     return sorted((directory / FOLDER_POLICY_FILENAME).as_posix() for directory in directories)
 
 
@@ -114,7 +122,15 @@ def fetch_folder_policy_files(
 
     None keeps the pre-check on its conservative size rule, so a failure here only makes a fast path
     less likely. Never raises.
+
+    One batched probe finds which candidates exist. GraphQL shows a symlink as a plain blob of its
+    target path, so each file that exists is then read from the contents API, which resolves a link
+    to an in-repo file the way the sandbox checkout does. Any other kind of entry means unknown.
     """
+    candidates = folder_policy_candidates(files)
+    if candidates is None:
+        logger.info("stamphog_folder_policy_candidates_capped", repo=repo)
+        return None
     deadline = time.monotonic() + _FOLDER_POLICY_BUDGET_SECONDS
     try:
         fetcher = GitHubFilesFetcher.from_token(
@@ -123,9 +139,18 @@ def fetch_folder_policy_files(
             refresh=client.refresh_installation_token,
             priority=Priority.NORMAL,
         )
-        exists = fetcher.files_exist(repo, head_sha, folder_policy_candidates(files), deadline)
-        present = [path for path, found in exists.items() if found]
-        return fetcher.read_files(repo, head_sha, present, deadline) if present else {}
+        exists = fetcher.files_exist(repo, head_sha, candidates, deadline)
+        found: dict[str, str] = {}
+        for path in sorted(path for path, present in exists.items() if present):
+            entry = client.get_file_at_ref(repo, path, head_sha)
+            if entry is None:
+                continue
+            kind, text = entry
+            if kind != "file":
+                logger.info("stamphog_folder_policy_not_a_file", repo=repo, kind=kind)
+                return None
+            found[path] = text
+        return found
     except Exception:
         logger.warning("stamphog_folder_policy_fetch_failed", repo=repo, exc_info=True)
         return None
