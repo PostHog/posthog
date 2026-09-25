@@ -100,7 +100,6 @@ jobs:
                   REPO: ${{ github.repository }}
                   LATEST: ${{ steps.resolve.outputs.latest }}
                   PINNED: ${{ steps.resolve.outputs.pinned }}
-                  EVENT_NAME: ${{ github.event_name }}
               run: |
                   current_pr=""
                   stale_prs=""
@@ -127,7 +126,6 @@ jobs:
                       echo "::notice::$declined_by closed the bump PR for $LATEST without merging, so this run leaves the pin alone"
                     elif [ -n "$current_pr" ]; then
                       action=current
-                      if [ "$EVENT_NAME" = workflow_dispatch ]; then action=resume; fi
                       echo "PR #$current_pr already proposes $LATEST"
                     else
                       action=bump
@@ -348,57 +346,34 @@ jobs:
                   path: .sandbox-agent-slack-thread
                   key: sandbox-agent-slack-${{ steps.resolve.outputs.latest }}
 
-            - name: Resolve and validate the bump PR
-              id: candidate
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  PR: ${{ steps.pr.outputs.number || steps.state.outputs.current_pr }}
-                  APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-                  LATEST: ${{ steps.resolve.outputs.latest }}
-                  PINNED: ${{ steps.resolve.outputs.pinned }}
-              run: |
-                  pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR")
-                  jq -e '.state == "open" and .base.ref == "master" and
-                    .head.repo.full_name == env.GITHUB_REPOSITORY and .head.ref == env.BRANCH and
-                    .user.login == (env.APP_SLUG + "[bot]")' <<< "$pr" >/dev/null
-                  gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR/files" --jq '.' | jq -e '
-                    length == 1 and .[0].filename == env.DOCKERFILE and .[0].status == "modified" and
-                    .[0].additions == 1 and .[0].deletions == 1 and
-                    (.[0].patch | split("\n") | map(select(startswith("+") or startswith("-")))) ==
-                    ["-ARG AGENT_VERSION=" + env.PINNED, "+ARG AGENT_VERSION=" + env.LATEST]' >/dev/null
-                  echo "sha=$(jq -r .head.sha <<< "$pr")" >> "$GITHUB_OUTPUT"
-                  echo "number=$PR" >> "$GITHUB_OUTPUT"
-                  echo "url=$(jq -r .html_url <<< "$pr")" >> "$GITHUB_OUTPUT"
-
             - name: Wait for the image smoke on the bump commit
               id: smoke
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
+              if: steps.state.outputs.action == 'bump'
               uses: ./.github/actions/wait-for-check
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   checkName: Sandbox Base Image Smoke
-                  ref: ${{ steps.candidate.outputs.sha }}
+                  ref: ${{ steps.commit.outputs.commit-hash }}
                   timeoutSeconds: '4500'
                   intervalSeconds: '30'
 
             - name: Stop when the smoke did not pass
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action) && steps.smoke.outputs.conclusion != 'success'
+              if: steps.state.outputs.action == 'bump' && steps.smoke.outputs.conclusion != 'success'
               env:
                   CONCLUSION: ${{ steps.smoke.outputs.conclusion }}
-                  SHA: ${{ steps.candidate.outputs.sha }}
-                  PR: ${{ steps.candidate.outputs.number }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
+                  PR: ${{ steps.pr.outputs.number }}
               run: |
                   echo "::error::Sandbox Base Image Smoke concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
                   exit 1
 
             - name: Resolve the smoked image
               id: image
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
+              if: steps.state.outputs.action == 'bump'
               env:
                   GH_TOKEN: ${{ github.token }}
                   CHECK_URL: ${{ steps.smoke.outputs.details-url }}
-                  SHA: ${{ steps.candidate.outputs.sha }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
               run: |
                   job=$(gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${CHECK_URL##*/}")
                   jq -e '.head_sha == env.SHA and .workflow_name == "Tasks Sandbox Container Image CD"' <<< "$job" >/dev/null
@@ -408,18 +383,15 @@ jobs:
                     --paginate --slurp | jq -er --argjson attempt "$attempt" '[.[].jobs[] |
                       select(.name == "Build and push Tasks Sandbox container image" and .run_attempt <= $attempt)] |
                       max_by(.run_attempt).run_attempt // empty')
-                  if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
-                    --name "sandbox-base-image-$build_attempt" --dir "$RUNNER_TEMP/sandbox-base-image"; then
-                    echo "::error::The image build has no digest artifact. Update the bump branch from master to build it with the current workflow, then retry."
-                    exit 1
-                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                    --name "sandbox-base-image-$build_attempt" --dir "$RUNNER_TEMP/sandbox-base-image"
                   digest=$(jq -er 'select(.head_sha == env.SHA) | .digest | select(test("^sha256:[0-9a-f]{64}$"))' \
                     "$RUNNER_TEMP/sandbox-base-image/sandbox-base-image.json")
                   echo "image=ghcr.io/posthog/posthog-sandbox-base@$digest" >> "$GITHUB_OUTPUT"
 
             - name: Smoke the agent on the Go ai-gateway
               id: gateway-smoke
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
+              if: steps.state.outputs.action == 'bump'
               timeout-minutes: 25
               uses: ./.github/actions/sandbox-agent-gateway-smoke
               with:
@@ -429,12 +401,12 @@ jobs:
                   registry-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Stop when the gateway smoke did not pass
-              if: ${{ !cancelled() && contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action) && steps.gateway-smoke.outputs.result != 'pass' }}
+              if: ${{ !cancelled() && steps.state.outputs.action == 'bump' && steps.gateway-smoke.outputs.result != 'pass' }}
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   RESULT: ${{ steps.gateway-smoke.outputs.result }}
                   SUMMARY_FILE: ${{ steps.gateway-smoke.outputs.summary-file }}
-                  PR: ${{ steps.candidate.outputs.number }}
+                  PR: ${{ steps.pr.outputs.number }}
               run: |
                   if [ -f "$SUMMARY_FILE" ]; then
                     gh pr comment "$PR" --body-file "$SUMMARY_FILE"
@@ -478,7 +450,7 @@ jobs:
 
             - name: Get release approval token
               id: releaser-token
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
+              if: steps.state.outputs.action == 'bump'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
@@ -487,12 +459,12 @@ jobs:
 
             - name: Approve and enqueue the bump
               id: enqueue
-              if: contains(fromJSON('["bump", "resume"]'), steps.state.outputs.action)
+              if: steps.state.outputs.action == 'bump'
               env:
                   GH_TOKEN: ${{ steps.releaser-token.outputs.token }}
                   REPO: ${{ github.repository }}
-                  SHA: ${{ steps.candidate.outputs.sha }}
-                  PR: ${{ steps.candidate.outputs.number }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
+                  PR: ${{ steps.pr.outputs.number }}
               run: |
                   head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
                   if [ "$head" != "$SHA" ]; then
@@ -513,8 +485,8 @@ jobs:
                   ENQUEUE: ${{ steps.enqueue.outcome }}
                   SMOKE: ${{ steps.smoke.outputs.conclusion }}
                   GATEWAY_SMOKE: ${{ steps.gateway-smoke.outputs.result }}
-                  PR_URL: ${{ steps.candidate.outputs.url || steps.pr.outputs.url }}
-                  PR_NUMBER: ${{ steps.candidate.outputs.number || steps.pr.outputs.number || steps.state.outputs.current_pr }}
+                  PR_URL: ${{ steps.pr.outputs.url }}
+                  PR_NUMBER: ${{ steps.pr.outputs.number }}
                   LATEST: ${{ steps.resolve.outputs.latest }}
                   PINNED: ${{ steps.resolve.outputs.pinned }}
                   CURRENT_PR: ${{ steps.state.outputs.current_pr }}
@@ -524,7 +496,7 @@ jobs:
               run: |
                   pr="<${PR_URL}|#${PR_NUMBER}>"
                   case "$ACTION" in
-                    bump | resume)
+                    bump)
                       if [ "$ENQUEUE" = "success" ]; then
                         text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64 and on the Go ai-gateway. Approved and added to the merge queue."
                       elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then

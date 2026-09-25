@@ -492,9 +492,8 @@ const namedJobs = (file: string): Set<string> =>
 describe('.github/workflows run plans', () => {
     it.each([
         ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
-        ['retry', workflowDispatch(), 'resume', 'success', 'pass', true, false],
-        ['missing image', workflowDispatch(), 'resume', 'failure', 'pass', false, false],
-        ['failed gateway', workflowDispatch(), 'resume', 'success', 'broken', false, false],
+        ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
+        ['failed gateway', workflowDispatch(), 'bump', 'success', 'broken', false, false],
         ['nightly with open PR', schedule(), 'current', 'success', 'pass', false, true],
     ] as const)('sandbox agent release: %s', (name, github, action, imageOutcome, result, enqueue, nightly) => {
         const plan = planWorkflow(workflow('update-sandbox-agent-version.yml'), {
