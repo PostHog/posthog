@@ -69,6 +69,23 @@
                     ],
                     "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
                 },
+                "score_levels": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "maxItems": 10,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set."
+                },
                 "step": {
                     "anyOf": [
                         {

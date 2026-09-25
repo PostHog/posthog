@@ -112,7 +112,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `typesafe` - System One (Jev)",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `typesafe` - System One",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -164,7 +164,7 @@
             "type": "string"
         },
         "output_config": {
-            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.",
+            "description": "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.",
             "properties": {
                 "allows_na": {
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
@@ -214,6 +214,23 @@
                         }
                     ],
                     "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
+                },
+                "score_levels": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "maxItems": 10,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set."
                 },
                 "step": {
                     "anyOf": [
