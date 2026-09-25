@@ -16,6 +16,7 @@ import {
     SignalScoutRunSummary,
 } from '../types'
 import type { ScoutRollup } from '../utils/scoutRunsWindow'
+import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreachableReports'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 export interface ScoutDetailLogicProps {
@@ -270,11 +271,21 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
             [] as SignalReport[],
             {
                 loadScoutReports: async () => {
-                    const touched = values.touchedReports.slice(0, MAX_TOUCHED_REPORTS)
+                    // Ids a previous round found unreachable are dropped before the cap: a deleted
+                    // report stays deleted, so re-asking only burns requests and a cached 404 must
+                    // not hold a slot a live report could take.
+                    const touched = values.touchedReports
+                        .filter(({ id }) => !isReportUnreachable(id))
+                        .slice(0, MAX_TOUCHED_REPORTS)
                     if (touched.length === 0) {
                         return []
                     }
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
+                    settled.forEach((result, index) => {
+                        if (result.status === 'rejected') {
+                            rememberUnreachableReport(touched[index].id, result.reason)
+                        }
+                    })
                     const fetched = settled
                         .filter(
                             (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
