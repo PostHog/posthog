@@ -71,6 +71,7 @@ import {
     ExperimentScannerContext,
     buildExperimentTargeting,
     experimentScannerName,
+    experimentScannerQuery,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     reconcileVariantKey,
@@ -406,6 +407,7 @@ export interface replayScannerLogicValues {
     observationsTotal: number
     onDemandObservationSuccessCount: number
     originalScanner: ScannerFormValues | null
+    pendingExperimentId: number | null
     pollUntil: number
     retryingObservationIds: string[]
     savingCohortKey: string | null
@@ -448,6 +450,9 @@ export interface replayScannerLogicActions {
         value: true
     }
     clearObservationFilters: () => {
+        value: true
+    }
+    clearPendingExperiment: () => {
         value: true
     }
     copyAllObservations: () => {
@@ -631,6 +636,9 @@ export interface replayScannerLogicActions {
     }
     scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
+    }
+    selectExperiment: (experimentId: number) => {
+        experimentId: number
     }
     setChartDateRange: (
         dateFrom: string | null,
@@ -841,6 +849,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         detachExperimentContext: true,
         rebuildExperimentContext: true,
+        selectExperiment: (experimentId: number) => ({ experimentId }),
+        clearPendingExperiment: true,
         saveAffectedCohort: (windowDays: number, qualifier: AffectedCohortQualifier = {}) => ({
             windowDays,
             qualifier,
@@ -1174,6 +1184,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setExperimentContext: (_, { context }) => context,
                 setExperimentVariant: (state, { variantKey }) => (state ? { ...state, variantKey } : state),
+                detachExperimentContext: () => null,
+            },
+        ],
+        // The experiment id the picker chose while its fetch is still in flight. Non-null doubles
+        // as the loading flag, and a detach clearing it is what cancels a stale response.
+        pendingExperimentId: [
+            null as number | null,
+            {
+                selectExperiment: (_, { experimentId }) => experimentId,
+                setExperimentContext: () => null,
+                clearPendingExperiment: () => null,
                 detachExperimentContext: () => null,
             },
         ],
@@ -1935,6 +1956,47 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             detachExperimentContext: () => {
                 if (values.scanner?.experiment_targeting) {
                     actions.setScannerValue('experiment_targeting', null)
+                }
+            },
+
+            // An in-editor pick mirrors the deep-link prefill: targeting plus the experiment's
+            // test-account default land on the form. The name stays whatever the user typed,
+            // because renaming a scanner mid-edit would discard their input.
+            selectExperiment: async ({ experimentId }, breakpoint) => {
+                if (values.experimentContext?.experiment.id === experimentId) {
+                    actions.clearPendingExperiment()
+                    return
+                }
+                try {
+                    const experiment = await api.experiments.get(experimentId)
+                    breakpoint()
+                    // A detach while the request was in flight wins over the response, or the card
+                    // would restore targeting the user just removed.
+                    if (values.pendingExperimentId !== experimentId) {
+                        return
+                    }
+                    // Variants belong to one experiment, so a key carried across experiments would
+                    // silently target a variant the user never chose. Start at every variant.
+                    const context: ExperimentScannerContext = { experiment, variantKey: null }
+                    actions.setExperimentContext(context)
+                    // Only the editor picker fires this; a deep-link prefill is already attributed
+                    // by its entry point. Adoption reads as this event leading to a created scanner
+                    // whose has_experiment_targeting is true.
+                    posthog.capture('replay_vision_scanner_experiment_targeting_attached', {
+                        attach_source: 'editor_picker',
+                        is_new_scanner: props.id === 'new',
+                    })
+                    actions.setScannerValue('experiment_targeting', buildExperimentTargeting(context))
+                    actions.setScannerValue('query', {
+                        ...values.scanner?.query,
+                        ...experimentScannerQuery(experiment),
+                    })
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
+                    actions.clearPendingExperiment()
+                    lemonToast.error("Couldn't load the experiment. Try again or pick a different one.")
                 }
             },
 

@@ -1750,6 +1750,98 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('selectExperiment', () => {
+        it('persists targeting and the experiment test-account default from an in-editor pick', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [
+                        200,
+                        { id: 7, name: 'Checkout redesign', exposure_criteria: { filterTestAccounts: true } },
+                    ],
+                },
+            })
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            await expectLogic(logic, () => logic.actions.selectExperiment(7)).toFinishAllListeners()
+
+            // The adoption readout for the editor picker hangs off this event; losing it is silent.
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_experiment_targeting_attached', {
+                attach_source: 'editor_picker',
+                is_new_scanner: true,
+            })
+
+            expect(logic.values.experimentContext).toMatchObject({
+                experiment: { id: 7, name: 'Checkout redesign' },
+                variantKey: null,
+            })
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 7, variant: null })
+            expect(logic.values.scanner?.query).toMatchObject({ filter_test_accounts: true })
+            expect(logic.values.pendingExperimentId).toBeNull()
+        })
+
+        // A variant key belongs to one experiment; carrying it to the next would target a variant
+        // the user never chose there.
+        it('picking a different experiment replaces the targeting and resets the variant', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': ({ params }) => [
+                        200,
+                        { id: Number(params.id), name: `Experiment ${params.id}` },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.selectExperiment(7)).toFinishAllListeners()
+            logic.actions.setExperimentVariant('test')
+
+            await expectLogic(logic, () => logic.actions.selectExperiment(8)).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 8, variant: null })
+        })
+
+        it('keeps the current targeting when the picked experiment fails to load', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': ({ params }) =>
+                        Number(params.id) === 7 ? [200, { id: 7, name: 'Checkout redesign' }] : [500, {}],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.selectExperiment(7)).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.selectExperiment(8)).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 7, variant: null })
+            expect(logic.values.pendingExperimentId).toBeNull()
+        })
+
+        it('a detach during the in-flight pick wins over the response', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.selectExperiment(7)
+                // Fires while the experiment request is still in flight.
+                logic.actions.detachExperimentContext()
+            }).toFinishAllListeners()
+
+            expect(logic.values.experimentContext).toBeNull()
+            expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
+        })
+
+        it('reselecting the targeted experiment keeps the variant choice and skips the refetch', async () => {
+            const retrieveSpy = jest.fn(() => [200, { id: 7, name: 'Checkout redesign' }])
+            useMocks({ get: { '/api/projects/:team/experiments/:id/': retrieveSpy } })
+            await expectLogic(logic, () => logic.actions.selectExperiment(7)).toFinishAllListeners()
+            logic.actions.setExperimentVariant('test')
+
+            await expectLogic(logic, () => logic.actions.selectExperiment(7)).toFinishAllListeners()
+
+            expect(retrieveSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.experimentContext?.variantKey).toEqual('test')
+            expect(logic.values.pendingExperimentId).toBeNull()
+        })
+    })
+
     describe('team refresh on tab visibility', () => {
         const setHidden = (hidden: boolean): void => {
             Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
