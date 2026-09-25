@@ -30,9 +30,15 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
 
     const handleToggleAll = (): void => {
         if (isAllSelected || isSomeSelected) {
-            setIntegrationFilter({ integrationSourceIds: [], includeNonIntegrated })
+            setIntegrationFilter(
+                { integrationSourceIds: [], includeNonIntegrated },
+                sourceTypes ? allSourceIds : undefined
+            )
         } else {
-            setIntegrationFilter({ integrationSourceIds: allSourceIds, includeNonIntegrated })
+            setIntegrationFilter(
+                { integrationSourceIds: allSourceIds, includeNonIntegrated },
+                sourceTypes ? allSourceIds : undefined
+            )
         }
     }
 
@@ -41,7 +47,10 @@ export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = 
             ? selectedIds.filter((id) => id !== sourceId)
             : [...selectedIds, sourceId]
 
-        setIntegrationFilter({ integrationSourceIds: newIds, includeNonIntegrated })
+        setIntegrationFilter(
+            { integrationSourceIds: newIds, includeNonIntegrated },
+            sourceTypes ? allSourceIds : undefined
+        )
     }
 
     const handleToggleNonIntegrated = (): void => {

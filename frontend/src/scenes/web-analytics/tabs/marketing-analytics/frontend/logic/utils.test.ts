@@ -524,8 +524,13 @@ describe('marketing analytics utils', () => {
 
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {
-            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated: true }
+            const stored = { integrationSourceIds: ['abc'], removedOption: true }
             expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: ['abc'] })
+        })
+
+        it.each([true, false])('preserves the non-integrated traffic preference: %s', (includeNonIntegrated) => {
+            const stored = { integrationSourceIds: ['abc'], includeNonIntegrated }
+            expect(sanitizeIntegrationFilter(stored)).toEqual(stored)
         })
 
         it.each([

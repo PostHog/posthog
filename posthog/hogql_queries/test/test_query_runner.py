@@ -1998,6 +1998,29 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         assert key_denied != key_granted
 
+    @parameterized.expand(
+        [
+            ("warehouse_objects", {"warehouse_table", "warehouse_view"}),
+            ("external_data_source", {"external_data_source"}),
+        ]
+    )
+    def test_marketing_search_partitions_cache_on_warehouse_access_control(
+        self, resource: str, expected_scopes: set[str]
+    ) -> None:
+        query = {
+            "kind": "MarketingAnalyticsSearchQuery",
+            "sources": [{"sourceType": "BingAds", "statsTable": "example.keyword_stats"}],
+        }
+        self._ac(resource=resource, access_level="none")
+        denied_runner = get_query_runner(query=query, team=self.team, user=self.user)
+        assert expected_scopes.issubset(denied_runner.get_cache_payload().get("restricted_resources") or [])
+        key_denied = denied_runner.get_cache_key()
+
+        self._ac(resource=resource, access_level="editor")
+        key_granted = get_query_runner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != key_granted
+
     def test_default_denied_resource_partitions_cache_without_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()

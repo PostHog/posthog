@@ -23,10 +23,11 @@ const SOURCES = [
         description: 'Example Google Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['keyword', 'keyword_stats'].map((name) => ({
+        schemas: ['campaign', 'campaign_overview_stats', 'keyword', 'keyword_stats'].map((name) => ({
             id: `example-${name}`,
             name,
             should_sync: true,
+            status: 'Completed',
             table: { name: `example_${name}`, hogql_name: `example.${name}` },
         })),
     },
@@ -36,14 +37,13 @@ const SOURCES = [
         description: 'Example Bing Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: [
-            {
-                id: 'example-bing-keywords',
-                name: 'keyword_performance_report',
-                should_sync: true,
-                table: { name: 'example_bing_keywords', hogql_name: 'example.bing_keywords' },
-            },
-        ],
+        schemas: ['campaigns', 'campaign_performance_report', 'keyword_performance_report'].map((name) => ({
+            id: `example-bing-${name}`,
+            name,
+            should_sync: true,
+            status: 'Completed',
+            table: { name: `example_bing_${name}`, hogql_name: `example.bing_${name}` },
+        })),
     },
 ]
 

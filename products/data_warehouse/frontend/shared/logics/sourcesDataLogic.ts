@@ -28,24 +28,34 @@ export interface sourcesDataLogicActions {
     }
     loadSourcesSuccess: (
         dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
+              }
+            | {
+                  count?: undefined
+                  next: null
+                  previous?: string | null | undefined
+                  results: ExternalDataSource[]
               },
         payload?: {
             value: true
         }
     ) => {
         dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
             | {
                   count: number
                   next: null
                   previous: null
                   results: never[]
+              }
+            | {
+                  count?: undefined
+                  next: null
+                  previous?: string | null | undefined
+                  results: ExternalDataSource[]
               }
         payload?: {
             value: true
@@ -137,10 +147,17 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                     try {
                         const res = await api.externalDataSources.list(methodOptions)
                         breakpoint()
-
+                        const results = [...res.results]
+                        let next = res.next
+                        while (next) {
+                            const page = await api.get<PaginatedResponse<ExternalDataSource>>(next, methodOptions)
+                            breakpoint()
+                            results.push(...page.results)
+                            next = page.next
+                        }
                         cache.abortController = null
 
-                        return res
+                        return { ...res, results, next: null }
                     } catch (error: any) {
                         // Transient failures shouldn't surface as exceptions:
                         //   - 403: the user has no access to the endpoint
