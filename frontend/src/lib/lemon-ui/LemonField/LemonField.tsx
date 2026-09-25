@@ -59,6 +59,15 @@ const LemonPureField = ({
     labelClassName,
     premiumFeature,
 }: LemonPureFieldProps): JSX.Element => {
+    // Point the label at the input it wraps, so clicking the label focuses it. An explicit
+    // `htmlFor` wins, then an id the child already has, then a generated fallback. A child we
+    // cannot put an id on gets no `htmlFor`, rather than a label pointing at nothing.
+    const fallbackId = useId()
+    const childElement = label && isValidElement(children) ? (children as React.ReactElement<{ id?: string }>) : null
+    const existingId = childElement?.props.id
+    const inputId = htmlFor ?? existingId ?? (childElement ? fallbackId : undefined)
+    const labelledChildren =
+        childElement && existingId !== inputId ? cloneElement(childElement, { id: inputId }) : children
     return (
         <div
             onClick={onClick}
@@ -78,13 +87,13 @@ const LemonPureField = ({
                     className={clsx(labelClassName, {
                         'cursor-pointer': !!onClick,
                     })}
-                    htmlFor={htmlFor}
+                    htmlFor={inputId}
                     premiumFeature={premiumFeature}
                 >
                     {label}
                 </LemonLabel>
             ) : null}
-            {children}
+            {labelledChildren}
             {help ? <div className="text-secondary text-xs">{help}</div> : null}
             {typeof error === 'string' ? renderError ? renderError(error) : <LemonFieldError error={error} /> : null}
         </div>
@@ -107,14 +116,7 @@ export const LemonField = ({
     htmlFor,
     ...keaFieldProps
 }: LemonFieldProps): JSX.Element => {
-    // Stable fallback id so clicking the label focuses the wrapped input. Used when neither the
-    // caller nor kea-forms (function-as-child case) put an id on the rendered input.
-    const generatedId = useId()
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
-        const kidsElement = isValidElement(kids) ? (kids as React.ReactElement<{ id?: string }>) : null
-        const existingId = kidsElement?.props.id
-        const inputId = htmlFor ?? existingId ?? generatedId
-        const renderedKids = kidsElement && existingId !== inputId ? cloneElement(kidsElement, { id: inputId }) : kids
         return (
             <LemonPureField
                 label={label}
@@ -127,9 +129,9 @@ export const LemonField = ({
                 renderError={renderError}
                 labelClassName={labelClassName}
                 premiumFeature={premiumFeature}
-                htmlFor={inputId}
+                htmlFor={htmlFor}
             >
-                {renderedKids as React.ReactNode}
+                {kids as React.ReactNode}
             </LemonPureField>
         )
     }
