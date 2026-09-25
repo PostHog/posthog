@@ -6,7 +6,9 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -1355,6 +1357,18 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
             self._parse_expr("properties.count in (5, 6)"),
         )
+
+    def test_property_type_lookup_does_not_order_by_id(self):
+        # An id ordering on this lookup lets Postgres walk the primary key of the very large
+        # posthog_propertydefinition instead of seeking the project/name/type unique index.
+        with CaptureQueriesContext(connection) as queries:
+            self._property_to_expr({"type": "event", "key": "price", "value": 13, "operator": "exact"})
+        definition_queries = [q["sql"] for q in queries.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        self.assertTrue(definition_queries)
+        for sql in definition_queries:
+            # An id ordering, or an OR over the type column, both cost the index seek.
+            self.assertNotIn("ORDER BY", sql)
+            self.assertNotIn(" OR ", sql)
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
         with self.assertRaises(Exception) as e:

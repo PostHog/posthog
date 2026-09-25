@@ -70,7 +70,7 @@ from posthog.utils import get_from_dict_or_attr, relative_date_parse
 from products.actions.backend.models.action import Action, ActionStepJSON
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.event_definitions.backend.models.property_definition import PropertyType
+from products.event_definitions.backend.models.property_definition import PropertyType, effective_project_id_expr
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 # Top-level columns on the persons table that the `person_metadata` filter type can target.
@@ -446,26 +446,28 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     elif property.type == "group":
         type_filters = {"type": PropertyDefinition.Type.GROUP, "group_type_index": property.group_type_index}
     elif property.type == "event":
-        # legacy definitions may carry a NULL type; load_property_metadata treats those as event
-        # properties (so the swapper casts their LHS) — mirror it, or the two sides disagree
-        type_filters = {"type__in": [None, PropertyDefinition.Type.EVENT]}
+        # `type` is NOT NULL on posthog_propertydefinition, so an event property can only be
+        # type 1. An equality also seeks posthog_propdef_proj_uniq, which `type = 1 OR type IS
+        # NULL` cannot.
+        type_filters = {"type": PropertyDefinition.Type.EVENT}
     else:
         # Other property types (session, data warehouse, logs, spans, …) resolve to properly
         # typed columns, so a numeric comparison already has a common type — leave them alone.
         return value
 
-    property_type = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
+    # The slice avoids `.first()`, which appends ORDER BY id. No index leads with id, so that
+    # ordering lets the planner walk the primary key of this very large table instead of seeking
+    # the unique index.
+    property_types = list(
+        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
         .filter(effective_project_id=team.project_id, name=property.key, **type_filters)
-        # load_property_metadata skips definitions without a property_type — match it so a
-        # typeless row can't shadow a typed one when both NULL-type and event-type rows exist
+        # load_property_metadata skips definitions without a property_type — match it, or the
+        # two sides disagree
         .exclude(property_type__isnull=True)
         .exclude(property_type="")
-        .values_list("property_type", flat=True)
-        .first()
+        .values_list("property_type", flat=True)[:1]
     )
+    property_type = property_types[0] if property_types else None
 
     if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
         return value
