@@ -270,6 +270,7 @@ T2-never with it, so it answers False for every PR it exists to catch.
   registry-completeness test guards this, don't bypass it.
 - Workflow bodies follow the repo-wide determinism rules (`workflow.patched()` for new commands).
 - Activity payloads stay small; large context rides in `run.output`, not through the workflow.
+- The sandbox activity runs beside the context fetch, the pre-check and the bot polls, so every activity that can overlap it writes `run.output` through `_merge_run_output` (a JSONB `||` merge), never a read-modify-write `save()` from a copy loaded earlier. A stale copy drops the other activity's keys, including the sandbox claim that stops a retry from paying for a second sandbox.
 
 ## Tests
 

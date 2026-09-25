@@ -34,6 +34,8 @@ from products.stamphog.backend.temporal.constants import (
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.stamphog.backend.temporal.activities import (
         MarkReviewFailedInput,
+        ReleaseReviewSandboxInput,
+        RunReviewInSandboxInput,
         StamphogReviewInput,
         dismiss_stale_approvals,
         fetch_review_context,
@@ -41,6 +43,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         mark_review_failed,
         post_verdict,
         refuse_on_pre_gates,
+        release_review_sandbox,
         run_review_in_sandbox,
         signal_review_started,
     )
@@ -52,6 +55,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: StamphogReviewInput) -> dict:
+        sandbox_review: asyncio.Future[dict] | None = None
         try:
             # Dismiss any approval from an earlier head FIRST — before context fetch, not just before
             # the re-review. Fail-closed ordering: if any later step exhausts retries and the run is
@@ -74,6 +78,19 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     input,
                     start_to_close_timeout=POST_VERDICT_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+
+            # The sandbox and the PR head fetch need nothing the next steps produce, so they start now
+            # and run beside the context fetch, the pre-check and the bot wait. The sandbox waits for
+            # release_review_sandbox before it reviews. Gated for replay like the eyes reaction above.
+            if workflow.patched("stamphog-overlap-sandbox"):
+                sandbox_review = asyncio.ensure_future(
+                    workflow.execute_activity(
+                        run_review_in_sandbox,
+                        RunReviewInSandboxInput(review_run_id=input.review_run_id, team_id=input.team_id, overlap=True),
+                        start_to_close_timeout=RUN_REVIEW_TIMEOUT,
+                        retry_policy=SANDBOX_RETRY_POLICY,
+                    )
                 )
 
             await workflow.execute_activity(
@@ -104,7 +121,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     workflow.logger.warning(f"stamphog pre-gates failed for run {input.review_run_id}")
 
             if not refused_on_pre_gates:
-                # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before provisioning: the
+                # Wait out in-flight reviewer bots (fresh trusted-bot 👀) before the review: the
                 # sandbox holds no token to poll GitHub with, so the Action's wait-and-poll lives here
                 # as durable timers. Each poll refreshes the stored reactions snapshot; if the budget
                 # expires with a bot still in flight, the run proceeds and the engine sees the fresh 👀
@@ -120,12 +137,25 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                         break
                     await asyncio.sleep(STAMPHOG_BOT_REVIEW_POLL_SECONDS)
 
-                await workflow.execute_activity(
-                    run_review_in_sandbox,
-                    input,
-                    start_to_close_timeout=RUN_REVIEW_TIMEOUT,
-                    retry_policy=SANDBOX_RETRY_POLICY,
-                )
+                if sandbox_review is None:
+                    await workflow.execute_activity(
+                        run_review_in_sandbox,
+                        RunReviewInSandboxInput(review_run_id=input.review_run_id, team_id=input.team_id),
+                        start_to_close_timeout=RUN_REVIEW_TIMEOUT,
+                        retry_policy=SANDBOX_RETRY_POLICY,
+                    )
+
+            if sandbox_review is not None:
+                await self._release_sandbox(input, review=not refused_on_pre_gates)
+                if refused_on_pre_gates:
+                    # The verdict is already stored, so a sandbox that failed while it waited must not
+                    # fail the run.
+                    try:
+                        await sandbox_review
+                    except ActivityError:
+                        workflow.logger.warning(f"stamphog released sandbox failed for run {input.review_run_id}")
+                else:
+                    await sandbox_review
 
             result = await workflow.execute_activity(
                 post_verdict,
@@ -135,6 +165,13 @@ class StamphogReviewWorkflow(PostHogWorkflow):
             )
             return {"status": "completed", "verdict": result["verdict"]}
         except Exception as e:
+            if sandbox_review is not None and not sandbox_review.done():
+                # A sandbox still waiting for its release would hold its box until the review deadline.
+                try:
+                    await self._release_sandbox(input, review=False)
+                except ActivityError:
+                    workflow.logger.warning(f"stamphog could not release the sandbox for run {input.review_run_id}")
+                sandbox_review.cancel()
             # Log the full error to the worker before marking the run failed: mark_review_failed
             # persists only the first line (raw exception text can embed repo file content, and run.error
             # is exposed to stamphog:read), so the worker log is where full detail is kept.
@@ -150,3 +187,11 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
             raise
+
+    async def _release_sandbox(self, input: StamphogReviewInput, *, review: bool) -> None:
+        await workflow.execute_activity(
+            release_review_sandbox,
+            ReleaseReviewSandboxInput(review_run_id=input.review_run_id, team_id=input.team_id, review=review),
+            start_to_close_timeout=POST_VERDICT_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )

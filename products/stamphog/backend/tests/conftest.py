@@ -18,6 +18,8 @@ from posthog.temporal.common.errors import describe_failure
 
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    ReleaseReviewSandboxInput,
+    RunReviewInSandboxInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -25,6 +27,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     refuse_on_pre_gates,
+    release_review_sandbox,
     run_review_in_sandbox,
     signal_review_started,
 )
@@ -142,7 +145,15 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
             # One bot-wait poll, no sleeping: mirrors the workflow's loop semantics (refresh the
             # reactions snapshot, then proceed) without its durable timers.
             _run_activity(list_in_flight_reviewer_bots, inp)
-            _run_activity(run_review_in_sandbox, inp)
+        # The workflow starts the sandbox beside the context fetch and releases it here. Run in order,
+        # the sandbox finds the context and the release already stored, so it never waits.
+        _run_activity(
+            release_review_sandbox,
+            ReleaseReviewSandboxInput(review_run_id=review_run_id, team_id=team_id, review=not refused),
+        )
+        _run_activity(
+            run_review_in_sandbox, RunReviewInSandboxInput(review_run_id=review_run_id, team_id=team_id, overlap=True)
+        )
         _run_activity(post_verdict, inp)
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
         _run_activity(
