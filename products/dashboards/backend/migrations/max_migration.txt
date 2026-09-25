@@ -1,1 +1,1 @@
-0022_remove_dashboardsavedview_from_state
+0023_drop_dashboard_saved_view_table
