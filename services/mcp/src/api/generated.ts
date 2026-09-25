@@ -38930,7 +38930,7 @@ export namespace Schemas {
     export interface InboxReportStatusBucket {
       /** Report status (e.g. `potential`, `candidate`, `ready`). */
       status: string;
-      /** Number of reports in this status (excludes deleted/suppressed). */
+      /** Number of reports in this status. Deleted reports are counted nowhere. */
       count: number;
     }
 

@@ -2040,7 +2040,7 @@ class InboxReportStatusBucketSerializer(serializers.Serializer):
     """One bucket in `inventory.existing_inbox_reports.by_status`."""
 
     status = serializers.CharField(help_text="Report status (e.g. `potential`, `candidate`, `ready`).")
-    count = serializers.IntegerField(help_text="Number of reports in this status (excludes deleted/suppressed).")
+    count = serializers.IntegerField(help_text="Number of reports in this status. Deleted reports are counted nowhere.")
 
 
 class ExistingInboxReportsSerializer(serializers.Serializer):
