@@ -19,7 +19,7 @@ import { cohortsPartialUpdate, cohortsRetrieve } from 'products/cohorts/frontend
 import { dashboardsPartialUpdate, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { experimentsPartialUpdate, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
 import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
-import { notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import { notebooksCreate, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 import { insightsPartialUpdate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import { surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
@@ -146,7 +146,9 @@ to approve or cancel; keyboard input cannot approve changes. rm groups its PostH
 one confirmation. Other programs confirm each removal. Local Linux files do not
 require confirmation. Delete local and PostHog files in separate commands.
 Removing the last file reference deletes the PostHog object, using your permissions.
-Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
+Files open for writing must be closed before removal. Use touch Notes.md or save a
+new .md file in an editor to create a blank markdown notebook in the current folder.
+Other new file types and editor backup files are not supported under /posthog/files.
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
@@ -355,6 +357,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
         this.projectNodes.set(node, { parts, entry })
         node.loadChildren = () => this.ensureDirectory(node)
+        node.create = (name) => this.createNotebook(node, name)
         node.mkdir = async (name) => {
             const directory = this.projectNodes.get(node)
             if (!directory) {
@@ -380,6 +383,51 @@ export class PosthogFilesystem extends TerminalFilesystem {
             node.rename = (parent, name) => this.move(node, parent, name)
             node.remove = () => this.remove(node)
         }
+    }
+
+    private async createNotebook(parent: TerminalNode, name: string): Promise<TerminalNode> {
+        const directory = this.projectNodes.get(parent)
+        if (!directory || parent.removed) {
+            throw new FilesystemError(116)
+        }
+        if (!name.endsWith('.md')) {
+            throw new FilesystemError(95)
+        }
+        const title = this.storedName(name)
+        if (terminalFilename(title) !== name) {
+            throw new FilesystemError(22)
+        }
+        await this.confirmWrite({
+            title: 'Create a PostHog notebook?',
+            description: `Create a blank markdown notebook in project ${this.projectId}. This affects everyone in the project.`,
+            items: [joinPath([...directory.parts, title])],
+        })
+        const notebook = await notebooksCreate(
+            this.projectId,
+            {
+                title,
+                _create_in_folder: joinPath(directory.parts),
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'ph-markdown-notebook',
+                            attrs: { nodeId: 'markdown-notebook-v2', markdown: '' },
+                        },
+                    ],
+                },
+                text_content: '',
+            },
+            { signal: this.signal }
+        )
+        const params = { type: 'notebook', ref: notebook.short_id, include_content_type: true }
+        const page = await fileSystemList(this.projectId, params, { signal: this.signal })
+        const entry = page.results.find((entry) => entry.type === 'notebook' && entry.ref === notebook.short_id)
+        if (!entry) {
+            throw new Error('The notebook was created but could not be loaded. Run ph refresh to reload the folder.')
+        }
+        this.mountEntries([entry], true)
+        return this.mountedFiles.get(this.fileIdentity(entry, '.md'))!
     }
 
     private storedName(name: string): string {

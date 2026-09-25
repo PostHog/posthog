@@ -313,6 +313,23 @@ export class NinePServer {
                 }
                 return qid(result, await parent.mkdir(name))
             }
+            case 14: {
+                const id = reader.number(4)
+                const parent = this.fid(id).node
+                const name = reader.string()
+                const flags = reader.number(4)
+                reader.number(4)
+                reader.number(4)
+                await parent.loadChildren?.()
+                this.validateDestination(parent, name)
+                if (!parent.create) {
+                    throw new FilesystemError(30)
+                }
+                const fid = { node: await parent.create(name) }
+                await this.open(fid, flags, signal)
+                this.fids.set(id, fid)
+                return qid(result, fid.node).number(this.messageSize - 24, 4)
+            }
             case 76: {
                 const parent = this.fid(reader.number(4)).node
                 const name = reader.string()
