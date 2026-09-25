@@ -54,6 +54,7 @@ vision-scanners-prompt-suggestions-generate
 vision-scanners-scan-session
 web-analytics-weekly-digest
 workflows-global-stats
+workflows-list-batch-jobs
 workflows-list-invocations
 workflows-logs
 workflows-stats
