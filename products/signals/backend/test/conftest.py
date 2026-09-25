@@ -18,8 +18,11 @@ The fixture is also harmless for non-scout tests in this directory: the older
 from __future__ import annotations
 
 import random
+from collections.abc import Iterator
+from contextlib import ExitStack
 
 import pytest
+from posthog.test.base import PostHogTestCase
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -29,8 +32,20 @@ from posthog.models.scoping import team_scope
 
 
 @pytest.fixture(autouse=True)
-def _scout_team_scope(request: pytest.FixtureRequest):
+def _scout_team_scope(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     instance = getattr(request, "instance", None)
+    if isinstance(instance, PostHogTestCase) and not instance.CLASS_DATA_LEVEL_SETUP:
+        original_set_up = PostHogTestCase.setUp
+        with ExitStack() as scopes:
+
+            def scoped_set_up(test: PostHogTestCase) -> None:
+                original_set_up(test)
+                scopes.enter_context(team_scope(test.team.id))
+
+            # Per-test teams do not exist until base setUp; subclass setUp already needs their scope.
+            monkeypatch.setattr(PostHogTestCase, "setUp", scoped_set_up)
+            yield
+        return
     if instance is None or not hasattr(instance, "team") or instance.team is None:
         yield
         return

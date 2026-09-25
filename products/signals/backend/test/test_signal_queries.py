@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.scoping import get_current_team_id
 
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
@@ -94,6 +95,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.assertEqual(get_current_team_id(), self.team.pk)
         # Anchor to "now" so rows stay inside the table's 3-month TTL window; assertions depend
         # only on the relative inserted_at ordering between versions, not the absolute timestamp.
         self.base = datetime.now(UTC) - timedelta(days=2)
