@@ -25,8 +25,22 @@ no outcome count; it carries no idempotency key, so no run could apply it safely
 a timezone are read as UTC, which is how Salesforce records them. Nothing is written back to
 Salesforce: accepted and released claims are visible on the account's relationships and audit trail,
 and every outcome is counted and logged here.
+
+Binding pins the view, because anyone who can edit a view could otherwise make it return any
+decision rows. The definition stores the SHA-256 of the view's SQL at binding. Each run executes
+that text as a subquery instead of reading the view by name. A run refuses the view as
+``misconfigured`` when its SQL no longer matches the pin. An edit therefore takes effect only after a
+person reviews it, binds the view again and enables claims again.
+
+The pin covers the view's own text only. A view that reads another saved query is refused, because
+that query can be edited on its own. A view that reads a field through a join or a saved expression
+is refused, because both are configured outside the view. These are refused at binding and on every
+run. The pin does not cover the sources behind the view's table names: a person who can reconfigure
+a warehouse source can change the rows. The claim rules still limit such rows to empty roles, active
+organization members and allocations after the fence.
 """
 
+import hashlib
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -41,8 +55,13 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -74,7 +93,8 @@ DECISION_COLUMNS = (
 
 class ClaimSourceMisconfigured(Exception):
     """The claim binding cannot be made or used: no such definition or view, a definition that is not
-    controlled, or a view that does not answer one of the documented decision columns."""
+    controlled, a view that does not answer one of the documented decision columns, a view whose SQL
+    changed after binding, or a view that reads another saved query or a field defined outside it."""
 
 
 class SweepStopped(Exception):
@@ -141,14 +161,103 @@ def _locked_definition(team_id: int, definition_id: UUID) -> AccountRelationship
     return definition
 
 
+def _sql_sha256(sql: str) -> str:
+    return hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+class _OutsideFieldFinder(TraversingVisitor):
+    """Collects the fields of a resolved query that are defined outside its text: joins and saved
+    expressions, which people configure on a table."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fields: set[str] = set()
+
+    def visit_field_type(self, node: ast.FieldType) -> None:
+        self.visit(node.table_type)
+
+    def visit_lazy_join_type(self, node: ast.LazyJoinType) -> None:
+        self.fields.add(node.field)
+        super().visit_lazy_join_type(node)
+
+    def visit_expression_field_type(self, node: ast.ExpressionFieldType) -> None:
+        self.fields.add(node.name)
+
+
+def _claim_catalog(team: Team) -> Database:
+    # The sweep and the binding command run without a user, and the check must see every table the
+    # view names; the team still scopes the catalog.
+    return Database.create_for(team=team, bypass_warehouse_access_control=True)
+
+
+def _refuse_outside_dependencies(team: Team, view_name: str, sql: str, database: Database) -> None:
+    """Raise when the view reads something its pin does not cover: another saved query, or a field
+    defined outside its text."""
+    context = HogQLContext(team_id=team.pk, team=team, enable_select_queries=True, database=database)
+    try:
+        resolved = resolve_types(parse_select(sql), context, dialect="hogql")
+    except ExposedHogQLError as error:
+        raise ClaimSourceMisconfigured(f"View {view_name} cannot be resolved: {error}") from error
+    _refuse_saved_queries(view_name, context)
+    finder = _OutsideFieldFinder()
+    finder.visit(resolved)
+    if finder.fields:
+        raise ClaimSourceMisconfigured(
+            f"View {view_name} reads fields defined outside its SQL ({', '.join(sorted(finder.fields))}); "
+            "a claim view must compute every column in its own SQL, because its pin covers only that text"
+        )
+
+
+def _refuse_saved_queries(view_name: str, context: HogQLContext) -> None:
+    """Raise when resolving or executing the view's SQL under this context reached a saved query."""
+    if context.referenced_saved_query_ids:
+        raise ClaimSourceMisconfigured(
+            f"View {view_name} reads saved queries ({', '.join(sorted(context.referenced_saved_query_ids))}); "
+            "a claim view must read source tables only, because its pin covers only its own SQL"
+        )
+
+
+def _binding_changed(team_id: int, definition: AccountRelationshipDefinition) -> bool:
+    """Lock the definition and tell whether its binding moved after the sweep read the view: to another
+    definition, to a newly pinned text, or with claims switched off. Rows read under the old binding
+    must not apply, and a claim under the old definition would leave the Task unable to fill the new
+    one. Call inside ``transaction.atomic()``, before locking the account."""
+    current = ownership.lock_definition(team_id, definition.id)
+    return (
+        current is None
+        or not current.claims_enabled
+        or current.claim_saved_query_id != definition.claim_saved_query_id
+        or current.claim_saved_query_sha256 != definition.claim_saved_query_sha256
+    )
+
+
+def _pinned_sql(team: Team, definition: AccountRelationshipDefinition, view_name: str, database: Database) -> str:
+    """The bound view's SQL, only while it is the text that was pinned at binding. A binding without
+    a pin never matches, so it is refused until the view is bound again."""
+    sql = data_modeling_facade.get_saved_query_sql(team.id, definition.claim_saved_query_id)
+    if sql is None or _sql_sha256(sql) != definition.claim_saved_query_sha256:
+        raise ClaimSourceMisconfigured(
+            f"View {view_name} does not match the SQL pinned at binding; review it, bind it again and enable claims"
+        )
+    # The text matches the pin, but a name in it can resolve to a saved query or a field defined after
+    # binding.
+    _refuse_outside_dependencies(team, view_name, sql, database)
+    return sql
+
+
 def bind_claim_view(team_id: int, definition_id: UUID, saved_query_id: UUID | None) -> AccountRelationshipDefinition:
-    """Bind the warehouse view whose rows fill the definition, or unbind it with None, which also
-    switches its sweep off. Only a controlled definition can take a view, because a claim fills only
-    a managed relationship; the view must answer every decision column; and a view feeds one
-    definition, because a Task id is unique per team and a second definition would only ever see
-    ``already_applied``."""
+    """Bind the warehouse view whose rows fill the definition, or unbind it with None; either way the
+    definition's sweep is switched off. Only a controlled definition can take a view, because a claim
+    fills only a managed relationship; the view must answer every decision column; and a view feeds
+    one definition, because a Task id is unique per team and a second definition would only ever see
+    ``already_applied``.
+
+    Binding pins the view's SQL as it is at that moment, and the sweep reads only that text. The
+    pinned text runs only after a separate ``set_claims_enabled``, because an edit made between a
+    person's review and the binding would otherwise go live unreviewed."""
     with transaction.atomic():
         definition = _locked_definition(team_id, definition_id)
+        pin: str | None = None
         if saved_query_id is not None:
             if not definition.is_controlled:
                 raise ClaimSourceMisconfigured(
@@ -168,10 +277,16 @@ def bind_claim_view(team_id: int, definition_id: UUID, saved_query_id: UUID | No
                 raise ClaimSourceMisconfigured(
                     f"View {view.name} already fills {elsewhere.name}; a view feeds one definition"
                 )
+            sql = data_modeling_facade.get_saved_query_sql(team_id, saved_query_id)
+            if sql is None:
+                raise ClaimSourceMisconfigured(f"View {view.name} has no SQL to pin")
+            team = Team.objects.get(id=team_id)
+            _refuse_outside_dependencies(team, view.name, sql, _claim_catalog(team))
+            pin = _sql_sha256(sql)
         definition.claim_saved_query_id = saved_query_id
-        if saved_query_id is None:
-            definition.claims_enabled = False
-        definition.save(update_fields=["claim_saved_query", "claims_enabled", "updated_at"])
+        definition.claim_saved_query_sha256 = pin
+        definition.claims_enabled = False
+        definition.save(update_fields=["claim_saved_query", "claim_saved_query_sha256", "claims_enabled", "updated_at"])
         return definition
 
 
@@ -184,6 +299,8 @@ def set_claims_enabled(team_id: int, definition_id: UUID, enabled: bool) -> Acco
             raise ClaimSourceMisconfigured(
                 f"{definition.name} has no claim view bound; bind one before enabling claims"
             )
+        if enabled and definition.claim_saved_query_sha256 is None:
+            raise ClaimSourceMisconfigured(f"{definition.name} has no pinned claim view; bind the view again")
         definition.claims_enabled = enabled
         definition.save(update_fields=["claims_enabled", "updated_at"])
         return definition
@@ -217,8 +334,12 @@ def reconcile_ownership_claims(team: Team, *, should_stop: Callable[[], bool] = 
         # One unusable view must not stop the project's other definitions: it is counted, reported,
         # and read again next tick. A stop request is a different exception and still ends the sweep.
         try:
+            # One catalog for the check and every page of the read, so a join or a saved expression
+            # added after the check cannot shape the rows.
+            database = _claim_catalog(team)
+            sql = _pinned_sql(team, definition, view.name, database)
             check_decision_columns(view.name, data_modeling_facade.get_saved_query_columns(team.id, view.id))
-            rows = _read_decision_rows(team, view.name, should_stop)
+            rows = _read_decision_rows(team, view.name, sql, database, should_stop)
         except ClaimSourceMisconfigured as error:
             capture_exception(error, {"team_id": team.id, "definition_id": str(definition.id)})
             logger.warning(
@@ -248,7 +369,7 @@ def _apply_rows(
         # reads the view again.
         try:
             if decision.is_release:
-                result = release(team=team, decision=decision)
+                result = release(team=team, definition=definition, decision=decision)
             else:
                 result = claim(team=team, definition=definition, decision=decision)
         except IntegrityError as error:
@@ -301,37 +422,45 @@ def _task_id(row: dict[str, Any]) -> str | None:
         return None
 
 
-def _read_decision_rows(team: Team, view_name: str, should_stop: Callable[[], bool]) -> list[dict[str, Any]]:
-    """Every row of the view, keyed by column name, paged on ``task_id`` so a view of any size is read
-    to the end. The view runs as a userless system read, so user-scoped warehouse access control is
-    bypassed; tenant isolation still holds through the team."""
+def _read_decision_rows(
+    team: Team, view_name: str, sql: str, database: Database, should_stop: Callable[[], bool]
+) -> list[dict[str, Any]]:
+    """Every row the view's pinned SQL returns, keyed by column name, paged on ``task_id`` so a view of
+    any size is read to the end. The SQL runs as a subquery rather than as the view's name, so neither
+    a materialized copy of the view nor an edit made after the pin was checked can change what is read.
+    It runs as a userless system read, so user-scoped warehouse access control is bypassed; tenant
+    isolation still holds through the team. Every page runs against the catalog the pin was checked
+    against, and a page is refused when its execution reached a saved query."""
     rows: list[dict[str, Any]] = []
     cursor = ""
     with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
         while True:
             if should_stop():
                 raise SweepStopped()
-            query = ast.SelectQuery(
-                select=[ast.Field(chain=[column]) for column in DECISION_COLUMNS],
-                select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-                where=ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=["task_id"])]),
-                    right=ast.Constant(value=cursor),
-                ),
-                order_by=[
-                    ast.OrderExpr(expr=ast.Call(name="toString", args=[ast.Field(chain=["task_id"])]), order="ASC")
-                ],
-                limit=ast.Constant(value=DECISION_PAGE_SIZE),
-            )
+            context = HogQLContext(team_id=team.pk, bypass_warehouse_access_control=True, database=database)
             try:
+                # Parsed for every page, so each execution gets an AST of its own.
+                query = ast.SelectQuery(
+                    select=[ast.Field(chain=[column]) for column in DECISION_COLUMNS],
+                    select_from=ast.JoinExpr(table=parse_select(sql)),
+                    where=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(name="toString", args=[ast.Field(chain=["task_id"])]),
+                        right=ast.Constant(value=cursor),
+                    ),
+                    order_by=[
+                        ast.OrderExpr(expr=ast.Call(name="toString", args=[ast.Field(chain=["task_id"])]), order="ASC")
+                    ],
+                    limit=ast.Constant(value=DECISION_PAGE_SIZE),
+                )
                 response = execute_hogql_query(
-                    query, team=team, workload=Workload.OFFLINE, bypass_warehouse_access_control=True
+                    query, team=team, workload=Workload.OFFLINE, bypass_warehouse_access_control=True, context=context
                 )
             except (ExposedHogQLError, ExposedCHQueryError) as error:
                 # A view whose SQL no longer resolves (a dropped source table, a renamed column) is
                 # the view's fault and is reported as such; infrastructure failures still propagate.
                 raise ClaimSourceMisconfigured(f"View {view_name} cannot be read: {error}") from error
+            _refuse_saved_queries(view_name, context)
             page = response.results or []
             if len(page) < DECISION_PAGE_SIZE:
                 rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in page)
@@ -418,15 +547,8 @@ def claim(
     actor = relationships.Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     with transaction.atomic():
         # Definition before account, the order every writer takes. The view was read before this
-        # transaction, so the binding is checked again here: an operator may have moved the view
-        # to another definition or switched its sweep off in between, and a claim under the old
-        # definition would leave the Task unable to fill the new one.
-        current = ownership.lock_definition(team.id, definition.id)
-        if (
-            current is None
-            or not current.claims_enabled
-            or current.claim_saved_query_id != definition.claim_saved_query_id
-        ):
+        # transaction, so the binding is checked again here.
+        if _binding_changed(team.id, definition):
             return _claim_result("blocked", "binding_changed")
         try:
             locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
@@ -485,7 +607,9 @@ def claim(
         return _claim_result("accepted", None, relationship, fence)
 
 
-def release(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
+def release(
+    *, team: Team, definition: AccountRelationshipDefinition, decision: contracts.OwnershipClaimDecision
+) -> contracts.OwnershipClaimResult:
     """End the relationship that this Task's accepted claim created, and nothing else.
 
     A release needs no time fence: identity to the Task's own claim is the guard, so it cannot clear
@@ -497,6 +621,9 @@ def release(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contra
     if held is None:
         return _claim_result("not_held", None)
     with transaction.atomic():
+        # Definition before account, and the binding checked again, as for a claim.
+        if _binding_changed(team.id, definition):
+            return _claim_result("blocked", "binding_changed")
         # The claim names the account to lock, and is then read again under that lock: a person may
         # have ended it in between, which is exactly what makes the release a no-op. An account
         # deleted in between takes its claim row with it, so the account check only completes the type.

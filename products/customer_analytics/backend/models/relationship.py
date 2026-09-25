@@ -41,6 +41,10 @@ class AccountRelationshipDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaF
     claim_saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", on_delete=models.RESTRICT, null=True, blank=True, related_name="+"
     )
+    # SHA-256 of the view's SQL at binding. The sweep executes only that text and refuses the view
+    # once its SQL differs, so an edit to a bound view takes effect only after it is bound and
+    # enabled again.
+    claim_saved_query_sha256 = models.CharField(max_length=64, null=True, blank=True)
     claims_enabled = models.BooleanField(default=False, db_default=False)
 
     class Meta:
