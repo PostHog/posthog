@@ -4,6 +4,8 @@ from django.db import connections, router
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
+from posthog.event_usage import EventSource
+
 from products.product_analytics.backend.facade.contracts import INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
@@ -28,7 +30,7 @@ def record_insight_view_context(
     connection = connections[router.db_for_write(InsightViewed)]
     table = connection.ops.quote_name(InsightViewed._meta.db_table)
     conflict = "(COALESCE(team_id, 0), COALESCE(user_id, 0), insight_id, source, COALESCE(dashboard_id, 0))"
-    row_team_id = None if source == "shared" and user_id is None else team_id
+    row_team_id = None if source == EventSource.SHARED and user_id is None else team_id
     placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s)"] * len(ids))
     params = [
         value for insight_id in ids for value in (row_team_id, insight_id, user_id, source, dashboard_id, requested_at)
