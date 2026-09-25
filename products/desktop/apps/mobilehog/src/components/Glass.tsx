@@ -2,6 +2,7 @@ import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type { ReactNode } from "react";
 import {
   type ColorValue,
+  type LayoutChangeEvent,
   Pressable,
   type StyleProp,
   StyleSheet,
@@ -17,10 +18,17 @@ interface GlassProps {
   style?: StyleProp<ViewStyle>;
   interactive?: boolean;
   tint?: ColorValue;
+  onLayout?: (event: LayoutChangeEvent) => void;
 }
 
 // Real Liquid Glass on iOS 26, a translucent card everywhere else.
-export function Glass({ children, style, interactive, tint }: GlassProps) {
+export function Glass({
+  children,
+  style,
+  interactive,
+  tint,
+  onLayout,
+}: GlassProps) {
   if (liquid) {
     return (
       <GlassView
@@ -28,12 +36,17 @@ export function Glass({ children, style, interactive, tint }: GlassProps) {
         isInteractive={interactive}
         tintColor={tint}
         style={style}
+        onLayout={onLayout}
       >
         {children}
       </GlassView>
     );
   }
-  return <View style={[styles.fallback, style]}>{children}</View>;
+  return (
+    <View style={[styles.fallback, style]} onLayout={onLayout}>
+      {children}
+    </View>
+  );
 }
 
 interface GlassButtonProps {
