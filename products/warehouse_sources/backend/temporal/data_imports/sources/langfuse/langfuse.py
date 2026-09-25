@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -140,6 +141,34 @@ def _format_incremental_value(value: Any) -> str:
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return str(value)
+
+
+def _advance_from_value(
+    config: LangfuseEndpointConfig, items: list[dict[str, Any]], from_value: str | None
+) -> str | None:
+    """The from-filter value that lets the next request restart at page 1, or None to keep paging.
+
+    Only a strictly later value is returned. A page whose rows all sit on the current lower bound
+    would otherwise reset to page 1 on the same query and never reach the rows behind it.
+    """
+    if not config.keyset_pagination or not config.default_incremental_field:
+        return None
+
+    latest: datetime | None = None
+    for item in items:
+        parsed = parse_datetime_value(item.get(config.default_incremental_field))
+        if parsed is not None and (latest is None or parsed > latest):
+            latest = parsed
+    if latest is None:
+        return None
+
+    if from_value is not None:
+        current = parse_datetime_value(from_value)
+        # The bound is formatted to whole seconds, so it always rounds down and never skips a row.
+        if current is None or latest.replace(microsecond=0) <= current:
+            return None
+
+    return _format_incremental_value(latest)
 
 
 def _from_filter_value(
@@ -370,7 +399,8 @@ def get_rows(
             # totalPages is documented as always present; stop rather than loop if it ever isn't.
             total_pages = meta.get("totalPages")
             has_next = bool(items) and total_pages is not None and page < total_pages
-            next_state = LangfuseResumeConfig(page=page + 1, from_value=from_value)
+            advanced = _advance_from_value(config, items, from_value) if has_next else None
+            next_state = LangfuseResumeConfig(page=1 if advanced else page + 1, from_value=advanced or from_value)
         else:
             next_cursor = meta.get("cursor")
             # A compliant server never hands back the cursor it was just given; looping on it would
@@ -399,7 +429,10 @@ def get_rows(
             raise LangfusePaginationError(f"{PAGE_LIMIT_ERROR}: {pages_fetched} pages fetched from {endpoint}")
 
         if config.pagination == "page":
-            page += 1
+            page = next_state.page or 1
+            if next_state.from_value != from_value:
+                from_value = next_state.from_value
+                base_params = _build_params(config, from_value)
         else:
             cursor = meta.get("cursor")
 

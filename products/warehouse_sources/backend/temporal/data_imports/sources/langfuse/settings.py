@@ -49,6 +49,11 @@ class LangfuseEndpointConfig:
     # are on event/creation time, so rows that arrive late (ingestion lag) would otherwise be
     # skipped forever. Re-pulled rows are deduped on the primary key by merge.
     incremental_lookback: Optional[timedelta] = None
+    # Page the endpoint by keyset instead of by offset: after each page, move the from-filter up to
+    # the newest row seen and restart at page 1. Langfuse answers a deep offset with a 422 resource
+    # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
+    # ascending on the field the from-filter applies to, so a later page never holds an earlier row.
+    keyset_pagination: bool = False
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -78,6 +83,7 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         partition_key="timestamp",
         sort_mode="asc",
         incremental_lookback=_DEFAULT_LOOKBACK,
+        keyset_pagination=True,
     ),
     "observations": LangfuseEndpointConfig(
         name="observations",

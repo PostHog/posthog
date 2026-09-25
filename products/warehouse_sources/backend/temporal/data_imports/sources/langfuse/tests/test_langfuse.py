@@ -52,6 +52,10 @@ def _page(items: list[dict[str, Any]], *, page: int, total_pages: int) -> mock.M
     return _response(json_data={"data": items, "meta": {"page": page, "limit": 50, "totalPages": total_pages}})
 
 
+def _trace(trace_id: str, timestamp: str) -> dict[str, Any]:
+    return {"id": trace_id, "timestamp": timestamp}
+
+
 def _cursor_page(items: list[dict[str, Any]], *, cursor: Optional[str]) -> mock.MagicMock:
     return _response(json_data={"data": items, "meta": {"cursor": cursor}})
 
@@ -485,6 +489,101 @@ class TestGetRows:
             )
         assert [r["id"] for r in rows] == ["t1"]
         assert session.get.call_count == 2
+
+    def test_keyset_paging_advances_the_filter_and_resets_the_page(self):
+        # Offset depth is what kills a traces backfill: Langfuse answers a deep offset with a 422
+        # resource limit. Each page must move fromTimestamp past the newest row it saw and go back
+        # to page 1, so the offset never grows.
+        manager = self._manager()
+        rows, session = self._run(
+            manager,
+            [
+                _page(
+                    [_trace("t1", "2026-03-04T10:00:00Z"), _trace("t2", "2026-03-04T10:05:00Z")],
+                    page=1,
+                    total_pages=900,
+                ),
+                _page(
+                    [_trace("t2", "2026-03-04T10:05:00Z"), _trace("t3", "2026-03-04T10:09:00Z")],
+                    page=1,
+                    total_pages=400,
+                ),
+                _page([_trace("t3", "2026-03-04T10:09:00Z")], page=1, total_pages=1),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+            incremental_field="timestamp",
+        )
+        assert [r["id"] for r in rows] == ["t1", "t2", "t2", "t3", "t3"]
+        pages = [call.kwargs["params"]["page"] for call in session.get.call_args_list]
+        bounds = [call.kwargs["params"]["fromTimestamp"] for call in session.get.call_args_list]
+        assert pages == [1, 1, 1]
+        assert bounds == ["2026-03-04T09:00:00Z", "2026-03-04T10:05:00Z", "2026-03-04T10:09:00Z"]
+
+    def test_keyset_checkpoint_carries_the_advanced_filter(self):
+        # Resume reuses the saved from_value verbatim, so a checkpoint that kept the ORIGINAL bound
+        # next to page 1 would restart the whole walk on the next activity attempt.
+        manager = self._manager()
+        self._run(
+            manager,
+            [
+                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=900),
+                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=1),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+            incremental_field="timestamp",
+        )
+        saved = manager.save_state.call_args.args[0]
+        assert saved.page == 1
+        assert saved.from_value == "2026-03-04T10:05:00Z"
+
+    def test_keyset_falls_back_to_offset_when_the_bound_cannot_move(self):
+        # Every row on the page sits on the current bound. Resetting to page 1 would re-issue the
+        # same query forever, so the walk must keep incrementing the offset to get past them.
+        manager = self._manager()
+        _rows, session = self._run(
+            manager,
+            [
+                _page([_trace("t1", "2026-03-04T11:00:00Z")], page=1, total_pages=3),
+                _page([_trace("t2", "2026-03-04T11:00:00Z")], page=2, total_pages=3),
+                _page([_trace("t3", "2026-03-04T11:00:00Z")], page=3, total_pages=3),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC),
+            incremental_field="timestamp",
+        )
+        assert [call.kwargs["params"]["page"] for call in session.get.call_args_list] == [1, 2, 3]
+
+    def test_keyset_advances_from_an_unfiltered_first_sync(self):
+        manager = self._manager()
+        _rows, session = self._run(
+            manager,
+            [
+                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=900),
+                _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=1),
+            ],
+        )
+        assert "fromTimestamp" not in session.get.call_args_list[0].kwargs["params"]
+        assert session.get.call_args_list[1].kwargs["params"]["fromTimestamp"] == "2026-03-04T10:05:00Z"
+
+    def test_cursor_endpoint_keeps_offset_free_paging(self):
+        # Only traces is pinned ascending, so only traces may move its bound. A descending endpoint
+        # that did so would filter away the rows it has not read yet.
+        manager = self._manager()
+        _rows, session = self._run(
+            manager,
+            [
+                _cursor_page([{"id": "o1", "startTime": "2026-03-04T10:05:00Z"}], cursor="abc"),
+                _cursor_page([{"id": "o2", "startTime": "2026-03-04T09:00:00Z"}], cursor=None),
+            ],
+            endpoint="observations",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 8, 0, 0, tzinfo=UTC),
+            incremental_field="startTime",
+        )
+        for call in session.get.call_args_list:
+            assert call.kwargs["params"]["fromStartTime"] == "2026-03-04T07:00:00Z"
 
     def test_page_limit_raises_after_checkpointing_next_page(self):
         # A hostile host reporting ever-more totalPages would otherwise keep the loop alive until
