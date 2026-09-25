@@ -1,1 +1,1 @@
-0011_insightviewed_standalone_demand
+0011_insight_query_demand
