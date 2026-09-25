@@ -349,7 +349,7 @@ export function SceneTitleSection({
                     data-editable={canEdit}
                 >
                     <div
-                        className={cn('flex gap-1 flex-1 min-w-0', {
+                        className={cn('flex items-center gap-1 flex-1 min-w-0', {
                             '-ml-[var(--button-padding-x-base)]': willShowBreadcrumbs,
                         })}
                     >
@@ -477,6 +477,10 @@ export function SceneName({
     // the user's own edit arriving back through the form, so the render-phase
     // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
     const latestNameRef = useRef(initialName)
+    // What the last Enter press saved, held only until the next blur. `initialName` catches up
+    // when the save round-trips, so the blur straight after Enter still sees a changed field and
+    // would save the same value a second time.
+    const savedByEnterRef = useRef<string | null>(null)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
         if (initialName !== latestNameRef.current) {
@@ -519,7 +523,9 @@ export function SceneName({
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
+        const savedByEnter = savedByEnterRef.current
+        savedByEnterRef.current = null
+        if (saveOnBlur && !isGeneratingMetadata && name !== initialName && name !== savedByEnter) {
             debouncedOnBlurSave(name || '')
         } else if (!saveOnBlur) {
             // Commit any pending debounced change synchronously so a submit or
@@ -570,6 +576,7 @@ export function SceneName({
                                 if (e.key === 'Enter') {
                                     e.preventDefault()
                                     if (saveOnBlur && e.currentTarget.value !== initialName) {
+                                        savedByEnterRef.current = e.currentTarget.value || ''
                                         onChange?.(e.currentTarget.value || '')
                                     }
                                 }
