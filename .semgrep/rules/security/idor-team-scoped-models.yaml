@@ -667,6 +667,7 @@ rules:
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
+                        |LogsSource
                         |Loop
                         |LoopFire
                         |LoopTrigger

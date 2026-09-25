@@ -2,9 +2,9 @@
 # AppConfig.ready() can wire them cheaply in every process type (celery, temporal,
 # migrate) without pulling the viewset import graph into django.setup().
 
-from typing import Any, cast
+from typing import Any
 
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
@@ -12,7 +12,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsExclusionRu
 
 
 def _log_named_activity(
-    scope: str,
+    scope: AuditableScope,
     before_update: Any,
     after_update: Any,
     activity: str,
@@ -28,10 +28,10 @@ def _log_named_activity(
         user=user,
         was_impersonated=was_impersonated,
         item_id=instance.id,
-        scope=cast(ActivityScope, scope),
+        scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
+            changes=changes_between(scope, previous=before_update, current=after_update),
             name=instance.name,
         ),
     )
@@ -44,7 +44,7 @@ def _log_named_activity(
 @mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)
 def handle_logs_alert_activity(
     sender: Any,
-    scope: str,
+    scope: AuditableScope,
     before_update: LogsAlertConfiguration | None,
     after_update: LogsAlertConfiguration | None,
     activity: str,
@@ -58,7 +58,7 @@ def handle_logs_alert_activity(
 @mutable_receiver(model_activity_signal, sender=LogsExclusionRule)
 def handle_logs_sampling_rule_activity(
     sender: Any,
-    scope: str,
+    scope: AuditableScope,
     before_update: LogsExclusionRule | None,
     after_update: LogsExclusionRule | None,
     activity: str,
@@ -72,7 +72,7 @@ def handle_logs_sampling_rule_activity(
 @mutable_receiver(model_activity_signal, sender=LogsRetentionRule)
 def handle_logs_retention_rule_activity(
     sender: Any,
-    scope: str,
+    scope: AuditableScope,
     before_update: LogsRetentionRule | None,
     after_update: LogsRetentionRule | None,
     activity: str,
@@ -86,7 +86,7 @@ def handle_logs_retention_rule_activity(
 @mutable_receiver(model_activity_signal, sender=LogsSource)
 def handle_logs_source_activity(
     sender: Any,
-    scope: str,
+    scope: AuditableScope,
     before_update: LogsSource | None,
     after_update: LogsSource | None,
     activity: str,

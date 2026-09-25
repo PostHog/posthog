@@ -9,15 +9,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.logs.backend.models import LogsSource
-from products.logs.backend.presentation.views.sources_api import (
-    FIREHOSE_ENDPOINT_PATH,
-    LogsSourceSerializer,
-    SourceHealth,
-)
+from products.logs.backend.presentation.views.sources_api import FIREHOSE_ENDPOINT_PATH, LogsSourceSerializer
+from products.logs.backend.source_health import SourceHealth
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
 
@@ -25,15 +21,14 @@ NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
 class TestLogsSourceSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("bad_region", {"config": {"region": "virginia"}}, "config"),
-            ("missing_region", {"config": {"default_labels": {"env": "prod"}}}, "config"),
+            ("bad_region", {"region": "virginia"}),
+            ("missing_region", {"default_labels": {"env": "prod"}}),
         ]
     )
-    def test_rejects_invalid_input(self, _name: str, overrides: dict, error_field: str) -> None:
-        payload = {"name": "prod", "provider": "aws_cloudwatch", **overrides}
-        serializer = LogsSourceSerializer(data=payload)
+    def test_rejects_invalid_config(self, _name: str, config: dict) -> None:
+        serializer = LogsSourceSerializer(data={"name": "prod", "provider": "aws_cloudwatch", "config": config})
         assert not serializer.is_valid()
-        assert error_field in serializer.errors
+        assert "config" in serializer.errors
 
     def test_mode_is_not_writable(self) -> None:
         serializer = LogsSourceSerializer(
@@ -117,9 +112,10 @@ class TestLogsSourcesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["config"] == {"region": "", "default_labels": {}, "service_name_overrides": {}}
 
-    def test_another_teams_source_is_not_visible(self) -> None:
-        other_org = Organization.objects.create(name="other")
-        other_team = Team.objects.create(organization=other_org, name="other")
+    def test_a_sibling_teams_source_is_not_visible(self) -> None:
+        # Same organization, so the org permission layer lets the request through and the
+        # queryset filter is what has to reject it.
+        other_team = self.create_team_with_organization(self.organization)
         other = self._create_source(team=other_team, name="theirs")
 
         assert self.client.get(f"{self.base_url}{other.id}/").status_code == status.HTTP_404_NOT_FOUND
@@ -133,32 +129,27 @@ class TestLogsSourcesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
-                "recent_bucket",
-                lambda: (datetime.now(UTC).replace(minute=0, second=0, microsecond=0, tzinfo=None), 120, 3),
-                "receiving",
-                120,
-                3,
-            ),
-            ("old_bucket", lambda: (datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=5), 7, 0), "stale", 7, 0),
+            ("recent_bucket", timedelta(0), "receiving"),
+            ("old_bucket", timedelta(hours=5), "stale"),
         ]
     )
-    @patch("products.logs.backend.presentation.views.sources_api.sync_execute")
+    @patch("products.logs.backend.source_health.sync_execute")
     def test_health_reads_source_metrics_for_every_source(
-        self, _name: str, row, expected_status: str, received: int, dropped: int, mock_execute
+        self, _name: str, age: timedelta, expected_status: str, mock_execute
     ) -> None:
         source = self._create_source()
         silent = self._create_source(name="silent")
-        last_received_at, received_count, dropped_count = row()
-        mock_execute.return_value = [(str(source.id), last_received_at, received_count, dropped_count)]
+        # app_metrics2 truncates to the hour and the driver returns naive datetimes.
+        bucket = datetime.now(UTC).replace(minute=0, second=0, microsecond=0, tzinfo=None) - age
+        mock_execute.return_value = [(str(source.id), bucket, 120, 3)]
 
         response = self.client.get(f"{self.base_url}health/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()["sources"]
         assert body[str(source.id)]["status"] == expected_status
-        assert body[str(source.id)]["records_received_24h"] == received
-        assert body[str(source.id)]["records_dropped_24h"] == dropped
+        assert body[str(source.id)]["records_received_24h"] == 120
+        assert body[str(source.id)]["records_dropped_24h"] == 3
         assert body[str(silent.id)] == {
             "status": "waiting",
             "last_received_at": None,
@@ -169,7 +160,7 @@ class TestLogsSourcesAPI(APIBaseTest):
         assert sorted(query_params["instance_ids"]) == sorted([str(source.id), str(silent.id)])
         assert query_params["team_id"] == self.team.pk
 
-    @patch("products.logs.backend.presentation.views.sources_api.sync_execute")
+    @patch("products.logs.backend.source_health.sync_execute")
     def test_health_skips_clickhouse_when_there_are_no_sources(self, mock_execute) -> None:
         response = self.client.get(f"{self.base_url}health/")
         assert response.status_code == status.HTTP_200_OK

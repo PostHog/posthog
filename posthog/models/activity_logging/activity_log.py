@@ -293,6 +293,10 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "config",
         "sensitive_config",
     ],
+    "LogsSource": [
+        # Pull-mode credentials (Fernet ciphertext). Record that they rotated, never the value.
+        "secrets",
+    ],
     "BatchImport": [
         "import_config",
     ],
@@ -577,7 +581,6 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
-    "LogsSource": ["secrets"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],

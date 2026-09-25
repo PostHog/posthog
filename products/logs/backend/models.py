@@ -559,20 +559,30 @@ class LogsSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDM
 
     # Ingestion is per environment, so a canonical (project-level) team id must never select a
     # sibling environment's source: readers go through `objects.for_team(team.id)` and ambient
-    # scope is refused. db_constraint=False on the hot-table FKs keeps the CreateModel migration
-    # lock-free.
+    # scope is refused.
     objects = EnvironmentScopedManager()
     activity_logging_on_delete = True
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # db_constraint=False on the hot-table FKs keeps the CreateModel migration lock-free.
+    # db_index=False because the composite index below already leads with team_id, and nothing
+    # reads by created_by.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
     )
     name = models.CharField(max_length=255)
     provider = models.CharField(max_length=32, choices=logs_source_provider_choices)
     mode = models.CharField(max_length=8, choices=Mode.choices, default=Mode.PUSH)
     enabled = models.BooleanField(default=True)
-    # {"region": "us-east-1", "default_labels": {"env": "prod"}, "service_name_overrides": {"/aws/lambda/x": "checkout"}}
+    # Shape is defined by LogsSourceConfigSerializer in presentation/views/sources_api.py.
     config = models.JSONField(default=dict)
     # Pull-mode credentials such as a role ARN. Null for push sources, which authenticate with the project API key.
     secrets = EncryptedJSONStringField(null=True, blank=True)
