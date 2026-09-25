@@ -16,7 +16,7 @@ from temporalio import common
 from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, LogActivityEntry, bulk_log_activity
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import ASYNC_DELETION_INSERT_BATCH_SIZE, AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
     DistinctIdForPerson,
@@ -705,6 +705,8 @@ def queue_person_event_deletion(
             for person in persons
         ],
         ignore_conflicts=True,
+        # One call can carry 20,000 persons.
+        batch_size=ASYNC_DELETION_INSERT_BATCH_SIZE,
     )
 
 

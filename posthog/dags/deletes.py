@@ -2,7 +2,7 @@ import abc
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 
 from django.conf import settings
@@ -1141,6 +1141,63 @@ def cleanup_delete_assets(
     return True
 
 
+# A verified request is history, not work: every consumer of the queue filters it out, while both
+# unique indexes on the table keep it, and every queued deletion probes those indexes. The window
+# is what the person deletion_status API can still report a completed erasure from.
+ASYNC_DELETION_RETENTION_DAYS = 90
+
+
+class PruneVerifiedDeletionsConfig(dagster.Config):
+    retention_days: int = pydantic.Field(
+        default=ASYNC_DELETION_RETENTION_DAYS,
+        # A negative window would put the cutoff in the future, which prunes every verified
+        # request including the one the sweep stamped minutes ago.
+        ge=0,
+        description="Delete requests whose delete_verified_at is older than this many days. A "
+        "request still pending verification is never deleted, whatever its age.",
+    )
+    batch_size: int = pydantic.Field(
+        default=10000,
+        gt=0,
+        description="Rows deleted per statement. Each batch is its own statement, so a run that "
+        "stops part way keeps the rows it already removed.",
+    )
+    max_rows: int = pydantic.Field(
+        default=1000000,
+        ge=0,
+        description="Most rows one run may delete. A run that meets this cap leaves the rest for "
+        "the next run, so one run cannot hold the whole backlog open.",
+    )
+
+
+@dagster.op
+def prune_verified_deletions(
+    context: dagster.OpExecutionContext,
+    config: PruneVerifiedDeletionsConfig,
+    cleanup_complete: bool,
+) -> int:
+    """Delete requests that were verified longer ago than the retention window."""
+    cutoff = timezone.now() - timedelta(days=config.retention_days)
+    expired = AsyncDeletion.objects.filter(delete_verified_at__lt=cutoff)
+
+    pruned = 0
+    while pruned < config.max_rows:
+        ids = list(expired.values_list("id", flat=True)[: min(config.batch_size, config.max_rows - pruned)])
+        if not ids:
+            break
+        AsyncDeletion.objects.filter(id__in=ids).delete()
+        pruned += len(ids)
+
+    context.add_output_metadata(
+        {
+            "pruned_rows": dagster.MetadataValue.int(pruned),
+            "cutoff": dagster.MetadataValue.text(cutoff.isoformat()),
+            "reached_max_rows": dagster.MetadataValue.bool(pruned >= config.max_rows),
+        }
+    )
+    return pruned
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
@@ -1190,7 +1247,7 @@ def deletes_job():
     )
 
     # Clean up
-    cleanup_delete_assets(swept_targets, verified_deletion_resources)
+    prune_verified_deletions(cleanup_delete_assets(swept_targets, verified_deletion_resources))
 
 
 # What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
