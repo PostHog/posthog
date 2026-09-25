@@ -478,7 +478,6 @@ def build_author_friction(*, curated: CuratedGitHubSource, github_team: str | No
     """Every author's friction over the view's window, most first. A team keeps the repository-wide
     scores and ranks and lists only its members, so a member's figures read the same on every page."""
     window_days = pr_friction.FRICTION_WINDOW.days
-    members = _query_memberships(curated)
     pull_requests = _query_pull_requests(curated)
     if pull_requests is None:
         return AuthorFrictionList(
@@ -486,9 +485,10 @@ def build_author_friction(*, curated: CuratedGitHubSource, github_team: str | No
             window_days=window_days,
             ranked_author_count=0,
             github_team=github_team,
-            has_membership_data=members is not None,
+            has_membership_data=curated.members_source() is not None,
             items=[],
         )
+    members = _query_memberships(curated)
     items = FrictionScorer(pull_requests).score(_teams_by_author(members or {}))
     ranked_author_count = len(items)
     teams = _team_friction(items, members or {}, floor=MIN_TEAM_AUTHORS)
@@ -512,19 +512,19 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
     if not author:
         raise ValueError("author is required")
     window_days = pr_friction.FRICTION_WINDOW.days
-    members = _query_memberships(curated)
     pull_requests = _query_pull_requests(curated)
     if pull_requests is None:
         return AuthorFrictionDetail(
             available=False,
             window_days=window_days,
             ranked_author_count=0,
-            has_membership_data=members is not None,
+            has_membership_data=curated.members_source() is not None,
             author=None,
             pr_count=0,
             teams=[],
             pull_requests=[],
         )
+    members = _query_memberships(curated)
     scorer = FrictionScorer(pull_requests)
     items = scorer.score(_teams_by_author(members or {}))
     own_teams = {team: handles for team, handles in (members or {}).items() if author.lower() in handles}
