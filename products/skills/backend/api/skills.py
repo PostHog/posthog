@@ -1894,15 +1894,14 @@ class LLMSkillViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
-        # valid continuation offset even when the full content would be truncated in transit.
-        body_length = cast(int | None, version_params.get("body_length"))
-        if body_length is None:
-            body_length = DEFAULT_BODY_PAGE_LENGTH
+        # No default page cap here, unlike get_by_name: a bundled file is read by clients that
+        # cannot page — the web editor loads it, edits it and publishes it back — and a capped
+        # default would republish the first page over the whole file. body_total_length always
+        # ships, so a caller whose transport truncated the content can detect it and page.
         context = {
             **self.get_serializer_context(),
             "body_offset": cast(int | None, version_params.get("body_offset")),
-            "body_length": body_length,
+            "body_length": cast(int | None, version_params.get("body_length")),
         }
         return Response(LLMSkillFileSerializer(skill_file, context=context).data)
 

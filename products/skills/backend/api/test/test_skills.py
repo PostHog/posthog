@@ -1770,19 +1770,19 @@ class TestLLMSkillAPI(APIBaseTest):
         # A file under the default page cap fits in the first page, so nothing is left to fetch.
         assert data["body_next_offset"] is None
 
-    def test_get_file_caps_first_page_and_reports_next_offset_without_paging(self):
-        # A reference file larger than the default page cap would be truncated in transit; the
-        # un-paged response must hand back a valid continuation offset rather than claiming
-        # completeness, or an agent reads a cut-off reference as the whole file.
+    def test_get_file_returns_a_large_file_whole_and_reports_its_length(self):
+        # A reference larger than the MCP response budget still comes back whole for a client that
+        # cannot page, and body_total_length lets a client whose transport truncated it detect the
+        # cut and page from body_offset.
         skill = self.create_skill(name="huge-file-skill")
         content = "x" * (DEFAULT_BODY_PAGE_LENGTH + 50)
         LLMSkillFile.objects.create(skill=skill, path="references/limits.md", content=content)
 
         data = self.client.get(self._url("name/huge-file-skill/files/references/limits.md")).json()
 
-        assert data["content"] == content[:DEFAULT_BODY_PAGE_LENGTH]
+        assert data["content"] == content
         assert data["body_total_length"] == DEFAULT_BODY_PAGE_LENGTH + 50
-        assert data["body_next_offset"] == DEFAULT_BODY_PAGE_LENGTH
+        assert data["body_next_offset"] is None
 
     @parameterized.expand(
         [

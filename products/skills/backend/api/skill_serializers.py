@@ -180,10 +180,10 @@ class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
     body_length = serializers.IntegerField(
         min_value=1,
         required=False,
-        help_text="Maximum number of characters to return starting at body_offset. Defaults to "
-        f"{DEFAULT_BODY_PAGE_LENGTH} when omitted, so a long skill body or bundled file comes back in pages. When the "
-        "slice stops before the end, body_next_offset is the offset to request next. Keep requesting until "
-        "body_next_offset is null.",
+        help_text="Maximum number of characters to return starting at body_offset. A skill body defaults to "
+        f"{DEFAULT_BODY_PAGE_LENGTH} when omitted, so a long body comes back in pages; a bundled file comes back "
+        "whole. When the slice stops before the end, body_next_offset is the offset to request next. Keep requesting "
+        "until body_next_offset is null.",
     )
 
 
