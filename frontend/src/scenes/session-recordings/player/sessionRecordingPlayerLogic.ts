@@ -33,6 +33,7 @@ import {
 } from '@posthog/replay-shared'
 
 import api from 'lib/api'
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -64,7 +65,13 @@ import {
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
+import type {
+    PreflightStatus,
+    SessionRecordingSnapshotSource,
+    SessionRecordingType,
+    SessionRecordingUpdateType,
+    UserType,
+} from '../../../types'
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -1193,6 +1200,26 @@ export type sessionRecordingPlayerLogicType = MakeLogicType<
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogicMeta
 >
+
+// A recording deleted or expired while the player was open answers 404, and there is nothing left
+// to mark. Returns false for that, so the caller stops. Every other failure still rejects.
+async function markRecording(
+    sessionRecordingId: SessionRecordingType['id'],
+    data: Partial<SessionRecordingUpdateType>
+): Promise<boolean> {
+    try {
+        // PatchedSessionRecordingApi carries no `analyzed` or `player_metadata`, so the generated
+        // client cannot send this body yet.
+        // nosemgrep: prefer-codegen-api-namespaced-replay
+        await api.recordings.update(sessionRecordingId, data)
+        return true
+    } catch (error) {
+        if (isUnavailableEndpointError(error)) {
+            return false
+        }
+        throw error
+    }
+}
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -2992,15 +3019,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
             await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
-            await api.recordings.update(props.sessionRecordingId, {
+            const stillExists = await markRecording(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            if (!stillExists) {
+                return
+            }
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            await api.recordings.update(props.sessionRecordingId, {
+            const stillExistsAfterAnalysis = await markRecording(props.sessionRecordingId, {
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            if (!stillExistsAfterAnalysis) {
+                return
+            }
             analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
