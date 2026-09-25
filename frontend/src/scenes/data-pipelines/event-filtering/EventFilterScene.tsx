@@ -36,8 +36,14 @@ export const scene: SceneExport = {
 }
 
 export function EventFilterScene(): JSX.Element {
-    const { filterForm, isFilterFormSubmitting, allTestsPass, filterFormErrors, showFilterFormErrors } =
-        useValues(eventFilterLogic)
+    const {
+        filterForm,
+        isFilterFormSubmitting,
+        allTestsPass,
+        filterFormErrors,
+        showFilterFormErrors,
+        liveModeDisabledReason,
+    } = useValues(eventFilterLogic)
     const { setFilterFormValue, submitFilterForm, updateTreeNode } = useActions(eventFilterLogic)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [showExpression, setShowExpression] = useState(false)
@@ -179,10 +185,7 @@ export function EventFilterScene(): JSX.Element {
                                 {
                                     value: 'live',
                                     label: 'Live',
-                                    disabledReason:
-                                        !allTestsPass && filterForm.test_cases.length > 0
-                                            ? 'All test cases must pass before going live'
-                                            : undefined,
+                                    disabledReason: liveModeDisabledReason ?? undefined,
                                 },
                             ]}
                             value={filterForm.mode}

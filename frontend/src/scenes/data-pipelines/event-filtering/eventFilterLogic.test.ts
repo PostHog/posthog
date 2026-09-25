@@ -1,9 +1,16 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     countConditions,
+    eventFilterLogic,
     evaluateFilterTree,
     FilterNode,
     normalizeRootToGroup,
     treeHasConditions,
+    TestCase,
     treeHasEmptyValues,
     updateAtPath,
 } from './eventFilterLogic'
@@ -332,5 +339,51 @@ describe('treeHasEmptyValues', () => {
         ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
+    })
+})
+
+describe('liveModeDisabledReason', () => {
+    let logic: ReturnType<typeof eventFilterLogic.build>
+
+    beforeEach(() => {
+        useMocks({ get: { '/api/environments/:team_id/event_filter/': () => [200, null] } })
+        initKeaTests()
+        logic = eventFilterLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    const testCase = (expected_result: 'drop' | 'ingest'): TestCase => ({
+        _key: 'tc',
+        event_name: '$autocapture',
+        distinct_id: 'u1',
+        expected_result,
+    })
+
+    it('blocks live mode while the filter has conditions but no test cases', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', '$autocapture')))
+        }).toMatchValues({ liveModeDisabledReason: 'Add at least one test case before going live' })
+    })
+
+    it('blocks live mode while a test case fails', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', '$pageview')))
+            logic.actions.setFilterFormValue('test_cases', [testCase('drop')])
+        }).toMatchValues({ liveModeDisabledReason: 'All test cases must pass before going live' })
+    })
+
+    it('allows live mode once a passing test case exists', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilterFormValue('filter_tree', or(cond('event_name', 'exact', '$autocapture')))
+            logic.actions.setFilterFormValue('test_cases', [testCase('drop')])
+        }).toMatchValues({ liveModeDisabledReason: null })
+    })
+
+    it('says nothing about test cases while the filter is still empty', async () => {
+        await expectLogic(logic).toMatchValues({ liveModeDisabledReason: null })
     })
 })
