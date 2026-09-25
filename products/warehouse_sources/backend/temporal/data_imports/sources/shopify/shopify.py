@@ -757,7 +757,9 @@ def validate_credentials(
         capture_exception(e)
         raise Exception(SHOPIFY_CREDENTIALS_CHECK_ERROR) from e
     if res.status_code == 401:
-        raise Exception(SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR)
+        raise Exception(
+            SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR if shopify_access_token else SHOPIFY_CREDENTIALS_CHECK_ERROR
+        )
     if res.status_code == 402:
         raise Exception(SHOPIFY_STORE_FROZEN_ERROR)
     if res.status_code == 404:

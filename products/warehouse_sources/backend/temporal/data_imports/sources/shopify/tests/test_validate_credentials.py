@@ -165,6 +165,13 @@ def test_a_configured_access_token_authenticates_without_minting_one():
     assert session_factory.call_args.kwargs["headers"]["X-Shopify-Access-Token"] == "shpat_supplied"
 
 
+def _token_config() -> ShopifySourceConfig:
+    return ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_supplied"),
+    )
+
+
 def _http_error_response(status_code: int, reason: str) -> requests.Response:
     response = requests.Response()
     response.status_code = status_code
@@ -174,26 +181,30 @@ def _http_error_response(status_code: int, reason: str) -> requests.Response:
 
 
 @pytest.mark.parametrize(
-    "response,expected_error",
+    "config,response,expected_error",
     [
-        (_http_error_response(401, "Unauthorized"), SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR),
-        (_http_error_response(402, "Payment Required"), SHOPIFY_STORE_FROZEN_ERROR),
-        (_http_error_response(404, "Not Found"), SHOPIFY_STORE_NOT_FOUND_ERROR),
-        (_http_error_response(500, "Internal Server Error"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (_token_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR),
+        (_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (_token_config(), _http_error_response(402, "Payment Required"), SHOPIFY_STORE_FROZEN_ERROR),
+        (_token_config(), _http_error_response(404, "Not Found"), SHOPIFY_STORE_NOT_FOUND_ERROR),
+        (_token_config(), _http_error_response(500, "Internal Server Error"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
         (
+            _token_config(),
             mock.MagicMock(status_code=200, json=mock.MagicMock(return_value={"errors": "boom"})),
             SHOPIFY_CREDENTIALS_CHECK_ERROR,
         ),
     ],
 )
-def test_a_failed_token_check_shows_guidance_instead_of_the_raw_error(response: Any, expected_error: str):
-    config = ShopifySourceConfig(
-        shopify_store_id="my-store",
-        auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_supplied"),
-    )
+def test_a_failed_token_check_shows_guidance_instead_of_the_raw_error(
+    config: ShopifySourceConfig, response: Any, expected_error: str
+):
     session = mock.MagicMock(post=mock.MagicMock(return_value=response))
 
-    with mock.patch(_SESSION_PATH, return_value=session), mock.patch(f"{_SHOPIFY_MODULE}.capture_exception"):
+    with (
+        mock.patch(_TOKEN_PATH, return_value="tok"),
+        mock.patch(_SESSION_PATH, return_value=session),
+        mock.patch(f"{_SHOPIFY_MODULE}.capture_exception"),
+    ):
         valid, error = ShopifySource().validate_credentials(config, team_id=1)
 
     assert (valid, error) == (False, expected_error)
