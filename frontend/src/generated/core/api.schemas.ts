@@ -3745,7 +3745,6 @@ export const RequestStatusEnumApi = {
 export type DataDeletionRequestApiVariables = {
     [key: string]: {
         code_name: string
-        /** @nullable */
         isNull?: boolean | null
         value?: unknown
         variableId: string
@@ -3820,7 +3819,6 @@ export interface PaginatedDataDeletionRequestListApi {
 export type DataDeletionRequestCreateApiVariables = {
     [key: string]: {
         code_name: string
-        /** @nullable */
         isNull?: boolean | null
         value?: unknown
         variableId: string
@@ -3847,7 +3845,6 @@ export interface DataDeletionConflictApi {
 export type DataDeletionRequestInputApiVariables = {
     [key: string]: {
         code_name: string
-        /** @nullable */
         isNull?: boolean | null
         value?: unknown
         variableId: string

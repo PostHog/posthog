@@ -672,7 +672,7 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
             zod.string(),
             zod.object({
                 code_name: zod.string(),
-                isNull: zod.boolean().nullish(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
                 value: zod.unknown().optional(),
                 variableId: zod.string(),
             })
@@ -692,7 +692,7 @@ export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object(
             zod.string(),
             zod.object({
                 code_name: zod.string(),
-                isNull: zod.boolean().nullish(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
                 value: zod.unknown().optional(),
                 variableId: zod.string(),
             })

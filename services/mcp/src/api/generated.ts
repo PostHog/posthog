@@ -25035,7 +25035,6 @@ export namespace Schemas {
      */
     export type DataDeletionRequestVariables = {[key: string]: {
       code_name: string;
-      /** @nullable */
       isNull?: boolean | null;
       value?: unknown;
       variableId: string;
@@ -25121,7 +25120,6 @@ export namespace Schemas {
      */
     export type DataDeletionRequestCreateVariables = {[key: string]: {
       code_name: string;
-      /** @nullable */
       isNull?: boolean | null;
       value?: unknown;
       variableId: string;
@@ -25141,7 +25139,6 @@ export namespace Schemas {
      */
     export type DataDeletionRequestInputVariables = {[key: string]: {
       code_name: string;
-      /** @nullable */
       isNull?: boolean | null;
       value?: unknown;
       variableId: string;

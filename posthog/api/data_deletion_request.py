@@ -12,6 +12,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
+from posthog.schema import HogQLVariable
+
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.data_deletion import (
@@ -54,17 +56,7 @@ class DataDeletionPreviewSustainedThrottle(DataDeletionTeamRateThrottle):
 @extend_schema_field(
     {
         "type": "object",
-        "additionalProperties": {
-            "type": "object",
-            "required": ["code_name", "variableId"],
-            "properties": {
-                "code_name": {"type": "string"},
-                "isNull": {"type": "boolean", "nullable": True},
-                "value": {},
-                "variableId": {"type": "string"},
-            },
-            "additionalProperties": False,
-        },
+        "additionalProperties": HogQLVariable.model_json_schema(),
     }
 )
 class HogQLVariablesField(serializers.JSONField):
