@@ -91,18 +91,21 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+_HOST_NOT_RESOLVED = "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog."
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": _INVALID_CREDENTIALS,
     "code: 516": _INVALID_CREDENTIALS,  # AUTHENTICATION_FAILED
     "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
-    "code: 60": "Table does not exist",  # UNKNOWN_TABLE
-    "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
-    "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
-    "nodename nor servname provided": "Could not resolve the ClickHouse host",
-    "name or service not known": "Could not resolve the ClickHouse host",
-    "connection refused": "Could not connect to ClickHouse on the given host/port",
+    "code: 60": "Table does not exist. Check the table still exists in your ClickHouse database.",  # UNKNOWN_TABLE
+    "code: 192": _INVALID_CREDENTIALS,  # UNKNOWN_USER
+    "code: 497": "Your ClickHouse user doesn't have permission to read this database. Grant the user SELECT on the database, then try again.",  # ACCESS_DENIED
+    # Same wording as the MySQL source, so a wrong host or port reads the same across databases.
+    "nodename nor servname provided": _HOST_NOT_RESOLVED,
+    "name or service not known": _HOST_NOT_RESOLVED,
+    "connection refused": "Could not connect to the host on the port given. Check the host and port are correct and the ClickHouse server is accepting connections.",
     "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
     # user to the wrong toggle. Verification runs against the configured ClickHouse host even
