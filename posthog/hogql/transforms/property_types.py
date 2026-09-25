@@ -133,7 +133,7 @@ class PropertyFinder(TraversingVisitor):
 class ToTimeZoneParts:
     bare_field: ast.Expr
     timezone: str
-    constant: ast.Expr
+    other_side: ast.Expr
     swapped: bool
 
 
@@ -143,6 +143,22 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.GtEq,
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
+    }
+
+    # These always return a DateTime or DateTime64, which ClickHouse compares with the bare column as an instant.
+    # Wrapping them again with toDateTime64(..., 6, tz) would also truncate a bound with more than 6 decimals.
+    _INSTANT_FUNCTIONS: set[str] = {
+        "now",
+        "now64",
+        "toTimeZone",
+        "toDateTime",
+        "toDateTime64",
+        "fromUnixTimestamp",
+        "fromUnixTimestamp64Milli",
+        "parseDateTimeBestEffort",
+        "parseDateTimeBestEffortOrNull",
+        "parseDateTime64BestEffort",
+        "parseDateTime64BestEffortOrNull",
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
@@ -566,7 +582,7 @@ class PropertySwapper(CloningVisitor):
         if parts is None:
             return None
 
-        tz_constant = self._ensure_constant_has_timezone(parts.constant, parts.timezone)
+        tz_constant = self._anchor_to_timezone(parts.other_side, parts.timezone)
 
         if parts.swapped:
             return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
@@ -575,7 +591,7 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
-        """Extract the bare field, timezone, constant and side from a comparison
+        """Extract the bare field, timezone, other side and side from a comparison
         where one side is toTimeZone(field, tz).
 
         Returns None if the pattern doesn't match.
@@ -583,7 +599,7 @@ class PropertySwapper(CloningVisitor):
         """
         for left_is_tz in (True, False):
             tz_side = node.left if left_is_tz else node.right
-            const_side = node.right if left_is_tz else node.left
+            other_side = node.right if left_is_tz else node.left
 
             inner = tz_side
             if isinstance(inner, ast.Alias):
@@ -594,41 +610,37 @@ class PropertySwapper(CloningVisitor):
                     return ToTimeZoneParts(
                         bare_field=inner.args[0],
                         timezone=tz_arg.value,
-                        constant=const_side,
+                        other_side=other_side,
                         swapped=not left_is_tz,
                     )
 
         return None
 
     @staticmethod
-    def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
-        already carry timezone information.
+    def _anchor_to_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
+        """Wrap the other side of the comparison with toDateTime64(..., 6, tz) unless it is already a DateTime instant.
 
-        Constants that are already wrapped in toDateTime64/toDateTime with a tz
-        argument are left unchanged. Bare string/datetime constants get wrapped.
+        ClickHouse converts a Date or a string compared with a DateTime in the time zone of that DateTime.
+        The bare field is UTC, so without the wrap a Date bound such as toStartOfWeek(...) or today() means
+        UTC midnight instead of midnight in the project time zone.
         """
         inner = expr
         if isinstance(inner, ast.Alias):
             inner = inner.expr
 
-        # Already has timezone: toDateTime64('...', 6, 'tz') or toDateTime('...', 'tz')
         if isinstance(inner, ast.Call):
-            if inner.name == "toDateTime64" and len(inner.args) == 3:
-                return expr
-            if inner.name == "toDateTime" and len(inner.args) == 2:
+            if inner.name in PropertySwapper._INSTANT_FUNCTIONS:
                 return expr
             # Recurse into wrapper functions like assumeNotNull(toDateTime(...))
             if inner.name in ("assumeNotNull",) and len(inner.args) == 1:
-                wrapped_arg = PropertySwapper._ensure_constant_has_timezone(inner.args[0], tz)
+                wrapped_arg = PropertySwapper._anchor_to_timezone(inner.args[0], tz)
                 if wrapped_arg is not inner.args[0]:
                     new_call = ast.Call(name=inner.name, args=[wrapped_arg])
                     if isinstance(expr, ast.Alias):
-                        return ast.Alias(alias=expr.alias, expr=new_call)
+                        return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
                     return new_call
                 return expr
 
-        # Bare constant — wrap with toDateTime64 carrying the timezone.
         # Skip if the value is already a timezone-aware datetime: the printer
         # converts it to the team timezone and emits toDateTime64('...', 6, tz)
         # regardless of the constant's original tzinfo (see escape_sql.py:249).
@@ -639,17 +651,14 @@ class PropertySwapper(CloningVisitor):
             if (zoned := parse_zoned_datetime_string(inner.value)) is not None:
                 inner.value = zoned
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
-            if isinstance(expr, ast.Alias):
-                return ast.Alias(alias=expr.alias, expr=new_call)
-            return new_call
 
-        # For anything else (arithmetic, other calls), leave as-is.
-        # These typically already produce timezone-aware values.
-        return expr
+        new_call = ast.Call(
+            name="toDateTime64",
+            args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
+        )
+        if isinstance(expr, ast.Alias):
+            return ast.Alias(alias=expr.alias, expr=new_call, hidden=expr.hidden)
+        return new_call
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):

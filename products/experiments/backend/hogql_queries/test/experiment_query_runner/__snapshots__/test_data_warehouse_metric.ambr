@@ -94,13 +94,13 @@
        (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
-     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_stripe_subscriptions.subscription_created_at, plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0))))),
+     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), ifNull(less(posthog_test_stripe_subscriptions.subscription_created_at, toDateTime64(plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), 0))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(toString(exposures.exposure_identifier_num), toString(numerator_events.entity_id))
-     WHERE greaterOrEquals(numerator_events.timestamp, exposures.first_exposure_time)
+     WHERE ifNull(greaterOrEquals(toDateTime64(numerator_events.timestamp, 6, 'UTC'), exposures.first_exposure_time), 0)
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
@@ -1455,7 +1455,7 @@
        (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
-     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_stripe_subscriptions.subscription_created_at, plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0))))),
+     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), ifNull(less(posthog_test_stripe_subscriptions.subscription_created_at, toDateTime64(plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), 0))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1525,13 +1525,13 @@
        (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
-     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_stripe_subscriptions.subscription_created_at, plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0))))),
+     WHERE and(greaterOrEquals(posthog_test_stripe_subscriptions.subscription_created_at, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), ifNull(less(posthog_test_stripe_subscriptions.subscription_created_at, toDateTime64(plus(assumeNotNull(toDateTime('2023-01-10 00:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), 0))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(toString(exposures.exposure_identifier_num), toString(numerator_events.entity_id))
-     WHERE greaterOrEquals(numerator_events.timestamp, exposures.first_exposure_time)
+     WHERE ifNull(greaterOrEquals(toDateTime64(numerator_events.timestamp, 6, 'UTC'), exposures.first_exposure_time), 0)
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
