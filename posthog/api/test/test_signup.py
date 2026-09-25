@@ -834,7 +834,10 @@ class TestSignupAPI(APIBaseTest):
 
         url = reverse("social:complete", kwargs={"backend": "github"})
         url += f"?code=2&state={response.client.session['github_state']}"
-        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
+        github_emails = [{"email": MOCK_GITLAB_SSO_RESPONSE["email"], "primary": True, "verified": True}]
+        mock_request.side_effect = lambda url, *args, **kwargs: mock.Mock(
+            json=mock.Mock(return_value=github_emails if url.endswith("/user/emails") else MOCK_GITLAB_SSO_RESPONSE)
+        )
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`

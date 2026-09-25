@@ -5,7 +5,7 @@ import time
 import random
 import datetime
 from typing import Any, TypedDict, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 from uuid import uuid4
 
 from django.conf import settings
@@ -34,6 +34,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
+from requests import RequestException
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -1369,6 +1370,53 @@ def social_identity_matches_session(
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+UNVERIFIED_SOCIAL_EMAIL_ERROR = (
+    "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
+)
+
+
+def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bool:
+    try:
+        emails = backend.get_json(
+            urljoin(backend.api_url(), "user/emails"), headers={"Authorization": f"token {access_token}"}
+        )
+    except (RequestException, ValueError):
+        logger.warning("github_email_verification_lookup_failed", exc_info=True)
+        return False
+    if not isinstance(emails, list):
+        return False
+    return any(
+        isinstance(entry, dict)
+        and entry.get("verified") is True
+        and str(entry.get("email", "")).lower() == email.lower()
+        for entry in emails
+    )
+
+
+def social_email_verified_by_provider(
+    backend: Any,
+    details: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
+    user: User | None = None,
+    **kwargs: Any,
+) -> None:
+    if user is not None:
+        return
+
+    response = response or {}
+    email = (details or {}).get("email") or ""
+    if getattr(backend, "name", "") == "github":
+        # The GitHub backend picks the primary address from /user/emails without its `verified` flag,
+        # and GitHub lets an unverified address be primary.
+        is_verified = not email or _github_email_is_verified(backend, response.get("access_token", ""), email)
+    else:
+        is_verified = response.get("email_verified") is not False
+
+    if not is_verified:
+        logger.warning("social_login_unverified_provider_email", backend=getattr(backend, "name", ""))
+        raise AuthFailed(backend, UNVERIFIED_SOCIAL_EMAIL_ERROR)
 
 
 def social_reauth(

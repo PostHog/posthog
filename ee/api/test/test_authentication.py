@@ -20,6 +20,7 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 import jwt
+import responses
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from requests import Response
@@ -957,6 +958,83 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
         # The stranger's identity must not have been linked to the signed-in account
         self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def _complete_github_login(self, github_id: int, emails: list[dict[str, Any]]) -> HttpResponse:
+        with (
+            self.settings(**GITHUB_MOCK_SETTINGS),
+            responses.RequestsMock(assert_all_requests_are_fired=False) as mock_github,
+        ):
+            mock_github.add(responses.POST, "https://github.com/login/oauth/access_token", json={"access_token": "gh"})
+            mock_github.add(
+                responses.GET,
+                "https://api.github.com/user",
+                json={"id": github_id, "login": "octo", "name": "Octo Cat", "email": None},
+            )
+            mock_github.add(responses.GET, "https://api.github.com/user/emails", json=emails)
+            self.client.get("/login/github/")
+            state = self.client.session["github_state"]
+            response = self.client.get(f"/complete/github/?code=2&state={state}")
+        return response
+
+    def _complete_google_login(self, email_verified: bool) -> HttpResponse:
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch("social_core.backends.base.BaseAuth.request") as mock_request,
+        ):
+            self.client.get("/login/google-oauth2/")
+            state = self.client.session["google-oauth2_state"]
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "email_verified": email_verified,
+                "sub": "google-sub-new",
+            }
+            return self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+    @parameterized.expand(
+        [
+            ("github_unverified_primary", "github", False),
+            ("google_unverified", "google-oauth2", False),
+            ("github_verified_primary", "github", True),
+            ("google_verified", "google-oauth2", True),
+        ]
+    )
+    def test_social_login_links_an_existing_account_only_by_a_provider_verified_email(
+        self, _name, provider, provider_verified
+    ):
+        self.client.logout()
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+
+        if provider == "github":
+            response = self._complete_github_login(
+                github_id=4242,
+                emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
+            )
+        else:
+            response = self._complete_google_login(email_verified=provider_verified)
+
+        self.user.refresh_from_db()
+        is_linked = UserSocialAuth.objects.filter(user=self.user, provider=provider).exists()
+        if provider_verified:
+            self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+            self.assertTrue(is_linked)
+        else:
+            self.assertTrue(response["Location"].startswith("/login?error_code=social_login_failure"))
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertFalse(is_linked)
+            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+            self.assertFalse(self.user.is_email_verified)
+
+    def test_already_linked_github_identity_logs_in_without_a_verified_email(self):
+        self.client.logout()
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="4242")
+
+        self._complete_github_login(
+            github_id=4242, emails=[{"email": "unverified@example.com", "primary": True, "verified": False}]
+        )
+
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
