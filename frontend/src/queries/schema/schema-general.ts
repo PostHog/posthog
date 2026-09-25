@@ -6105,9 +6105,45 @@ export interface ExperimentExposureTimeSeries {
     exposure_counts: number[]
 }
 
+export enum SrmCause {
+    /** Too few exposures so far for the split to settle. */
+    LowSampleSize = 'low_sample_size',
+    /** One variant's first exposures concentrate on a surface the others barely reach. */
+    CaptureBySurface = 'capture_by_surface',
+    /** None of the checked causes fit. */
+    Unknown = 'unknown',
+}
+
+/** One first-exposure surface whose variant split runs far from the configured rollout. */
+export interface SrmSurfaceSkew {
+    /** The `$pathname` of the first exposure, falling back to `$screen_name`. */
+    surface: string
+    /** Variant taking the largest share of first exposures on this surface. */
+    variant: string
+    /** That variant's share of first exposures on this surface, as a percentage (0-100). */
+    variant_percentage: number
+    /** The share the configured rollout expects for that variant, as a percentage (0-100). */
+    expected_percentage: number
+    /** First exposures recorded on this surface. */
+    exposures: number
+}
+
+/**
+ * The likeliest reason a mismatch was flagged, with the numbers behind it. Present only
+ * when the chi-squared test is significant, so it always describes a live mismatch.
+ */
+export interface SrmDiagnosis {
+    cause: SrmCause
+    /** Smallest per-variant count the configured rollout expects, set for `low_sample_size`. */
+    smallest_expected_count?: number
+    /** The skewed surface, set for `capture_by_surface`. */
+    surface_skew?: SrmSurfaceSkew
+}
+
 export interface SampleRatioMismatch {
     expected: Record<string, number>
     p_value: number
+    diagnosis?: SrmDiagnosis
 }
 
 /**

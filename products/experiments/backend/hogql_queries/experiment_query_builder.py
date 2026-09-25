@@ -264,6 +264,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().timeseries_query()
 
+    def get_surface_split_query(self) -> ast.SelectQuery:
+        """
+        Returns a query splitting first exposures by the surface they were recorded on.
+        Used to diagnose a sample ratio mismatch in the experiment UI.
+        """
+        return self._exposure_query_builder().surface_split_query()
+
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.

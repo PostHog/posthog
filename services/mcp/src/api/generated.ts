@@ -39836,9 +39836,40 @@ export namespace Schemas {
       user_access_level?: AccessControlLevel | null;
     }
 
+    export type SrmCause = typeof SrmCause[keyof typeof SrmCause];
+
+
+    export const SrmCause = {
+      LowSampleSize: 'low_sample_size',
+      CaptureBySurface: 'capture_by_surface',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface SrmSurfaceSkew {
+      /** The share the configured rollout expects for that variant, as a percentage (0-100). */
+      expected_percentage: number;
+      /** First exposures recorded on this surface. */
+      exposures: number;
+      /** The `$pathname` of the first exposure, falling back to `$screen_name`. */
+      surface: string;
+      /** Variant taking the largest share of first exposures on this surface. */
+      variant: string;
+      /** That variant's share of first exposures on this surface, as a percentage (0-100). */
+      variant_percentage: number;
+    }
+
+    export interface SrmDiagnosis {
+      cause: SrmCause;
+      /** Smallest per-variant count the configured rollout expects, set for `low_sample_size`. */
+      smallest_expected_count?: number | null;
+      /** The skewed surface, set for `capture_by_surface`. */
+      surface_skew?: SrmSurfaceSkew | null;
+    }
+
     export type SampleRatioMismatchExpected = {[key: string]: number};
 
     export interface SampleRatioMismatch {
+      diagnosis?: SrmDiagnosis | null;
       expected: SampleRatioMismatchExpected;
       p_value: number;
     }
