@@ -758,3 +758,16 @@
 .main-content-container {
     grid-area: content;
 }
+
+// On screen, the layout is locked to the viewport and #main-content scrolls.
+// Print must let the content grow, or the browser prints only the first viewport.
+// Elements that carry Tailwind classes use `print:` variants instead, because Tailwind utilities are `!important`.
+@media print {
+    .Navigation3000,
+    .Navigation3000 > main,
+    .app-layout {
+        display: block;
+        height: auto;
+        overflow: visible;
+    }
+}

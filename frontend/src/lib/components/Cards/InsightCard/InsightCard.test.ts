@@ -19,6 +19,7 @@ describe('InsightCard', () => {
             name: 'keeps a visible table mounted when the page is hidden',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: true,
                 isPageVisible: false,
@@ -30,6 +31,7 @@ describe('InsightCard', () => {
             name: 'keeps an auto SQL visualization mounted because it may render a table',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: true,
                 isPageVisible: false,
@@ -41,6 +43,7 @@ describe('InsightCard', () => {
             name: 'unmounts a visible canvas chart when the page is hidden',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: true,
                 isPageVisible: false,
@@ -52,6 +55,7 @@ describe('InsightCard', () => {
             name: 'unmounts an offscreen table',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: false,
                 isPageVisible: true,
@@ -63,6 +67,7 @@ describe('InsightCard', () => {
             name: 'renders a visible canvas chart on a visible page',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Dashboard,
                 inView: true,
                 isPageVisible: true,
@@ -74,9 +79,22 @@ describe('InsightCard', () => {
             name: 'renders exports regardless of visibility',
             input: {
                 isStorybook: false,
+                isPrinting: false,
                 placement: DashboardPlacement.Export,
                 inView: false,
                 isPageVisible: false,
+                query: canvasQuery,
+            },
+            expected: true,
+        },
+        {
+            name: 'renders an offscreen canvas chart while the page prints',
+            input: {
+                isStorybook: false,
+                isPrinting: true,
+                placement: DashboardPlacement.Dashboard,
+                inView: false,
+                isPageVisible: true,
                 query: canvasQuery,
             },
             expected: true,

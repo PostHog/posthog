@@ -9,6 +9,7 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { useIsPrinting } from 'lib/hooks/useIsPrinting'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -55,18 +56,20 @@ const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
 export function shouldRenderInsightCardViz({
     isStorybook,
+    isPrinting,
     placement,
     inView,
     isPageVisible,
     query,
 }: {
     isStorybook: boolean
+    isPrinting: boolean
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
     isPageVisible: boolean
     query: InsightModel['query']
 }): boolean {
-    if (isStorybook || placement === DashboardPlacement.Export) {
+    if (isStorybook || isPrinting || placement === DashboardPlacement.Export) {
         return true
     }
 
@@ -274,6 +277,7 @@ function InsightCardInternal(
 ): JSX.Element | null {
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
+    const isPrinting = useIsPrinting()
 
     const rendersToCanvas = queryVizRendersToCanvas(insight.query)
 
@@ -284,6 +288,7 @@ function InsightCardInternal(
      */
     const shouldRenderViz = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
+        isPrinting,
         placement,
         inView,
         isPageVisible,

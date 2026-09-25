@@ -30,8 +30,9 @@ export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dar
 
     useEffect(() => {
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
+        // print:overflow-visible so printed pages include content past the first viewport
         if (overflowHidden) {
-            document.body.classList.add('overflow-hidden')
+            document.body.classList.add('overflow-hidden', 'print:overflow-visible')
         }
     }, [overflowHidden])
 

@@ -46,7 +46,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <GlobalModals />
                 <GlobalShortcuts />
                 {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (
-                    <ErrorBoundary className="fixed bottom-0 inset-x-0 max-h-[60vh] overflow-auto z-modal bg-surface-primary">
+                    <ErrorBoundary className="fixed bottom-0 inset-x-0 max-h-[60vh] overflow-auto z-modal bg-surface-primary print:hidden">
                         <Suspense fallback={null}>
                             <TerminalDock />
                         </Suspense>
