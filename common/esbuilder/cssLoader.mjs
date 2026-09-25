@@ -129,6 +129,8 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
 }
 
 export const CSS_LOAD_GLOBAL = 'ESBUILD_LOAD_CSS'
+export const CHUNK_CSS_GLOBAL = 'ESBUILD_CHUNK_CSS'
+export const CHUNK_IMPORT_GLOBAL = 'ESBUILD_IMPORT'
 
 /**
  * Inline loader for the stable build's split stylesheets (see frontend/bin/stableCssPlan.mjs).
@@ -143,6 +145,12 @@ export const CSS_LOAD_GLOBAL = 'ESBUILD_LOAD_CSS'
  * stylesheet, which holds every rule, with its whole retry and reporting ladder. A failure in the
  * stable build therefore ends up where the default build starts. A load that fails for good
  * resolves `false` and is forgotten, so the next attempt fetches again.
+ *
+ * `window.ESBUILD_IMPORT(specifier)` is how the stable build imports a lazy entry chunk. The chunk
+ * registers its stylesheets in `window.ESBUILD_CHUNK_CSS` as it evaluates, and the import resolves
+ * once they apply, so a scene never renders unstyled. The chunk cannot wait for them itself with
+ * top-level await: WebKit before Safari 27 resolves a second import() of a module that is paused
+ * at a top-level await straight away, before the module's body has run.
  */
 export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallback) {
     return `
@@ -239,6 +247,21 @@ export function stableCssLoaderScript(eagerFiles, fullCssFile, fullCssFileFallba
                 return (window.JS_URL || '') + '/static/' + file;
             });
             window.${CSS_READY_GLOBAL} = window.${CSS_LOAD_GLOBAL}(eager);
+
+            window.${CHUNK_CSS_GLOBAL} = {};
+            window.${CHUNK_IMPORT_GLOBAL} = function (specifier) {
+                return import(specifier).then(function (module) {
+                    if (!(specifier in window.${CHUNK_CSS_GLOBAL})) {
+                        return module;
+                    }
+                    return window.${CSS_LOAD_GLOBAL}(window.${CHUNK_CSS_GLOBAL}[specifier]).then(function (applied) {
+                        if (!applied) {
+                            throw Object.assign(new Error('Stylesheets for this chunk did not load'), { name: 'ChunkLoadError' });
+                        }
+                        return module;
+                    });
+                });
+            };
         })();
     `
 }
