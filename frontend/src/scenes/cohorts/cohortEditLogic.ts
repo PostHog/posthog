@@ -54,6 +54,7 @@ import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
+    AnyPersonScopeFilter,
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
@@ -529,6 +530,16 @@ export type cohortEditLogicType = MakeLogicType<
     cohortEditLogicMeta
 >
 
+// The persons table filters on the cohort's own id. A draft has none — `props.id` is 'new' and
+// the route gives the id as a string — so parse it and leave the filter off until `setCohort`
+// supplies a real id. NaN serializes to null, which the API rejects.
+function cohortFixedProperties(id: CohortType['id'] | undefined): AnyPersonScopeFilter[] {
+    const cohortId = typeof id === 'number' ? id : parseInt(String(id))
+    return Number.isNaN(cohortId)
+        ? []
+        : [{ type: PropertyFilterType.Cohort, key: 'id', value: cohortId, operator: PropertyOperator.In }]
+}
+
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
@@ -693,9 +704,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.ActorsQuery,
-                    fixedProperties: [
-                        { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
-                    ],
+                    fixedProperties: cohortFixedProperties(props.id),
                 },
                 full: true,
                 showPropertyFilter: false,
@@ -716,6 +725,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         source: {
                             ...source,
                             select: source.select ?? defaultSelect,
+                            fixedProperties: cohortFixedProperties(cohort.id),
                         },
                     }
                 },
