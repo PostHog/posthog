@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+from django.db import IntegrityError, transaction
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -46,6 +48,27 @@ class TestInsightVariableReads(BaseTest):
         assert insight_variables_for_team(other_team.pk) == []
 
 
+class TestInsightQueryDemandSchema(BaseTest):
+    def test_contexts_are_unique_and_deleted_with_the_insight(self) -> None:
+        demand = apps.get_model("product_analytics", "InsightQueryDemand")
+        insight = Insight.objects.create(team=self.team)
+        demand.objects.create(team=self.team, insight=insight, last_requested_at=now())
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            demand.objects.create(team=self.team, insight=insight, last_requested_at=now())
+        dashboard_model = apps.get_model("dashboards", "Dashboard")
+        dashboard = dashboard_model.objects.create(team=self.team, name="Overview")
+        other_dashboard = dashboard_model.objects.create(team=self.team, name="Other")
+        demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_requested_at=now())
+        demand.objects.create(team=self.team, insight=insight, dashboard=other_dashboard, last_requested_at=now())
+        with transaction.atomic(), self.assertRaises(IntegrityError):
+            demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_requested_at=now())
+        dashboard.delete()
+        assert demand.objects.filter(insight=insight).count() == 2
+        insight_id = insight.pk
+        insight.delete()
+        assert not demand.objects.filter(insight_id=insight_id).exists()
+
+
 class TestRecordInsightView(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -53,9 +76,9 @@ class TestRecordInsightView(BaseTest):
 
     def test_unattributed_view_does_not_imply_standalone_demand(self) -> None:
         view = InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())
-        view.refresh_from_db()
-
-        assert view.last_standalone_viewed_at is None
+        assert (
+            not apps.get_model("product_analytics", "InsightQueryDemand").objects.filter(insight=view.insight).exists()
+        )
 
     @parameterized.expand([("anonymous", False), ("identified", True)])
     def test_viewing_twice_moves_the_timestamp_instead_of_adding_a_row(self, _name: str, identified: bool) -> None:
