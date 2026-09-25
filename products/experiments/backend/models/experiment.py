@@ -532,7 +532,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
-        # Deprecated: feature removed in PR #102723, September 23rd, 2026
+        # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
         # Experiment-scoped change (start/end date, excluded variants, exposure criteria): advances the
         # window to now, so every metric recomputes.
