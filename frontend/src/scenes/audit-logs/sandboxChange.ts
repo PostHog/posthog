@@ -7,7 +7,10 @@ export interface SandboxChange {
     needsSandboxTag: boolean
 }
 
-/** Only the server binds a token to a sandbox task and writes its task id, so intent alone does not count. */
+/**
+ * The row used a token bound to a sandbox task. The token can leave the sandbox, so this says which
+ * token made the change, not where the request came from. Only that binding writes a task id.
+ */
 export function sandboxChange(logItem: HumanizedActivityLogItem): SandboxChange | null {
     if (!parseAgentAttribution(logItem)?.taskId) {
         return null
