@@ -179,6 +179,7 @@ const ProjectCreateSchema = () => {
         customer_analytics_config: true,
         workflows_config: true,
         feature_flag_policy_config: true,
+        data_management_config: true,
         base_currency: true,
         capture_dead_clicks: true,
         cookieless_server_hash_mode: true,
@@ -459,6 +460,9 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.feature_flag_policy_config !== undefined) {
             body['feature_flag_policy_config'] = params.feature_flag_policy_config
+        }
+        if (params.data_management_config !== undefined) {
+            body['data_management_config'] = params.data_management_config
         }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency

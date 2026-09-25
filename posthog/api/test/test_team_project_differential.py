@@ -204,6 +204,7 @@ FIELD_VALUES: dict[str, Any] = {
     "customer_analytics_config": {"activity_event": "$pageview"},
     "workflows_config": {"capture_workflows_engagement_events": True},
     "feature_flag_policy_config": {"require_tags": True},
+    "data_management_config": {"stale_event_days": 7},
     "onboarding_tasks": {"task_x": "completed"},
     "base_currency": "EUR",
     "web_analytics_pre_aggregated_tables_enabled": True,
