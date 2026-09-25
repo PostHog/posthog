@@ -69,9 +69,9 @@ export interface InstructionsContext {
 
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
     const search = execSyntax
-        ? 'run `call business-knowledge-documents-search <json_input>`'
-        : 'call `business-knowledge-documents-search`'
-    return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
+        ? 'Run `call business-knowledge-documents-search <json_input>`'
+        : 'Call the `business-knowledge-documents-search` tool'
+    return `- ${search} with a short, broad query based on the user's topic. Its scope is internal terms, metric definitions, policies, and team decisions. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
