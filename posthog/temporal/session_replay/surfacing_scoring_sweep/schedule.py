@@ -30,6 +30,7 @@ from temporalio.client import (
 )
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
@@ -55,7 +56,13 @@ def _build_schedule() -> Schedule:
             execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=SCHEDULE_INTERVAL, offset=deterministic_offset(SCHEDULE_ID, SCHEDULE_INTERVAL)
+                )
+            ]
+        ),
         policy=SchedulePolicy(
             overlap=ScheduleOverlapPolicy.SKIP,
             catchup_window=SCHEDULE_INTERVAL,

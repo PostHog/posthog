@@ -21,6 +21,7 @@ from temporalio.client import (
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import (
@@ -79,12 +80,10 @@ def compute_schedule_fingerprint(snapshot: dict[str, Any] | None) -> str:
 def compute_schedule_offset(entity_id: UUID, interval: dt.timedelta) -> dt.timedelta:
     """Stagger per-entity schedules across their interval so they don't all fire on the same boundary.
 
-    UUID.int is stable across processes; modulo distributes fires uniformly across the window. Without
-    this, sibling schedules tick together and each reads the same in-flight counts before any of them
-    has persisted a row.
+    Without this, sibling schedules tick together and each reads the same in-flight counts before any
+    of them has persisted a row.
     """
-    interval_s = max(1, int(interval.total_seconds()))
-    return dt.timedelta(seconds=entity_id.int % interval_s)
+    return deterministic_offset(str(entity_id), interval)
 
 
 def _build_schedule(scanner_id: UUID, team_id: int) -> Schedule:
@@ -132,9 +131,10 @@ async def upsert_interval_schedule(
     workflow_id: str,
     inputs: BaseModel,
     interval: dt.timedelta,
+    offset: dt.timedelta,
     execution_timeout: dt.timedelta,
     search_attributes: TypedSearchAttributes | None = None,
-    offset: dt.timedelta | None = None,
+    jitter: dt.timedelta | None = None,
 ) -> None:
     """Create or update a singleton interval schedule with SKIP overlap; first creation triggers immediately."""
     schedule = Schedule(
@@ -146,7 +146,7 @@ async def upsert_interval_schedule(
             execution_timeout=execution_timeout,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval, offset=offset)]),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval, offset=offset)], jitter=jitter),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
     )
     if await a_schedule_exists(client, schedule_id):
