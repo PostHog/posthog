@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 
-import { createContext, createOkContext } from './helpers'
+import { createContext, createKafkaDebugContext, createOkContext } from './helpers'
 import { isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
@@ -38,16 +38,19 @@ describe('StepPipeline', () => {
         })
 
         it('should handle step errors and log the debug context', async () => {
-            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+            const message: Message = {
+                value: Buffer.from('test'),
+                topic: 'test',
+                partition: 0,
+                offset: 1,
+                headers: [{ token: Buffer.from('phc_token') }, { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }],
+            } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
             const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
-            const input = createOkContext(
-                { data: 'test' },
-                { message, debugContext: { topic: 'test', partition: 0, offset: 1 } }
-            )
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
 
             await expect(pipeline.process(input)).rejects.toThrow('Step failed')
             expect(logger.error).toHaveBeenCalledWith(
@@ -55,9 +58,28 @@ describe('StepPipeline', () => {
                 expect.stringContaining('threw'),
                 expect.objectContaining({
                     error: 'Step failed',
-                    debugContext: { topic: 'test', partition: 0, offset: 1 },
+                    debugContext: expect.objectContaining({
+                        topic: 'test',
+                        partition: 0,
+                        offset: 1,
+                        headers: { token: 'phc_token', uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                    }),
                 })
             )
+        })
+
+        it('should log no headers when the message has none', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockRejectedValue(new Error('Step failed'))
+            const previous = new StartPipeline<{ data: string }, unknown>()
+
+            const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
+
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            const call = (logger.error as jest.Mock).mock.calls.at(-1)
+            expect(call?.[2].debugContext.headers).toBeUndefined()
         })
     })
 
