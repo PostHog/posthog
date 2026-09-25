@@ -100,9 +100,10 @@ On an unassigned issue the keys are missing, so a test run against an unassigned
 - `event.properties.assignee_name` — the user's full name (their email when they have no name), or the role name.
 - `event.properties.assignee_email` — user assignees only.
 
-When the assigned user has left the organization, the event keeps `assignee` but leaves out `assignee_name` and `assignee_email`.
+The event keeps `assignee` but leaves out `assignee_name` and `assignee_email` in two cases: the assigned user has left the organization, or the issue was reassigned before the alert went out.
+So a missing name does not mean the issue is unassigned.
 
-To show the assignee in a message, use `{event.properties.assignee_name ?? 'Unassigned'}`.
+To show the assignee in a message, use `{event.properties.assignee_name ?? (event.properties.assignee ? 'Assigned' : 'Unassigned')}`.
 To alert only on unassigned issues, add the property filter `assignee` **is not set**.
 
 **Deep-link shape** for the issue page (used by the canonical block templates):
