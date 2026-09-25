@@ -140,7 +140,6 @@ describe('getSessionLinkabilityEventNames', () => {
         id: 1,
         name: 'test experiment',
         feature_flag_key: 'my-flag',
-        resolved_exposure_event: '$feature_flag_called',
         exposure_criteria: undefined,
         filters: {},
         metrics: [],

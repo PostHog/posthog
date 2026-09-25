@@ -29,11 +29,16 @@ export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
- * (`resolve_default_exposure_event`). An experiment that hasn't come from the API yet is a draft
- * built locally, and it would start after the cutoff, so that is what the backend would resolve.
+ * (`resolve_default_exposure_event`). Falls back to the legacy event, because a payload without the
+ * field can be a pre-cutoff experiment: the list endpoint omits it (`ExperimentBasicSerializer`),
+ * and older cached payloads predate it. Only a caller that knows the experiment is new — the
+ * creation form — should pass `EXPERIMENT_EXPOSURE_EVENT` instead.
  */
-export function resolvedExposureEvent(experiment: Pick<Experiment, 'resolved_exposure_event'>): string {
-    return experiment.resolved_exposure_event || EXPERIMENT_EXPOSURE_EVENT
+export function resolvedExposureEvent(
+    experiment: Pick<Experiment, 'resolved_exposure_event'>,
+    fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
+): string {
+    return experiment.resolved_exposure_event || fallbackEvent
 }
 
 export function exposureEventLabel(event: string): string {

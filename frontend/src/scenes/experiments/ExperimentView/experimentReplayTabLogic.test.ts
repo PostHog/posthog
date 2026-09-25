@@ -131,7 +131,6 @@ const FUNNEL_METRIC = {
 const EXPERIMENT = {
     id: 42,
     feature_flag_key: 'my-flag',
-    resolved_exposure_event: '$feature_flag_called',
     start_date: '2026-01-01T00:00:00Z',
     end_date: '2026-02-01T00:00:00Z',
     exposure_criteria: { filterTestAccounts: true },

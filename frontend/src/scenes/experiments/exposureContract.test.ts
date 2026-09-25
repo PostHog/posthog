@@ -9,12 +9,19 @@ import {
 } from './exposureContract'
 
 describe('exposureContract', () => {
-    it('uses the post-cutoff event for a local draft without a server-resolved event', () => {
-        expect(resolvedExposureEvent({})).toBe('$experiment_exposure')
+    it('falls back to the legacy event when the payload has no server-resolved event', () => {
+        // The list endpoint omits the field, so the fallback must not assume a post-cutoff start.
+        expect(resolvedExposureEvent({})).toBe('$feature_flag_called')
     })
 
-    it('prefers the server-resolved event over the local draft fallback', () => {
-        expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' })).toBe('$feature_flag_called')
+    it('uses the caller-supplied fallback for a local draft', () => {
+        expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
+    })
+
+    it('prefers the server-resolved event over the fallback', () => {
+        expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
+            '$feature_flag_called'
+        )
     })
 
     it.each([
