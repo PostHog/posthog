@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconListTreeConnected, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -13,9 +13,11 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
+import { useReportMerge } from '../cards/useReportMerge'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
 
@@ -87,6 +89,16 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                 // which surfaces the Refunded badge and drops Refund from the actions.
                 loadSelectedReport({ id: report.id })
             }
+        },
+    })
+
+    const { canMerge, onMergeClick } = useReportMerge({
+        report,
+        surface: 'detail_pane',
+        // The merged report is archived, so reconcile the lists and open the report that took its work.
+        onMerged: (survivorId) => {
+            reportStateChanged()
+            router.actions.push(inboxReportDetailUrl(survivorId))
         },
     })
 
@@ -182,6 +194,17 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             tooltip: 'Dismiss this report from your inbox',
             onClick: onDismissClick,
         },
+        ...(canMerge
+            ? [
+                  {
+                      key: 'merge',
+                      label: 'Merge into…',
+                      icon: <IconListTreeConnected />,
+                      tooltip: 'Fold this report into another report about the same issue',
+                      onClick: onMergeClick,
+                  },
+              ]
+            : []),
         ...(canRefund ? [refund] : []),
     ]
 

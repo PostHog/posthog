@@ -10,6 +10,7 @@ import {
     IconCopy,
     IconExternal,
     IconHide,
+    IconListTreeConnected,
     IconPeople,
     IconPullRequest,
     IconUndo,
@@ -31,6 +32,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
@@ -48,11 +50,13 @@ import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 import { useReportCardSelection } from './useReportCardSelection'
+import { useReportMerge } from './useReportMerge'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
  * opening its detail. Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
- * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
+ * as the detail pane (`utils/reportActions.ts`), and Merge into… follows `useReportMerge`; a
+ * dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic. The dialog stays available for a note, a corrected repository, or an open
  * implementation PR warning. Rows with no action (resolved, refunded) render without a menu, so
@@ -135,6 +139,13 @@ function ReportContextMenuItems({
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
+    const { canMerge, onMergeClick } = useReportMerge({
+        report,
+        surface: 'context_menu',
+        // The menu is unmounted by the time the merge lands, so reach the scene-wide logic directly.
+        // Its broadcast drops the archived row from every mounted list.
+        onMerged: () => inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged(),
+    })
 
     // The row's own selection gestures (hold, Shift-click) are easy to miss, so the menu names
     // the feature outright.
@@ -350,6 +361,21 @@ function ReportContextMenuItems({
                         />
                     </ContextMenuSubContent>
                 </ContextMenuSub>
+                {canMerge && (
+                    <ContextMenuItem asChild>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => {
+                                onOpenDialog()
+                                onMergeClick()
+                            }}
+                            data-attr="inbox-report-context-menu-merge"
+                        >
+                            <IconListTreeConnected />
+                            Merge into…
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                )}
                 <ContextMenuSub>
                     <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-reviewers">
                         <ButtonPrimitive menuItem>

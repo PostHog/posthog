@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
@@ -48,14 +50,28 @@ function menuRowText(): (string | null)[] {
 
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+    let mergeRequests: { survivorId: string; body: Record<string, unknown> }[]
 
     beforeEach(() => {
         stateRequests = []
+        mergeRequests = []
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/signals/reports/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [makeReport(), makeReport({ id: 'report-2', title: 'Report two' })],
+                },
             },
             post: {
+                '/api/projects/:team_id/signals/reports/:report_id/merge/': async ({ request, params }) => {
+                    mergeRequests.push({
+                        survivorId: params.report_id as string,
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [200, { report: makeReport({ id: params.report_id as string }), sources: [] }]
+                },
                 '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
                     stateRequests.push({
                         reportId: params.report_id as string,
@@ -197,5 +213,38 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+    })
+
+    describe('with report merge enabled', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MERGE], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MERGE]: true,
+            })
+        })
+
+        // The API refuses an in-progress source with a 409, so the menu must not offer that dead end.
+        it.each([
+            { name: 'a ready report', status: SignalReportStatus.READY, offersMerge: true },
+            { name: 'an in-progress report', status: SignalReportStatus.IN_PROGRESS, offersMerge: false },
+        ])('$name offers merge: $offersMerge', ({ status, offersMerge }) => {
+            openMenu(makeReport({ status }))
+
+            expect(menuRowText().includes('Merge into…')).toBe(offersMerge)
+        })
+
+        // The URL names the survivor and the body names the source. A swapped pair archives the report
+        // the person picked to keep, and nothing can undo a merge.
+        it('merges the row into the picked report', async () => {
+            openMenu(makeReport())
+
+            fireEvent.click(screen.getByText('Merge into…'))
+            fireEvent.click(await screen.findByPlaceholderText('Search reports by title'))
+            fireEvent.click(await screen.findByText('Report two'))
+            fireEvent.click(screen.getByText('Merge report'))
+
+            await waitFor(() => {
+                expect(mergeRequests).toEqual([{ survivorId: 'report-2', body: { source_report_ids: ['report-1'] } }])
+            })
+        })
     })
 })

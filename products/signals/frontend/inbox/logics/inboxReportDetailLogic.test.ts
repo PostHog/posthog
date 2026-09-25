@@ -10,8 +10,13 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
-import { EnrichedReviewer, SignalReport } from '../types'
-import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
+import {
+    ReportTaskEntry,
+    implementationSlotClaim,
+    inboxReportDetailLogic,
+    mergedIntoReportId,
+} from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -142,6 +147,49 @@ describe('inboxReportDetailLogic', () => {
             expect(implementationSlotClaim([linkedTask('research', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim([linkedTask('other', TaskRunStatus.IN_PROGRESS)])).toBeNull()
             expect(implementationSlotClaim(null)).toBeNull()
+        })
+    })
+
+    describe('mergedIntoReportId', () => {
+        const link = (reportId: string, createdAt: string, kind = 'duplicate_of'): SignalReportArtefact =>
+            ({
+                id: `link-${reportId}`,
+                type: 'report_link',
+                content: { kind, report_id: reportId },
+                created_at: createdAt,
+            }) as SignalReportArtefact
+        const archived = (dismissalReason: string): SignalReport =>
+            ({ ...REPORT, status: SignalReportStatus.SUPPRESSED, dismissal_reason: dismissalReason }) as SignalReport
+
+        // A scout can write a `duplicate_of` link without a merge. That report keeps its own signals,
+        // so pointing it at another report would send the reader away from the evidence.
+        it.each([
+            {
+                label: 'a merged report points at its newest duplicate link',
+                report: archived('merged'),
+                artefacts: [link('older', '2026-01-01T00:00:00Z'), link('newer', '2026-01-02T00:00:00Z')],
+                expected: 'newer',
+            },
+            {
+                label: 'a report dismissed for another reason has no survivor',
+                report: archived('analysis_wrong'),
+                artefacts: [link('other', '2026-01-01T00:00:00Z')],
+                expected: null,
+            },
+            {
+                label: 'a live report with a duplicate link has no survivor',
+                report: REPORT,
+                artefacts: [link('other', '2026-01-01T00:00:00Z')],
+                expected: null,
+            },
+            {
+                label: 'a merged report ignores other link kinds',
+                report: archived('merged'),
+                artefacts: [link('parent', '2026-01-01T00:00:00Z', 'part_of')],
+                expected: null,
+            },
+        ])('$label', ({ report, artefacts, expected }) => {
+            expect(mergedIntoReportId(report, artefacts)).toBe(expected)
         })
     })
 

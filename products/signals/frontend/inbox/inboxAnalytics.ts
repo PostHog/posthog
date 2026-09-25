@@ -114,6 +114,7 @@ export type InboxReportActionType =
     | 'create_pr'
     | 'copy_implementation_prompt'
     | 'refund'
+    | 'merge'
     | 'open_pr'
     | 'view_diff'
     | 'show_more'
