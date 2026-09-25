@@ -29,8 +29,9 @@ That endpoint is a redirecting file download endpoint, so raw HTTP/download hand
 Ask a short clarifying question if the user did not specify the required inputs:
 
 - `model`: one of `events`, `persons`, `sessions`, or `hogql`
-- `data_interval_start` and `data_interval_end`: ISO 8601 datetimes; the range must be at most one week.
-  Required for `events`, `persons`, and `sessions`, and not supported for `hogql`
+- `data_interval_start` and `data_interval_end`: ISO 8601 datetimes. Any supplied bound may not be in the future. When both bounds are supplied, they must be ordered and at most one week apart
+  Required for `events`, `persons`, and `sessions`.
+  For `hogql`, required only for the placeholders the query references. If only one placeholder is referenced, the other bound may be omitted and the one-week limit does not apply.
 - `file.format`: `Parquet` or `JSONLines`; prefer `Parquet` for compact analytics exports and `JSONLines` for line-oriented text processing
 - `file.compression`: optional, one of `zstd`, `gzip`, `brotli`, `lz4`, or `snappy`. If `JSONLines` was chosen as format, only `gzip` and `brotli` are supported.
 - `file.max_size_mb`: part size in MiB, 1024 by default. A part can go a little over this size.
@@ -39,12 +40,18 @@ Ask a short clarifying question if the user did not specify the required inputs:
 For `events`, `include` and `exclude` are optional event-name filters.
 Use them only when the user asks for specific events or wants to omit specific events.
 
-For `hogql`, pass the query as `hogql_query` and leave out `data_interval_start`, `data_interval_end`, `include`, and `exclude`.
-The query runs as of the time the export starts, so there is no interval to choose.
+For `hogql`, pass the query as `hogql_query` and leave out `include` and `exclude`.
 You may prompt the user to export a slice of data by including a WHERE clause in the HogQL query, for example limiting results from the `events` table by bounding `timestamp`.
 Always prefer limiting the data exported to the minimum necessary to solve the user's request.
-Every column in the SELECT clause must be a field or have an alias, and placeholders are not supported.
+Every column in the SELECT clause must be a field or have an alias.
 This model is in closed beta and is enabled per team.
+
+A `hogql` query can reference the `{data_interval_start}` and `{data_interval_end}` placeholders.
+The export replaces them with the `data_interval_start` and `data_interval_end` values, so one query can export any interval.
+Supply a bound for every placeholder the query references; a missing bound fails the request.
+The bounds only replace placeholders and do not filter anything themselves, so a query without placeholders runs unchanged even when bounds are supplied.
+Prefer placeholders over literal dates when the user wants a time range, or several consecutive ranges from the same query.
+Compare with `>= {data_interval_start}` and `< {data_interval_end}`, so consecutive ranges do not export the same row twice.
 
 ### 2. Start the export
 
@@ -74,7 +81,9 @@ Example request for the `hogql` model:
   "file": {
     "format": "Parquet"
   },
-  "hogql_query": "SELECT event, timestamp, properties.$current_url AS url FROM events WHERE timestamp > now() - INTERVAL 1 HOUR"
+  "hogql_query": "SELECT event, timestamp, properties.$current_url AS url FROM events WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}",
+  "data_interval_start": "2026-05-25T00:00:00Z",
+  "data_interval_end": "2026-05-26T00:00:00Z"
 }
 ```
 

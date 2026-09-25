@@ -167,3 +167,15 @@ describe('exec guidance advertises only resolvable commands', () => {
         expect(deadEnds).toEqual([])
     })
 })
+
+describe('exec tool annotations on tools/list', () => {
+    it('advertises every hint and does not mark exec as destructive', () => {
+        const entry = new InstructionsBuilder('some guidelines').buildExecToolEntry(makeToolExecutorState([]))
+        expect(entry.annotations).toEqual({
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+            readOnlyHint: false,
+        })
+    })
+})

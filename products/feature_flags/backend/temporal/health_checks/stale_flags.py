@@ -17,6 +17,7 @@ from posthog.temporal.health_checks.models import HealthCheckResult
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
 from products.feature_flags.backend.flag_status import (
     ROLLOUT_FULLY_ROLLED_OUT,
     ROLLOUT_NOT_ROLLED_OUT,
@@ -239,15 +240,12 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     which none of this contradicts.
     """
     filters = flag.filters or {}
-    # A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
-    # legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
-    # rollout check instead of falling through to a later blanket condition.
     # Two siblings encode part of the same evaluation order. `group_cohort_restriction_blocker` in
     # `products/feature_flags/backend/facade/filters.py` reads `holdout`, `holdout_groups` and
     # `super_groups`. `is_unconditionally_fully_rolled_out` in
     # `products/feature_flags/backend/persisted_flags.py` reads `holdout` and `super_groups`.
-    # Neither reads `early_exit`, so the three lists have never been in parity.
-    if any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit")):
+    # Neither reads `early_exit`, so those two have never been in parity with this list.
+    if any(filters.get(key) for key in EVALUATED_BEFORE_RELEASE_CONDITIONS):
         return True
     # These three decide the result from evaluation context the configuration does not carry, so a
     # blanket condition does not reach everyone. A group-aggregated condition is skipped for a

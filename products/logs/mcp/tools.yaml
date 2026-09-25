@@ -355,6 +355,9 @@ tools:
             To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass
             attribute_type: "resource" — it will NOT return resource attributes unless you do. Accepts optional
             serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+        exclude_params:
+            - date_from
+            - date_to
         response:
             include:
                 - results
