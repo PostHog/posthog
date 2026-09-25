@@ -678,4 +678,35 @@ describe('llmPromptLogic', () => {
         expect(secondMount.values.promptForm.prompt).toBe('')
         secondMount.unmount()
     })
+
+    it('keeps the markdown choice per mode across mode switches and remounts', async () => {
+        localStorage.clear()
+        const firstMount = llmPromptLogic({ promptName: 'first-prompt' })
+        firstMount.mount()
+        expect(firstMount.values.isRenderingMarkdown).toBe(true)
+
+        firstMount.actions.setMode(PromptMode.Edit)
+        expect(firstMount.values.isRenderingMarkdown).toBe(false)
+        firstMount.actions.toggleMarkdownRendering()
+        expect(firstMount.values.isRenderingMarkdown).toBe(true)
+
+        firstMount.actions.setMode(PromptMode.View)
+        expect(firstMount.values.isRenderingMarkdown).toBe(true)
+        firstMount.actions.toggleMarkdownRendering()
+        expect(firstMount.values.isRenderingMarkdown).toBe(false)
+
+        firstMount.actions.setMode(PromptMode.Edit)
+        expect(firstMount.values.isRenderingMarkdown).toBe(true)
+        firstMount.unmount()
+
+        const newPrompt = llmPromptLogic({ promptName: 'new' })
+        newPrompt.mount()
+        expect(newPrompt.values.isRenderingMarkdown).toBe(true)
+        newPrompt.unmount()
+
+        const secondMount = llmPromptLogic({ promptName: 'second-prompt' })
+        secondMount.mount()
+        expect(secondMount.values.isRenderingMarkdown).toBe(false)
+        secondMount.unmount()
+    })
 })

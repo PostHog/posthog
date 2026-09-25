@@ -50,6 +50,7 @@ import type {
     LLMPromptReferencedByApi,
     LLMPromptResolveResponseApi,
 } from '../generated/api.schemas'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -240,6 +241,8 @@ export interface llmPromptLogicValues {
     isPromptMissing: boolean
     isPublishReviewOpen: boolean
     isRenderingMarkdown: boolean
+    isRenderingMarkdownInEdit: boolean
+    isRenderingMarkdownInView: boolean
     isShowingResolvedPreview: boolean
     isViewMode: boolean
     labelPickerVersion: number | null
@@ -389,6 +392,13 @@ export interface llmPromptLogicActions {
         labelName: string
         version: number
     }
+    setMarkdownRendering: (
+        isEditMode: boolean,
+        isRenderingMarkdown: boolean
+    ) => {
+        isEditMode: boolean
+        isRenderingMarkdown: boolean
+    }
     setMode: (mode: PromptMode) => {
         mode: PromptMode
     }
@@ -478,6 +488,11 @@ export interface llmPromptLogicMeta {
         ) => Breadcrumb[]
         isViewMode: (mode: PromptMode, arg: any) => boolean
         isEditMode: (mode: PromptMode, arg: any) => boolean
+        isRenderingMarkdown: (
+            isEditMode: boolean,
+            isRenderingMarkdownInView: boolean,
+            isRenderingMarkdownInEdit: boolean
+        ) => boolean
         versions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptVersionSummary[]
         canLoadMoreVersions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
         referencedBy: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptReferencedByApi[]
@@ -553,6 +568,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
         toggleMarkdownRendering: true,
+        setMarkdownRendering: (isEditMode: boolean, isRenderingMarkdown: boolean) => ({
+            isEditMode,
+            isRenderingMarkdown,
+        }),
         toggleResolvedPreview: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
@@ -625,11 +644,21 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 loadResolvedPreviewFailure: () => false,
             },
         ],
-        isRenderingMarkdown: [
-            props.promptName === 'new' ? false : (props.mode ?? PromptMode.View) !== PromptMode.Edit,
+        // View and edit modes keep separate choices because they have different defaults.
+        isRenderingMarkdownInView: [
+            true as boolean,
+            buildAiObservabilityStorageConfig('prompt.isRenderingMarkdownInView'),
             {
-                toggleMarkdownRendering: (state) => !state,
-                setMode: (_, { mode }) => mode !== PromptMode.Edit,
+                setMarkdownRendering: (state, { isEditMode, isRenderingMarkdown }) =>
+                    isEditMode ? state : isRenderingMarkdown,
+            },
+        ],
+        isRenderingMarkdownInEdit: [
+            false as boolean,
+            buildAiObservabilityStorageConfig('prompt.isRenderingMarkdownInEdit'),
+            {
+                setMarkdownRendering: (state, { isEditMode, isRenderingMarkdown }) =>
+                    isEditMode ? isRenderingMarkdown : state,
             },
         ],
         compareVersion: [
@@ -971,6 +1000,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (mode: PromptMode, props) => props.promptName === 'new' || mode === PromptMode.Edit,
         ],
 
+        isRenderingMarkdown: [
+            (s) => [s.isEditMode, s.isRenderingMarkdownInView, s.isRenderingMarkdownInEdit],
+            (isEditMode: boolean, isRenderingMarkdownInView: boolean, isRenderingMarkdownInEdit: boolean): boolean =>
+                isEditMode ? isRenderingMarkdownInEdit : isRenderingMarkdownInView,
+        ],
+
         versions: [
             (s) => [s.prompt],
             (prompt: PromptFormValues | ResolvedLLMPrompt | null): LLMPromptVersionSummary[] =>
@@ -1264,6 +1299,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, asyncActions, props, values }) => ({
+        toggleMarkdownRendering: () => {
+            actions.setMarkdownRendering(values.isEditMode, !values.isRenderingMarkdown)
+        },
         toggleResolvedPreview: () => {
             if (values.isShowingResolvedPreview) {
                 actions.loadResolvedPreview()
