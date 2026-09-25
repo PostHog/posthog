@@ -6277,11 +6277,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                     # Dispatch outside the transaction so HTTP calls don't hold the row lock.
                     if batch_job_params:
-                        HogFlowBatchJob.objects.create(
-                            **batch_job_params,
-                            status=HogFlowBatchJob.State.QUEUED,
-                        )
-                        processed.append(str(schedule_id))
+                        with transaction.atomic():
+                            # Re-read the status under the flow's lock, so a stop that committed after
+                            # the check above wins, and a stop that lands later sees this job.
+                            still_active = (
+                                HogFlow.objects.select_for_update()
+                                .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
+                                .exists()
+                            )
+                            if still_active:
+                                HogFlowBatchJob.objects.create(
+                                    **batch_job_params,
+                                    status=HogFlowBatchJob.State.QUEUED,
+                                )
+                        if still_active:
+                            processed.append(str(schedule_id))
                     elif schedule_invocation_params:
                         response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
                         response.raise_for_status()
