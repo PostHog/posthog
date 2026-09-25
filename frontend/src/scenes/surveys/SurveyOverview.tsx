@@ -15,7 +15,7 @@ import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
+import { didRecurringSurveyCloseOnSchedule, getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'
 
@@ -25,6 +25,7 @@ function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
         const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+        const closedOnSchedule = didRecurringSurveyCloseOnSchedule(survey)
         return (
             <span className="flex flex-col">
                 <span>
@@ -32,6 +33,12 @@ function SurveySchedule(): JSX.Element {
                     {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
                     {pluralize(survey.iteration_count, 'time', 'times', false)}
                 </span>
+                {closedOnSchedule && survey.end_date && (
+                    <span className="text-xs text-muted">
+                        Closed automatically on {dayjs(survey.end_date).format('MMMM D, YYYY')}, at the end of its
+                        schedule
+                    </span>
+                )}
                 {scheduleInfo &&
                     (!scheduleInfo.autoCloseDate ? (
                         <span className="text-xs text-muted">

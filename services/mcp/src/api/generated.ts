@@ -66798,6 +66798,11 @@ export namespace Schemas {
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
+      /**
+         * The moment the repeat schedule is measured from. Null means the schedule runs from `start_date`. Resuming a survey that already ran its full schedule sets this to the resume time, so the repeats start again instead of being immediately in the past.
+         * @nullable
+         */
+      readonly iteration_anchor_date: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: SurveySamplingIntervalTypeEnum | BlankEnum | null;
@@ -77000,6 +77005,11 @@ export namespace Schemas {
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
+      /**
+         * The moment the repeat schedule is measured from. Null means the schedule runs from `start_date`. Resuming a survey that already ran its full schedule sets this to the resume time, so the repeats start again instead of being immediately in the past.
+         * @nullable
+         */
+      readonly iteration_anchor_date?: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: SurveySamplingIntervalTypeEnum | BlankEnum | null;
@@ -95465,6 +95475,11 @@ export namespace Schemas {
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
+      /**
+         * The moment the repeat schedule is measured from. Null means the schedule runs from `start_date`. Resuming a survey that already ran its full schedule sets this to the resume time, so the repeats start again instead of being immediately in the past.
+         * @nullable
+         */
+      readonly iteration_anchor_date: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: SurveySamplingIntervalTypeEnum | BlankEnum | null;
@@ -95700,6 +95715,11 @@ export namespace Schemas {
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
+      /**
+         * The moment the repeat schedule is measured from. Null means the schedule runs from `start_date`. Resuming a survey that already ran its full schedule sets this to the resume time, so the repeats start again instead of being immediately in the past.
+         * @nullable
+         */
+      readonly iteration_anchor_date: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: SurveySamplingIntervalTypeEnum | BlankEnum | null;

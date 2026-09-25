@@ -945,6 +945,7 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "iteration_anchor_date",
             "response_sampling_start_date",
             "response_sampling_interval_type",
             "response_sampling_interval",
@@ -958,7 +959,7 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "form_content",
             "search_match_type",
         ]
-        read_only_fields = ["id", "created_at", "created_by"]
+        read_only_fields = ["id", "created_at", "created_by", "iteration_anchor_date"]
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
@@ -1087,6 +1088,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
+            "iteration_anchor_date",
             "response_sampling_start_date",
             "response_sampling_interval_type",
             "response_sampling_interval",
@@ -1099,7 +1101,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "_create_in_folder",
             "form_content",
         ]
-        read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
+        read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at", "iteration_anchor_date"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -1773,6 +1775,25 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return instance
 
+    @staticmethod
+    def _reanchor_iterations_on_resume(instance: Survey, validated_data: dict) -> None:
+        # Resuming a survey only clears `end_date`. The repeats are measured from `start_date`, so a
+        # recurring survey that already ran its whole schedule still has every repeat in the past and the
+        # iteration beat task closes it again within hours. Measure the repeats from the resume time.
+        if "end_date" not in validated_data or validated_data["end_date"] is not None:
+            return
+        if instance.end_date is None:
+            return
+        if validated_data.get("schedule", instance.schedule) != Survey.Schedule.RECURRING:
+            return
+        if not instance.has_final_iteration_ended():
+            return
+
+        instance.iteration_anchor_date = datetime.now(UTC)
+        # Cleared so the pre_save signal puts the survey back on the first repeat of the new schedule.
+        instance.current_iteration = None
+        instance.current_iteration_start_date = None
+
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
@@ -1867,6 +1888,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if iteration_count is not None:
             instance.iteration_count = iteration_count
             instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
+
+        self._reanchor_iterations_on_resume(instance, validated_data)
 
         instance = super().update(instance, validated_data)
 

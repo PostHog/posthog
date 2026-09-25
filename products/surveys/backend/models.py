@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import Collection
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -260,6 +260,15 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    iteration_anchor_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The moment the repeat schedule is measured from. Null means the schedule runs from `start_date`. "
+            "Resuming a survey that already ran its full schedule sets this to the resume time, so the repeats "
+            "start again instead of being immediately in the past."
+        ),
+    )
     schedule = models.CharField(
         max_length=40,
         choices=Schedule,
@@ -304,6 +313,22 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # survey_set would silently drop the survey link from Action-rooted duplications
     # (test_relation_fields_Action locks the field list).
     actions = models.ManyToManyField(Action)
+
+    def has_final_iteration_ended(self) -> bool:
+        """Whether the last repeat window of the schedule is fully in the past."""
+        if not self.iteration_start_dates or not self.iteration_frequency_days:
+            return False
+
+        last_iteration_start = self.iteration_start_dates[-1]
+        if last_iteration_start is None:
+            return False
+
+        try:
+            final_iteration_end = last_iteration_start.date() + timedelta(days=self.iteration_frequency_days)
+        except OverflowError:
+            # iteration_frequency_days is not capped by the API; a huge value must not crash the caller
+            return False
+        return date.today() > final_iteration_end
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
@@ -456,18 +481,20 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.iteration_start_dates = None
         return
 
+    anchor_date = instance.iteration_anchor_date or instance.start_date
+
     instance.iteration_start_dates = list(
         rrule(
             DAILY,
             count=min(iteration_count, MAX_ITERATION_COUNT),
             interval=iteration_frequency_dates,
-            dtstart=instance.start_date,
+            dtstart=anchor_date,
         )
     )
 
     if iteration_count > 0 and (instance.current_iteration is None or instance.current_iteration == 0):
         instance.current_iteration = 1
-        instance.current_iteration_start_date = instance.start_date
+        instance.current_iteration_start_date = anchor_date
 
 
 def _get_surveys_response(team: "Team") -> dict:
