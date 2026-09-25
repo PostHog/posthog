@@ -519,14 +519,18 @@ async function runBatchedCommands(
         const section = `$ ${summarizeCommand(command)}\n${body}`
         const cost = sections.length > 0 ? BATCH_SECTION_JOINER.length + section.length : section.length
         // Charged once the section exists, because its size is unknown until the
-        // command has run. A result that does not fit is named as not run rather
-        // than returned, so the ceiling bounds the reply instead of trailing it.
+        // command has run. A result that does not fit is dropped rather than
+        // returned, so the ceiling bounds the reply instead of trailing it.
         if (sections.length > 0 && used + cost > MAX_BATCH_RESPONSE_CHARS) {
+            const notRun = commands.slice(index + 1)
             sections.push(
                 [
                     `Stopped after ${index} of ${commands.length} commands — the reply reached its size limit.`,
-                    'Re-send the rest as their own exec calls. Not run:',
-                    ...listCommands(commands.slice(index)),
+                    // This one ran, and only its result is missing. Listing it as
+                    // not run would send the agent back for work already done.
+                    `Ran, result too large to include: ${summarizeCommand(command)}`,
+                    ...(notRun.length > 0 ? ['Not run:', ...listCommands(notRun)] : []),
+                    'Re-send what you still need as its own exec call.',
                 ].join('\n')
             )
             break

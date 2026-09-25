@@ -1276,19 +1276,22 @@ describe('exec tool', () => {
             )
         })
 
-        it('stops once the reply reaches its size limit and names what it did not run', async () => {
+        it('stops once the reply reaches its size limit and separates what ran from what did not', async () => {
             const bulky = (name: string): Tool<ZodObjectAny> => makeMockTool({ name, description: 'x'.repeat(60_000) })
             const exec = createExec([bulky('one-tool'), bulky('two-tool'), makeMockTool({ name: 'three-tool' })])
             const result = (await exec.handler(mockContext, {
                 command: 'info one-tool\ninfo two-tool\ninfo three-tool',
             })) as string
-            // The result that crosses the ceiling is named rather than returned, so
+            // The result that crosses the ceiling is dropped rather than returned, so
             // the reply stays inside the bound instead of overshooting it by a body.
             expect(result).toContain('Stopped after 1 of 3 commands')
-            expect(result).toContain('- info two-tool')
-            expect(result).toContain('- info three-tool')
             expect(result).not.toContain('name: two-tool')
             expect(result).not.toContain('name: three-tool')
+            // The size check runs after the command does, so the one it stops on has
+            // already executed. Listing it as not run would send the agent back to
+            // repeat work the server just did.
+            expect(result).toContain('Ran, result too large to include: info two-tool')
+            expect(result).toContain('Not run:\n- info three-tool')
         })
 
         // The last row is sized to the request body ceiling the dispatcher allows.
