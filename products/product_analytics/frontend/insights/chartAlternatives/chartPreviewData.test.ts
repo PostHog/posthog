@@ -219,11 +219,21 @@ describe('deriveChartPreview', () => {
         const loaded = response([
             series({ breakdown_value: 'Chrome' }),
             series({ breakdown_value: 'Safari', data: [5, 6, 7, 8] }),
+            series({ breakdown_value: 'Edge', data: [0, 7, 7, 0] }),
         ])
 
         expect(results(deriveChartPreview(ChartDisplayType.SlopeGraph, source, loaded))).toMatchObject([
             { breakdown_value: 'Chrome', data: [1, 4] },
             { breakdown_value: 'Safari', data: [5, 8] },
         ])
+    })
+
+    it('leaves the slope blank when no breakdown value has events in the end buckets', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+        })
+        const loaded = response([series({ breakdown_value: 'Edge', data: [0, 7, 7, 0] })])
+
+        expect(deriveChartPreview(ChartDisplayType.SlopeGraph, source, loaded)).toBeNull()
     })
 })
