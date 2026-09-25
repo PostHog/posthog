@@ -42,8 +42,29 @@ def enable_context_layer(
     # head behind. Callers use this sha as `base_head`, and a stale one costs
     # them a spurious conflict on their first write.
     config.refresh_from_db()
+    config = resolve_org_context(organization_id)
     transaction.on_commit(lambda: _trigger_bootstrap_dream(str(organization_id)), robust=True)
     return config
+
+
+def resolve_org_context(organization_id: uuid.UUID | str) -> ContextLayerConfig:
+    config = store.get_config(organization_id)
+    if config.org_has_context is not None:
+        return config
+    with store.repo_writer_lock(organization_id):
+        config = store.get_config(organization_id)
+        if config.org_has_context is not None:
+            return config
+        with store.checkout_repo(organization_id) as checkout:
+            overview_has_context = store.overview_has_post_scaffold_write(checkout.path)
+        org_has_context = overview_has_context or tasks_facade.organization_has_context(organization_id)
+        updated = ContextLayerConfig.objects.filter(id=config.id, org_has_context__isnull=True).update(
+            org_has_context=org_has_context
+        )
+        if updated:
+            config.org_has_context = org_has_context
+            return config
+    return store.get_config(organization_id)
 
 
 def _record_restricted_projects(organization_id: uuid.UUID | str) -> None:
