@@ -56,10 +56,10 @@ The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
 AI observability uses `llma_evaluations` as its source, `BATCH` for evaluation runs, and `NORMAL` for synthetic connection validation.
 The evaluation caller checks the project-group flag `llm-analytics-system-one-evaluations` before connection validation and every evaluation.
-Customer connections require their own TypeSafe credential or compatible deployment; the evaluation adapter never falls back to instance credentials.
+AI observability connects to compatible deployments and rejects TypeSafe's hosted endpoint.
+The evaluation adapter never falls back to instance credentials.
 PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`.
-Keep the experimental flag limited to PostHog staff projects until customer rollout is approved.
-Customer-data launch still requires the opt-in and sign-off above.
+Keep the experimental flag limited to PostHog staff projects during rollout.
 
 ## Rate-limit headers
 
