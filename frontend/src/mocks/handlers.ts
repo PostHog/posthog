@@ -103,6 +103,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/data_catalog/metrics/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/environments/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
