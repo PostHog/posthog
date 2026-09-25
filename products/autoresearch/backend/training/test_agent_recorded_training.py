@@ -99,6 +99,8 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         run = AutoresearchTrainingRun.objects.get(pk=data["id"], team_id=self.team.pk)
         assert run.pipeline.pk == self.pipeline.pk
         assert run.started_at is not None
+        second = self.client.post(f"{self.runs_url}/", {}, format="json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_record_iteration_creates_row(self):
         run_id = self._open_run()

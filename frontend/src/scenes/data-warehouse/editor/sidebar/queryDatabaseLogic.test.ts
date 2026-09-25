@@ -12,6 +12,10 @@ import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { DataWarehouseSavedQuery } from '~/types'
 
+import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated/api'
+import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import {
@@ -28,8 +32,29 @@ jest.mock('~/generated/core/api', () => ({
     propertyDefinitionsList: jest.fn(),
 }))
 jest.mock('~/queries/query')
+jest.mock('products/data_catalog/frontend/generated/api', () => ({
+    dataCatalogMetricsList: jest.fn(() => Promise.resolve({ results: [], next: null })),
+}))
 
 const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
+const mockDataCatalogMetricsList = dataCatalogMetricsList as jest.Mock
+
+const buildMetric = (id: string, name: string, definitionKind: string | null): DataCatalogMetricApi => ({
+    id,
+    name,
+    description: '',
+    owner: null,
+    definition_kind: definitionKind,
+    referenced_table_names: [],
+    status: 'approved',
+    is_drifted: false,
+    approved_at: null,
+    approved_by: null,
+    last_run_at: null,
+    created_by: { id: 1, uuid: 'user-uuid', email: 'owner@example.com', hedgehog_config: null },
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: null,
+})
 
 const jsonField = (name = 'properties'): DatabaseSchemaField => ({
     name,
@@ -552,6 +577,78 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('lists only SQL metrics under a metrics section in browsing and search', async () => {
+        initKeaTests()
+        mockDataCatalogMetricsList.mockResolvedValueOnce({
+            results: [
+                buildMetric('m-2', 'weekly_revenue', 'HogQLQuery'),
+                buildMetric('m-1', 'active_users', 'HogQLQuery'),
+                buildMetric('m-3', 'revenue_trend', 'TrendsQuery'),
+                buildMetric('m-4', 'revenue_stub', null),
+            ],
+            next: null,
+        })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(metrics.children!.map((item) => [item.id, item.record?.type])).toEqual([
+            ['metric-m-1', 'metric'],
+            ['metric-m-2', 'metric'],
+        ])
+
+        logic.actions.setSearchTerm('revenue')
+        const searchMetrics = logic.values.searchTreeData.find((item) => item.id === 'search-metrics')!
+        expect(searchMetrics.children!.map((item) => item.id)).toEqual(['search-metric-m-2'])
+
+        metricsLogic.findMounted()!.actions.loadMetricsSuccess([buildMetric('m-3', 'revenue_trend', 'TrendsQuery')])
+        expect(logic.values.searchTreeData.find((item) => item.id === 'search-metrics')).toBeUndefined()
+        logic.actions.setSearchTerm('')
+        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        logic.unmount()
+    })
+
+    it.each([
+        ['a server error', { status: 500 }, ["Couldn't load metrics", 'Try again']],
+        ['a permission denial', { status: 403, code: 'permission_denied' }, null],
+    ])('handles %s when loading metrics', async (_case, error, expectedChildNames) => {
+        initKeaTests()
+        mockDataCatalogMetricsList.mockRejectedValueOnce(error)
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        logic.values.treeData
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsFailure'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')
+        expect(metrics?.children?.map((item) => item.name) ?? null).toEqual(expectedChildNames)
+        logic.unmount()
+    })
+
+    it('loads metrics again from the retry node', async () => {
+        initKeaTests()
+        mockDataCatalogMetricsList
+            .mockRejectedValueOnce({ status: 500 })
+            .mockResolvedValueOnce({ results: [buildMetric('m-1', 'active_users', 'HogQLQuery')], next: null })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        logic.values.treeData
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsFailure'])
+
+        const retryNode = logic.values.treeData
+            .find((item) => item.id === 'metrics')
+            ?.children?.find((item) => item.name === 'Try again')
+        expect(retryNode?.onClick).toBeTruthy()
+        retryNode?.onClick?.()
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(metrics.children!.map((item) => item.id)).toEqual(['metric-m-1'])
+        logic.unmount()
+    })
+
     describe('lazy schema hydration', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
         let dbLogic: ReturnType<typeof databaseTableListLogic.build>
@@ -884,11 +981,12 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
-        it('hides drafts and unsaved queries when showing a direct connection schema', () => {
+        it('hides drafts, unsaved queries and metrics when showing a direct connection schema', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
             draftsLogic.actions.setDrafts([{ id: 'draft-id', name: 'test_draft' }] as any)
+            metricsLogic.findMounted()!.actions.loadMetricsSuccess([buildMetric('m-1', 'daily_revenue', 'HogQLQuery')])
             logic.actions.loadQueryTabStateSuccess({
                 id: 'query-tab-state-id',
                 state: {
