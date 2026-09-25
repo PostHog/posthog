@@ -129,6 +129,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
     restore_redacted_flag_payloads,
 )
+from products.feature_flags.backend.exceptions import FlagDependencyConflict
 from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
@@ -572,7 +573,7 @@ def raise_if_flag_has_dependents(flag: FeatureFlag, action: str = "disable") -> 
     names = ", ".join(f"{f.key} (ID: {f.id})" for f in dependent_flags[:5])
     if len(dependent_flags) > 5:
         names += f", and {len(dependent_flags) - 5} more"
-    raise exceptions.ValidationError(
+    raise FlagDependencyConflict(
         f"Cannot {action} this feature flag because other flags depend on it: {names}. "
         "Please update or disable the dependent flags first."
     )
@@ -2528,7 +2529,7 @@ class FeatureFlagSerializer(
                 disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
                 if len(disabled_dependencies) > 5:
                     disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
-                raise exceptions.ValidationError(
+                raise FlagDependencyConflict(
                     f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
                     f"Please enable the dependency flags first."
                 )
