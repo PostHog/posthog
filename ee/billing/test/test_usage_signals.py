@@ -1,8 +1,10 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.test import TestCase
 
 from posthog.models import Organization
+from posthog.models.group.util import create_group
 
 from ee.billing.salesforce_enrichment.usage_signals import (
     UsageSignals,
@@ -131,6 +133,26 @@ class TestFetchUsageSignalsFromGroups(TestCase):
         assert result["org-uuid-1"]["products_activated_30d"] == []
         assert result["org-uuid-1"]["events_7d_momentum"] is None
         assert result["org-uuid-1"]["events_30d_momentum"] is None
+
+
+class TestFetchUsageSignalsFromClickhouse(ClickhouseTestMixin, BaseTest):
+    def test_momentum_without_a_previous_period_reads_as_none(self):
+        org_id = str(self.organization.id)
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=org_id,
+            properties={
+                "usage_events_7d_momentum": None,
+                "usage_events_30d_momentum": -12.5,
+                "usage_signals_computed_at": "2026-01-05T00:00:00+00:00",
+            },
+        )
+
+        result = fetch_usage_signals_from_groups([org_id])
+
+        assert result[org_id]["events_7d_momentum"] is None
+        assert result[org_id]["events_30d_momentum"] == -12.5
 
 
 class TestAggregateUsageSignalsForOrgs(TestCase):

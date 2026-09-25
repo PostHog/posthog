@@ -88,16 +88,18 @@ class UsageEnrichmentResult:
 
 
 def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageSignals) -> dict[str, Any]:
-    """Prepare a Salesforce update record from usage signals (None values excluded)."""
+    """Prepare a Salesforce update record from usage signals (None values excluded, except momentum)."""
     record: dict[str, Any] = {"Id": salesforce_account_id}
 
-    # Add all mapped fields, excluding None values and special fields
     for attr, sf_field in POSTHOG_USAGE_FIELD_MAPPINGS.items():
         if attr in _SPECIAL_FIELDS:
             continue
         value = getattr(signals, attr, None)
-        if value is not None:
-            record[sf_field] = min(value, SALESFORCE_MOMENTUM_MAX) if attr in _MOMENTUM_FIELDS else value
+        if attr in _MOMENTUM_FIELDS:
+            # An explicit null clears the field. A skipped field keeps the value of the previous run.
+            record[sf_field] = None if value is None else min(value, SALESFORCE_MOMENTUM_MAX)
+        elif value is not None:
+            record[sf_field] = value
 
     # Products activated (comma-separated, sorted for consistency)
     record[POSTHOG_USAGE_FIELD_MAPPINGS["products_activated_7d"]] = ",".join(sorted(signals.products_activated_7d))

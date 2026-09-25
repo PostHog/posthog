@@ -80,7 +80,6 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         signals = UsageSignals(
             total_events_7d=10000,
             events_avg_daily_7d=None,
-            events_7d_momentum=None,
         )
 
         record = prepare_salesforce_update_record("001ABC123", signals)
@@ -88,7 +87,6 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         assert record["Id"] == "001ABC123"
         assert record["posthog_total_events_7d__c"] == 10000
         assert "posthog_events_avg_daily_7d__c" not in record
-        assert "posthog_events_7d_momentum__c" not in record
 
     def test_empty_products_list(self):
         signals = UsageSignals(
@@ -114,16 +112,18 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
 
     @parameterized.expand(
         [
-            ("7d", "events_7d_momentum", "posthog_events_7d_momentum__c", 250_000.0),
-            ("30d", "events_30d_momentum", "posthog_events_30d_momentum__c", 1_000_000.0),
+            ("7d_capped", "events_7d_momentum", "posthog_events_7d_momentum__c", 250_000.0, 99_999.99),
+            ("30d_capped", "events_30d_momentum", "posthog_events_30d_momentum__c", 1_000_000.0, 99_999.99),
+            ("7d_cleared", "events_7d_momentum", "posthog_events_7d_momentum__c", None, None),
+            ("30d_cleared", "events_30d_momentum", "posthog_events_30d_momentum__c", None, None),
         ]
     )
-    def test_momentum_capped_at_salesforce_field_maximum(self, _name, attr, sf_field, momentum):
+    def test_momentum_capped_or_cleared(self, _name, attr, sf_field, momentum, expected):
         signals = UsageSignals(**{attr: momentum})
 
         record = prepare_salesforce_update_record("001ABC123", signals)
 
-        assert record[sf_field] == 99_999.99
+        assert record[sf_field] == expected
 
 
 class TestDecideOrgRegion(SimpleTestCase):
