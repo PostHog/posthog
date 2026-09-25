@@ -16,7 +16,12 @@ from products.replay_vision.evals.mcp_scorers import (
     EstimatedBeforeBackfill,
     RetriedFailedObservation,
 )
-from products.replay_vision.evals.mcp_seeders import FAILED_SESSION_ID, SCANNER_NAME, seed_replay_vision_scanner
+from products.replay_vision.evals.mcp_seeders import (
+    FAILED_SESSION_ID,
+    SCANNER_NAME,
+    seed_replay_vision_scanner,
+    seed_replay_vision_scanner_with_recordings,
+)
 
 WEBHOOK_URL = "https://example.com/hooks/replay-vision"
 
@@ -37,7 +42,7 @@ async def eval_replay_vision_mcp_tools(ctx: EvalContext) -> None:
             SandboxedEvalCase(
                 name="backfill_last_week",
                 prompt=f'Run the "{SCANNER_NAME}" Replay Vision scanner over the last 7 days of recordings.',
-                setup=seed_replay_vision_scanner,
+                setup=seed_replay_vision_scanner_with_recordings,
                 expected={"estimated_before_backfill": {}},
             ),
             SandboxedEvalCase(

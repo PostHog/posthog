@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
 
 from posthog.models import Team
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -46,3 +48,21 @@ def seed_replay_vision_scanner(context: CustomPromptSandboxContext) -> dict[str,
         completed_at=timezone.now(),
     )
     return {"scanner_id": str(scanner.id), "failed_observation_id": str(observation.id)}
+
+
+def seed_replay_vision_scanner_with_recordings(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """The same scanner plus recordings from the last week, so a backfill estimate finds sessions."""
+    seed = seed_replay_vision_scanner(context)
+    now = timezone.now()
+    for day in range(1, 4):
+        start = now - timedelta(days=day, hours=2)
+        # Long and active enough to clear the video scanner's eligibility floor.
+        produce_replay_summary(
+            team_id=context.team_id,
+            session_id=f"replay-vision-eval-backfill-{day}",
+            distinct_id=f"replay-vision-eval-user-{day}",
+            first_timestamp=start,
+            last_timestamp=start + timedelta(minutes=5),
+            active_milliseconds=120_000,
+        )
+    return seed

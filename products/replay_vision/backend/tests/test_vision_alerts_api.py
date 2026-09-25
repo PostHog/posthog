@@ -66,6 +66,24 @@ class _VisionAlertAPITestCase(APIBaseTest):
         payload.update(overrides)
         return payload
 
+    def _sync_destination_templates(self) -> None:
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+
     def _create_via_api(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self.client.post(self.base_url, payload or self._metric_payload(), format="json")
         assert response.status_code == 201, response.json()
@@ -272,24 +290,6 @@ class TestVisionAlertControlPlane(_VisionAlertAPITestCase):
 
 
 class TestVisionAlertDestinations(_VisionAlertAPITestCase):
-    def _sync_destination_templates(self) -> None:
-        sync_template_to_db(template_slack)
-        HogFunctionTemplate.objects.get_or_create(
-            template_id="template-webhook",
-            defaults={
-                "sha": "1.0.0",
-                "name": "Webhook",
-                "description": "Generic webhook template",
-                "code": "return event",
-                "code_language": "hog",
-                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
-                "type": "destination",
-                "status": "stable",
-                "category": ["Integrations"],
-                "free": True,
-            },
-        )
-
     @parameterized.expand(
         [
             (
