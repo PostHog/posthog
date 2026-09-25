@@ -32,6 +32,14 @@ _REDIS_READ_ERRORS = (
     OSError,
 )
 
+# A key ACL that grants writes but refuses reads is a configuration error, not a blip: the
+# read never recovers on its own. These are caught before the transient tuple above so the
+# degradation gets its own counter and an error log instead of looking like a cold cache.
+_REDIS_PERMISSION_ERRORS = (
+    redis.exceptions.NoPermissionError,
+    redis.exceptions.AuthenticationError,
+)
+
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
@@ -183,6 +191,7 @@ class HyperCache:
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
         secondary_cache_alias: Optional[str] = None,
+        read_cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
@@ -224,6 +233,13 @@ class HyperCache:
             else None
         )
 
+        # Reads go to the write tier unless read_cache_alias names another one. A dedicated
+        # service Redis can grant Django write permission only, and every read there is
+        # refused; such a cache reads from a tier it mirrors its writes to instead.
+        self.read_cache_client = (
+            caches[read_cache_alias] if read_cache_alias and read_cache_alias in settings.CACHES else self.cache_client
+        )
+
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
         if isinstance(key, Team):
@@ -261,6 +277,18 @@ class HyperCache:
     def _compute_etag(self, json_data: str) -> str:
         return hashlib.sha256(json_data.encode("utf-8")).hexdigest()[:16]
 
+    def _report_read_denied(self, e: Exception, operation: str) -> None:
+        """Record a refused read on its own counter, so it never reads as a cold cache."""
+        HYPERCACHE_CACHE_COUNTER.labels(result="redis_denied", namespace=self.namespace, value=self.value).inc()
+        logger.error(
+            "HyperCache read refused by Redis",
+            namespace=self.namespace,
+            value=self.value,
+            operation=operation,
+            exc_info=True,
+        )
+        capture_exception(e)
+
     def get_from_cache(self, key: KeyType) -> dict | None:
         data, _ = self.get_from_cache_with_source(key)
         return data
@@ -268,7 +296,10 @@ class HyperCache:
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
         try:
-            data = self.cache_client.get(cache_key)
+            data = self.read_cache_client.get(cache_key)
+        except _REDIS_PERMISSION_ERRORS as e:
+            self._report_read_denied(e, "get")
+            data = None
         except _REDIS_READ_ERRORS as e:
             # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
             # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
@@ -353,7 +384,10 @@ class HyperCache:
         etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
         try:
-            cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+            cached_values = self.read_cache_client.get_many(cache_keys + etag_keys)
+        except _REDIS_PERMISSION_ERRORS as e:
+            self._report_read_denied(e, "get_many")
+            cached_values = {}
         except _REDIS_READ_ERRORS as e:
             # Degrade a Redis outage to an all-miss result rather than raising; there is no
             # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
@@ -396,7 +430,10 @@ class HyperCache:
         if not self.enable_etag:
             return None
         try:
-            return self.cache_client.get(self.get_etag_key(key))
+            return self.read_cache_client.get(self.get_etag_key(key))
+        except _REDIS_PERMISSION_ERRORS as e:
+            self._report_read_denied(e, "get_etag")
+            return None
         except _REDIS_READ_ERRORS as e:
             # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
             # None ETag as a miss/mismatch and fall back to the full response.
@@ -549,7 +586,10 @@ class HyperCache:
                 "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
             )
         json_data: str | None = None
-        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+        # A cache that reads from another tier cannot compare the ETag of the tier it writes,
+        # and that tier expires on its own, so it rewrites rather than skip on a mirror match.
+        can_skip = skip_if_unchanged and self.read_cache_client is self.cache_client
+        if can_skip and self.enable_etag and isinstance(data, dict):
             json_data = json.dumps(data, sort_keys=True)
             etag = self._compute_etag(json_data)
             # Skip only when every tier is current. A failed mirror write leaves the
