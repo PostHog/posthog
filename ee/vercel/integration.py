@@ -895,11 +895,6 @@ class VercelIntegration:
         return claims.user_email_verified is True and (claims.user_email or "").lower() == email.lower()
 
     @staticmethod
-    def _is_mapped_user(claims: VercelUserClaims, user_pk: int) -> bool:
-        installation = VercelIntegration._get_installation(claims.installation_id)
-        return VercelIntegration._get_user_mapping(installation, claims.user_id) == user_pk
-
-    @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
         if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.email):
@@ -928,29 +923,28 @@ class VercelIntegration:
             if not claims.user_email:
                 raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
 
-            if not VercelIntegration._claims_prove_email(
-                claims, request.user.email
-            ) and not VercelIntegration._is_mapped_user(claims, request.user.pk):
-                logger.warning(
-                    "Email mismatch in Vercel SSO",
-                    expected_email=claims.user_email,
-                    logged_in_email=request.user.email,
-                    integration="vercel",
-                )
-                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
-                error_params = {
-                    "expected_email": claims.user_email,
-                    "current_email": request.user.email,
-                    "code": params.code,
-                    "state": params.state,
-                }
-                return f"/integrations/vercel/link-error?{urlencode(error_params)}"
-
             with transaction.atomic():
                 installation = OrganizationIntegration.objects.select_for_update().get(
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=claims.installation_id,
                 )
+                is_mapped_user = VercelIntegration._get_user_mapping(installation, claims.user_id) == request.user.pk
+
+                if not is_mapped_user and not VercelIntegration._claims_prove_email(claims, request.user.email):
+                    logger.warning(
+                        "Email mismatch in Vercel SSO",
+                        expected_email=claims.user_email,
+                        logged_in_email=request.user.email,
+                        integration="vercel",
+                    )
+                    VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+                    error_params = {
+                        "expected_email": claims.user_email,
+                        "current_email": request.user.email,
+                        "code": params.code,
+                        "state": params.state,
+                    }
+                    return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
                 created = VercelIntegration._add_user_to_organization(
