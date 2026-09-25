@@ -472,7 +472,7 @@ class TestExistingInboxReports(BaseTest):
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
-        result = existing_inbox_reports(self.team)
+        result = existing_inbox_reports(team_id=self.team.id)
         # `total` is the default list scope, so a human-dismissed report is out of it, while
         # `total_including_dismissed` is the wider scope a scout dedupes against.
         assert result["total"] == 3
@@ -484,7 +484,7 @@ class TestExistingInboxReports(BaseTest):
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
         SignalReport.objects.create(team=other, status=SignalReport.Status.READY)
-        result = existing_inbox_reports(self.team)
+        result = existing_inbox_reports(team_id=self.team.id)
         assert result["total"] == 0
         assert result["total_including_dismissed"] == 0
 

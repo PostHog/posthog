@@ -2051,12 +2051,9 @@ class ExistingInboxReportsSerializer(serializers.Serializer):
     """
 
     counted_at = serializers.CharField(
-        required=False,
-        allow_null=True,
         help_text=(
             "ISO-8601 timestamp these counts were read. The profile endpoint re-reads this "
-            "section per request, so what it returns is live; a stored profile row carries the "
-            "time its counts were built. Null for a row built before this field existed."
+            "section per request, so what it returns is live."
         ),
     )
     total = serializers.IntegerField(

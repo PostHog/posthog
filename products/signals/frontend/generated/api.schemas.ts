@@ -3850,11 +3850,8 @@ export interface InboxReportStatusBucketApi {
  * compared against a list fetched in the same run.
  */
 export interface ExistingInboxReportsApi {
-    /**
-     * ISO-8601 timestamp these counts were read. The profile endpoint re-reads this section per request, so what it returns is live; a stored profile row carries the time its counts were built. Null for a row built before this field existed.
-     * @nullable
-     */
-    counted_at?: string | null
+    /** ISO-8601 timestamp these counts were read. The profile endpoint re-reads this section per request, so what it returns is live. */
+    counted_at: string
     /** Reports in the default `inbox-reports-list` scope: every status except deleted and suppressed (human-dismissed). */
     total: number
     /** Reports in the `include_all_statuses=true` scope — the same set, plus human-dismissed ones. This is what to compare against when you dedupe a new finding against the full inbox. */

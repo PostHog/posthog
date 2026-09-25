@@ -2112,22 +2112,31 @@ def _eligibility_run_id(request: Request, *, team_id: int, supplied: uuid.UUID |
     return str(supplied) if supplied is not None else None
 
 
+def _overlay_live_section(body: dict[str, Any], *, section: str, value: Any) -> None:
+    """Write a re-derived section into both places the response carries it.
+
+    The summary envelope repeats the inventory, so a section refreshed in one and not the other
+    would hand the scout two answers to the same question. A payload that predates the section
+    is left alone.
+    """
+    inventory = body["payload"].get("inventory")
+    if isinstance(inventory, dict) and section in inventory:
+        inventory[section] = value
+        body["summary"][section] = value
+
+
 def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, run_id: str | None) -> None:
     """Replace the stored team-wide `emit_eligibility` with the calling scout's effective one.
 
-    Updates both response sections, and no-ops when no scout run resolves or the payload predates the
-    section. The profile row is shared per team, so what it stores can only be the team-wide floor;
-    the scout reading it also has its own config's dry-run toggle to clear. Re-deriving here rather
-    than at build time keeps that answer live too, because the row is cached for up to
-    `PROFILE_TTL` while the gate is re-read from the config on every write.
+    No-ops when no scout run resolves. The profile row is shared per team, so what it stores can
+    only be the team-wide floor; the scout reading it also has its own config's dry-run toggle to
+    clear. Re-deriving here rather than at build time keeps that answer live too, because the row
+    is cached for up to `PROFILE_TTL` while the gate is re-read from the config on every write.
     """
     effective = emit_eligibility_for_run(team_id=team_id, run_id=run_id)
     if effective is None:
         return
-    inventory = body["payload"].get("inventory")
-    if isinstance(inventory, dict) and "emit_eligibility" in inventory:
-        inventory["emit_eligibility"] = effective
-        body["summary"]["emit_eligibility"] = effective
+    _overlay_live_section(body, section="emit_eligibility", value=effective)
 
 
 def _overlay_live_inbox_report_counts(body: dict[str, Any], *, team_id: int) -> None:
@@ -2139,15 +2148,7 @@ def _overlay_live_inbox_report_counts(body: dict[str, Any], *, team_id: int) -> 
     changes status inside the window, which reads as a broken count rather than an old one. One
     grouped count on `(team, status)` is cheap enough to pay per request, so the section is live.
     """
-    team = Team.objects.filter(id=team_id).first()
-    if team is None:
-        return
-    counts = existing_inbox_reports(team)
-    inventory = body["payload"].get("inventory")
-    if isinstance(inventory, dict) and "existing_inbox_reports" in inventory:
-        inventory["existing_inbox_reports"] = counts
-    if "existing_inbox_reports" in body["summary"]:
-        body["summary"]["existing_inbox_reports"] = counts
+    _overlay_live_section(body, section="existing_inbox_reports", value=existing_inbox_reports(team_id=team_id))
 
 
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

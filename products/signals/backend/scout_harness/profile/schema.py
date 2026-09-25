@@ -144,8 +144,7 @@ class ExistingInboxReports(_Section):
     against. `by_status` covers the wider scope, so the gap between the two totals is readable.
     """
 
-    # When the counts were read. Optional because a row built before this field carries none.
-    counted_at: str | None = None
+    counted_at: str
     total: int
     total_including_dismissed: int
     by_status: list[StatusCount]

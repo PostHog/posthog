@@ -148,7 +148,7 @@ def build_inventory(team: Team) -> Inventory:
             "signal_source_configs": _signal_source_configs(team),
             "emit_eligibility": _emit_eligibility(team),
             "scout_fleet": _scout_fleet(team),
-            "existing_inbox_reports": existing_inbox_reports(team),
+            "existing_inbox_reports": existing_inbox_reports(team_id=team.id),
             "recent_activity": _recent_activity(team),
             "recent_reviewer_corrections": _recent_reviewer_corrections(team),
             "recent_dashboards": _recent_dashboards(team),
@@ -367,7 +367,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     }
 
 
-def existing_inbox_reports(team: Team) -> dict[str, Any]:
+def existing_inbox_reports(*, team_id: int) -> dict[str, Any]:
     """Counts of existing inbox reports grouped by `status`.
 
     `SignalReport` doesn't carry source_product/source_type directly (those live on the
@@ -376,19 +376,16 @@ def existing_inbox_reports(team: Team) -> dict[str, Any]:
     inbox?"
 
     The counts mirror the two scopes `inbox-reports-list` serves, so a scout can compare a
-    number here against a list it fetched instead of guessing why they differ. `total` is the
-    default list scope (human-dismissed reports hidden), `total_including_dismissed` is the
-    `include_all_statuses=true` scope a scout dedupes against, and `by_status` covers the wider
-    of the two so the gap between them is readable. Deleted reports are terminal and appear in
-    neither.
+    number here against a list it fetched instead of guessing why they differ. `by_status`
+    covers the wider of the two so the gap between the totals is readable.
 
-    `counted_at` is the moment these counts were read. A stored profile row is a cache, so the
-    counts age with it while the inbox keeps moving; the timestamp is what lets a reader tell a
-    stale count from a disagreeing one. `SignalProjectProfileViewSet.current` re-derives the
-    whole section per request, so what a scout reads there is live.
+    A stored profile row is a cache, so its counts age while the inbox keeps moving, and
+    `counted_at` is what lets a reader tell a stale count from a disagreeing one.
+    `SignalProjectProfileViewSet.current` re-derives the section per request, so what a scout
+    reads there is live.
     """
     rows = (
-        SignalReport.objects.filter(team=team, status__in=sorted(LISTABLE_REPORT_STATUSES))
+        SignalReport.objects.filter(team_id=team_id, status__in=sorted(LISTABLE_REPORT_STATUSES))
         .values("status")
         .annotate(count=Count("id"))
         .order_by("status")
