@@ -9,7 +9,6 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 import hashlib
 import datetime
 from collections import Counter
-from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -21,6 +20,7 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -58,13 +58,12 @@ class SymbolSetNotFoundError(Exception):
     pass
 
 
-@dataclass
+@frozen
 class SymbolSetUpload:
     chunk_id: str
     release_id: str | None
     content_hash: str | None
-    # Byte count of the chunk the client is about to send. Clients that send it get a presigned
-    # PUT signed for exactly that length; clients that omit it get only the presigned POST.
+    # Declaring the byte count earns a presigned PUT signed for exactly that length.
     content_length: int | None = None
 
 
@@ -112,11 +111,9 @@ def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int
         urls["fallback_presigned_url"] = pair.fallback
 
     if content_length is not None:
-        # Presigned POST is an AWS S3 extension. S3-compatible stores that do not implement it
-        # (Cloudflare R2 answers `501 NotImplemented`) can never receive a symbol set, so clients
-        # that declare their chunk size also get a presigned PUT, which every store supports.
-        # The signed `content-length` replaces the POST policy's `content-length-range`: it is
-        # exact rather than a range, which is why it needs the client-declared size.
+        # Presigned POST is an AWS S3 extension, and a store without it (Cloudflare R2 answers
+        # `501 NotImplemented`) can never receive a symbol set. Every store implements PUT, whose
+        # signed `content-length` stands in for the POST policy's `content-length-range`.
         put_pair = object_storage.get_presigned_put_pair(
             file_key=file_key,
             content_length=content_length,
@@ -229,8 +226,8 @@ def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> Non
                 detail=f"Unknown release ID provided: {release_id}",
             )
 
-    # A declared size is signed into the presigned PUT, so an oversized chunk can be refused here
-    # rather than after the client has spent the bandwidth and `bulk_finish_upload` deletes the row.
+    # Refuse an oversized chunk before the client spends the bandwidth and `bulk_finish_upload`
+    # deletes the row it already created.
     oversized = sorted(
         ss.chunk_id
         for ss in new_symbol_sets
@@ -556,7 +553,9 @@ def bulk_start_upload(
     skip_on_conflict: bool,
 ) -> dict[str, dict[str, Any]]:
     uploads = [SymbolSetUpload(**data) for data in symbol_sets]
-    uploads.extend([SymbolSetUpload(chunk_id, release_id, None) for chunk_id in chunk_ids])
+    uploads.extend(
+        [SymbolSetUpload(chunk_id=chunk_id, release_id=release_id, content_hash=None) for chunk_id in chunk_ids]
+    )
 
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(

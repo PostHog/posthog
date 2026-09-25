@@ -255,9 +255,8 @@ class ObjectStorage(ObjectStorageClient):
         try:
             params: dict[str, Any] = {"Bucket": bucket, "Key": file_key}
             if content_length is not None:
-                # A signed `content-length` is the only size condition a presigned PUT can carry:
-                # it becomes part of the SigV4 canonical request, so storage rejects a body of any
-                # other size. It is exact rather than a range, unlike a POST policy's
+                # Signing `content-length` puts it in the SigV4 canonical request, so storage
+                # refuses a body of any other size. It is exact, not a range like a POST policy's
                 # `content-length-range`, so the caller must know the byte count up front.
                 params["ContentLength"] = content_length
             return self.presigned_client.generate_presigned_url(
