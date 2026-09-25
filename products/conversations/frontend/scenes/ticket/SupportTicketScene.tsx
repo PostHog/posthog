@@ -609,11 +609,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* AI Triage Panel */}
                     {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
-                    {ticket?.channel_source === 'widget' && (
+                    {(ticket?.channel_source === 'widget' ||
+                        (ticket?.channel_source === 'email' &&
+                            ticket.session_context?.source_product === 'desktop')) && (
                         <>
                             {/* Session Recording Panel */}
                             <SessionRecordingPanel
                                 sessionContext={ticket?.session_context}
+                                sessionId={ticket?.session_id}
                                 distinctId={ticket?.distinct_id}
                             />
 
