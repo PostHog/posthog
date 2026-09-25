@@ -67,15 +67,24 @@ describe('heatmapsBrowserLogic', () => {
             expect(heatmapUrlRedirect(preflight('https://example.com/app/home'), 'https://example.com/*')).toBeNull()
         })
 
-        // Pointing the data URL at a destination the host says is gone would only produce another
-        // empty heatmap, so the notice has nothing useful to offer there.
-        it.each([404, 410])('stays silent when the destination is gone (%s)', (httpStatus) => {
+        // The status belongs to the destination. Sending someone to a page the host could not serve
+        // would only produce another empty heatmap, while a 403 or 429 is bot protection answering our
+        // probe rather than a page real visitors cannot load.
+        it.each([
+            [200, 'https://example.com/app/home'],
+            [403, 'https://example.com/app/home'],
+            [429, 'https://example.com/app/home'],
+            [404, null],
+            [410, null],
+            [500, null],
+            [503, null],
+        ] as const)('offers %s destinations as %s', (httpStatus, expected) => {
             expect(
                 heatmapUrlRedirect(
                     { ...preflight('https://example.com/app/home'), http_status: httpStatus },
                     'https://example.com/'
                 )
-            ).toBeNull()
+            ).toBe(expected)
         })
 
         // The probe follows the page URL, which the user can point away from the data URL. Reading that

@@ -117,9 +117,13 @@ export function heatmapUrlRedirect(preflight: PagePreflight | null, dataUrl: str
     if (!preflight?.resolved_url || !dataUrl || isUrlPattern(dataUrl)) {
         return null
     }
-    // A host that says the destination is gone leaves nowhere to point the data URL. A 403 or 429 is
-    // bot protection answering our probe rather than the page missing, so those keep the notice.
-    if (preflight.http_status === 404 || preflight.http_status === 410) {
+    // The status belongs to the destination, not to the redirect. Pointing the data URL at a page the
+    // host could not serve would only produce another empty heatmap. A 403 or 429 is bot protection
+    // answering our probe rather than a broken page, so those keep the notice.
+    const status = preflight.http_status
+    const hostServedDestination = status !== null && status >= 200 && status < 300
+    const probeWasBlocked = status === 403 || status === 429
+    if (!hostServedDestination && !probeWasBlocked) {
         return null
     }
     // A verdict for some other page says nothing about where this one's interactions are.
