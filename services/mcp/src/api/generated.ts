@@ -64299,6 +64299,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update. */
+      name_is_suggested?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
@@ -75522,6 +75524,8 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /** Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update. */
+      name_is_suggested?: boolean;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */

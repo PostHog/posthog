@@ -86,12 +86,12 @@ import {
     scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
-    UNVALIDATED_SCANNER_STEPS,
+    blockingScannerStep,
 } from './scannerEditorSceneLogic'
 import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
-import { findScannerTemplate, newScanner } from './scannerTemplates'
+import { findScannerTemplate, isSuggestedScannerName, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
     OBSERVATION_LIST_URL_PARAM_KEYS,
@@ -950,6 +950,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                 }
                 return {
+                    name: scanner.name?.trim() ? undefined : 'Give your scanner a name',
                     sampling_rate:
                         scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined
@@ -985,12 +986,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 // credit_limit_enabled is UI-only form state; the API payload carries only credit_limit itself.
                 const { credit_limit_enabled: _creditLimitEnabled, ...rest } = scanner
-                // The name is optional in the UI but required by the API, so an emptied one falls back.
-                const apiScanner = {
-                    ...rest,
-                    name:
-                        rest.name?.trim() || defaultScannerName(teamLogic.values.currentTeam?.name, rest.scanner_type),
-                }
+                const apiScanner = { ...rest, name: rest.name.trim() }
                 const body = apiScanner.query == null ? omitQuery(apiScanner) : apiScanner
                 try {
                     if (props.id === 'new') {
@@ -999,7 +995,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         // about that, so the update payload below leaves it out.
                         const response = await visionScannersCreate(
                             String(teamId),
-                            scannerToApiBody({ ...body, creation_method: values.creationMethod })
+                            scannerToApiBody({
+                                ...body,
+                                creation_method: values.creationMethod,
+                                // A name the wizard filled in is the same string for everyone on the
+                                // team, so let the API suffix it rather than refuse the save.
+                                name_is_suggested: isSuggestedScannerName(
+                                    apiScanner.name,
+                                    teamLogic.values.currentTeam?.name,
+                                    apiScanner.scanner_type,
+                                    values.experimentContext?.experiment.name
+                                ),
+                            })
                         )
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
@@ -1019,10 +1026,30 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
-                    // A duplicate name is the one field error the details step can fix, so route back to it.
-                    if (error.attr === 'name' && error.detail) {
-                        actions.setScannerManualErrors({ name: error.detail })
-                        router.actions.push(urls.replayVisionScannerDetails(props.id))
+                    const attr: string | null = error?.attr ?? null
+                    // The step that mounts the rejected field, so the user lands where they can fix it
+                    // instead of on whichever step they happened to submit from.
+                    const erroredStep = attr ? firstErroredScannerStep({ [attr]: error.detail ?? true }) : null
+                    if (props.id === 'new') {
+                        // No event fired on a failed create before this, so the drop-off between
+                        // starting the wizard and finishing it could not be read from data.
+                        // Only server-authored fields ride along: `detail` can quote what the user typed.
+                        posthog.capture('replay_vision_scanner_create_failed', {
+                            status: error?.status ?? null,
+                            error_code: error?.code ?? null,
+                            attr,
+                            step: erroredStep ?? currentStep,
+                            creation_method: values.creationMethod,
+                            scanner_type: apiScanner.scanner_type,
+                        })
+                    }
+                    if (attr && error.detail) {
+                        actions.setScannerManualErrors({ [attr]: error.detail })
+                        if (erroredStep && erroredStep !== currentStep) {
+                            router.actions.push(
+                                scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams)
+                            )
+                        }
                         lemonToast.error(error.detail)
                         throw error
                     }
@@ -1681,19 +1708,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
-                // Enter submits the whole form, so leaving a step that validates nothing must behave like
-                // its Next button: move on, rather than red-flag fields the user has not reached yet.
-                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
+                const allErrors = {
+                    ...values.scannerValidationErrors,
+                    duration: values.durationValidationError,
+                }
+                // Both Next and Enter submit the whole form, so a step whose own fields are clean has
+                // to move on rather than red-flag fields further along that the user has not reached.
+                const blocking = currentStep ? blockingScannerStep(allErrors, currentStep) : null
+                if (currentStep && !blocking) {
                     const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
                     if (next) {
                         router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
                     }
                     return
                 }
-                const erroredStep = firstErroredScannerStep({
-                    ...values.scannerValidationErrors,
-                    duration: values.durationValidationError,
-                })
+                const erroredStep = blocking ?? firstErroredScannerStep(allErrors)
                 if (erroredStep && erroredStep !== currentStep) {
                     router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                 }

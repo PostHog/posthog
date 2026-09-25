@@ -222,7 +222,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
 
-    def test_create_duplicate_name_rejected(self) -> None:
+    @parameterized.expand(
+        [
+            ("chosen_name_rejected", {}, 400, None),
+            ("chosen_name_rejected_explicitly", {"name_is_suggested": False}, 400, None),
+            # The wizard proposes the same name to everyone on a team, so rejecting it dead-ends the
+            # second scanner of a type on a name nobody picked.
+            ("suggested_name_numbered", {"name_is_suggested": True}, 201, "dup 2"),
+        ]
+    )
+    def test_create_with_a_taken_name(
+        self, _name: str, extra: dict[str, Any], expected_status: int, expected_name: str | None
+    ) -> None:
         self._create_scanner(name="dup")
         resp = self.client.post(
             self.scanners_url,
@@ -231,10 +242,42 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_8_FLASH,
+                **extra,
             },
             format="json",
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        if expected_name is None:
+            self.assertEqual(resp.json()["attr"], "name")
+        else:
+            self.assertEqual(resp.json()["name"], expected_name)
+
+    def test_create_with_a_suggested_name_keeps_a_free_name_as_is(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "free",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+                "name_is_suggested": True,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["name"], "free")
+
+    def test_update_to_a_taken_name_is_rejected_even_when_flagged_suggested(self) -> None:
+        # Renaming is always a deliberate act, so the suffixing escape hatch is create-only.
+        self._create_scanner(name="taken")
+        scanner = self._create_scanner(name="mine")
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"name": "taken", "name_is_suggested": True},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "name")
 
     def test_list_returns_only_team_scanners(self) -> None:
         self._create_scanner(name="ours")

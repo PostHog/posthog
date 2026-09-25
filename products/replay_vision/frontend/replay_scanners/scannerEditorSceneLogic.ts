@@ -43,14 +43,16 @@ export const SCANNER_STEPPER_STEPS: GuidedWizardStep<ScannerEditorStep>[] = SCAN
 }))
 
 export interface ScannerFieldErrors {
+    name?: unknown
+    tags?: unknown
+    scanner_type?: unknown
     scanner_config?: unknown
+    query?: unknown
+    experiment_targeting?: unknown
     sampling_rate?: unknown
     credit_limit?: unknown
     duration?: unknown
 }
-
-/** Steps that mount no validated field, so leaving them must not run whole-form validation. */
-export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['template', 'details']
 
 // Fallback for error shapes that carry no message, so an errored step is never silently clean
 function fieldErrorMessages(error: unknown): string[] {
@@ -74,9 +76,13 @@ export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEdi
     return {
         template: [],
         overview: [],
-        details: [],
-        configure: fieldErrorMessages(errors.scanner_config),
-        triggers: fieldErrorMessages(errors.duration),
+        details: [...fieldErrorMessages(errors.name), ...fieldErrorMessages(errors.tags)],
+        configure: [...fieldErrorMessages(errors.scanner_type), ...fieldErrorMessages(errors.scanner_config)],
+        triggers: [
+            ...fieldErrorMessages(errors.duration),
+            ...fieldErrorMessages(errors.query),
+            ...fieldErrorMessages(errors.experiment_targeting),
+        ],
         budget: [...fieldErrorMessages(errors.sampling_rate), ...fieldErrorMessages(errors.credit_limit)],
     }
 }
@@ -85,6 +91,20 @@ export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEdi
 export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEditorStep | null {
     const stepErrors = scannerStepErrors(errors)
     return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step].length > 0) ?? null
+}
+
+/**
+ * Earliest errored step at or before `step`. A wizard step owns only the fields it renders, so
+ * leaving one must not red-flag a field on a later step that the user has not reached yet.
+ * Null means the step is clear to leave.
+ */
+export function blockingScannerStep(errors: ScannerFieldErrors, step: ScannerEditorStep): ScannerEditorStep | null {
+    const stepErrors = scannerStepErrors(errors)
+    const reached = SCANNER_EDITOR_STEPS.indexOf(step)
+    if (reached === -1) {
+        return firstErroredScannerStep(errors)
+    }
+    return SCANNER_EDITOR_STEPS.slice(0, reached + 1).find((s) => stepErrors[s].length > 0) ?? null
 }
 
 /**

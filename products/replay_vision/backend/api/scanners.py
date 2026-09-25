@@ -369,6 +369,23 @@ def _scanner_copy_name(team_id: int, source_name: str) -> str:
     return source_name
 
 
+def _free_scanner_name(team_id: int, base: str) -> str:
+    """First free "<base>" / "<base> N" variant, truncated to the name column limit.
+    Same shape and the same caveats as `_scanner_copy_name`: one query for the team's names, and the
+    unique constraint stays the backstop for a concurrent create racing this check."""
+    taken = set(ReplayScanner.objects.filter(team_id=team_id).values_list("name", flat=True))
+    if base not in taken:
+        return base
+    for n in range(2, len(taken) + 3):
+        suffix = f" {n}"
+        candidate = f"{base[: 255 - len(suffix)]}{suffix}"
+        if candidate not in taken:
+            return candidate
+    # Unreachable given the range spans more than the collisions, but stay well-defined; the DB
+    # uniqueness constraint is the final backstop.
+    return base
+
+
 class FeedbackThemeSessionSerializer(serializers.Serializer):
     observation_id = serializers.CharField(help_text="Observation whose feedback comment backs this theme.")
     session_id = serializers.CharField(help_text="Session recording the feedback comment was about.")
@@ -482,6 +499,17 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "any experiment the creator is in, since a person offered the AI flow can still fill the "
             "form by hand. Only the app can answer this, so a request from anywhere else reports the "
             "calling surface instead of whatever it sends here. Ignored on update."
+        ),
+    )
+    name_is_suggested = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "Whether `name` is a name the client proposed rather than one the user chose. On create, a "
+            "proposed name that the team already uses gets the first free numeric suffix instead of being "
+            "rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose "
+            "still fails with a duplicate-name error. Not stored on the scanner. Ignored on update."
         ),
     )
     scanner_config = serializers.JSONField(
@@ -637,6 +665,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "tags",
             "scanner_type",
             "creation_method",
+            "name_is_suggested",
             "scanner_config",
             "query",
             "sampling_rate",
@@ -756,6 +785,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         return self._scanner_budget(scanner).blocked
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Telemetry-free write-only flag: it must not reach the model constructor.
+        name_is_suggested = attrs.pop("name_is_suggested", False)
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.
         name = attrs.get("name")
         if name is not None:
@@ -764,7 +795,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             if self.instance is not None:
                 duplicates = duplicates.exclude(pk=self.instance.pk)
             if duplicates.exists():
-                raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
+                # The client proposed this name, so adjusting it takes nothing away from the user.
+                # Rejecting it would dead-end a wizard on a name nobody chose.
+                if name_is_suggested and self.instance is None:
+                    attrs["name"] = _free_scanner_name(team.id, name)
+                else:
+                    raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
