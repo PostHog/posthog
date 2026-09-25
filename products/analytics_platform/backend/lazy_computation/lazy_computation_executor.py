@@ -1762,6 +1762,7 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
             modifiers=modifiers,
         )
+        print_end = time.monotonic()
         set_ch_query_started(job.id)
         tag_kwargs: dict = {
             "client_query_id": str(job.id),
@@ -1787,7 +1788,8 @@ def ensure_precomputed(
             team_id=t.id,
             job_id=str(job.id),
             table=str(table),
-            print_ms=round((execute_start - print_start) * 1000),
+            print_ms=round((print_end - print_start) * 1000),
+            setup_ms=round((execute_start - print_end) * 1000),
             execute_ms=round((time.monotonic() - execute_start) * 1000),
         )
         return rows_written
