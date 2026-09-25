@@ -211,7 +211,7 @@ const InboxReportChecksListSchema = () => {
 
 const inboxReportChecksList = (): ToolBase<
     ReturnType<typeof InboxReportChecksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSignalReportCheckList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSignalReportCheckList>>
 > => ({
     name: 'inbox-report-checks-list',
     schema: InboxReportChecksListSchema(),
@@ -225,7 +225,8 @@ const inboxReportChecksList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/inbox')
     },
 })
 
