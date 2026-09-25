@@ -979,10 +979,10 @@ def _parent(
     [None, "disabled", "never_synced", "append_mode", "cdc_mode", "too_small", "unknown_size"],
 )
 async def test_unusable_parent_falls_back_to_the_api_path(parent):
-    # A child enabled without its parent is a config that syncs today, so turning the flag on
-    # must leave it working: fall back to the parent API instead of failing the run. Append and
-    # CDC parents hold more than one row per key, so the reader must not stream them either. A
-    # parent under the size floor costs more to open than the listing it would replace.
+    # A child enabled without its parent is a config that syncs today, and reuse must leave it
+    # working: fall back to the parent API instead of failing the run. Append and CDC parents
+    # hold more than one row per key, so the reader must not stream them either. A parent under
+    # the size floor costs more to open than the listing it would replace.
     parent_obj = None
     if parent == "disabled":
         parent_obj = _parent(should_sync=False, initial_sync_complete=True)
@@ -999,7 +999,6 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
 
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(module, "get_schema_if_exists", return_value=parent_obj),
     ):
         result = await module._warehouse_parent_reuse_available(
@@ -1023,7 +1022,6 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
     # because its drains merge on the primary key rather than appending.
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module,
             "get_schema_if_exists",
@@ -1040,7 +1038,7 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
 @pytest.mark.asyncio
 async def test_fanout_gate_result_threaded_into_source_inputs():
     # The gate's decision must reach the source via SourceInputs — if this wiring drops,
-    # every child silently falls back to re-pulling the parent API with the flag on.
+    # every child silently falls back to re-pulling the parent API.
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.get_required_parent_schemas.return_value = ["issues"]
@@ -1050,7 +1048,6 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
     with (
         _patched_activity_reaching_run(source, schema),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
         mock.patch.object(
             module, "get_schema_if_exists", return_value=_parent(should_sync=True, initial_sync_complete=True)
         ),
@@ -1062,32 +1059,17 @@ async def test_fanout_gate_result_threaded_into_source_inputs():
 
 
 @pytest.mark.asyncio
-async def test_parent_gate_inert_when_flag_disabled():
-    with (
-        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
-        mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=False),
-        mock.patch.object(module, "get_schema_if_exists") as schema_lookup,
-    ):
-        result = await module._warehouse_parent_reuse_available(
-            _fanout_source(), _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
-        )
-
-    assert result is False
-    schema_lookup.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_parent_gate_inert_for_sources_without_requirements():
     source = mock.MagicMock(spec=SimpleSource)
     source.get_required_parent_schemas.return_value = []
 
-    with mock.patch.object(module, "is_fanout_warehouse_reuse_enabled") as flag_check:
+    with mock.patch.object(module, "get_schema_if_exists") as schema_lookup:
         result = await module._warehouse_parent_reuse_available(
             source, _fanout_child_schema(), uuid.uuid4(), 1, mock.AsyncMock()
         )
 
     assert result is False
-    flag_check.assert_not_called()
+    schema_lookup.assert_not_called()
 
 
 def _probe_model() -> mock.MagicMock:

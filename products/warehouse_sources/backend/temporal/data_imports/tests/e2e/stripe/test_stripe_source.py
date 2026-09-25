@@ -1262,12 +1262,9 @@ class TestCreateWebhook:
 # path walks parquet file order, and neither promises the other's ordering.
 PROBED_CUSTOMERS = ["cus_credit_1", "cus_credit_2", "cus_gone", "cus_null_balance"]
 
-FANOUT_GATE = (
-    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
-    "import_data_sync.is_fanout_warehouse_reuse_enabled"
-)
-# The mock account holds a handful of customers, far under the production size floor. These tests
-# cover the conversion itself; the floor is policy, covered by the gate's own unit tests.
+# The mock account holds a handful of customers, so this floor is what selects the path these
+# tests take: drop it to zero to read the parent from the warehouse, or raise it above the
+# account to get the parent-listing fallback.
 PARENT_SIZE_FLOOR = (
     "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
     "import_data_sync.MIN_WAREHOUSE_PARENT_ROWS"
@@ -1328,7 +1325,7 @@ async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, 
     calls_before = len(mock_stripe_api.get_all_api_calls())
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=reuse_enabled), mock.patch(PARENT_SIZE_FLOOR, 0):
+    with mock.patch(PARENT_SIZE_FLOOR, 0 if reuse_enabled else len(CUSTOMERS) + 1):
         response = await run_external_data_job_workflow(
             team=team,
             external_data_source=source,
@@ -1350,8 +1347,8 @@ async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_fanout_pages_the_customer_listing_with_reuse_disabled(team, mock_stripe_api, external_data_source):
-    """Baseline: the sweep re-pages the parent listing every run, which is the cost being removed."""
+async def test_fanout_pages_the_customer_listing_for_a_small_parent(team, mock_stripe_api, external_data_source):
+    """A parent under the size floor costs more to open than the listing, so the sweep keeps paging."""
     parent = await _customer_schema(external_data_source, team, "full_refresh")
     child = await _balance_transaction_child(external_data_source, team)
 
@@ -1359,7 +1356,7 @@ async def test_fanout_pages_the_customer_listing_with_reuse_disabled(team, mock_
         team, external_data_source, parent, child, mock_stripe_api, reuse_enabled=False
     )
 
-    assert listing, "with reuse off the child must page the customer listing itself"
+    assert listing, "under the size floor the child must page the customer listing itself"
     assert sorted(probed) == PROBED_CUSTOMERS
 
 
@@ -1426,15 +1423,14 @@ async def test_a_missing_parent_schema_keeps_the_api_path(team, mock_stripe_api,
     child = await _balance_transaction_child(external_data_source, team)
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=True):
-        await run_external_data_job_workflow(
-            team=team,
-            external_data_source=external_data_source,
-            external_data_schema=child,
-            table_name="stripe_customerbalancetransaction",
-            expected_rows_synced=expected_rows,
-            expected_total_rows=expected_rows,
-        )
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=child,
+        table_name="stripe_customerbalancetransaction",
+        expected_rows_synced=expected_rows,
+        expected_total_rows=expected_rows,
+    )
 
     assert _listing_calls(mock_stripe_api), "with no parent table there is nothing to read but the API"
     assert sorted(_child_calls(mock_stripe_api)) == PROBED_CUSTOMERS
