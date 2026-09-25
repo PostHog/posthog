@@ -4137,6 +4137,20 @@ export interface TaskRunCancelRequestApi {
     only_if_awaiting_first_message?: boolean
 }
 
+export interface TaskRunClaudeSubscriptionTokenRequestApi {
+    /**
+     * SHA-256 hex digest of the Claude token Anthropic rejected. When it names the stored token, the server marks the account for reconnection and returns reauth_required.
+     * @nullable
+     * @pattern ^[0-9a-f]{64}$
+     */
+    rejected_token_sha256?: string | null
+}
+
+export interface TaskRunClaudeSubscriptionTokenResponseApi {
+    /** The run owner's Claude setup token for Claude Code. */
+    token: string
+}
+
 /**
  * Parameters for the command
  */

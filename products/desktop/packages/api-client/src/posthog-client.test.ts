@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError, type FetchImplementation } from "./fetcher";
 import {
+  ClaudeIntegrationUnavailableError,
   CloudCommandError,
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
@@ -204,6 +205,58 @@ describe("PostHogAPIClient", () => {
       ).rejects.toThrow(
         "Automatic archiving isn't available on this server yet",
       );
+    });
+  });
+
+  describe("connectClaudeUserIntegration", () => {
+    it.each([
+      { token: ["Paste the full Claude token."] },
+      { token: "Paste the full Claude token." },
+      {
+        type: "validation_error",
+        code: "invalid_input",
+        detail: "Paste the full Claude token.",
+        attr: "token",
+      },
+    ])("surfaces the server token error %j", async (body) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.connectClaudeUserIntegration("sk-ant-oat01-bad"),
+      ).rejects.toThrow(/^Paste the full Claude token\.$/);
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/users/@me/integrations/claude/");
+      expect(JSON.parse(request.body)).toEqual({ token: "sk-ant-oat01-bad" });
+    });
+
+    it("reports a backend without the endpoint as unavailable", async () => {
+      const fetch = vi
+        .fn()
+        .mockImplementation(async () => new Response("{}", { status: 404 }));
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getClaudeUserIntegration()).resolves.toBeNull();
+      await expect(
+        client.connectClaudeUserIntegration("sk-ant-oat01-token"),
+      ).rejects.toBeInstanceOf(ClaudeIntegrationUnavailableError);
     });
   });
 

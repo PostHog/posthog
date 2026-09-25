@@ -19978,6 +19978,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `connected` - Token connected
+     * * `reauth_required` - New token required
+     * * `not_connected` - No token
+     */
+    export type ClaudeIntegrationStatusEnum = typeof ClaudeIntegrationStatusEnum[keyof typeof ClaudeIntegrationStatusEnum];
+
+
+    export const ClaudeIntegrationStatusEnum = {
+      Connected: 'connected',
+      ReauthRequired: 'reauth_required',
+      NotConnected: 'not_connected',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -96914,6 +96928,20 @@ export namespace Schemas {
       only_if_awaiting_first_message?: boolean;
     }
 
+    export interface TaskRunClaudeSubscriptionTokenRequest {
+      /**
+         * SHA-256 hex digest of the Claude token Anthropic rejected. When it names the stored token, the server marks the account for reconnection and returns reauth_required.
+         * @nullable
+         * @pattern ^[0-9a-f]{64}$
+         */
+      rejected_token_sha256?: string | null;
+    }
+
+    export interface TaskRunClaudeSubscriptionTokenResponse {
+      /** The run owner's Claude setup token for Claude Code. */
+      token: string;
+    }
+
     /**
      * Parameters for the command
      */
@@ -99162,6 +99190,25 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UserClaudeConnectRequest {
+      /** The long-lived OAuth token that `claude setup-token` prints. It starts with `sk-ant-oat01-`. PostHog stores it encrypted and gives it only to the user's own Claude cloud runs. */
+      token: string;
+    }
+
+    export interface UserClaudeIntegration {
+      /** `connected` when cloud runs can use the token; `reauth_required` when Anthropic rejected the token and the user must paste a new one; `not_connected` when no token is stored.
+       *
+       * * `connected` - Token connected
+       * * `reauth_required` - New token required
+       * * `not_connected` - No token */
+      status: ClaudeIntegrationStatusEnum;
+      /**
+         * When the token was connected.
+         * @nullable
+         */
+      connected_at?: string | null;
     }
 
     export interface UserCodexAuthTokens {

@@ -48,6 +48,22 @@ export class CodexSubscriptionTokenError extends Error {
   }
 }
 
+export type ClaudeSubscriptionTokenErrorCode =
+  | "reauth_required"
+  | "forbidden"
+  | "request_failed";
+
+export class ClaudeSubscriptionTokenError extends Error {
+  constructor(
+    readonly code: ClaudeSubscriptionTokenErrorCode,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ClaudeSubscriptionTokenError";
+  }
+}
+
 export class PostHogAPIError extends Error {
   constructor(
     message: string,
@@ -366,6 +382,60 @@ export class PostHogAPIClient {
       code,
       response.status,
       `Failed to get a ChatGPT token: [${response.status}] ${body.error ?? response.statusText}`,
+    );
+  }
+
+  async requestClaudeSubscriptionToken(
+    taskId: string,
+    runId: string,
+    runToken: string,
+    rejectedTokenSha256: string | null,
+    timeoutMs: number,
+  ): Promise<string> {
+    const teamId = this.getTeamId();
+    const response = await this.performRequestWithRetry(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/claude_subscription_token/`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Task-Run-Token": runToken,
+        },
+        body: JSON.stringify({ rejected_token_sha256: rejectedTokenSha256 }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    ).catch(() => {
+      throw new ClaudeSubscriptionTokenError(
+        "request_failed",
+        0,
+        "Could not reach PostHog to get the Claude token. Try the task again.",
+      );
+    });
+    if (response.ok) {
+      const body = (await response.json().catch(() => ({}))) as {
+        token?: unknown;
+      };
+      if (typeof body.token === "string" && body.token) return body.token;
+      throw new ClaudeSubscriptionTokenError(
+        "request_failed",
+        response.status,
+        "PostHog did not return a Claude token.",
+      );
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      code?: string;
+      error?: string;
+    };
+    const code: ClaudeSubscriptionTokenErrorCode =
+      body.code === "reauth_required"
+        ? "reauth_required"
+        : response.status === 403 || response.status === 404
+          ? "forbidden"
+          : "request_failed";
+    throw new ClaudeSubscriptionTokenError(
+      code,
+      response.status,
+      `Failed to get the Claude token: [${response.status}] ${body.error ?? response.statusText}`,
     );
   }
 

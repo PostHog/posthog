@@ -17,6 +17,7 @@ import {
   type ResourceComment,
   SESSION_LOGS_MAX_PAGE_SIZE,
   type TaskRunSessionLogsResult,
+  type UserClaudeIntegration,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -6780,9 +6781,15 @@ export class SessionService {
       );
     }
     if (adapter === "claude") {
-      if (!(await this.d.trpc.claudeSubscriptionToken.has.query())) {
+      const serverStatus = await this.claudeCloudTokenStatus();
+      if (
+        serverStatus !== "connected" &&
+        !(await this.d.trpc.claudeSubscriptionToken.has.query())
+      ) {
         throw new Error(
-          "Save a Claude token in Settings > Harness before you start or resume this task.",
+          serverStatus === "reauth_required"
+            ? "Your Claude token stopped working. Paste a new token in Settings > Harness before you start or resume this task."
+            : "Save a Claude token in Settings > Harness before you start or resume this task.",
         );
       }
     } else {
@@ -6803,6 +6810,22 @@ export class SessionService {
       }
     }
     return { kind: access, adapter };
+  }
+
+  private async claudeCloudTokenStatus(): Promise<
+    UserClaudeIntegration["status"] | null
+  > {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return null;
+    try {
+      return (
+        (await authStatus.auth.client.getClaudeUserIntegration())?.status ??
+        null
+      );
+    } catch (error) {
+      this.d.log.warn("Failed to check the Claude cloud token", { error });
+      return null;
+    }
   }
 
   async designateClaudeSubscription(
@@ -9021,7 +9044,26 @@ export class SessionService {
         ) {
           continue;
         }
-        if (notification.params?.initializationPhase === "credential_relay") {
+        if (
+          notification.params?.initializationPhase ===
+          "claude_subscription_token"
+        ) {
+          const transient = notification.params?.reason === "request_failed";
+          this.d.store.updateSession(taskRunId, {
+            status: "error",
+            errorTitle: transient
+              ? "Claude token request failed"
+              : "Claude token unavailable",
+            errorMessage:
+              notification.params?.reason === "reauth_required"
+                ? "Your Claude token stopped working. Paste a new token in Settings > Harness. Then start the task again."
+                : "PostHog could not get your Claude token for this run. Start the task again.",
+            errorRetryable: transient,
+            isPromptPending: false,
+          });
+        } else if (
+          notification.params?.initializationPhase === "credential_relay"
+        ) {
           this.d.store.updateSession(taskRunId, {
             status: "error",
             errorTitle: "Claude token unavailable",

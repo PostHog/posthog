@@ -151,15 +151,15 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
-def test_build_agent_server_command_opens_the_codex_run_token_on_fd_3(sandbox: DockerSandbox):
+def test_build_agent_server_command_opens_the_subscription_run_token_on_fd_3(sandbox: DockerSandbox):
     with_token = sandbox._build_agent_server_command(
-        None, "t1", "r1", "interactive", True, codex_run_token_file="/tmp/agent-codex-run-token"
+        None, "t1", "r1", "interactive", True, subscription_run_token_file="/tmp/agent-subscription-run-token"
     )
-    assert "exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec " in with_token
+    assert "exec 3< /tmp/agent-subscription-run-token && rm -f /tmp/agent-subscription-run-token && exec " in with_token
     assert "exec 3<" not in sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
 
 
-def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_retry(sandbox: DockerSandbox):
+def test_start_agent_server_stages_the_subscription_run_token_again_for_the_branchless_retry(sandbox: DockerSandbox):
     with (
         patch.object(sandbox, "is_running", return_value=True),
         patch.object(sandbox, "write_file", return_value=_ok_result()) as write_file,
@@ -168,10 +168,10 @@ def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_
         patch.object(sandbox, "execute", return_value=_log_result()),
     ):
         sandbox.start_agent_server(
-            repository=None, task_id="t1", run_id="r1", branch="feature", codex_run_token="run-token"
+            repository=None, task_id="t1", run_id="r1", branch="feature", subscription_run_token="run-token"
         )
 
-    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/tmp/agent-codex-run-token"]
+    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/tmp/agent-subscription-run-token"]
     assert len(token_writes) == 2
 
 

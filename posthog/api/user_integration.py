@@ -47,6 +47,15 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.user_integration_claude import (
+    UserClaudeConnectRequestSerializer,
+    UserClaudeIntegrationSerializer,
+    connect_claude_integration,
+    disconnect_claude_integration,
+    ensure_claude_connect_enabled,
+    ensure_not_sandbox_claude_request,
+    get_claude_integration,
+)
 from posthog.api.user_integration_codex import (
     UserCodexConnectRequestSerializer,
     UserCodexIntegrationSerializer,
@@ -64,7 +73,7 @@ from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
-from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
+from posthog.rate_limit import ClaudeConnectUserThrottle, CodexConnectUserThrottle, UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
@@ -299,6 +308,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_install_requests",
         "slack_linkable",
         "codex",
+        "claude",
     ]
     scope_object_write_actions = [
         "create",
@@ -315,6 +325,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "slack_destroy",
         "codex_connect",
         "codex_destroy",
+        "claude_connect",
+        "claude_destroy",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -328,6 +340,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         throttles = super().get_throttles()
         if self.action == "codex_connect":
             throttles.append(CodexConnectUserThrottle())
+        if self.action == "claude_connect":
+            throttles.append(ClaudeConnectUserThrottle())
         return throttles
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -904,6 +918,51 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ensure_not_sandbox_request(request)
         user = self._get_user()
         return disconnect_codex_integration(user)
+
+    @extend_schema(
+        summary="Show the Claude token status for Claude cloud tasks",
+        responses={200: UserClaudeIntegrationSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="claude")
+    def claude(self, request: Request, **_kwargs) -> Response:
+        user = self._get_user()
+        return Response(get_claude_integration(user))
+
+    @validated_request(
+        request_serializer=UserClaudeConnectRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=UserClaudeIntegrationSerializer, description="The token is connected."),
+            400: OpenApiResponse(description="The token is not a Claude setup token."),
+            403: OpenApiResponse(description="A cloud task sandbox token cannot connect a token."),
+            404: OpenApiResponse(description="Claude plans for cloud tasks are not available to this user."),
+        },
+        summary="Connect a Claude token for Claude cloud tasks",
+        description=(
+            "Submit the token that `claude setup-token` printed on the user's machine. PostHog stores it encrypted "
+            "and gives it only to the user's own Claude cloud runs, so the runs do not need PostHog Desktop to be "
+            "open. A new token replaces the old one. Only the owning user can connect. No response carries a token."
+        ),
+    )
+    @claude.mapping.post
+    def claude_connect(self, request: ValidatedRequest, **_kwargs) -> Response:
+        ensure_not_sandbox_claude_request(request)
+        user = self._get_user()
+        ensure_claude_connect_enabled(user)
+        return connect_claude_integration(user, request.validated_data)
+
+    @extend_schema(
+        summary="Disconnect the Claude token used for Claude cloud tasks",
+        description="Deletes the stored token. Idempotent.",
+        responses={
+            204: OpenApiResponse(description="No token is stored any more."),
+            403: OpenApiResponse(description="A cloud task sandbox token cannot disconnect a token."),
+        },
+    )
+    @claude.mapping.delete
+    def claude_destroy(self, request: Request, **_kwargs) -> Response:
+        ensure_not_sandbox_claude_request(request)
+        user = self._get_user()
+        return disconnect_claude_integration(user)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):

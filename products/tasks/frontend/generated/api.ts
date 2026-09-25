@@ -109,6 +109,8 @@ import type {
     TaskRunArtifactsUploadResponseApi,
     TaskRunBootstrapCreateRequestApi,
     TaskRunCancelRequestApi,
+    TaskRunClaudeSubscriptionTokenRequestApi,
+    TaskRunClaudeSubscriptionTokenResponseApi,
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
@@ -2083,6 +2085,32 @@ export const tasksRunsCancelCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunCancelRequestApi),
     })
+}
+
+export const getTasksRunsClaudeSubscriptionTokenCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/claude_subscription_token/`
+}
+
+/**
+ * Give the run's agent-server the Claude token of the run owner. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Anthropic rejected so the server marks the account for reconnection.
+ * @summary Issue the Claude token for a Claude run
+ */
+export const tasksRunsClaudeSubscriptionTokenCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunClaudeSubscriptionTokenRequestApi?: TaskRunClaudeSubscriptionTokenRequestApi,
+    options?: RequestInit
+): Promise<TaskRunClaudeSubscriptionTokenResponseApi> => {
+    return apiMutator<TaskRunClaudeSubscriptionTokenResponseApi>(
+        getTasksRunsClaudeSubscriptionTokenCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunClaudeSubscriptionTokenRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId: string, id: string) => {

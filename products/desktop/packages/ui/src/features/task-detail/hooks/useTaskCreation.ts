@@ -10,7 +10,7 @@ import {
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
-import { useService, useServiceOptional } from "@posthog/di/react";
+import { useService } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import {
@@ -31,10 +31,6 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import {
-  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
-  type ClaudeSubscriptionTokenSettings,
-} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
@@ -269,9 +265,6 @@ export function useTaskCreation({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
-    CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
-  );
   const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
 
   const hasRequiredPath = allowNoRepo
@@ -341,20 +334,6 @@ export function useTaskCreation({
             toast.error("Claude plan billing is unavailable for cloud tasks", {
               description:
                 "Try again later, or select PostHog in the Billing menu.",
-            });
-            return false;
-          }
-          try {
-            if (!claudeTokenStore || !(await claudeTokenStore.has())) {
-              toast.error("Add your Claude token before starting this task", {
-                description:
-                  "Open Settings > Harness and save a token for cloud tasks.",
-              });
-              return false;
-            }
-          } catch {
-            toast.error("Cannot check your Claude token", {
-              description: "Open Settings > Harness and try again.",
             });
             return false;
           }
@@ -717,15 +696,8 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
-      codexSubscription.flagEnabled,
-      codexSubscription.loginState,
-      codexSubscription.subscriptionOn,
-      claudeSubscription.flagEnabled,
-      claudeSubscription.loginState,
-      claudeSubscription.subscriptionOn,
       claudeSubscription,
       codexSubscription,
-      claudeTokenStore,
     ],
   );
 

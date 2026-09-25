@@ -12,6 +12,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.claude import ClaudeUserIntegration
 from posthog.models.integration.codex import CodexUserIntegration
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
@@ -176,6 +177,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    claude_subscription_server: bool = False
 
     @property
     def model_access(self) -> ModelAccess:
@@ -577,6 +579,11 @@ def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
             cause=ValueError("Codex subscription requested without a connected ChatGPT account"),
             capture=False,
         )
+
+
+def _claude_account_connected(owner_id: int | None) -> bool:
+    integration = ClaudeUserIntegration.for_user(owner_id) if owner_id is not None else None
+    return integration is not None and integration.is_connected()
 
 
 def _is_benjamin_enabled(
@@ -1382,6 +1389,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _ensure_codex_account_connected(model_access.owner_id, run_id)
     claude_model_access = model_access.access_for("claude")
     codex_model_access = model_access.access_for("codex")
+    claude_subscription_server = model_access.adapter == "claude" and _claude_account_connected(model_access.owner_id)
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if model_access.kind == "own-subscription" or (
@@ -1696,6 +1704,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
         codex_model_access=codex_model_access,
+        claude_subscription_server=claude_subscription_server,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

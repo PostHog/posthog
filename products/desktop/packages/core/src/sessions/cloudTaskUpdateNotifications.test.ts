@@ -312,25 +312,47 @@ describe("cloud task update notifications", () => {
     ]);
   });
 
-  it("shows the credential error from cloud startup", () => {
-    const harness = createHarness();
-    harness.sendUpdate(
-      logsUpdate(
-        [
-          {
-            type: "notification",
-            notification: {
-              method: "_posthog/initialization_failed",
-              params: { initializationPhase: "credential_relay" },
+  it.each([
+    [{ initializationPhase: "credential_relay" }, "Settings > Harness", false],
+    [
+      {
+        initializationPhase: "claude_subscription_token",
+        reason: "reauth_required",
+      },
+      "Paste a new token in Settings > Harness",
+      false,
+    ],
+    [
+      {
+        initializationPhase: "claude_subscription_token",
+        reason: "request_failed",
+      },
+      "Start the task again",
+      true,
+    ],
+  ])(
+    "shows the credential error from cloud startup for %j",
+    (params, message, retryable) => {
+      const harness = createHarness();
+      harness.sendUpdate(
+        logsUpdate(
+          [
+            {
+              type: "notification",
+              notification: {
+                method: "_posthog/initialization_failed",
+                params,
+              },
             },
-          },
-        ],
-        1,
-      ),
-    );
-    expect(harness.session.errorMessage).toContain("Settings > Harness");
-    expect(harness.session.status).toBe("error");
-  });
+          ],
+          1,
+        ),
+      );
+      expect(harness.session.errorMessage).toContain(message);
+      expect(harness.session.errorRetryable).toBe(retryable);
+      expect(harness.session.status).toBe("error");
+    },
+  );
 
   it("does not seed a reopened run before its history is known", () => {
     expect(createHarness().session.optimisticItems).toEqual([]);

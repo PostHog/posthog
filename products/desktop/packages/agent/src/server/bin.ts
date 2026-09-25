@@ -84,28 +84,28 @@ const envSchema = z.object({
 
 const program = new Command();
 
-const CODEX_RUN_TOKEN_FD = 3;
+const RUN_TOKEN_FD = 3;
 
 /**
  * The launcher opens the run token on fd 3 (`exec 3< file`) and deletes the
  * file before this process starts, so the token exists only here. Read it once
  * and close the descriptor before anything else can be spawned.
  */
-function readCodexRunToken(): string {
+function readRunToken(flag: string): string {
   let token = "";
   try {
-    token = readFileSync(CODEX_RUN_TOKEN_FD, "utf8").trim();
+    token = readFileSync(RUN_TOKEN_FD, "utf8").trim();
   } catch {
     token = "";
   } finally {
     try {
-      closeSync(CODEX_RUN_TOKEN_FD);
+      closeSync(RUN_TOKEN_FD);
     } catch {
       // Already closed or never opened; nothing to release.
     }
   }
   if (!token) {
-    program.error("--codexSubscription requires the run token on fd 3");
+    program.error(`${flag} requires the run token on fd 3`);
   }
   return token;
 }
@@ -173,6 +173,10 @@ program
   .option("--repositoryPath <path>", "Path to the repository")
   .option("--claudeSubscription", "Use a relayed Claude subscription token")
   .option(
+    "--claudeSubscriptionServer",
+    "Get the Claude token from PostHog; the run token arrives on fd 3",
+  )
+  .option(
     "--codexSubscription",
     "Run on the owner's ChatGPT plan; the run token arrives on fd 3",
   )
@@ -235,8 +239,14 @@ program
     ) {
       program.error("--codexSubscription requires the Codex runtime");
     }
+    if (options.claudeSubscriptionServer && !options.claudeSubscription) {
+      program.error("--claudeSubscriptionServer requires --claudeSubscription");
+    }
     const codexRunToken = options.codexSubscription
-      ? readCodexRunToken()
+      ? readRunToken("--codexSubscription")
+      : undefined;
+    const claudeRunToken = options.claudeSubscriptionServer
+      ? readRunToken("--claudeSubscriptionServer")
       : undefined;
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
@@ -344,6 +354,7 @@ program
         ? "own-subscription"
         : "posthog-gateway",
       codexRunToken,
+      claudeRunToken,
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,
       serviceTier: env.POSTHOG_CODE_SERVICE_TIER,
       contextWindow: env.POSTHOG_CODE_CONTEXT_WINDOW,

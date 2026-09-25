@@ -93,6 +93,8 @@ import type {
     UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
+    UserClaudeConnectRequestApi,
+    UserClaudeIntegrationApi,
     UserCodexConnectRequestApi,
     UserCodexIntegrationApi,
     UserGitHubLinkStartRequestApi,
@@ -2766,6 +2768,60 @@ export const usersIntegrationsList = async (
     return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsClaudeRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude/`
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary Show the Claude token status for Claude cloud tasks
+ */
+export const usersIntegrationsClaudeRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserClaudeIntegrationApi> => {
+    return apiMutator<UserClaudeIntegrationApi>(getUsersIntegrationsClaudeRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsClaudeCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude/`
+}
+
+/**
+ * Submit the token that `claude setup-token` printed on the user's machine. PostHog stores it encrypted and gives it only to the user's own Claude cloud runs, so the runs do not need PostHog Desktop to be open. A new token replaces the old one. Only the owning user can connect. No response carries a token.
+ * @summary Connect a Claude token for Claude cloud tasks
+ */
+export const usersIntegrationsClaudeCreate = async (
+    uuid: string,
+    userClaudeConnectRequestApi: UserClaudeConnectRequestApi,
+    options?: RequestInit
+): Promise<UserClaudeIntegrationApi> => {
+    return apiMutator<UserClaudeIntegrationApi>(getUsersIntegrationsClaudeCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userClaudeConnectRequestApi),
+    })
+}
+
+export const getUsersIntegrationsClaudeDestroyUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude/`
+}
+
+/**
+ * Deletes the stored token. Idempotent.
+ * @summary Disconnect the Claude token used for Claude cloud tasks
+ */
+export const usersIntegrationsClaudeDestroy = async (uuid: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsClaudeDestroyUrl(uuid), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
