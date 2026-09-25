@@ -1050,7 +1050,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             failure_reason = "dcr_not_supported"
             detail = "This MCP server does not support Dynamic Client Registration (DCR)."
             http_status = status.HTTP_400_BAD_REQUEST
-        elif provider_status is not None and 400 <= provider_status < 500:
+        # A 429 is the endpoint throttling us, not a decision about our client, so it
+        # belongs with the retryable failures below, not here.
+        elif (
+            provider_status is not None
+            and 400 <= provider_status < 500
+            and provider_status != status.HTTP_429_TOO_MANY_REQUESTS
+        ):
             failure_reason = "dcr_refused"
             detail = (
                 "This server doesn't accept app registrations from PostHog, so we can't connect it here. "
@@ -1058,8 +1064,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
             http_status = status.HTTP_400_BAD_REQUEST
         else:
-            # A provider fault, or a transport failure that never reached the provider. 502
-            # matches the other upstream failures in this viewset and keeps the call retryable.
+            # A provider fault, a throttle, or a transport failure that never reached the
+            # provider. 502 matches the other upstream failures in this viewset and keeps
+            # the call retryable.
             failure_reason = "dcr_provider_error" if provider_status is not None else "dcr_unreachable"
             detail = "Couldn't register with this server. Try again, and if it keeps happening contact support."
             http_status = status.HTTP_502_BAD_GATEWAY
