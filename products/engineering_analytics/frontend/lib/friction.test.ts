@@ -29,7 +29,7 @@ describe('pullRequestFrictionFacts', () => {
                 ['queue', 'Kicked out of the merge queue', '1'],
                 ['ci', 'Red, the default branch was failing', '2'],
                 ['ci', 'CI running', '30m over 3\u00a0pushes'],
-                ['rework', 'Extra pushes', '2'],
+                ['rework', 'Extra pushes that ran CI', '2'],
             ],
         ],
     ])('%s', (_name, pr, expected) => {
