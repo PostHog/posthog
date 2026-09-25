@@ -354,6 +354,17 @@ long since advanced past those changes.
 **If files expire before they are consumed, the changes are gone.** There is no partial recovery.
 The only fix is a full `reset_pipeline` re-snapshot for that schema.
 
+A table's own sync does that re-snapshot. When it starts and the table last consumed the buffer
+longer ago than files are kept (`cdc_buffer_expired_before_consumption`), it stands down for the tick
+and hands the reset to capture, which resets the table once the sync has finished and starts the
+snapshot. So a table that resumes after a long stop, such as a billing block lifting, re-snapshots
+instead of loading on past changes it never saw.
+
+Only a run that listed the buffer, or re-seeded the table with a snapshot, counts as having consumed
+it — and only once every table that run writes finished. A `both` run whose history lane never
+completed landed those changes on the consolidated table alone, so it leaves the history table owed
+and does not count.
+
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
 

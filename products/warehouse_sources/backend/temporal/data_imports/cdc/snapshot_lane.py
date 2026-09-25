@@ -153,18 +153,46 @@ def hand_reset_to_capture_if_sync_running(
     hands its resets over before it recreates the slot, and a capture run that fires in between
     would otherwise start the snapshot against the dead one.
     """
-    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
-    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
-        pause_external_data_schedule,
-        sync_cdc_extraction_schedule,
-        trigger_cdc_extraction_schedule,
-    )
-
     try:
         if not cancel_sync_that_could_hand_over(schema):
             return False
     except Exception:
         logger.warning("cdc_reset_sync_check_failed", schema_id=str(schema.id), exc_info=True)
+    hand_reset_to_capture(schema, logger, awaiting_slot=awaiting_slot)
+    return True
+
+
+def hand_reset_to_capture(
+    schema: ExternalDataSchema,
+    logger: FilteringBoundLogger,
+    *,
+    start_capture: bool = True,
+    awaiting_slot: bool = False,
+) -> None:
+    """Pause a CDC table's schedule and mark its reset pending, so capture finishes it once no sync can hand over.
+
+    `start_capture` starts a capture run right away. A table's own sync turns it off, because that run
+    would find the sync still finishing and cancel it, and a cancelled sync reports a failure. It then
+    only recreates the capture schedule if it is gone, so capture's next run finishes the reset.
+
+    `awaiting_slot` holds the staged reset back until a capture run has read the slot, as Repair CDC
+    needs while it recreates the slot.
+    """
+    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+        cdc_extraction_schedule_exists,
+        pause_external_data_schedule,
+        sync_cdc_extraction_schedule,
+        trigger_cdc_extraction_schedule,
+    )
+
+    if not start_capture and not schema.cdc_halted and not cdc_extraction_schedule_exists(str(schema.source_id)):
+        # Capture is the only thing that finishes this reset, and pausing the table's schedule below
+        # is what stops this caller from ever running again. So recreate a missing capture schedule
+        # before that, without its first run, which would cancel the sync that is still finishing.
+        # A failure raises while nothing is paused or staged, and the table's next tick retries.
+        sync_cdc_extraction_schedule(schema.source, create=True, trigger_immediately=False)
+
     try:
         pause_external_data_schedule(str(schema.id))
     except Exception:
@@ -182,7 +210,7 @@ def hand_reset_to_capture_if_sync_running(
     # Capture finishes the reset, so start a run now instead of waiting for its schedule: the last
     # run may have looked for resets just before this write, and the schedule may be gone. A halted
     # source is left alone, because Repair CDC or a resumed capture restarts capture itself.
-    if not schema.cdc_halted:
+    if start_capture and not schema.cdc_halted:
         try:
             if not trigger_cdc_extraction_schedule(str(schema.source_id)):
                 # The schedule is gone, and creating it fires its first run.
@@ -191,7 +219,6 @@ def hand_reset_to_capture_if_sync_running(
             # The capture schedule's next tick still finishes the reset.
             logger.warning("cdc_reset_capture_trigger_failed", schema_id=str(schema.id), exc_info=True)
     logger.info("cdc_reset_handed_to_capture", schema_id=str(schema.id))
-    return True
 
 
 def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = False) -> None:
