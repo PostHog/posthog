@@ -12,6 +12,7 @@ import {
     engineeringAnalyticsPrCost,
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
+    engineeringAnalyticsPullRequestFriction,
     engineeringAnalyticsPullRequestTimelines,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
@@ -20,6 +21,7 @@ import type {
     PRCostSummaryApi,
     PRLifecycleApi,
     PRTimelineApi,
+    PullRequestFrictionDetailApi,
     PullRequestTimelinesApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
@@ -173,6 +175,9 @@ export interface pullRequestDetailLogicValues {
     filteredCommitGroups: PrCommitRuns[]
     filteredPrWorkflowRows: PrWorkflowRow[]
     filteredRuns: PrRunRow[]
+    friction: PullRequestFrictionDetailApi | null
+    frictionFailed: boolean
+    frictionLoading: boolean
     latestPushStats: LatestPushStats | null
     lifecycle: PRLifecycleApi | null
     lifecycleLoading: boolean
@@ -221,6 +226,21 @@ export interface pullRequestDetailLogicActions {
         payload?: any
     ) => {
         failureLogs: CIFailureLogsApi | 'unavailable'
+        payload?: any
+    }
+    loadFriction: () => any
+    loadFrictionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFrictionSuccess: (
+        friction: PullRequestFrictionDetailApi,
+        payload?: any
+    ) => {
+        friction: PullRequestFrictionDetailApi
         payload?: any
     }
     loadJobs: ({ runId, runAttempt }: { runAttempt: number | null; runId: number }) => {
@@ -431,6 +451,17 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     }),
             },
         ],
+        friction: [
+            null as PullRequestFrictionDetailApi | null,
+            {
+                loadFriction: async (): Promise<PullRequestFrictionDetailApi> =>
+                    await engineeringAnalyticsPullRequestFriction(projectId(), {
+                        pr_number: props.number,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
         // Fetched only once a decisive failure is known; 'unavailable' = the fetch itself failed.
         failureLogs: [
             null as CIFailureLogsApi | 'unavailable' | null,
@@ -499,6 +530,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             },
         ],
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
+        frictionFailed: [false, { loadFriction: () => false, loadFrictionFailure: () => true }],
         expandedRunKeys: [
             [] as string[],
             {
@@ -709,5 +741,6 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
         actions.loadPrRuns()
         actions.loadTimelines()
         actions.loadPrCost()
+        actions.loadFriction()
     }),
 ])

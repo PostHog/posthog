@@ -2,31 +2,13 @@ import { LemonCard, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import type { AuthorFrictionDetailApi, FrictionGroupShareApi } from '../generated/api.schemas'
+import type { AuthorFrictionDetailApi } from '../generated/api.schemas'
 import { timesTypical } from '../lib/format'
-import { FRICTION_GROUP_COLORS, FRICTION_GROUP_ORDER } from '../lib/friction'
 import { withCurrentScope } from '../lib/scope'
 import { ComparisonBarRow } from './ComparisonBarRow'
 import { FrictionGroupBar } from './FrictionGroupBar'
 import { FrictionGroupLegend } from './FrictionGroupLegend'
-
-function GroupSegments({ groups }: { groups: FrictionGroupShareApi[] }): JSX.Element {
-    const total = groups.reduce((sum, share) => sum + share.score, 0)
-    return (
-        <div className="flex h-full">
-            {FRICTION_GROUP_ORDER.map((group) => {
-                const score = groups.find((share) => share.group === group)?.score ?? 0
-                return score > 0 && total > 0 ? (
-                    <div
-                        key={group}
-                        className={FRICTION_GROUP_COLORS[group]}
-                        style={{ width: `${(score / total) * 100}%` }}
-                    />
-                ) : null
-            })}
-        </div>
-    )
-}
+import { FrictionGroupSegments } from './FrictionGroupSegments'
 
 /** One author's friction next to their teams and the typical author, and the pull requests behind it. */
 export function AuthorFrictionCard({
@@ -105,7 +87,7 @@ export function AuthorFrictionCard({
                         formatValue={timesTypical}
                         muted={row.muted}
                     >
-                        {row.groups ? <GroupSegments groups={row.groups} /> : undefined}
+                        {row.groups ? <FrictionGroupSegments groups={row.groups} /> : undefined}
                     </ComparisonBarRow>
                 ))}
             </div>
