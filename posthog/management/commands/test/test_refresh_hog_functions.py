@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
+from parameterized import parameterized
+
 from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.validation import generate_template_bytecode
 from posthog.models import Team
@@ -246,6 +248,24 @@ class TestRefreshHogFunctions(BaseTest):
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Inputs skipped: 1" in out.getvalue()
 
+    @parameterized.expand([("dry_run", True), ("real_run", False)])
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_reports_filters_that_no_longer_compile(self, _name, dry_run, mock_reload):
+        stale = ["_H", 1, 29]
+        refused_filters = {"properties": [{"type": "hogql", "key": "nosuch.thing"}], "bytecode": stale}
+        fn = self._unstamped(inputs={}, inputs_schema=[])
+        HogFunction.objects.filter(pk=fn.pk).update(filters=refused_filters)
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(fn.id), dry_run=dry_run, stdout=out)
+
+        fn.refresh_from_db()
+        filters = fn.filters or {}
+        assert filters["bytecode"] == stale
+        assert "bytecode_contract" not in filters
+        assert "Filters stamped: 0" in out.getvalue()
+        assert "Filters skipped: 1" in out.getvalue()
+
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_stamps_the_inputs_and_filters_of_each_mapping(self, mock_reload):
         # On a mapped destination the runtime filters and builds inputs per mapping, and reads the
@@ -295,5 +315,6 @@ class TestRefreshHogFunctions(BaseTest):
         assert "bytecode_contract" not in (fn.filters or {})
         assert "bytecode_contract" not in (fn.inputs or {})["url"]
         assert mock_reload.call_count == 0
+        assert "Filters stamped: 1" in out.getvalue()
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Dry run" in out.getvalue()

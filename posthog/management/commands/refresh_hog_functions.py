@@ -142,6 +142,11 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
     return Refresh(stamped=stamped, skipped=skipped)
 
 
+def filters_compile(hog_function: HogFunction) -> bool:
+    """Whether the top-level filters compile the way the model's save compiles them, without writing them."""
+    return not compile_filters_bytecode({**(hog_function.filters or {})}, hog_function.team).get("bytecode_error")
+
+
 class Command(BaseCommand):
     help = (
         "Refresh HogFunctions (both enabled and disabled) by re-saving them, which recompiles their "
@@ -176,6 +181,8 @@ class Command(BaseCommand):
         error_count = 0
         inputs_stamped = 0
         inputs_skipped = 0
+        filters_stamped = 0
+        filters_skipped = 0
         mapping_filters_stamped = 0
         mapping_filters_skipped = 0
 
@@ -219,10 +226,18 @@ class Command(BaseCommand):
                     total_processed += 1
                     refreshed = refresh_input_templates(hog_function)
                     refreshed_mapping_filters = refresh_mapping_filters(hog_function)
-                    if not dry_run:
+                    if dry_run:
+                        compiled = filters_compile(hog_function)
+                    else:
                         hog_function.save()
                         total_updated += 1
+                        # The save leaves the error beside filters that no longer compile, and keeps their bytecode.
+                        compiled = not (hog_function.filters or {}).get("bytecode_error")
                     # Counted after the save, so the summary reports what reached the database.
+                    if compiled:
+                        filters_stamped += 1
+                    else:
+                        filters_skipped += 1
                     inputs_stamped += refreshed.stamped
                     inputs_skipped += refreshed.skipped
                     mapping_filters_stamped += refreshed_mapping_filters.stamped
@@ -243,6 +258,8 @@ class Command(BaseCommand):
                 f"{'Dry run' if dry_run else 'Refresh'} completed in {duration:.2f}s. "
                 f"Processed: {total_processed}, "
                 f"Updated: {total_updated}, "
+                f"Filters stamped: {filters_stamped}, "
+                f"Filters skipped: {filters_skipped}, "
                 f"Inputs stamped: {inputs_stamped}, "
                 f"Inputs skipped: {inputs_skipped}, "
                 f"Mapping filters stamped: {mapping_filters_stamped}, "
