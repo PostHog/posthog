@@ -1,0 +1,6 @@
+let string := 'this is a secure string'
+print('string:', string)
+print('md5Hex(string):', md5Hex(string))
+print('md5Hex(null):', md5Hex(null))
+print('sha256Hex(string):', sha256Hex(string))
+print('sha256Hex(null):', sha256Hex(null))

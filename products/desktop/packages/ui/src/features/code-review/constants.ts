@@ -14,3 +14,9 @@ export const DIFF_METRICS = {
   hunkSeparatorHeight: 32,
   spacing: 8,
 } as const;
+
+/**
+ * A diff draws nothing until the highlighter is ready. virtua drops a 0px row
+ * from its range and never mounts it again, so a row keeps at least its header.
+ */
+export const REVIEW_LIST_MIN_ITEM_SIZE = DIFF_METRICS.diffHeaderHeight;

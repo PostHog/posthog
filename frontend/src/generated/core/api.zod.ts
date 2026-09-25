@@ -662,6 +662,45 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+    submission_id: zod.uuid().describe('Client-generated identifier that makes request submission idempotent.'),
+})
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+})
+
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),

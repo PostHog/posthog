@@ -11509,6 +11509,118 @@ export namespace Schemas {
       is_bot: boolean;
     }
 
+    /**
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK
+     */
+    export type FrictionGroupEnum = typeof FrictionGroupEnum[keyof typeof FrictionGroupEnum];
+
+
+    export const FrictionGroupEnum = {
+      Ci: 'ci',
+      Review: 'review',
+      Queue: 'queue',
+      Rework: 'rework',
+    } as const;
+
+    export interface FrictionGroupShare {
+      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+       *
+       * * `ci` - CI
+       * * `review` - REVIEW
+       * * `queue` - QUEUE
+       * * `rework` - REWORK */
+      group: FrictionGroupEnum;
+      /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+      score: number;
+    }
+
+    export interface AuthorFriction {
+      /** The score split by the kind of friction. */
+      groups: FrictionGroupShare[];
+      /** GitHub login. */
+      author: string;
+      /** The author's GitHub avatar, or empty when the pull requests carry none. */
+      avatar_url: string;
+      /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+      score: number;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+      /** Position by friction in the repository, 1 is the most. */
+      rank: number;
+      /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
+      rank_low: number;
+      /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
+      rank_high: number;
+      /** The author's GitHub teams. Empty when the membership table isn't synced. */
+      teams?: string[];
+    }
+
+    export interface TeamFriction {
+      /** GitHub team slug. */
+      github_team: string;
+      /** The median friction of the team's scored members, in 'x typical' units. */
+      median_score: number;
+      /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+      scored_author_count: number;
+    }
+
+    export interface PullRequestFrictionItem {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Pull request number. */
+      number: number;
+      /** Repository owner. */
+      repo_owner: string;
+      /** Repository name. */
+      repo_name: string;
+      /** Pull request title, empty when the snapshot has none. */
+      title: string;
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+    }
+
+    export interface AuthorFrictionDetail {
+      /** The author's score and rank. Null below 3 merged pull requests in the window. */
+      author: AuthorFriction | null;
+      /** The author's teams without the author, each only with at least 2 other scored members. */
+      teams: TeamFriction[];
+      /** The author's pull requests that added the most friction, most first. */
+      pull_requests: PullRequestFrictionItem[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors ranked in the repository: the denominator of rank. */
+      ranked_author_count: number;
+      /** False when the team membership table isn't synced. */
+      has_membership_data: boolean;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+    }
+
+    export interface AuthorFrictionList {
+      /** Authors by friction, most first. */
+      items: AuthorFriction[];
+      /** Teams with at least 3 scored members, by median member friction, most first. */
+      teams: TeamFriction[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+      ranked_author_count: number;
+      /**
+         * The team the list is filtered to, or null for every author.
+         * @nullable
+         */
+      github_team: string | null;
+      /** False when the team membership table isn't synced, so a team filter matches nobody. */
+      has_membership_data: boolean;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -12805,6 +12917,18 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface BackfillCreate {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+      /**
+         * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
+         * @minimum 0
+         */
+      max_total_credits: number;
+    }
 
     export interface BackfillEstimateResponse {
       /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
@@ -25066,6 +25190,137 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    export interface DataDeletionConflict {
+      /** Reason the deletion request could not be created in the current state. */
+      readonly detail: string;
+    }
+
+    export interface DataDeletionPreview {
+      /** Number of event UUIDs selected when the preview ran. */
+      readonly count: number;
+    }
+
+    /**
+     * Submitted HogQL variable snapshot.
+     */
+    export type DataDeletionRequestVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    /**
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Draft: 'draft',
+      Pending: 'pending',
+      Approved: 'approved',
+      InProgress: 'in_progress',
+      Queued: 'queued',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DataDeletionRequest {
+      /** Deletion request identifier. */
+      readonly id: string;
+      /** Current deletion workflow status.
+       *
+       * * `draft` - Draft
+       * * `pending` - Pending
+       * * `approved` - Approved
+       * * `in_progress` - In Progress
+       * * `queued` - Queued
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: RequestStatusEnum;
+      /** Submitted HogQL query snapshot. */
+      readonly query: string;
+      /** Submitted HogQL variable snapshot. */
+      readonly variables: DataDeletionRequestVariables;
+      /**
+         * Client-generated idempotency identifier.
+         * @nullable
+         */
+      readonly submission_id: string | null;
+      /**
+         * Number of selected events, when calculated.
+         * @nullable
+         */
+      readonly count: number | null;
+      /**
+         * Identifier of the user who submitted the request.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * Whether the submitter was a PostHog staff user.
+         * @nullable
+         */
+      readonly created_by_staff: boolean | null;
+      /** Time when the request was submitted. */
+      readonly created_at: string;
+      /** Time when the request last changed. */
+      readonly updated_at: string;
+      /**
+         * Time when the request was approved, if approved.
+         * @nullable
+         */
+      readonly approved_at: string | null;
+      /**
+         * Time when selection statistics were calculated, if available.
+         * @nullable
+         */
+      readonly stats_calculated_at: string | null;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestCreateVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestCreate {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestCreateVariables;
+      /** Client-generated identifier that makes request submission idempotent. */
+      submission_id: string;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestInputVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestInput {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestInputVariables;
     }
 
     /**
@@ -38043,6 +38298,11 @@ export namespace Schemas {
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /**
+         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * @nullable
+         */
+      readonly remaining_count: number | null;
       /** User who started the backfill. */
       readonly created_by: UserBasic | null;
       /** When the backfill was created. */
@@ -38057,6 +38317,8 @@ export namespace Schemas {
     export interface EvaluationBackfillEstimate {
       /** Units that would be evaluated. */
       total_units: number;
+      /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+      already_evaluated_units: number;
       /** What one unit is: a generation, a trace, or a session.
        *
        * * `generation` - Generation
@@ -38910,6 +39172,8 @@ export namespace Schemas {
      * * `run_completed` - run_completed
      * * `run_failed` - run_failed
      * * `pr_created` - pr_created
+     * * `pr_merged` - pr_merged
+     * * `pr_closed` - pr_closed
      * * `needs_attention` - needs_attention
      */
     export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
@@ -38919,6 +39183,8 @@ export namespace Schemas {
       RunCompleted: 'run_completed',
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
+      PrMerged: 'pr_merged',
+      PrClosed: 'pr_closed',
       NeedsAttention: 'needs_attention',
     } as const;
 
@@ -57137,7 +57403,7 @@ export namespace Schemas {
     export interface LoopNotificationChannel {
       /** Whether this channel is active. */
       enabled?: boolean;
-      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
       events?: EventsEnum[];
       /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
       params?: LoopNotificationChannelParams;
@@ -62727,6 +62993,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
+    }
+
+    export interface PaginatedDataDeletionRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataDeletionRequest[];
     }
 
     export interface PaginatedDataModelingJobList {
@@ -68821,7 +69096,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -78216,7 +78492,8 @@ export namespace Schemas {
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by?: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -81129,6 +81406,56 @@ export namespace Schemas {
      */
     export interface PullRequestCommentsResponse {
       readonly comments: readonly PullRequestComment[];
+    }
+
+    export interface PullRequestFrictionBreakdown {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+      /** Red stretches that a re-run of the same commit turned green. */
+      flake_red_count: number;
+      /** Red stretches where the same job failed on the default branch within 12 hours. */
+      master_red_count: number;
+      /** Red stretches with no provable cause. */
+      unknown_red_count: number;
+      /** Red stretches that a later push fixed. */
+      own_red_count: number;
+      /** Re-runs that failed again. */
+      futile_rerun_count: number;
+      /** Pushes that triggered CI. */
+      push_count: number;
+      /** CI running time of each push, oldest first. */
+      ci_wait_seconds: number[];
+      /**
+         * From ready for review to the first approval. Null when either is not observed.
+         * @nullable
+         */
+      first_approval_wait_seconds: number | null;
+      /**
+         * Pushes after the first approval. Null without an approval.
+         * @nullable
+         */
+      pushes_after_approval: number | null;
+      /**
+         * Time in the merge queue. Null when the pull request never entered it.
+         * @nullable
+         */
+      queue_seconds: number | null;
+      /**
+         * Times the merge queue removed the pull request. Null without queue data.
+         * @nullable
+         */
+      kickout_count: number | null;
+    }
+
+    export interface PullRequestFrictionDetail {
+      /** Null when the pull request did not merge in the window, or a bot authored it. */
+      pull_request: PullRequestFrictionBreakdown | null;
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
     }
 
     export interface PushCISample {
@@ -99697,20 +100024,147 @@ export namespace Schemas {
      * * `slack` - slack
      * * `webhook` - webhook
      */
-    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+    export type VisionAlertDestinationTypeEnum = typeof VisionAlertDestinationTypeEnum[keyof typeof VisionAlertDestinationTypeEnum];
 
 
-    export const VisionAlertCreateDestinationTypeEnum = {
+    export const VisionAlertDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
+
+    export interface VisionAlertDestinationConfig {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertDestinationTypeEnum;
+      /** Whether every HogFunction in the group is enabled, so the destination notifies on every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace, for Slack destinations. */
+      slack_workspace_id?: number;
+      /** Slack channel ID, for Slack destinations. */
+      slack_channel_id?: string;
+      /** Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertConfigurationDetail {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed. */
+      readonly destinations: readonly VisionAlertDestinationConfig[];
+    }
 
     export interface VisionAlertCreateDestination {
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook */
-      type: VisionAlertCreateDestinationTypeEnum;
+      type: VisionAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -103664,6 +104118,69 @@ export namespace Schemas {
       results: _TracingSparklineRow[];
     }
 
+    export interface _TracingTraceAiEvent {
+      /** Event UUID. */
+      uuid: string;
+      /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+      event: string;
+      /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+      started_at: string;
+      /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+      ai_trace_id: string;
+      /**
+         * The `$ai_span_id` of the event.
+         * @nullable
+         */
+      ai_span_id: string | null;
+      /**
+         * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+         * @nullable
+         */
+      ai_parent_id: string | null;
+      /**
+         * The `$ai_span_name`, set on `$ai_span` events.
+         * @nullable
+         */
+      span_name: string | null;
+      /**
+         * How long the call took, in seconds.
+         * @nullable
+         */
+      latency_seconds: number | null;
+      /**
+         * The model the call used.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider the call went to.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Prompt tokens.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Completion tokens.
+         * @nullable
+         */
+      output_tokens: number | null;
+      /**
+         * Total cost of the call, in USD.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /** Whether the call failed. */
+      is_error: boolean;
+    }
+
+    export interface _TracingTraceAiEventsResponse {
+      /** AI events in the trace, earliest start first. */
+      results: _TracingTraceAiEvent[];
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
@@ -107317,6 +107834,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataModelingDagsListParams = {
     /**
      * Number of results to return per page.
@@ -107907,6 +108435,36 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -108208,6 +108766,21 @@ export namespace Schemas {
     export type EngineeringAnalyticsPrRunsParams = {
     /**
      * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
      */
     pr_number: number;
     /**
