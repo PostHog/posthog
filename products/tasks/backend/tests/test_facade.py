@@ -556,7 +556,9 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(
             facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id),
-            contracts.InProgressGithubRunsDTO(count=2, oldest_task_title="Oldest live task"),
+            contracts.InProgressGithubRunsDTO(
+                count=2, oldest_task_id=oldest_task.id, oldest_task_title="Oldest live task"
+            ),
         )
         self.assertEqual(
             facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id),

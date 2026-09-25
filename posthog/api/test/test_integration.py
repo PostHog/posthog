@@ -5,6 +5,7 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import quote, urlencode
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -6567,7 +6568,10 @@ class TestGitHubIntegrationUninstall:
     ):
         integration = self._create_github_integration("12345")
         _mock_uninstall.return_value = "uninstalled"
-        mock_count.return_value = InProgressGithubRunsDTO(count=3, oldest_task_title="Fix the login redirect")
+        task_id = uuid4()
+        mock_count.return_value = InProgressGithubRunsDTO(
+            count=3, oldest_task_id=task_id, oldest_task_title="Fix the login redirect"
+        )
 
         client.force_login(self.user)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
@@ -6575,7 +6579,8 @@ class TestGitHubIntegrationUninstall:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == (
             'This GitHub integration is being used by the in-progress background agent task "Fix the login redirect" '
-            "and 2 other runs. Wait for them to finish or cancel them before disconnecting it."
+            f"({settings.SITE_URL}/project/{self.team.pk}/ai?task={task_id}) and 2 other runs. "
+            "Wait for them to finish or cancel them before disconnecting it."
         )
         assert Integration.objects.filter(id=integration.id).exists()
         mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)

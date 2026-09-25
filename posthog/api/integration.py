@@ -115,7 +115,7 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import is_relative_url
+from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
@@ -262,12 +262,16 @@ def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
     return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
-def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO) -> str:
-    # Name one task so that the user can find what blocks the disconnect, and count the rest.
-    if live_runs.oldest_task_title is None:
+def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
+    # Link one task so that the user can find what blocks the disconnect, and count the rest.
+    if live_runs.oldest_task_id is None:
         runs = f"{live_runs.count} in-progress background agent run{'s' if live_runs.count != 1 else ''}"
     else:
-        runs = f'the in-progress background agent task "{live_runs.oldest_task_title}"'
+        task_url = absolute_uri(f"/project/{team_id}/ai?task={live_runs.oldest_task_id}")
+        if live_runs.oldest_task_title:
+            runs = f'the in-progress background agent task "{live_runs.oldest_task_title}" ({task_url})'
+        else:
+            runs = f"an in-progress background agent task ({task_url})"
         others = live_runs.count - 1
         if others:
             runs += f" and {others} other run{'s' if others != 1 else ''}"
@@ -1426,7 +1430,7 @@ class IntegrationViewSet(
                 team_id=instance.team_id, integration_id=instance.id
             )
             if live_runs.count:
-                raise ValidationError(_github_disconnect_blocked_message(live_runs))
+                raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))
 
         if instance.kind == "stripe":
             try:
