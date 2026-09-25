@@ -89,13 +89,13 @@ class TestStreamNotifications(BaseTest):
         else:
             append_log.assert_not_called()
 
-    def test_log_append_failure_still_reports_the_live_write(self):
+    def test_log_append_failure_skips_the_live_write(self):
         before = len(self._entries())
 
         with patch.object(TaskRun, "append_log", side_effect=RuntimeError("lock busy")):
-            assert self._publish({}) == StreamNotificationDelivery(live=True, persisted=False)
+            assert self._publish({}) == StreamNotificationDelivery(live=False, persisted=False)
 
-        assert len(self._entries()) == before + 1
+        assert len(self._entries()) == before
 
     def test_a_run_outside_the_team_publishes_nothing(self):
         assert self._publish({}, team_id=self.team.id + 1) == StreamNotificationDelivery(live=False, persisted=False)

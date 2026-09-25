@@ -4674,23 +4674,23 @@ def publish_task_run_stream_notification(
     log unless ``persist`` is off.
 
     The live write reaches connected threads the way an agent-server frame would; the log append is
-    what a later bootstrap replays, so the frame survives the stream's expiry. A frame that only
-    matters to threads open right now skips the log, which is a rewrite of the whole object. The
-    result reports each leg, so a caller can decide which one it needs.
+    what a later bootstrap replays, so the frame survives the stream's expiry. A persisted frame is
+    written live only after the log append succeeds, so a thread never shows a frame that a reload
+    loses. A frame that only matters to threads open right now skips the log, which is a rewrite of
+    the whole object. The result reports each leg, so a caller can decide which one it needs.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return contracts.StreamNotificationDelivery(live=False, persisted=False)
     event = run.build_notification_event(method, params)
-    live = run.publish_stream_event(event) is not None
-    persisted = False
     if persist:
         try:
             run.append_log([event], lock_attempts=1)
-            persisted = True
         except Exception:
             logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
-    return contracts.StreamNotificationDelivery(live=live, persisted=persisted)
+            return contracts.StreamNotificationDelivery(live=False, persisted=False)
+    live = run.publish_stream_event(event) is not None
+    return contracts.StreamNotificationDelivery(live=live, persisted=persist)
 
 
 def create_task_run_connection_token(

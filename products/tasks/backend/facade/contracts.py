@@ -66,10 +66,6 @@ class StreamNotificationDelivery:
     live: bool
     persisted: bool
 
-    @property
-    def delivered(self) -> bool:
-        return self.live or self.persisted
-
 
 @dataclass(frozen=True)
 class SignalImplementationRunDTO:
