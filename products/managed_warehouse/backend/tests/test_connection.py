@@ -44,7 +44,7 @@ from products.managed_warehouse.backend.logic.connection import (
     update_managed_warehouse_root_password,
 )
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
-from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.managed_warehouse.backend.presentation.views import query_sources
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     DataWarehouseTable,
@@ -1618,7 +1618,7 @@ class TestInternalSchemas:
 def test_ready_status_queues_table_discovery(mock_schedule: MagicMock) -> None:
     organization_id = "a8fd15f0-1ed3-480b-a859-b10bba374acf"
 
-    managed_warehouse.ensure_direct_connection_tables(team_id=42, organization_id=organization_id)
+    query_sources.ensure_direct_connection_tables(team_id=42, organization_id=organization_id)
 
     mock_schedule.assert_called_once_with(team_id=42, organization_id=organization_id)
 

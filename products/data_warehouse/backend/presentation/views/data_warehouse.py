@@ -54,7 +54,16 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_series,
     serialize_monitoring_snapshot,
 )
-from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.managed_warehouse.backend.presentation.views import (
+    credentials,
+    naming,
+    onboarding,
+    provisioning,
+    query_sources,
+    team_rows,
+    teardown,
+    warehouse_state,
+)
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import (
@@ -1027,7 +1036,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "provision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.provision(
+        return provisioning.provision(
             self.team.organization_id,
             request.data.get("database_name"),
             self.team_id,
@@ -1069,7 +1078,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "onboard this project for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.onboard_team(
+        return onboarding.onboard_team(
             self.team.organization_id,
             self.team.id,
             request.data.get("schema_name"),
@@ -1095,7 +1104,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "deprovision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.deprovision(self.team.organization_id, triggered_by=self._audit_principal(request))
+        return teardown.deprovision(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1125,7 +1134,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "delete the provisioning record for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.delete_org(self.team.organization_id, triggered_by=self._audit_principal(request))
+        return teardown.delete_org(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         responses={
@@ -1186,15 +1195,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse, with this project's onboarding state."""
-        resp = managed_warehouse.status_for(self.team.organization_id)
+        resp = warehouse_state.status_for(self.team.organization_id)
         if resp.status_code == 200 and isinstance(resp.data, dict):
-            resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
-            onboarding_state = managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id)
+            resp.data.update(team_rows.team_backfill_state(self.team_id))
+            onboarding_state = team_rows.team_onboarding_state(self.team.organization_id, self.team_id)
             resp.data.update(onboarding_state)
             # Once the warehouse is reachable, surface its tables as a queryable direct
             # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
             if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
-                managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
+                query_sources.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
         return resp
 
     @extend_schema(
@@ -1218,7 +1227,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
-        upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
+        upstream_response = warehouse_state.monitoring_snapshot_for(organization_id)
         if upstream_response.status_code != status.HTTP_200_OK:
             return _managed_warehouse_monitoring_error_response(upstream_response)
 
@@ -1258,14 +1267,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
         metric = cast(
-            managed_warehouse.ManagedWarehouseMonitoringMetric,
+            warehouse_state.ManagedWarehouseMonitoringMetric,
             request.validated_query_data["metric"],
         )
         window = cast(
-            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            warehouse_state.ManagedWarehouseMonitoringWindow,
             request.validated_query_data["window"],
         )
-        upstream_response = managed_warehouse.monitoring_series_for(organization_id, metric, window)
+        upstream_response = warehouse_state.monitoring_series_for(organization_id, metric, window)
         if upstream_response.status_code != status.HTTP_200_OK:
             return _managed_warehouse_monitoring_error_response(upstream_response)
 
@@ -1338,7 +1347,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "reset the root password for")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.reset_password(self.team.organization_id, triggered_by=self._audit_principal(request))
+        return credentials.reset_password(self.team.organization_id, triggered_by=self._audit_principal(request))
 
     @extend_schema(
         parameters=[
@@ -1361,7 +1370,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
-        return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
+        return naming.check_name(self.team.organization_id, request.query_params.get("name"))
 
     @extend_schema(
         parameters=[
@@ -1391,4 +1400,4 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "check schema names for")
         if admin_error:
             return admin_error
-        return managed_warehouse.check_schema_name(self.team.organization_id, request.query_params.get("name"))
+        return team_rows.check_schema_name(self.team.organization_id, request.query_params.get("name"))

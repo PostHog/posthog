@@ -74,7 +74,7 @@ def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
 
 def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     """Return the control-plane-owned catalog only after its Trino target is ready."""
-    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.control_plane import _request  # noqa: PLC0415
 
     response = _request("GET", organization_id, "/trino", require_enabled=False)
     readiness_logger = logger.bind(organization_id=str(organization_id), status_code=response.status_code)

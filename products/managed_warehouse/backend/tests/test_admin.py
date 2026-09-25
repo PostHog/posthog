@@ -239,7 +239,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
             },
         )
         body = {"username": "root", "password": "sup3r-secret-pw"}
-        with patch(f"{MW}.provision", return_value=Response(body, status=202)) as mock_provision:
+        with patch(f"{MW}.provisioning.provision", return_value=Response(body, status=202)) as mock_provision:
             response = self.admin.provision_view(request)
 
         mock_provision.assert_called_once_with(
@@ -267,7 +267,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "schema_name": "prod_events",
             },
         )
-        with patch(f"{MW}.provision", return_value=Response({"error": "nope"}, status=400)):
+        with patch(f"{MW}.provisioning.provision", return_value=Response({"error": "nope"}, status=400)):
             response = self.admin.provision_view(request)
 
         # Failures still flash the error and redirect back to the form.
@@ -286,7 +286,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "schema_name": "prod_events",
             },
         )
-        with patch(f"{MW}.provision") as mock_provision:
+        with patch(f"{MW}.provisioning.provision") as mock_provision:
             self.admin.provision_view(request)
 
         mock_provision.assert_not_called()
@@ -302,7 +302,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "schema_name": "prod_events",
             },
         )
-        with patch(f"{MW}.provision", return_value=Response({"error": "boom"}, status=400)):
+        with patch(f"{MW}.provisioning.provision", return_value=Response({"error": "boom"}, status=400)):
             self.admin.provision_view(request)
 
         assert any("Failed (status 400): boom" in m for m in _messages(request))
@@ -314,7 +314,8 @@ class TestDuckgresServerAdminProvision(BaseTest):
             {"team_id": str(self.team.id), "schema_name": "env_b"},
         )
         with patch(
-            f"{MW}.onboard_team", return_value=Response({"onboarded": True, "schema_name": "env_b"}, status=200)
+            f"{MW}.onboarding.onboard_team",
+            return_value=Response({"onboarded": True, "schema_name": "env_b"}, status=200),
         ) as mock_onboard:
             self.admin.enable_backfill_view(request, str(server.pk))
 
@@ -335,7 +336,9 @@ class TestDuckgresServerAdminProvision(BaseTest):
     def test_deprovision_post_calls_helper_bypassing_flag(self) -> None:
         server = self._server()
         request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
-        with patch(f"{MW}.deprovision", return_value=Response({"status": "ok"}, status=200)) as mock_deprovision:
+        with patch(
+            f"{MW}.teardown.deprovision", return_value=Response({"status": "ok"}, status=200)
+        ) as mock_deprovision:
             self.admin.deprovision_view(request, str(server.pk))
 
         mock_deprovision.assert_called_once_with(
@@ -352,7 +355,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
         server = self._server()
         request = self._head(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/")
 
-        with patch(f"{MW}.deprovision") as mock_deprovision:
+        with patch(f"{MW}.teardown.deprovision") as mock_deprovision:
             response = self.admin.deprovision_view(request, str(server.pk))
 
         assert response.status_code == 405
@@ -363,7 +366,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
         request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
 
         with (
-            patch(f"{MW}.deprovision", return_value=Response({"error": "still running"}, status=409)),
+            patch(f"{MW}.teardown.deprovision", return_value=Response({"error": "still running"}, status=409)),
             patch("products.managed_warehouse.backend.admin.duckgres_server_admin.logger.warning") as mock_warning,
         ):
             response = self.admin.deprovision_view(request, str(server.pk))

@@ -196,9 +196,9 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_provision"))
 
-        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation.views import naming, provisioning  # noqa: PLC0415
 
-        resp = managed_warehouse.provision(
+        resp = provisioning.provision(
             team.organization_id,
             database_name,
             team.id,
@@ -221,7 +221,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                     "title": "Managed warehouse provisioned",
                     "organization_id": str(team.organization_id),
                     "team_id": team.id,
-                    "connection": managed_warehouse._present_connection(
+                    "connection": naming._present_connection(
                         {"database": database_name, "username": body.get("username", "root")}
                     ),
                     "password": body.get("password", ""),
@@ -257,9 +257,9 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_enable_backfill", args=[object_id]))
 
-        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation.views import onboarding  # noqa: PLC0415
 
-        resp = managed_warehouse.onboard_team(
+        resp = onboarding.onboard_team(
             server.organization_id,
             team.id,
             schema_name,
@@ -291,9 +291,9 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
-        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation.views import teardown  # noqa: PLC0415
 
-        resp = managed_warehouse.deprovision(
+        resp = teardown.deprovision(
             server.organization_id, require_enabled=False, triggered_by=self._audit_principal(request)
         )
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")
