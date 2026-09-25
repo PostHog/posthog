@@ -69,3 +69,18 @@ describe('dashboard layout tool descriptions', () => {
         expect(getToolDefinitions()[name]?.description).toMatch(expectedDescription)
     })
 })
+
+describe('dashboard-transfer-tile schema', () => {
+    const tool = GENERATED_TOOLS['dashboard-transfer-tile']!()
+
+    it.each([
+        ['tile', { id: 1, to_dashboard: 2 }],
+        ['to_dashboard', { id: 1, tile: { id: 3 } }],
+    ])('rejects a request without %s', (_field, params) => {
+        expect(tool.schema.safeParse(params).success).toBe(false)
+    })
+
+    it('accepts a source dashboard, destination dashboard, and tile', () => {
+        expect(tool.schema.safeParse({ id: 1, to_dashboard: 2, tile: { id: 3 } }).success).toBe(true)
+    })
+})

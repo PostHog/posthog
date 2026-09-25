@@ -516,7 +516,11 @@ const DashboardTransferTileSchema = () => {
     const DashboardsMoveTilePartialUpdateParams = orvalSchemas.DashboardsMoveTilePartialUpdateParams()
     return DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
         .extend(DashboardsMoveTilePartialUpdateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
+        .extend({
+            id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']),
+            tile: DashboardsMoveTilePartialUpdateBody.shape['tile'].nonoptional(),
+            to_dashboard: DashboardsMoveTilePartialUpdateBody.shape['to_dashboard'].nonoptional(),
+        })
 }
 
 const dashboardTransferTile = (): ToolBase<

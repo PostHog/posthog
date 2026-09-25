@@ -440,6 +440,10 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            tile:
+                required: true
+            to_dashboard:
+                required: true
     dashboard-update:
         operation: dashboards_partial_update
         enabled: true
