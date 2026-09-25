@@ -17,7 +17,7 @@ export const mlInferenceDecisionsDecideCreateBodyStateMax = 65536
 
 export const mlInferenceDecisionsDecideCreateBodyQuestionsInstructionsMax = 2000
 
-export const mlInferenceDecisionsDecideCreateBodyModelDefault = `posthog/hogference/jevk5-fp8-0.2`
+export const mlInferenceDecisionsDecideCreateBodyModelDefault = `posthog/hogference/jevk5-bf16-0.2`
 export const mlInferenceDecisionsDecideCreateBodyModelMax = 200
 
 export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
