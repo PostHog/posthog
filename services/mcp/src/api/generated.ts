@@ -108984,7 +108984,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. Projects with more than 50000 event definitions default to `name`.
+     * Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. Projects with more than 100000 event definitions default to `name`, unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or `event_type=event_posthog`.
      */
     ordering?: string[];
     /**

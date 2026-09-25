@@ -240,29 +240,75 @@ class TestEventDefinitionAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "default_order_is_by_name",
+                "above_the_name_threshold_pages_by_name",
                 "",
-                ["$pageview", "entered_free_trial", "installed_app", "purchase", "rated_app", "watched_movie"],
+                2,
+                [
+                    "$pageview",
+                    "aardvark",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "watched_movie",
+                ],
+            ),
+            (
+                "below_the_name_threshold_keeps_recency",
+                "",
+                100,
+                [
+                    "$pageview",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "aardvark",
+                    "watched_movie",
+                ],
             ),
             (
                 "explicit_order_is_kept",
                 "?ordering=-name",
-                ["watched_movie", "rated_app", "purchase", "installed_app", "entered_free_trial", "$pageview"],
+                2,
+                [
+                    "watched_movie",
+                    "rated_app",
+                    "purchase",
+                    "installed_app",
+                    "entered_free_trial",
+                    "aardvark",
+                    "$pageview",
+                ],
             ),
             (
                 "unknown_ordering_field_is_not_explicit",
                 "?ordering=event",
-                ["$pageview", "entered_free_trial", "installed_app", "purchase", "rated_app", "watched_movie"],
+                2,
+                [
+                    "$pageview",
+                    "aardvark",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "watched_movie",
+                ],
             ),
         ]
     )
-    def test_large_project_pages_by_name_and_caps_the_count(
-        self, _name: str, query_string: str, expected_names: list[str]
+    def test_large_project_default_order_and_capped_count(
+        self, _name: str, query_string: str, name_order_min: int, expected_names: list[str]
     ):
-        # The large-project flag is cached per project, so an earlier request in this class must not decide it.
+        # Last seen before every fixture, so recency and name order disagree about where it goes.
+        create_event_definitions(
+            {"name": "aardvark", "last_seen_at": datetime.now() - timedelta(days=200)}, team_id=self.demo_team.pk
+        )
+        # The project's size is cached per project, so an earlier request in this class must not decide it.
         cache.clear()
         with (
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch.object(definition_search, "NAME_ORDER_MIN_DEFINITIONS", name_order_min),
             patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 3),
         ):
             response = self.client.get(f"/api/projects/@current/event_definitions/{query_string}")
@@ -270,6 +316,37 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected_names
         assert response.json()["count"] == 3
+        assert response.json()["count_is_capped"] is True
+
+    @parameterized.expand(
+        [
+            ("search", {"search": "app"}, 2),
+            # Postgres applies the stale cutoff with its own clock, which time_machine does not freeze, so every
+            # dated fixture is stale and only the never-seen definition remains.
+            ("exclude_stale", {"exclude_stale": "true"}, 1),
+            ("verified", {"verified": "true"}, 1),
+            ("names", {"names": "installed_app,purchase"}, 2),
+            ("tags", {"tags": '["billing"]'}, 2),
+            ("posthog_events", {"event_type": "event_posthog"}, 1),
+        ]
+    )
+    def test_large_project_sparse_filter_counts_exactly(self, _name: str, query: dict[str, str], expected_count: int):
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=n).id) for n in ("installed_app", "purchase")]
+        self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": ids, "action": "add", "tags": ["billing"]},
+        )
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch.object(definition_search, "NAME_ORDER_MIN_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            response = self.client.get("/api/projects/@current/event_definitions/", data=query)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == expected_count
+        assert response.json()["count_is_capped"] is False
 
     def test_capped_count_is_flagged_and_still_pages(self):
         cache.clear()
