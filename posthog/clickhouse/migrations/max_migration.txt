@@ -1,1 +1,1 @@
-0333_trace_spans_team_trace_id_projection
+0334_drop_trace_spans_old_projections

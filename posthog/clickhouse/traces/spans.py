@@ -95,18 +95,6 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             is_root_span
     ),
 
-    PROJECTION projection_index_span_id
-    (
-        SELECT _part_offset
-        ORDER BY span_id
-    ),
-
-    PROJECTION projection_index_trace_id
-    (
-        SELECT _part_offset
-        ORDER BY trace_id
-    ),
-
     PROJECTION projection_index_team_span_id
     (
         SELECT team_id, _part_offset

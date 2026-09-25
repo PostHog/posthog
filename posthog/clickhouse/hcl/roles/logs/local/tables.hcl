@@ -582,13 +582,6 @@ GROUP BY
 SQL
 
     }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
-SQL
-
-    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.trace_spans"
       replica_name = "{replica}-{shard}"

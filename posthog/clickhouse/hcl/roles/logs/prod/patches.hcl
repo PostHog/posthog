@@ -51,16 +51,6 @@ GROUP BY
 SQL
 
     }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
-SQL
-
-      settings = {
-        index_granularity = "512"
-      }
-    }
     projection "projection_aggregate_counts2" {
       query = <<SQL
 SELECT
