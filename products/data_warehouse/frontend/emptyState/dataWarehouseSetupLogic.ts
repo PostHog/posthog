@@ -11,6 +11,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 export const dataWarehouseSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.DATA_WAREHOUSE,
     path: ['products', 'data_warehouse', 'frontend', 'emptyState', 'dataWarehouseSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const [sources, tables] = await Promise.all([
             api.externalDataSources.list(),
