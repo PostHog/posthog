@@ -487,7 +487,7 @@ class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
-    def resume_covers_run(self, *, incremental_or_append: bool) -> bool:
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
         """Whether this source's resume mechanism covers a run of this shape.
 
         Only the retry budget reads this. A run it covers gets the resumable allowance, which is much

@@ -864,6 +864,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                keyset_full_load_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -875,6 +876,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                keyset_full_load_enabled = create_job_result.keyset_full_load_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -933,7 +935,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # resumable allowance to every one of its runs, including the ones that restart from
                 # row 0 on each of those extra attempts.
                 is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
-                    incremental_or_append=incremental_or_append
+                    incremental_or_append=incremental_or_append,
+                    keyset_full_load_enabled=keyset_full_load_enabled,
                 )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES

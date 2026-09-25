@@ -154,6 +154,11 @@ _MAX_READ_RECOVERY_CONFLICT_RETRIES = 10
 # A shorter query holds its snapshot for less time, lowering the odds the replica cancels it.
 _MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
 
+# A seek takes ACCESS SHARE once per page rather than once per read, so it meets a concurrent
+# ACCESS EXCLUSIVE (a DDL, a VACUUM FULL) far more often than a server cursor does. Blocking is
+# transient, so retry the page rather than fail the run; past this the lock is someone's problem.
+_MAX_KEYSET_PAGE_LOCK_RETRIES = 5
+
 # Bounded in-process retries for a transient connection drop hit *during* the setup metadata
 # probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
 # this the drop is treated as sustained and re-raised for Temporal to retry the whole activity.
@@ -729,6 +734,23 @@ def _full_table_timeout_error() -> Exception:
     return Exception(
         "Reading this table hit your database's statement timeout before it finished. Switch the "
         "table to incremental replication in its sync settings so each run reads less."
+    )
+
+
+def _keyset_page_timeout_error(keyset_primary_keys: list[str]) -> Exception:
+    """Build the timeout error for a keyset page cancelled by the statement_timeout.
+
+    A seek page reads a bounded `LIMIT n`, so exhausting a 10-minute timeout on one says the plan is
+    wrong, not that the table is large — `_full_table_timeout_error` would tell the customer to make
+    each run read less, which they already are. The usual cause is the walk not being served by the
+    primary-key index, so name that instead. Plain retryable Exception, matching that function: a
+    later attempt resumes at the last committed key rather than starting over.
+    """
+    keys = ", ".join(keyset_primary_keys)
+    return Exception(
+        f"Reading one page of this table hit your database's statement timeout. Each page reads a "
+        f"bounded range of ({keys}) and orders by it, so check that an index on ({keys}) serves that "
+        f"order — a row filter on another indexed column can pull the planner off it."
     )
 
 
@@ -2509,6 +2531,32 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
+def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger) -> None:
+    """Warn when a keyset page is not reading an index in key order.
+
+    A seek page is only cheap when the planner answers it as an index scan on the key: one descent,
+    then `LIMIT n` rows already in `ORDER BY` order. A row filter gives it another choice — take that
+    filter's index, lose the ordering, and sort the matched set — and the sort runs *per page*,
+    turning one table scan into thousands. A sequential scan is the same trap by another route.
+
+    Diagnostics only: log a stable token so the bad-plan rate is countable, and let the page run. It
+    is what says whether widening the seek past the flag is safe.
+    """
+    try:
+        cursor.execute(sql.SQL("EXPLAIN {}").format(query))
+        plan = "\n".join(str(column) for row in cursor.fetchall() for column in row)
+    except Exception as e:
+        # Best-effort, exactly like `_explain_query`: a failed EXPLAIN must never fail the page.
+        logger.debug(f"Keyset EXPLAIN raised an exception: {e}")
+        return
+
+    # Only the outermost node matters — a sort *under* a LIMIT is the per-page cost this looks for,
+    # and a seq scan means the key's index was not used at all.
+    problems = [marker for marker in ("Seq Scan", "Sort ", "Sort\n", "Incremental Sort") if marker in plan]
+    if problems:
+        logger.warning(f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan found={problems}")
+
+
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
@@ -3453,6 +3501,7 @@ def postgres_source(
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
+    keyset_full_load_enabled: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3839,12 +3888,16 @@ def postgres_source(
         # measurable before the seek path is widened past its read-replica fallback.
         logger.info(f"Postgres keyset resume unavailable: reason={keyset.reason}")
 
-    # A server cursor idles in an open transaction through every Delta merge, and a replica that
+    # Two ways in. The flag makes seeking the default for a full load, which is what lets a drained
+    # worker resume rather than restart the read. The second arm is the original fallback, unchanged:
+    # a server cursor idles in an open transaction through every Delta merge, and a replica that
     # cancels reads during that idle kills each attempt at the same place — the cursor's order is
-    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. The seek
-    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Only from the
-    # second attempt, so a replica that never cancels keeps its one consistent snapshot.
-    takes_keyset_path = keyset.columns is not None and activity_attempt > 1 and using_read_replica
+    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. Seeking
+    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Leaving that arm
+    # conditioned on the second attempt is what makes a flag-off deploy read exactly as it does now.
+    takes_keyset_path = keyset.columns is not None and (
+        keyset_full_load_enabled or (activity_attempt > 1 and using_read_replica)
+    )
     can_checkpoint = resumable_source_manager is not None and keyset.checkpointable
 
     def keyset_resume_key(key_length: int) -> tuple[Any, ...] | None:
@@ -4040,6 +4093,8 @@ def postgres_source(
                 successive_errors = 0
                 successive_conn_errors = 0
                 floor_retries = 0
+                lock_retries = 0
+                plan_checked = False
                 # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
                 # the connect itself is caught by the handlers below. A hot standby can cancel the
                 # connection's own startup with "conflict with recovery" when we reconnect
@@ -4087,6 +4142,11 @@ def postgres_source(
                         with psycopg.Cursor(connection) as cursor:
                             query_with_limit_sql = build_page_query()
                             logger.debug(f"Postgres query: {query_with_limit_sql}")
+                            # Check the first page that actually seeks. Page 1 carries no `key >`
+                            # predicate, so its plan says nothing about how the walk behaves.
+                            if keyset_primary_keys is not None and last_key is not None and not plan_checked:
+                                plan_checked = True
+                                _check_keyset_page_plan(cursor, query_with_limit_sql, logger)
                             cursor.execute(query_with_limit_sql)
 
                             column_names = [column.name for column in cursor.description or []]
@@ -4168,7 +4228,26 @@ def postgres_source(
                                 "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
                                 "or sync from the primary database instead."
                             ) from e
+                        if keyset_primary_keys is not None:
+                            raise _keyset_page_timeout_error(keyset_primary_keys) from e
                         raise _full_table_timeout_error() from e
+                    except psycopg.errors.LockNotAvailable as e:
+                        # A server cursor takes ACCESS SHARE once, at its DECLARE. A seek walk takes
+                        # it per page, so its cumulative chance of landing on a concurrent ACCESS
+                        # EXCLUSIVE is far higher. Without this clause `LockNotAvailable` reaches the
+                        # dropped-connection handler as an `OperationalError`, matches neither of its
+                        # predicates, and fails the whole activity. Retrying the same page is safe
+                        # because `last_key` does not advance until after the page is yielded.
+                        _safe_close_connection(connection)
+                        lock_retries += 1
+                        if lock_retries > _MAX_KEYSET_PAGE_LOCK_RETRIES:
+                            raise
+                        logger.debug(
+                            f"Keyset page blocked on a lock ({e}). Retrying the same page "
+                            f"({lock_retries}/{_MAX_KEYSET_PAGE_LOCK_RETRIES})"
+                        )
+                        time.sleep(min(2 * lock_retries, 30))
+                        continue
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if _is_recovery_conflict_error(e):
                             # A recovery conflict raised by the (re)connect itself surfaces as a plain
