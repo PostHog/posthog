@@ -296,9 +296,11 @@ tools:
             budget are not run. To fit more of what you need into that budget, in order: pass tile_ids to run only the
             tiles you care about; pass filters_override={"interval": "day"} (or "week"/"month") to turn a long run of
             hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or more),
-            or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Supports
-            variables_override and filters_override query params to run insights with one-off overrides without
-            persisting; see the parameter descriptions for the exact JSON shape required.
+            or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Read each tile's
+            `result_status` before you report a finding: a null `result` is not the same as no data, and a `cache_miss`
+            means you should re-run with refresh 'blocking' rather than report no data. Supports variables_override and
+            filters_override query params to run insights with one-off overrides without persisting; see the parameter
+            descriptions for the exact JSON shape required.
         param_overrides:
             id:
                 cast: string-int

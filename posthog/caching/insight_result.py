@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Optional
 
 from posthog.schema import QueryTiming
@@ -35,3 +36,24 @@ class NothingInCacheResult(InsightResult):
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
     columns: Optional[list] = None
+
+
+class InsightResultStatus(StrEnum):
+    """Why an insight result holds what it holds. `result` alone cannot say this: a null result
+    reads the same whether the query returned no rows, nothing was cached, or the query failed."""
+
+    OK = "ok"
+    CACHE_MISS = "cache_miss"
+    QUERY_PENDING = "query_pending"
+    ERROR = "error"
+
+
+def insight_result_status(result: InsightResult) -> InsightResultStatus:
+    query_status = result.query_status or {}
+    if query_status.get("error"):
+        return InsightResultStatus.ERROR
+    if not isinstance(result, NothingInCacheResult):
+        return InsightResultStatus.OK
+    if query_status and not query_status.get("complete"):
+        return InsightResultStatus.QUERY_PENDING
+    return InsightResultStatus.CACHE_MISS

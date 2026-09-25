@@ -58,6 +58,7 @@ from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_das
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.caching.insight_result import InsightResultStatus, insight_result_status
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.dataclasses import frozen
@@ -1052,6 +1053,16 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers + result only."""
 
+    result_status = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Why `result` holds what it holds. `ok` - the result is the query's answer, so an empty one means "
+            "there is no data. `cache_miss` - nothing was cached and the request did not ask for a "
+            "recalculation; re-run with `refresh=blocking` to compute it. `query_pending` - an asynchronous "
+            "recalculation is still running. `error` - the query failed."
+        ),
+    )
+
     class Meta:
         model = Insight
         fields = [
@@ -1060,8 +1071,15 @@ class InsightResultSerializer(InsightSerializer):
             "name",
             "derived_name",
             "result",
+            "result_status",
+            "last_refresh",
+            "is_cached",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.ChoiceField(choices=[status.value for status in InsightResultStatus]))
+    def get_result_status(self, insight: Insight) -> str:
+        return insight_result_status(self.insight_result(insight)).value
 
     def to_representation(self, instance: Insight):
         # Skip InsightSerializer.to_representation which references fields
