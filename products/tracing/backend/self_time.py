@@ -12,23 +12,36 @@ from collections import defaultdict
 _MICROSECOND = dt.timedelta(microseconds=1)
 
 
+def _as_datetime(value: dt.datetime | str) -> dt.datetime:
+    if isinstance(value, dt.datetime):
+        return value
+    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _bounds(span: dict) -> tuple[dt.datetime, dt.datetime]:
+    """Return the span's start and end as datetimes.
+
+    A cache-derived response carries them as ISO strings, because cache entries are JSON.
+    """
+    return _as_datetime(span["timestamp"]), _as_datetime(span["end_time"])
+
+
 def annotate_self_time(spans: list[dict]) -> None:
     """Set `self_time_nano` on every span dict, in place.
 
-    Expects the full span set of a trace (children grouped by `parent_span_id`);
-    `timestamp` / `end_time` must still be datetimes. On a truncated trace the values
-    overstate self-time for spans whose children were cut.
+    Expects the full span set of a trace (children grouped by `parent_span_id`).
+    On a truncated trace the values overstate self-time for spans whose children were cut.
     """
-    children_by_parent: dict[str, list[dict]] = defaultdict(list)
+    children_by_parent: dict[str, list[tuple[dt.datetime, dt.datetime]]] = defaultdict(list)
     for span in spans:
-        children_by_parent[span["parent_span_id"]].append(span)
+        children_by_parent[span["parent_span_id"]].append(_bounds(span))
 
     for span in spans:
-        start, end = span["timestamp"], span["end_time"]
+        start, end = _bounds(span)
         intervals = sorted(
-            (max(child["timestamp"], start), min(child["end_time"], end))
-            for child in children_by_parent.get(span["span_id"], [])
-            if child["timestamp"] < end and child["end_time"] > start
+            (max(child_start, start), min(child_end, end))
+            for child_start, child_end in children_by_parent.get(span["span_id"], [])
+            if child_start < end and child_end > start
         )
 
         covered_ns = 0

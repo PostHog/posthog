@@ -1,7 +1,12 @@
 import datetime as dt
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
+from products.tracing.backend.self_time import annotate_self_time
 from products.tracing.backend.tests.test_keyset_pagination import _b64, _TraceSpansTestBase
 
 MS = 1_000_000  # ns per ms
@@ -75,3 +80,29 @@ class TestTraceSelfTime(_TraceSpansTestBase):
         spans = self._trace_spans(1)
         self.assertEqual(spans["op-2"]["self_time_nano"], 100 * MS)
         self.assertEqual(spans["op-3"]["self_time_nano"], 100 * MS)
+
+
+def _span_dicts(trace_no: int, stringify: bool) -> list[dict]:
+    spans = []
+    for span_no, parent_no, start_offset_ms, duration_ms in TRACES[trace_no]:
+        start = BASE + dt.timedelta(milliseconds=start_offset_ms)
+        end = start + dt.timedelta(milliseconds=duration_ms)
+        spans.append(
+            {
+                "span_id": str(span_no),
+                "parent_span_id": str(parent_no) if parent_no else "",
+                "timestamp": start.isoformat() + "Z" if stringify else start,
+                "end_time": end.isoformat() + "Z" if stringify else end,
+                "duration_nano": duration_ms * MS,
+            }
+        )
+    return spans
+
+
+class TestAnnotateSelfTimeInputShapes(SimpleTestCase):
+    @parameterized.expand([("datetimes", False), ("iso_strings", True)])
+    def test_self_time_is_the_same_whatever_shape_the_times_arrive_in(self, _name: str, stringify: bool):
+        # A cache-derived response carries JSON strings, because cache entries are JSON.
+        spans = _span_dicts(1, stringify)
+        annotate_self_time(spans)
+        self.assertEqual([span["self_time_nano"] for span in spans], [850 * MS, 100 * MS, 100 * MS])
