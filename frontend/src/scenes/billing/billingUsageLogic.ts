@@ -883,7 +883,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types) {
-                const usageTypes = filterUsageTypes(params.usage_types)
+                // A hand-made URL can carry a bare value where the page writes an array.
+                const fromUrl = Array.isArray(params.usage_types) ? params.usage_types : [params.usage_types]
+                const usageTypes = filterUsageTypes(fromUrl)
                 if (!equal(params.usage_types, usageTypes) || !equal(usageTypes, values.filters.usage_types)) {
                     filtersFromUrl.usage_types = usageTypes
                 }

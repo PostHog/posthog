@@ -497,6 +497,16 @@ describe('billing section URL scoping', () => {
         expect(logic.values.filters.usage_types).toEqual(['event_count_in_period'])
     })
 
+    // kea-router decodes a bare `?usage_types=retired_type` as a string, not an array.
+    it('survives a usage type the URL carries as a bare value', async () => {
+        router.actions.push(urls.organizationBillingSection('usage'), { usage_types: 'retired_type' })
+        logic = billingUsageLogic({ syncWithUrl: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.usage_types).toEqual([])
+    })
+
     it('still follows filter changes made on its own page', async () => {
         router.actions.push(urls.organizationBillingSection('usage'))
         logic = billingUsageLogic({ syncWithUrl: true })

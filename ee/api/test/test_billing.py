@@ -1317,8 +1317,9 @@ class TestBillingUpstreamValidationErrors(SimpleTestCase):
         with self.assertRaises(ValidationError) as raised:
             BillingViewset._raise_billing_error(error, Organization(id=uuid4()), {"usage_types": '["retired_type"]'})
 
-        self.assertIn("retired_type", str(raised.exception.detail["usage_types"][0]))
-        self.assertNotIn("upstream text", str(raised.exception.detail["usage_types"][0]))
+        detail = str(raised.exception.detail)
+        self.assertIn("retired_type", detail)
+        self.assertNotIn("upstream text", detail)
 
     @parameterized.expand(
         [
@@ -1532,6 +1533,33 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
             response.json(),
             {"type": "validation_error", "code": "required", "attr": "start_date", "detail": "This field is required."},
         )
+
+    @parameterized.expand(
+        [
+            ("usage", "get_usage_data", "/api/billing/usage/"),
+            ("spend", "get_spend_data", "/api/billing/spend/"),
+            ("export", "get_usage_csv", "/api/billing/usage/export/"),
+        ]
+    )
+    def test_a_relayed_validation_error_names_the_value_the_caller_sent(
+        self, _name: str, getter: str, path: str
+    ) -> None:
+        with patch(f"ee.billing.billing_manager.BillingManager.{getter}") as mock_fetch:
+            mock_fetch.side_effect = self._billing_refusal(
+                400,
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "attr": "usage_types",
+                    "detail": "Rejected private-input@example.com",
+                },
+            )
+
+            response = self.client.get(path, {"start_date": "2025-01-01", "usage_types": '["logs_mb_in_period"]'})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("logs_mb_in_period", response.json()["detail"])
+        self.assertNotIn("private-input", response.content.decode())
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_a_failure_inside_billing_is_a_502_without_its_body(self, mock_get_usage_data):
