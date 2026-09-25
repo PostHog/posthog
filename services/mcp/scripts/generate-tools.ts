@@ -973,6 +973,10 @@ function buildResponseFilter(config: ToolConfig): {
  * `withPageOffsets`. The envelope type is the same for every pagination class, so the swap is
  * gated on the endpoint declaring an `offset` param too: a cursor- or page-paginated endpoint
  * keeps its links, because the token for the next call lives inside them and no offset replaces it.
+ *
+ * A `response_type` override is read in place of the OpenAPI response, so a wrapper such as
+ * `Omit<>` hides the envelope and opts the tool out. A bare `Schemas.Paginated*` override still
+ * describes the envelope the endpoint returns, so it is shaped like any other.
  */
 function buildPageOffsets(
     responseType: string | undefined,
