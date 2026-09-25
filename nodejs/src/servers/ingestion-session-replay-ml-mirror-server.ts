@@ -222,13 +222,13 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             requestHandler: new NodeHttpHandler(),
         })
         const legacy = new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
-        const v2TableName = this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE
-        if (!v2TableName) {
+        const v3TableName = this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE
+        if (!v3TableName) {
             return legacy
         }
         return new VersionedCrawlHistory(
             legacy,
-            new DynamoDBCrawlHistory(this.crawlHistoryClient, v2TableName, timeoutMs, timeoutMs)
+            new DynamoDBCrawlHistory(this.crawlHistoryClient, v3TableName, timeoutMs, timeoutMs)
         )
     }
 
