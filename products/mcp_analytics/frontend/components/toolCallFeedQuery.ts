@@ -1,10 +1,11 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
+import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
+export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')
 export const MCP_ACTIVITY_PAGE_SIZE = 100
 export const MCP_ACTIVITY_MAX_ROWS = 1000
 export const MCP_ACTIVITY_INTENT_COLUMN = 'properties.$mcp_intent -- Agent intent'
@@ -18,6 +19,7 @@ export const MCP_ACTIVITY_COLUMNS = [
     MCP_ACTIVITY_ERROR_COLUMN,
     'properties.$mcp_duration_ms -- Duration (ms)',
     'properties.$mcp_client_name -- Client',
+    'properties.$mcp_llm_model -- Model',
     MCP_ACTIVITY_SESSION_COLUMN,
     'timestamp',
 ]
@@ -67,6 +69,13 @@ export function buildRecentToolCallsQuery(filters: HogQLFilters): DataTableNode 
         showPropertyFilter: false,
         showReload: false,
     }
+}
+
+export function withSharedFilters(
+    query: DataTableNode,
+    filters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
+): DataTableNode {
+    return query.source.kind === NodeKind.EventsQuery ? { ...query, source: { ...query.source, ...filters } } : query
 }
 
 // Matches both encodings the backend counts as failures (see MCP_ERROR_VALUES in ToolCallFeed).

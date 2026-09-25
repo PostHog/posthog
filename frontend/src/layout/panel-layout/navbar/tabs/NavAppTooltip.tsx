@@ -13,10 +13,7 @@ export function NavAppTooltip({ item }: { item: FileSystemImport }): JSX.Element
         <div className="w-72 max-w-full p-1 text-left whitespace-normal">
             <div className="text-sm font-semibold mb-2">{appsItemName(item)}</div>
             <div className="text-xs leading-relaxed">
-                {description ??
-                    (isGroup
-                        ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
-                        : `Explore ${appsItemName(item).toLowerCase()} in your project.`)}
+                {description ?? `Explore ${appsItemName(item).toLowerCase()} in your project.`}
             </div>
             {(example || isGroup) && (
                 <div className="mt-3 border-t border-current/20 pt-2">

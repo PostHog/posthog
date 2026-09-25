@@ -29,7 +29,7 @@ import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -167,7 +167,7 @@ function DashboardScene({
             {placement !== DashboardPlacement.Export && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
-            <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
+            <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState
