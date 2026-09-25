@@ -351,6 +351,7 @@ export function BroadcastSummary(): JSX.Element {
                     tabs={[
                         {
                             key: 'overview',
+                            'data-attr': 'broadcast-summary-tab-overview',
                             label: 'Overview',
                             content: (
                                 <div className="flex flex-col gap-4">
@@ -405,6 +406,7 @@ export function BroadcastSummary(): JSX.Element {
                         },
                         {
                             key: 'content',
+                            'data-attr': 'broadcast-summary-tab-content',
                             label: 'Content',
                             content: (
                                 <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
@@ -412,6 +414,7 @@ export function BroadcastSummary(): JSX.Element {
                         },
                         {
                             key: 'runs',
+                            'data-attr': 'broadcast-summary-tab-runs',
                             label: 'Runs',
                             content: (
                                 <RunsTable
