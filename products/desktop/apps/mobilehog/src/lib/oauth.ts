@@ -74,8 +74,11 @@ export async function signInWithOAuth(
   const discovery = { authorizationEndpoint: `${host}/oauth/authorize` };
   const authUrl = await request.makeAuthUrlAsync(discovery);
   const next = encodeURIComponent(authUrl.slice(host.length));
+  // Ephemeral: no shared Safari cookies, so logging out of the app really
+  // logs out — otherwise the web session auto-signs the old account back in.
   const result = await request.promptAsync(discovery, {
     url: signup ? `${host}/signup?next=${next}` : authUrl,
+    preferEphemeralSession: true,
   });
   if (result.type !== "success" || !result.params.code) {
     throw new Error(
