@@ -5720,6 +5720,22 @@ class TestNoEventSessionPersonPropertyFiltering(ClickhouseTestMixin, APIBaseTest
         kept_session = self._session_with_no_events("person-check-kept", "visitor@customer.example.com")
         anonymous_session = self._session_with_no_events("person-check-anonymous", None)
 
+        # A session recorded under two distinct ids: the page carries only one of them
+        # (any(s.distinct_id)), so the check must resolve both and block on either.
+        shared_session = self._session_with_no_events("person-check-shared", "visitor2@customer.example.com")
+        create_person(
+            team=self.team,
+            distinct_ids=["person-check-shared-second-user"],
+            properties={"email": "support@internal.example.com"},
+        )
+        produce_replay_summary(
+            distinct_id="person-check-shared-second-user",
+            session_id=shared_session,
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+            team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
+        )
+
         query = {
             "properties": [
                 {"key": "email", "value": "internal.example.com", "operator": "not_icontains", "type": "person"}
@@ -5731,8 +5747,31 @@ class TestNoEventSessionPersonPropertyFiltering(ClickhouseTestMixin, APIBaseTest
 
         with self._person_check_flag(enabled=False):
             assert_query_matches_session_ids(
-                team=self.team, query=query, expected=[blocked_session, kept_session, anonymous_session]
+                team=self.team,
+                query=query,
+                expected=[blocked_session, kept_session, anonymous_session, shared_session],
             )
+
+    def test_skip_negative_blocklists_callers_get_the_unfiltered_page(self):
+        blocked_session = self._session_with_no_events("skip-blocklists-blocked", "sales@internal.example.com")
+
+        query = RecordingsQuery.model_validate(
+            {
+                "properties": [
+                    {"key": "email", "value": "internal.example.com", "operator": "not_icontains", "type": "person"}
+                ]
+            }
+        )
+
+        with self._person_check_flag(enabled=True):
+            result = SessionRecordingListFromQuery(
+                query=query,
+                team=self.team,
+                hogql_query_modifiers=None,
+                skip_negative_blocklists=True,
+            ).run()
+
+        assert [row["session_id"] for row in result.results] == [blocked_session]
 
     def test_test_account_filters_drop_no_event_sessions_of_matching_persons(self):
         self._session_with_no_events("test-accounts-blocked", "sales@internal.example.com")
