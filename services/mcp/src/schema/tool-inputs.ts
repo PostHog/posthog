@@ -697,6 +697,16 @@ export const DebugMcpUiAppsSchema = z.object({
 })
 
 // PostHog AI tools
+export const ExplainSQLSchema = z.object({
+    query: z.string().min(1).describe('The SQL query to estimate before running it.'),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            "Optional id of a data warehouse connection. When set, the query is estimated against that source's tables, the same as execute-sql with a connectionId."
+        ),
+})
+
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
     truncate: z

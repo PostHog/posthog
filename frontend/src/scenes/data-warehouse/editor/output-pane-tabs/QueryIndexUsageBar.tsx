@@ -4,8 +4,9 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { PredicateIndexUsage, ScanEstimate, ScanEstimateSource } from '~/queries/schema/schema-general'
+import { CostPlanStep, PredicateIndexUsage, ScanEstimate, ScanEstimateSource } from '~/queries/schema/schema-general'
 
+import { QueryCostPlan } from './QueryCostPlan'
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
 import { summarizeQueryScan } from './queryScanSummary'
 import { QueryScanTablesTable } from './QueryScanTablesTable'
@@ -13,11 +14,18 @@ import { QueryScanTablesTable } from './QueryScanTablesTable'
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
     estimate?: ScanEstimate | null
+    /** The plan that explains the estimate. When present it replaces the two tables below. */
+    plan?: CostPlanStep[] | null
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
 }
 
-export function QueryIndexUsageBar({ predicates, estimate, refreshing }: QueryIndexUsageBarProps): JSX.Element | null {
+export function QueryIndexUsageBar({
+    predicates,
+    estimate,
+    plan,
+    refreshing,
+}: QueryIndexUsageBarProps): JSX.Element | null {
     const summary = summarizeQueryScan(predicates, estimate)
     if (!summary) {
         return null
@@ -40,8 +48,10 @@ export function QueryIndexUsageBar({ predicates, estimate, refreshing }: QueryIn
         !!estimate &&
         (estimate.tables.length > 1 || estimate.tables.some((table) => table.source !== ScanEstimateSource.Events))
 
+    const hasPlan = !!plan && plan.length > 0
+
     // With nothing to expand, the header stands alone instead of opening an empty panel.
-    if (predicates.length === 0 && !showTables) {
+    if (predicates.length === 0 && !showTables && !hasPlan) {
         return (
             <div
                 className={clsx('border-b px-2 py-1.5', refreshing && 'opacity-60')}
@@ -62,12 +72,15 @@ export function QueryIndexUsageBar({ predicates, estimate, refreshing }: QueryIn
                     key: 'index-usage',
                     dataAttr: 'sql-editor-index-usage',
                     header,
-                    content: (
-                        <>
-                            {showTables && estimate ? <QueryScanTablesTable estimate={estimate} /> : null}
-                            <QueryIndexUsageTable predicates={predicates} />
-                        </>
-                    ),
+                    content:
+                        hasPlan && plan ? (
+                            <QueryCostPlan steps={plan} />
+                        ) : (
+                            <>
+                                {showTables && estimate ? <QueryScanTablesTable estimate={estimate} /> : null}
+                                <QueryIndexUsageTable predicates={predicates} />
+                            </>
+                        ),
                 },
             ]}
         />

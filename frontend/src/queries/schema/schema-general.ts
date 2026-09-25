@@ -937,6 +937,28 @@ export interface TableScanEstimate {
     time_range?: ScanEstimateTimeRange
 }
 
+export enum CostPlanStepKind {
+    Scan = 'scan',
+    Filter = 'filter',
+    Join = 'join',
+}
+
+/** One line of the plan that explains the scan estimate: a table scan, a filter on it, or the join. */
+export interface CostPlanStep {
+    kind: CostPlanStepKind
+    /** One line, the way an EXPLAIN prints it. */
+    message: string
+    /** The rest of the story for a reader who expands the line. */
+    detail?: string
+    /** The table the step reads or filters, as the query names it. */
+    table?: string
+    rows?: integer
+    /** Prose advice for a reader. Not replacement text. */
+    fix?: string
+    /** Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps. */
+    ai_fix_prompt?: string
+}
+
 /** How much a query is expected to read, estimated before it runs, one entry per table it scans. */
 export interface ScanEstimate {
     /** Sum of the rows of every table entry that has one. */
@@ -954,6 +976,8 @@ export interface HogQLMetadataResponse {
     index_usage?: PredicateIndexUsage[]
     /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
     scan_estimate?: ScanEstimate
+    /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+    cost_plan?: CostPlanStep[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

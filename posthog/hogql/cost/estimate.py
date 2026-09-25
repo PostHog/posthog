@@ -77,6 +77,17 @@ ScanPrecision = Literal["measured", "size_only", "unknown"]
 
 
 @frozen
+class FilterEstimate:
+    """How much of an events scan one indexed property filter is expected to leave."""
+
+    property_name: str
+    # How many constants the property is compared against: one for ``=``, the set size for IN.
+    values: int
+    # Share of granules still read after this filter alone, or None when the property has no distinct count.
+    granules_read: float | None
+
+
+@frozen
 class TableScanEstimate:
     """What is known about one scan in the FROM tree."""
 
@@ -92,6 +103,8 @@ class TableScanEstimate:
     # Events only: ``bounded`` when both ends of the timestamp range were understood, ``open`` when the
     # estimate fell back to DEFAULT_RANGE_DAYS on at least one side.
     time_range: Literal["bounded", "open"] | None = None
+    # Events only: the indexed property filters that were considered, whether or not they narrowed the read.
+    filters: tuple[FilterEstimate, ...] = ()
 
     def __post_init__(self) -> None:
         if (self.rows is not None and self.rows < 0) or (self.bytes is not None and self.bytes < 0):
@@ -172,14 +185,26 @@ def _estimate_events_scan(
     fraction = _event_fraction(volume, scan.events)
     granules_read = 1.0
     unmodelled = scan.unmodelled_filter
+    filters: list[FilterEstimate] = []
     for property_filter in scan.property_filters:
         distinct_values = provider.property_ndv(team_id, property_filter.property_name)
         if distinct_values is None:
             unmodelled = True
+            filters.append(
+                FilterEstimate(
+                    property_name=property_filter.property_name, values=property_filter.values, granules_read=None
+                )
+            )
             continue
         # The filters are not multiplied together. Properties on one event are often correlated, and the
         # product of two fractions that assume independence narrows far more than the data does.
-        granules_read = min(granules_read, _granule_fraction(property_filter.values, distinct_values))
+        share = _granule_fraction(property_filter.values, distinct_values)
+        granules_read = min(granules_read, share)
+        filters.append(
+            FilterEstimate(
+                property_name=property_filter.property_name, values=property_filter.values, granules_read=share
+            )
+        )
     return (
         TableScanEstimate(
             name=scan.name,
@@ -189,6 +214,7 @@ def _estimate_events_scan(
             days=scan.days,
             events=tuple(sorted(scan.events)) if fraction < 1 else (),
             time_range="bounded" if scan.bounded else "open",
+            filters=tuple(filters),
         ),
         unmodelled,
     )

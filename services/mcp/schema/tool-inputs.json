@@ -571,6 +571,21 @@
             },
             "required": ["id"]
         },
+        "ExplainSQLSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The SQL query to estimate before running it."
+                },
+                "connectionId": {
+                    "description": "Optional id of a data warehouse connection. When set, the query is estimated against that source's tables, the same as execute-sql with a connectionId.",
+                    "type": "string"
+                }
+            },
+            "required": ["query"]
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."

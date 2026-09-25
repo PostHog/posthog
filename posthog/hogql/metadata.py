@@ -6,6 +6,7 @@ import structlog
 from pydantic import BaseModel
 
 from posthog.schema import (
+    CostPlanStep,
     HogLanguage,
     HogQLMetadata,
     HogQLMetadataResponse,
@@ -23,14 +24,18 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.cost.estimate import estimate_scan
+from posthog.hogql.cost.estimate import (
+    ScanEstimate as ScanEstimateResult,
+    estimate_scan,
+)
+from posthog.hogql.cost.explain import build_cost_plan
 from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.index_eligibility import build_index_eligibility_report
+from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.observability import (
@@ -49,7 +54,13 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import PersonsOnEventsMode, ScanEstimatePrecision, ScanEstimateSource, ScanEstimateTimeRange
+from posthog.schema_enums import (
+    CostPlanStepKind,
+    PersonsOnEventsMode,
+    ScanEstimatePrecision,
+    ScanEstimateSource,
+    ScanEstimateTimeRange,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -183,11 +194,13 @@ def get_hogql_metadata(
             if prepared_ast:
                 response.ch_table_names = get_table_names(prepared_ast)
 
+            report: IndexEligibilityReport | None = None
             if source is None and query.indexUsage and _index_usage_enabled(team):
-                _attach_index_usage(response, hogql_ast, context)
+                report = _attach_index_usage(response, hogql_ast, context)
             # The estimate covers a direct connection too: its tables carry the remote catalog's size.
             if query.indexUsage and _scan_estimate_enabled(team):
-                _attach_scan_estimate(response, hogql_ast, context, statistics_provider)
+                estimate = _attach_scan_estimate(response, hogql_ast, context, statistics_provider)
+                _attach_cost_plan(response, estimate, report)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -271,13 +284,13 @@ def _attach_scan_estimate(
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
     context: HogQLContext,
     statistics_provider: StatisticsProvider | None = None,
-) -> None:
+) -> ScanEstimateResult | None:
     """Estimate how much the query reads, per table, for the editor to show before the user runs it."""
     # Deferred like build_index_eligibility_report: the resolver must stay off this module's import path.
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
 
     if context.database is None:
-        return
+        return None
     try:
         with context.timings.measure("scan_estimate"):
             resolved = resolve_types(clone_expr(hogql_ast), context, dialect="clickhouse")
@@ -286,9 +299,9 @@ def _attach_scan_estimate(
     except Exception:
         # Advisory only. A query that compiles must not be reported as invalid because estimating it failed.
         logger.exception("hogql_scan_estimate_failed", team_id=context.team_id)
-        return
+        return None
     if estimate is None:
-        return
+        return None
     response.scan_estimate = ScanEstimate(
         rows=estimate.rows,
         upper_bound=estimate.upper_bound,
@@ -306,13 +319,34 @@ def _attach_scan_estimate(
             for table in estimate.tables
         ],
     )
+    return estimate
+
+
+def _attach_cost_plan(
+    response: HogQLMetadataResponse, estimate: ScanEstimateResult | None, report: IndexEligibilityReport | None
+) -> None:
+    steps = build_cost_plan(estimate, report)
+    if not steps:
+        return
+    response.cost_plan = [
+        CostPlanStep(
+            kind=CostPlanStepKind(step.kind),
+            message=step.message,
+            detail=step.detail,
+            table=step.table,
+            rows=step.rows,
+            fix=step.fix,
+            ai_fix_prompt=step.ai_fix_prompt,
+        )
+        for step in steps
+    ]
 
 
 def _attach_index_usage(
     response: HogQLMetadataResponse,
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
     context: HogQLContext,
-) -> None:
+) -> IndexEligibilityReport | None:
     """Report which property filters will prune data, and warn about the ones a fix would unblock.
 
     Every predicate reaches the response; only the ones a query edit can unblock become warnings.
@@ -329,7 +363,7 @@ def _attach_index_usage(
             # the response just comes back without a report.
             INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
             logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
-            return
+            return None
 
     INDEX_ELIGIBILITY_TOTAL.labels(result="ok").inc()
     for predicate in report.predicates:
@@ -368,6 +402,7 @@ def _attach_index_usage(
                 end=predicate.end,
                 fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
             )
+    return report
 
 
 def enrich_hogql_validation_error(

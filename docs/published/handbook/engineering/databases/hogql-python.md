@@ -74,6 +74,8 @@ A table on a customer's own database (a direct Postgres or MySQL source) is `siz
 `sessions` is `measured` like events: a daily rate, cached for a day, scaled to the range the query puts on the session start time.
 Any other table is `unknown` until its source gets a statistic.
 The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.
+`cost_plan` renders the same facts as one plan (`posthog/hogql/cost/explain.py`): each scan in FROM order, the property filters that apply to it with how much each skips, then one join line.
+It is what the SQL editor shows when the bar is expanded, and what an agent reads to decide whether to narrow a query before running it.
 
 The estimate counts rows read, not rows returned, so a property filter lowers it only when a skip index can drop granules.
 An equality or `IN` filter on an event property with a bloom filter index is scaled by the share of granules expected to hold a match.
