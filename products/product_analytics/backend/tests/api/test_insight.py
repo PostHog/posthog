@@ -2623,7 +2623,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         payload: dict[str, Any] = {"insight_ids": [insight.pk, other_insight.pk]}
         if context != "legacy":
-            payload["context"] = context
+            payload["query_context"] = context
         if context == "dashboard":
             payload["dashboard_id"] = dashboard.pk
         response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
@@ -2656,9 +2656,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             access_level="none",
         )
         self.client.force_login(viewer)
-        payload: dict[str, Any] = {"insight_ids": [insight.pk], "context": "standalone"}
+        payload: dict[str, Any] = {"insight_ids": [insight.pk], "query_context": "standalone"}
         if restricted_resource == "dashboard":
-            payload.update(context="dashboard", dashboard_id=dashboard.pk)
+            payload.update(query_context="dashboard", dashboard_id=dashboard.pk)
         response = self.client.post(f"/api/projects/{self.team.pk}/insights/viewed/", payload)
         assert response.status_code == 201
         assert not InsightQueryDemand.objects.exists()
@@ -2735,9 +2735,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("empty_list", {"insight_ids": []}),
             ("not_a_list", {"insight_ids": "abc"}),
             ("non_int_element", {"insight_ids": ["abc", 1]}),
-            ("invalid_context", {"insight_ids": [1], "context": "maybe"}),
-            ("dashboard_without_id", {"insight_ids": [1], "context": "dashboard"}),
-            ("standalone_with_dashboard", {"insight_ids": [1], "context": "standalone", "dashboard_id": 1}),
+            ("invalid_context", {"insight_ids": [1], "query_context": "maybe"}),
+            ("dashboard_without_id", {"insight_ids": [1], "query_context": "dashboard"}),
+            ("standalone_with_dashboard", {"insight_ids": [1], "query_context": "standalone", "dashboard_id": 1}),
             ("id_without_context", {"insight_ids": [1], "dashboard_id": 1}),
             ("over_max_length", {"insight_ids": list(range(1, 2502))}),
         ]

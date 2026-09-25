@@ -4598,7 +4598,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (insightIds.length > 0 && values.currentTeamId && values.dashboard && !isSharedView()) {
                 void insightsViewedCreate(String(values.currentTeamId), {
                     insight_ids: insightIds,
-                    context: 'dashboard',
+                    query_context: 'dashboard',
                     dashboard_id: values.dashboard.id,
                 })
             }

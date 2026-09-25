@@ -8957,9 +8957,9 @@ export interface PaginatedTrendingInsightListApi {
  * * `standalone` - standalone
  * * `dashboard` - dashboard
  */
-export type ContextEnumApi = (typeof ContextEnumApi)[keyof typeof ContextEnumApi]
+export type QueryContextEnumApi = (typeof QueryContextEnumApi)[keyof typeof QueryContextEnumApi]
 
-export const ContextEnumApi = {
+export const QueryContextEnumApi = {
     Standalone: 'standalone',
     Dashboard: 'dashboard',
 } as const
@@ -8969,7 +8969,7 @@ export interface InsightViewedRequestApi {
      *
      * * `standalone` - standalone
      * * `dashboard` - dashboard */
-    context?: ContextEnumApi
+    query_context?: QueryContextEnumApi
     /**
      * Dashboard containing the viewed tiles. Required for dashboard context.
      * @minimum 1

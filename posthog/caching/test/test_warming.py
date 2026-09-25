@@ -61,7 +61,7 @@ class TestWarming(APIBaseTest):
         )
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/viewed/",
-            {"insight_ids": [self.insight3.pk], "context": "dashboard", "dashboard_id": self.dashboard2.pk},
+            {"insight_ids": [self.insight3.pk], "query_context": "dashboard", "dashboard_id": self.dashboard2.pk},
         )
         assert response.status_code == 201
         assert list(insights_to_keep_fresh(self.team)) == [(self.insight3.pk, self.dashboard2.pk)]
@@ -74,7 +74,7 @@ class TestWarming(APIBaseTest):
         flag.return_value = True
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/viewed/",
-            {"insight_ids": [self.insight3.pk], "context": "standalone"},
+            {"insight_ids": [self.insight3.pk], "query_context": "standalone"},
         )
         assert response.status_code == 201
         assert set(insights_to_keep_fresh(self.team)) == {

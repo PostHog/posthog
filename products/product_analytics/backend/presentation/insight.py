@@ -1554,7 +1554,7 @@ INSIGHT_VIEWED_MAX_IDS = 2500
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
-    context = serializers.ChoiceField(
+    query_context = serializers.ChoiceField(
         choices=["standalone", "dashboard"],
         required=False,
         help_text="Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.",
@@ -1572,8 +1572,8 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if (attrs.get("context") == "dashboard") != ("dashboard_id" in attrs):
-            raise serializers.ValidationError("dashboard_id must be provided exactly when context is dashboard.")
+        if (attrs.get("query_context") == "dashboard") != ("dashboard_id" in attrs):
+            raise serializers.ValidationError("dashboard_id must be provided exactly when query_context is dashboard.")
         return attrs
 
 
@@ -2329,15 +2329,16 @@ When set, the specified dashboard's filters and date range override will be appl
             last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
         )
 
-        context = request.validated_data.get("context")
+        context = request.validated_data.get("query_context")
         if context:
             demand_insights = Insight.objects.filter(pk__in=visible_insight_ids, team_id=self.team.pk, deleted=False)
             if not is_service_auth(request):
                 demand_insights = self.user_access_control.filter_queryset_by_access_level(
                     demand_insights, include_all_if_admin=True
                 )
-            dashboard_id = request.validated_data.get("dashboard_id")
+            dashboard_id: int | None = None
             if context == "dashboard":
+                dashboard_id = int(request.validated_data["dashboard_id"])
                 demand_insights = demand_insights.filter(pk__in=insight_ids_on_dashboard(dashboard_id))
                 first_id = demand_insights.values_list("pk", flat=True).first()
                 tile = (

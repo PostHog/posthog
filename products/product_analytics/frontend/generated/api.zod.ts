@@ -300,7 +300,7 @@ export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
 export const insightsViewedCreateBodyInsightIdsMax = 2500
 
 export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
-    context: zod
+    query_context: zod
         .enum(['standalone', 'dashboard'])
         .describe('\* `standalone` - standalone\n\* `dashboard` - dashboard')
         .optional()

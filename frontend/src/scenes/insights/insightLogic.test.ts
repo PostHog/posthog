@@ -317,7 +317,7 @@ describe('insightLogic', () => {
         await waitFor(() => expect(viewed).toHaveBeenCalled())
         expect(await viewed.mock.calls[0][0].request.json()).toEqual({
             insight_ids: [saved.id],
-            ...(expected ? { context: expected } : {}),
+            ...(expected ? { query_context: expected } : {}),
             ...(expected === 'dashboard' ? { dashboard_id: dashboardId } : {}),
         })
     })

@@ -379,7 +379,7 @@ describe('dashboardLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         await waitFor(() => expect(viewed).toHaveBeenCalled())
         const request = viewed.mock.calls[0][0].request
-        expect(await request.json()).toEqual({ insight_ids: [insight.id], context: 'dashboard', dashboard_id: 5 })
+        expect(await request.json()).toEqual({ insight_ids: [insight.id], query_context: 'dashboard', dashboard_id: 5 })
     })
 
     describe('tile layouts', () => {

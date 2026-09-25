@@ -22074,18 +22074,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `standalone` - standalone
-     * * `dashboard` - dashboard
-     */
-    export type ContextEnum = typeof ContextEnum[keyof typeof ContextEnum];
-
-
-    export const ContextEnum = {
-      Standalone: 'standalone',
-      Dashboard: 'dashboard',
-    } as const;
-
-    /**
      * Response shape for the wiki's current state.
      */
     export interface ContextLayerStatus {
@@ -53684,12 +53672,24 @@ export namespace Schemas {
       values_query_connection_id?: string | null;
     }
 
+    /**
+     * * `standalone` - standalone
+     * * `dashboard` - dashboard
+     */
+    export type QueryContextEnum = typeof QueryContextEnum[keyof typeof QueryContextEnum];
+
+
+    export const QueryContextEnum = {
+      Standalone: 'standalone',
+      Dashboard: 'dashboard',
+    } as const;
+
     export interface InsightViewedRequest {
       /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
        *
        * * `standalone` - standalone
        * * `dashboard` - dashboard */
-      context?: ContextEnum;
+      query_context?: QueryContextEnum;
       /**
          * Dashboard containing the viewed tiles. Required for dashboard context.
          * @minimum 1

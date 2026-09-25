@@ -38,8 +38,8 @@ def record_insight_query_demand(*, team_id: int, insight_ids: Collection[int], d
             f"""INSERT INTO {table} (team_id, insight_id, dashboard_id, last_requested_at)
                 VALUES {placeholders}
                 ON CONFLICT {conflict} DO UPDATE SET last_requested_at = EXCLUDED.last_requested_at
-                WHERE {table}.last_requested_at < EXCLUDED.last_requested_at - %s""",
-            [*params, DEMAND_WRITE_INTERVAL],
+                WHERE {table}.last_requested_at < %s""",
+            [*params, requested_at - DEMAND_WRITE_INTERVAL],
         )
 
 

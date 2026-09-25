@@ -120,7 +120,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
                     !insightOverridesPresent(props.filtersOverride, props.variablesOverride, props.tileFiltersOverride)
                 void insightsViewedCreate(String(values.currentProjectId), {
                     insight_ids: [values.insight.id],
-                    context: matchesSavedContext ? (props.dashboardId ? 'dashboard' : 'standalone') : undefined,
+                    query_context: matchesSavedContext ? (props.dashboardId ? 'dashboard' : 'standalone') : undefined,
                     dashboard_id: matchesSavedContext ? props.dashboardId : undefined,
                 })
             }
