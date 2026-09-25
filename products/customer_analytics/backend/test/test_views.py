@@ -949,7 +949,7 @@ class TestAccountViewSet(APIBaseTest):
             ["enterprise", "priority"],
         )
         self.assertEqual(
-            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True)),
             ["enterprise", "priority"],
         )
 

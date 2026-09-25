@@ -47,7 +47,6 @@ from posthog.models import Organization, Project, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
@@ -80,12 +79,8 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import BatchExportModel, BatchExportRunStatus, DestinationType
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -2738,23 +2733,13 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         # created at doesn't matter. just what's running or completed at run time
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
-            config={"bucket_name": "my_production_s3_bucket"},
-        )
-        BatchExport.objects.create(
-            team_id=3,
-            name="A batch export",
-            destination=batch_export_destination,
-            paused=False,
-        )
-
-        BatchExport.objects.create(
-            team=self.analytics_team,
-            name="A batch export",
-            destination=batch_export_destination,
-            paused=False,
-        )
+        for team_id in (3, self.analytics_team.id):
+            batch_exports_testing.create_batch_export(
+                team_id,
+                name="A batch export",
+                destination_type=DestinationType.AWS_S3,
+                destination_config={"bucket_name": "my_production_s3_bucket"},
+            )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
@@ -2782,75 +2767,56 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
-            config={"bucket_name": "test_bucket"},
-        )
-        batch_export = BatchExport.objects.create(
-            team_id=3,
+        batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.EVENTS,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "test_bucket"},
+            model=BatchExportModel.EVENTS,
+        )
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.EVENTS,
         )
 
-        batch_export_on_demand_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.FILE_DOWNLOAD,
-            config={"format": "Parquet"},
-        )
-        with team_scope(team_id=3, canonical=True):
-            batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_on_demand_destination,
-                model=BatchExport.Model.EVENTS,
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export=batch_export,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export_on_demand=batch_export_on_demand,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
+        for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
+            for i in range(3):
+                batch_exports_testing.create_batch_export_run(
+                    batch_export_id=parent_id,
+                    on_demand_id=parent_on_demand_id,
+                    data_interval_end=now() - timedelta(hours=i),
+                    data_interval_start=now() - timedelta(hours=i + 1),
+                    finished_at=now(),
+                    status=BatchExportRunStatus.COMPLETED,
+                    records_completed=100 * (i + 1),  # 100, 200, 300
+                )
 
         # The HogQL model is free while it is in closed beta, so its rows are not counted.
-        hogql_batch_export = BatchExport.objects.create(
-            team_id=3,
+        hogql_batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test HogQL export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.HOGQL,
+            destination_type=DestinationType.AWS_S3,
+            destination_config={"bucket_name": "test_bucket"},
+            model=BatchExportModel.HOGQL,
         )
-        with team_scope(team_id=3, canonical=True):
-            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_on_demand_destination,
-                model=BatchExportOnDemand.Model.HOGQL,
-            )
+        hogql_on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3,
+            destination_type=DestinationType.FILE_DOWNLOAD,
+            destination_config={"format": "Parquet"},
+            model=BatchExportModel.HOGQL,
+        )
 
-        for hogql_export_kwargs in (
-            {"batch_export": hogql_batch_export},
-            {"batch_export_on_demand": hogql_batch_export_on_demand},
-        ):
-            BatchExportRun.objects.create(
+        for parent_id, parent_on_demand_id in ((hogql_batch_export_id, None), (None, hogql_on_demand_id)):
+            batch_exports_testing.create_batch_export_run(
+                batch_export_id=parent_id,
+                on_demand_id=parent_on_demand_id,
                 data_interval_end=now(),
                 data_interval_start=now() - timedelta(hours=1),
                 finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
+                status=BatchExportRunStatus.COMPLETED,
                 records_completed=5000,
-                **hogql_export_kwargs,
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -2873,44 +2839,28 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     ) -> None:
         self._setup_teams()
 
-        batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.WORKFLOWS,
-            config={},
-        )
-        batch_export = BatchExport.objects.create(
-            team_id=3,
+        batch_export_id = batch_exports_testing.create_batch_export(
+            3,
             name="Test export",
-            destination=batch_export_destination,
-            paused=False,
-            model=BatchExport.Model.EVENTS,
+            destination_type=DestinationType.WORKFLOWS,
+            destination_config={},
+            model=BatchExportModel.EVENTS,
+        )
+        on_demand_id = batch_exports_testing.create_batch_export_on_demand(
+            3, destination_type=DestinationType.WORKFLOWS, destination_config={}, model=BatchExportModel.EVENTS
         )
 
-        with team_scope(team_id=3, canonical=True):
-            batch_export_on_demand = BatchExportOnDemand.objects.create(
-                team_id=3,
-                destination=batch_export_destination,
-                model=BatchExport.Model.EVENTS,
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export=batch_export,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
-
-        for i in range(3):
-            BatchExportRun.objects.create(
-                batch_export_on_demand=batch_export_on_demand,
-                data_interval_end=now() - timedelta(hours=i),
-                data_interval_start=now() - timedelta(hours=i + 1),
-                finished_at=now(),
-                status=BatchExportRun.Status.COMPLETED,
-                records_completed=100 * (i + 1),  # 100, 200, 300
-            )
+        for parent_id, parent_on_demand_id in ((batch_export_id, None), (None, on_demand_id)):
+            for i in range(3):
+                batch_exports_testing.create_batch_export_run(
+                    batch_export_id=parent_id,
+                    on_demand_id=parent_on_demand_id,
+                    data_interval_end=now() - timedelta(hours=i),
+                    data_interval_start=now() - timedelta(hours=i + 1),
+                    finished_at=now(),
+                    status=BatchExportRunStatus.COMPLETED,
+                    records_completed=100 * (i + 1),  # 100, 200, 300
+                )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)

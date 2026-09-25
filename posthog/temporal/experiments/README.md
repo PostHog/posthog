@@ -32,13 +32,13 @@ There are two parallel workflow systems:
 When a schedule triggers, it starts a workflow that:
 
 1. Discovers which experiment-metric pairs need calculation
-2. Calculates each metric in parallel
+2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
-4. Assembles one completed metrics recalculation per experiment from the points this run wrote (see below)
+4. Assembles one completed metrics recalculation per experiment as soon as that experiment's own metrics finish (see below)
 
 ### Handing fresh points to the recalculation reader
 
-The experiment page reads results through `GET /metrics_recalculation/latest`, which returns the newest completed `ExperimentMetricsRecalculation`. Timeseries rows alone never reach it, so after the metric activities finish, each workflow runs `create_recalculation_from_timeseries` once per experiment it touched (`products/experiments/backend/timeseries_sync.py`):
+The experiment page reads results through `GET /metrics_recalculation/latest`, which returns the newest completed `ExperimentMetricsRecalculation`. Timeseries rows alone never reach it, so each workflow runs `create_recalculation_from_timeseries` once per experiment it touched (`products/experiments/backend/timeseries_sync.py`). The publish runs right after the experiment's own metric activities complete, not behind a whole-hour barrier, so one slow experiment or a mid-batch worker restart delays only its own publish:
 
 - A metric qualifies when its newest completed row under the config fingerprint has a `query_to` between the workflow start and now. Yesterday's row for a metric that failed today does not qualify, and neither does a future-dated day-end row from the backfill workflow.
 - The activity creates a completed recalculation with trigger `timeseries_sync` and copies each qualifying row under the recalc fingerprint at one shared `query_to`, one second past the newest point. Copies at a point's own `query_to` would share the `(experiment, metric_uuid, query_to)` key with the timeseries row and rewrite its fingerprint.

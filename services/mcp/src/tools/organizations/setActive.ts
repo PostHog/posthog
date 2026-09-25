@@ -2,7 +2,7 @@ import type { z } from 'zod'
 
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, CachedUser, Context, ToolBase } from '@/tools/types'
+import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationSetActiveSchema
 
@@ -29,16 +29,14 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
     }
 
-    // Read cached user and project for full metadata block
-    const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
+    // Read cached project for full metadata block
     const projectId = (await context.cache.get('projectId')) ?? 'unknown'
-    const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
     const integrationKinds = project
         ? await context.stateManager.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
         : undefined
-    const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl, {
+    const metadata = buildActiveEnvironmentContextPrompt(org, project, context.api.publicBaseUrl, {
         integrationKinds,
     })
     const text = metadata

@@ -395,7 +395,7 @@ jobs:
                   # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
                   CHANGED_FILES=$(
                       awk '
-                          /\.(ts|tsx|js|jsx|mjs|cjs)$/ {
+                          /\.(ts|tsx|js|jsx|mjs|cjs|json)$/ {
                               if ($0 ~ /^frontend\//) {
                                   sub(/^frontend\//, "", $0)
                                   print
@@ -964,6 +964,8 @@ jobs:
 
             - name: Upload test results
               if: always()
+              # The quarantine gate reads the local JUnit files, so an artifact service failure must not change the test verdict.
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   # Keep attempt 1's artifact available so the reporter can identify same-job

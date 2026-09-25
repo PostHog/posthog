@@ -701,9 +701,6 @@ export function makeToolExecutorState(
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
         ...overrides,
     }
 }

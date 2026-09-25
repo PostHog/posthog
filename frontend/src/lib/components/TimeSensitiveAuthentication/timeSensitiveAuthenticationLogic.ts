@@ -277,6 +277,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             null as PrecheckResponseType | null,
             {
                 precheck: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create('api/login/precheck', { email: values.user!.email })
                     return { status: 'completed', ...response }
                 },
@@ -290,6 +291,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
                     // Step 1: Get authentication options from server
                     const beginResponse =
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create<PublicKeyCredentialRequestOptionsJSON>('api/login/2fa/passkey/begin/')
 
                     // Step 2: Use SimpleWebAuthn to get assertion from authenticator
@@ -304,6 +306,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     })
 
                     // Step 3: Send assertion to server to complete 2FA
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create('api/login/token', {
                         credential_id: assertion.id,
                         response: assertion.response,
@@ -319,6 +322,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 checkPasskeysAvailable: async () => {
                     try {
                         // Get available 2FA methods
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const methods = await api.get<TwoFAMethodsResponse>('api/login/2fa/passkey/methods/')
                         // Store TOTP availability for UI
                         actions.setTotpAvailable(methods.has_totp)
@@ -346,8 +350,10 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
                 try {
                     if (!token) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create('api/login', { email, password })
                     } else {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create('api/login/token', { token })
                     }
                 } catch (e: unknown) {

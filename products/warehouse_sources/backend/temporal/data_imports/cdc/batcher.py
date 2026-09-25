@@ -90,6 +90,7 @@ class ChangeEventBatcher:
         position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
+        self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
@@ -98,8 +99,10 @@ class ChangeEventBatcher:
         self._position_to_seq = position_to_seq
 
     def add(self, event: ChangeEvent) -> None:
+        size = self._estimate_event_bytes(event)
         self._events[event.table_name].append(event)
-        self._estimated_bytes += self._estimate_event_bytes(event)
+        self._table_bytes[event.table_name] += size
+        self._estimated_bytes += size
 
     @property
     def should_flush(self) -> bool:
@@ -119,8 +122,14 @@ class ChangeEventBatcher:
             result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
 
         self._events.clear()
+        self._table_bytes.clear()
         self._estimated_bytes = 0
         return result
+
+    def discard(self, table_name: str) -> None:
+        """Drop a table's pending events so no later flush writes them."""
+        self._events.pop(table_name, None)
+        self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:

@@ -5,6 +5,8 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
+  migrateSourceFilter,
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
@@ -70,6 +72,11 @@ interface SidebarStoreActions {
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
 
+export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  ...DEFAULT_CHANNEL_ITEM_FILTERS,
+  sources: [DESKTOP_SOURCE],
+};
+
 export const useSidebarStore = create<SidebarStore>()(
   persist(
     (set) => ({
@@ -86,7 +93,7 @@ export const useSidebarStore = create<SidebarStore>()(
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
-      channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+      channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
       workSectionHeights: {},
@@ -160,6 +167,24 @@ export const useSidebarStore = create<SidebarStore>()(
     }),
     {
       name: "sidebar-storage",
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as {
+          channelItemFilters?: Partial<ChannelItemFilters> & {
+            source?: unknown;
+          };
+        };
+        const saved = state.channelItemFilters;
+        if (version >= 2 || !saved) return state;
+        const filters = migrateSourceFilter(saved);
+        return {
+          ...state,
+          channelItemFilters:
+            version === 0 && !filters.sources?.length
+              ? { ...filters, sources: [DESKTOP_SOURCE] }
+              : filters,
+        };
+      },
       partialize: (state) => ({
         open: state.open,
         hasUserSetOpen: state.hasUserSetOpen,

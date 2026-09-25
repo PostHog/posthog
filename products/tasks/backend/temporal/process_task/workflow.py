@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -64,6 +65,7 @@ from .activities.feature_flags import (
     is_slack_app_agent_design_enabled_for_task_activity,
 )
 from .activities.forward_pending_message import forward_pending_user_message
+from .activities.get_sandbox_exit_reason import GetSandboxExitReasonInput, get_sandbox_exit_reason
 from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
@@ -144,7 +146,7 @@ from .activities.update_task_run_status import (
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
-from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExitReason, run_credential_refresh_loop
+from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
@@ -218,6 +220,7 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    sandbox_backend: str | None = None
 
 
 @frozen
@@ -412,6 +415,9 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 # Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
+# Keep histories that already recorded a failed wall-clock exit on their original branch.
+_PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS = "tasks-delivered-pr-timeout-status"
+
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
@@ -437,6 +443,8 @@ _PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
 # A new activity worker can record the merge queue flag as true while an old workflow worker
 # ignores it and dispatches, so replay takes the skip only where the marker was recorded.
 _PATCH_ID_MERGE_QUEUE_SKIP = "tasks-merge-queue-skip-2026-09"
+_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY = "tasks-inactivity-anchored-on-last-activity"
+_PATCH_ID_SANDBOX_EXIT_REASON_ON_RELAY_LOSS = "tasks-sandbox-exit-reason-on-relay-loss"
 
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
@@ -512,6 +520,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
         self._sandbox_gone: bool = False
+        self._sandbox_exit_reason: str | None = None
+        self._sandbox_exit_reason_lookup_id: str | None = None
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
@@ -709,7 +719,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._dispatch_followup(followup)
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
-        await workflow.sleep(timeout.total_seconds())
+        if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY):
+            if self._last_active_time is None:
+                self._last_active_time = workflow.now()
+            remaining = timeout - (workflow.now() - self._last_active_time)
+            if remaining.total_seconds() > 0:
+                await workflow.sleep(remaining.total_seconds())
+        else:
+            await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_max_run_duration(self, cap: timedelta):
@@ -917,7 +934,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         pending_tasks_results = await asyncio.gather(
             *pending, return_exceptions=True
         )  # Ensure all pending tasks are cancelled
-        for task in done:
+        completed_events = (
+            self._completed_events_in_priority_order(done)
+            if workflow.patched(_PATCH_ID_INACTIVITY_ANCHORED_ON_LAST_ACTIVITY)
+            else done
+        )
+        for task in completed_events:
             if task.exception():
                 workflow.logger.warning(
                     "Event wait task failed",
@@ -947,6 +969,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 return task_result
         raise RuntimeError("No event was completed successfully")
+
+    @staticmethod
+    def _completed_events_in_priority_order(done: Iterable[asyncio.Task[TaskEvent]]) -> list[asyncio.Task[TaskEvent]]:
+        return sorted(
+            done,
+            key=lambda task: task.exception() is None and task.result() == TaskEvent.TIMEOUT_REACHED,
+        )
 
     async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
         """Check whether a CI follow-up message should be sent to the agent.
@@ -1482,7 +1511,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 )
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
-                        self._mark_sandbox_gone()
+                        await self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
                             if self._has_dispatchable_followup():
@@ -1571,9 +1600,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
-                # A run that outlived the hard cap is a failure, not a completion, and the
-                # state marker carries the reason so error_message stays empty.
-                await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
+                status = (
+                    "completed"
+                    if workflow.patched(_PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS) and self._delivered_pr_watch_complete()
+                    else "failed"
+                )
+                await self._update_task_run_status(status, timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
             elif timeout_event is not None and self._agent_lost_exit_is_failure():
                 await self._update_task_run_status(
                     "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
@@ -1950,6 +1982,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 image_source=self._image_source,
                 agent_ready_at=self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 agent_boot_interaction_telemetry_enabled=self._agent_boot_interaction_telemetry_enabled,
+                sandbox_backend=self.context.sandbox_backend,
             ),
         )
 
@@ -1996,7 +2029,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(
+                run_id=input.run_id,
+                create_pr=input.create_pr,
+                resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
+                resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
+            ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -2829,13 +2867,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
                 ),
                 seconds_since_last_agent_heartbeat=seconds_since_last_agent_heartbeat,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
-        exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
+        exit_reason = await run_credential_refresh_loop(
+            self.context, sandbox_id, on_sandbox_gone=self._record_sandbox_exit_reason
+        )
         if exit_reason == CredentialRefreshExitReason.SANDBOX_GONE:
             workflow.logger.warning(
                 "sandbox_gone_detected",
@@ -2856,6 +2897,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # path then fails non-retryably (the rows are gone), failing the workflow instead
             # of leaving it waiting on signals that can never arrive.
             self._sandbox_gone = True
+
+    def _record_sandbox_exit_reason(self, sandbox_exit_reason: str | None) -> None:
+        self._sandbox_exit_reason = sandbox_exit_reason
 
     def _onboarding_exit_is_failure(self) -> bool:
         """Whether a non-signal exit should terminalize an onboarding run as FAILED.
@@ -2881,6 +2925,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
 
+    def _delivered_pr_watch_complete(self) -> bool:
+        return (
+            self.context.origin_product == _ORIGIN_PRODUCT_SIGNAL_REPORT
+            and self._pr_progress_emitted
+            and self._last_turn_succeeded
+            and self._end_of_turn_received is True
+            and self._agent_active is False
+            and self._pending_followup is None
+            and not self._pending_followups
+            and self._pending_babysit is None
+        )
+
     def _agent_lost_mid_turn(self) -> bool:
         """True only when an open turn is backed by evidence the agent was still working.
 
@@ -2901,13 +2957,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         return self.context.origin_product == _WORKFLOW_ORIGIN_PRODUCT and self._agent_lost_mid_turn()
 
-    def _mark_sandbox_gone(self) -> None:
+    async def _mark_sandbox_gone(self) -> None:
+        if (
+            self._sandbox_exit_reason is None
+            and self._sandbox_exit_reason_lookup_id is not None
+            and workflow.patched(_PATCH_ID_SANDBOX_EXIT_REASON_ON_RELAY_LOSS)
+        ):
+            self._sandbox_exit_reason = await self._lookup_sandbox_exit_reason(self._sandbox_exit_reason_lookup_id)
+            if self._task_completed:
+                return
         # A sandbox that vanished mid-turn took the agent's work with it, which only a workflow step
         # needs told; see _agent_lost_exit_is_failure. Mid-setup it is a failed setup for
         # onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
         agent_lost = self._agent_lost_exit_is_failure()
         self._completion_status = "failed" if agent_lost or self._onboarding_exit_is_failure() else "completed"
-        self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
+        self._completion_error = sandbox_gone_error_message(self._sandbox_exit_reason)
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True
 
@@ -3136,8 +3200,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_gone is True and not self._task_completed:
                 workflow.logger.warning(
                     "relay_sandbox_events_reported_sandbox_gone",
-                    extra={"run_id": self.context.run_id},
+                    extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
                 )
+                self._sandbox_exit_reason_lookup_id = sandbox_id
                 self._sandbox_gone = True
         except asyncio.CancelledError:
             raise
@@ -3149,6 +3214,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "error": str(e),
                 },
             )
+
+    async def _lookup_sandbox_exit_reason(self, sandbox_id: str) -> str | None:
+        try:
+            return await workflow.execute_activity(
+                get_sandbox_exit_reason,
+                GetSandboxExitReasonInput(sandbox_id=sandbox_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "sandbox_exit_reason_lookup_failed",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "error": str(e)},
+            )
+            return None
 
     async def _relay_agent_design_signals(self) -> None:
         """Tail the ingest-populated Redis stream to fan out Slack agent-design signals.

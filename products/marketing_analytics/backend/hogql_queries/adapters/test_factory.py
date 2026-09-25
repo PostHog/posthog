@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -27,7 +28,8 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.marketing_analytics.backend.hogql_queries.constants import TABLE_PATTERNS
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class FactoryTestMixin:
@@ -547,3 +549,36 @@ class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
         assert config is not None
         assert config.campaign_table is campaign
         assert config.stats_table is stats
+
+
+class TestNativeSourceKillSwitch(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_factory_excludes_disabled_source_without_affecting_google(self, enabled: bool) -> None:
+        team = Team(id=1)
+        factory = MarketingSourceFactory.__new__(MarketingSourceFactory)
+        factory.context = Mock(spec=QueryContext, team=team)
+        factory.logger = Mock()
+        factory._warehouse_tables = []
+        factory._external_sources = []
+        factory._tables_by_source_id = {}
+        for source_type in ("GoogleAds", "AppleSearchAds"):
+            source = ExternalDataSource(source_type=source_type)
+            patterns = TABLE_PATTERNS[NativeMarketingSource(source_type)]
+            tables = [
+                DataWarehouseTable(name=f"{source_type}_{name}", external_data_source=source)
+                for name in {patterns["campaign_table_name"], patterns["stats_table_keywords"][0]}
+            ]
+            factory._external_sources.append(source)
+            factory._warehouse_tables.extend(tables)
+            factory._tables_by_source_id[str(source.id)] = tables
+
+        with patch(
+            "products.marketing_analytics.backend.services.native_integrations.feature_enabled_or_false",
+            return_value=enabled,
+        ):
+            adapters = factory.create_adapters()
+
+        assert [adapter.get_source_type() for adapter in adapters] == (
+            ["GoogleAds", "AppleSearchAds"] if enabled else ["GoogleAds"]
+        )
+        factory.logger.exception.assert_not_called()

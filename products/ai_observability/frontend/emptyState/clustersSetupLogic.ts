@@ -18,6 +18,8 @@ const CLUSTERING_RUN_EVENTS = ['$ai_trace_clusters', '$ai_generation_clusters', 
 export const clustersSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.LLM_CLUSTERS,
     path: ['products', 'ai_observability', 'frontend', 'emptyState', 'clustersSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const response = await api.queryHogQL(
             hogql`SELECT 1 FROM events WHERE event IN ${CLUSTERING_RUN_EVENTS} AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY LIMIT 1`,

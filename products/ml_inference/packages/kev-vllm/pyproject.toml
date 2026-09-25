@@ -22,12 +22,15 @@ export = ["kev", "peft>=0.21", "accelerate>=1.15", "safetensors>=0.5", "huggingf
 [project.scripts]
 kev-vllm-export = "kev_vllm.export:main"
 kev-vllm-parity = "kev_vllm.parity:main"
+jevk5-vllm-export = "kev_vllm.jevk5_export:main"
+kev-vllm-checkpoint = "kev_vllm.checkpoint:main"
 
 [project.entry-points."vllm.general_plugins"]
 kev = "kev_vllm.plugin:register"
 
 [project.entry-points."vllm.io_processor_plugins"]
 kev = "kev_vllm.plugin:io_processor"
+jevk5 = "kev_vllm.plugin:jevk5_io_processor"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.14"]

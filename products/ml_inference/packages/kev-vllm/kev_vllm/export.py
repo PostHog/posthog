@@ -15,7 +15,6 @@ Needs the `export` extra (the `kev` package and its pinned torch), so run it in 
 """
 
 import argparse
-import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,19 +22,12 @@ from pathlib import Path
 import torch
 
 from kev_vllm import __version__
+from kev_vllm.checkpoint import sha256_of
 from kev_vllm.kev_compat import KEV_SOURCE_COMMIT, SPECIAL
 
 ARCHITECTURE = "KevForDecision"
 IO_PROCESSOR_PLUGIN = "kev"
 DTYPES = {"bf16": torch.bfloat16, "fp32": torch.float32}
-
-
-def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def hub_revision(resolved_path: str) -> str | None:

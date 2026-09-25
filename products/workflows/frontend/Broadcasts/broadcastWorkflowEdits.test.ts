@@ -1,0 +1,122 @@
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    HogFlowScheduleApi,
+} from 'products/workflows/frontend/generated/api.schemas'
+
+import { StoppableBroadcast, canEditInWizard, canMoveToDraft } from './broadcastsLogic'
+import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
+
+const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
+    id: 'trigger_node',
+    type: 'trigger',
+    name: 'Audience',
+    config: { type: 'batch', filters },
+})
+const email = (to = '{{ person.properties.email }}'): Record<string, any> => ({
+    id: 'email_1',
+    type: 'function_email',
+    name: 'Email',
+    on_error: 'continue',
+    config: { template_id: 'template-email', inputs: { email: { value: { to: { email: to } } }, extra: { value: 1 } } },
+})
+const exit = { id: 'exit_node', type: 'exit', name: 'Exit', config: {} }
+const edges = [
+    { from: 'trigger_node', to: 'email_1', type: 'continue' },
+    { from: 'email_1', to: 'exit_node', type: 'continue' },
+]
+
+describe('broadcast edits to broadcast-shaped workflows', () => {
+    it.each([
+        ['a person audience sent to each person', [trigger(), email(), exit], edges, true],
+        ['an account audience', [trigger({ audience_type: 'accounts', properties: [] }), email(), exit], edges, false],
+        ['a custom recipient expression', [trigger(), email('{{ inputs.owner_email }}'), exit], edges, false],
+        [
+            'a trigger that skips the email',
+            [trigger(), email(), exit],
+            [{ from: 'trigger_node', to: 'exit_node' }],
+            false,
+        ],
+        ['a second, disconnected exit', [trigger(), email(), exit, { ...exit, id: 'exit_2' }], edges, false],
+        [
+            'an extra path around the email',
+            [trigger(), email(), exit],
+            [...edges, { from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+            false,
+        ],
+    ])('opens %s in the wizard: %s', (_, actions, flowEdges, expected) => {
+        expect(canEditInWizard(actions, flowEdges)).toBe(expected)
+    })
+
+    it.each<
+        [
+            string,
+            HogFlowApi['status'],
+            HogFlowScheduleApi['status'][],
+            HogFlowBatchJobApi['status'][] | null,
+            string | undefined,
+            boolean,
+        ]
+    >([
+        ['a scheduled broadcast', 'active', ['active'], [], undefined, true],
+        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
+        ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
+        ['a broadcast sent right away', 'active', [], ['completed'], undefined, false],
+        ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], undefined, false],
+        [
+            'a workflow with a sent one-time schedule and another',
+            'active',
+            ['completed', 'active'],
+            [],
+            undefined,
+            false,
+        ],
+        ['a broadcast mid-send', 'active', ['active'], ['active'], undefined, false],
+        ['a broadcast with an older run still queued', 'active', ['active'], ['completed', 'queued'], undefined, false],
+        ['a broadcast whose runs have not loaded', 'active', ['active'], null, undefined, false],
+        ['a draft', 'draft', ['active'], [], undefined, false],
+        ['a workflow the wizard cannot edit', 'active', ['active'], [], '{{ inputs.owner }}', false],
+    ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, recipient, expected) => {
+        const broadcast: StoppableBroadcast = {
+            status,
+            schedules: scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus })),
+            actions: [trigger(), email(recipient), exit],
+            edges,
+        }
+        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
+        expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
+    })
+
+    it('saves the audience and email into the existing steps without replacing them', () => {
+        const existing = {
+            origin_product: null,
+            actions: [trigger({ properties: [], cohort_hint: 'kept' }), email(), exit],
+            edges,
+        } as unknown as HogFlowApi
+
+        const payload = buildBroadcastPayload({
+            name: 'Renamed',
+            audienceProperties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }] as any,
+            goalEnabled: false,
+            conversion: DEFAULT_BROADCAST_CONVERSION,
+            email: { ...DEFAULT_BROADCAST_EMAIL, subject: 'New subject' },
+            emailRateLimit: null,
+            broadcast: existing,
+        })
+
+        expect(payload).not.toHaveProperty('origin_product')
+        expect(payload.edges).toEqual(edges)
+        expect(payload.actions.map((action: any) => [action.id, action.name])).toEqual([
+            ['trigger_node', 'Audience'],
+            ['email_1', 'Email'],
+            ['exit_node', 'Exit'],
+        ])
+        expect(payload.actions[0].config.filters).toEqual({
+            properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
+            cohort_hint: 'kept',
+        })
+        expect(payload.actions[1].on_error).toBe('continue')
+        expect(payload.actions[1].config.inputs.extra).toEqual({ value: 1 })
+        expect(payload.actions[1].config.inputs.email.value.subject).toBe('New subject')
+    })
+})

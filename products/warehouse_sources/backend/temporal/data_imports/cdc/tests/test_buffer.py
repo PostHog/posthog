@@ -76,7 +76,7 @@ class TestIsShadowWriteEnabled:
         with (
             patch.dict("sys.modules", {"posthog.models.team": MagicMock(Team=team_manager)}),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.posthoganalytics.feature_enabled",
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.posthoganalytics.feature_enabled",
                 flag_fn,
             ),
         ):

@@ -359,6 +359,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                     actions.setSetupCallOngoing(true)
 
                     breakpoint()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorStartSetupRetrieve() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get('api/users/@me/two_factor_start_setup/')
                     return response
                 },
@@ -368,6 +369,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             null as TwoFactorStatusApi | null,
             {
                 loadStatus: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersTwoFactorStatusRetrieve() from '~/generated/core/api' instead.
                     return await api.get<TwoFactorStatusApi>('api/users/@me/two_factor_status/')
                 },
             },
@@ -376,6 +378,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             null as { backup_codes: string[] } | null,
             {
                 generateBackupCodes: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorBackupCodesCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.create<any>('api/users/@me/two_factor_backup_codes/')
                 },
             },
@@ -390,6 +393,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorValidateCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.create<any>('api/users/@me/two_factor_validate/', { token })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
@@ -407,6 +411,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         },
         disable2FA: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorDisableCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create<any>('api/users/@me/two_factor_disable/')
                 lemonToast.success('2FA disabled successfully. The page will reload.')
                 actions.loadStatus()

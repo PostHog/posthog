@@ -24,6 +24,7 @@ enum NotificationBlock {
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    AiEvaluationDisabled = 'ai-evaluation-disabled',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -43,6 +44,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
+    ai_evaluation_disabled: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
@@ -560,6 +562,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Private API key exposure"
                     description="Get notified when private API keys are publicly exposed"
                     dataAttr="project_api_key_exposure_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.AiEvaluationDisabled]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="ai_evaluation_disabled"
+                    label="Disabled AI evaluations"
+                    description="Get notified when an AI observability evaluation stops because of an error"
+                    dataAttr="ai_evaluation_disabled_enabled"
                 />
             </div>
         ),

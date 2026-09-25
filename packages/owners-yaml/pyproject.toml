@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "owners-yaml"
-version = "0.2.1"
+version = "0.3.0"
 description = "Code ownership in owners.yaml files next to the code: resolver, linter, and CODEOWNERS export"
 readme = "README.md"
 license = "MIT"
@@ -43,7 +43,7 @@ owners = "owners_yaml.cli:main"
 owners-yaml = "owners_yaml.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/PostHog/posthog"
+Homepage = "https://owners-yaml.posthog.dev"
 Documentation = "https://github.com/PostHog/posthog/tree/master/packages/owners-yaml#readme"
 Specification = "https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md"
 Changelog = "https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/CHANGELOG.md"

@@ -25,14 +25,14 @@ from products.ml_inference.backend.logic import decisions
 GATEWAY = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 
 ANSWERS: dict[str, Any] = {
-    "model": "kev-latest",
+    "model": "jevk5-0.2",
     "answers": {
         "urgent": {"noul": 0.91},
         "route": {"choice": "billing", "confidence": 0.6, "probabilities": {"billing": 0.7, "bug": 0.3}},
         "mood": {"score": 2.5, "confidence": 0.4, "probabilities": {"1": 0.2, "2": 0.3, "3": 0.5}, "legend": {}},
     },
     "usage": {"input_tokens": 772, "output_tokens": 0},
-    "latency_ms": 31,
+    "latency_ms": 41.25,
 }
 
 
@@ -57,6 +57,17 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
 
 
+@pytest.mark.parametrize(
+    "criteria",
+    [{str(i): "m" for i in range(17)}, [str(i) for i in range(17)]],
+    ids=["choice", "score"],
+)
+def test_a_question_refuses_more_options_than_the_model_has_letters(criteria: dict[str, str] | list[str]) -> None:
+    question_type = DecisionQuestionType.CHOICE if isinstance(criteria, dict) else DecisionQuestionType.SCORE
+    with pytest.raises(ValueError, match="at most 16 options"):
+        DecisionQuestion(type=question_type, instructions="?", criteria=criteria)
+
+
 class TestDecide:
     @pytest.mark.parametrize(
         "gateway_url",
@@ -78,12 +89,12 @@ class TestDecide:
         assert json.loads(request.headers["X-PostHog-Properties"]) == {"ai_product": "ml_inference"}
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
-        assert body["model"] == "posthog/posthog/decision-4b"
+        assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
         assert body["state"] == "ticket text"
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
         assert result.input_tokens == 772
-        assert result.latency_ms == 31
+        assert result.latency_ms == 41.25
 
     def test_parses_every_answer_type(self) -> None:
         result = decisions.parse_result(ANSWERS, QUESTIONS)
@@ -101,9 +112,9 @@ class TestDecide:
         [
             {},
             [],
-            {"model": "kev-latest", "answers": {}, "usage": {}},
-            {"model": "kev-latest", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
-            {"model": "kev-latest", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {}, "usage": {}},
+            {"model": "jevk5-0.2", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "extra": {"noul": 0.5}}},
             {**ANSWERS, "answers": {k: v for k, v in ANSWERS["answers"].items() if k != "mood"}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "urgent": {"noul": 0.9, "choice": "billing"}}},
@@ -145,7 +156,7 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
             if allowed:
-                assert decisions.decide(_request(), transport=transport).model == "kev-latest"
+                assert decisions.decide(_request(), transport=transport).model == "jevk5-0.2"
             else:
                 with pytest.raises(GatewayNotConfiguredError):
                     decisions.decide(_request(), transport=transport)

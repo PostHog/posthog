@@ -20,6 +20,10 @@ export interface TeamTracingConfigApi {
      * @items.maxLength 200
      */
     tracing_session_id_attribute_keys: string[]
+    /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+    retention_days?: number
+    /** @nullable */
+    readonly retention_last_updated: string | null
 }
 
 export interface PatchedTeamTracingConfigApi {
@@ -35,6 +39,88 @@ export interface PatchedTeamTracingConfigApi {
      * @items.maxLength 200
      */
     tracing_session_id_attribute_keys?: string[]
+    /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+    retention_days?: number
+    /** @nullable */
+    readonly retention_last_updated?: string | null
+}
+
+export interface TracesRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedTracesRetentionRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TracesRetentionRuleApi[]
+}
+
+export interface PatchedTracesRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config?: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsRetentionRuleReorderApi {
+    /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+    ordered_ids: string[]
+}
+
+export interface LogsRetentionRuleSuggestNameApi {
+    /** Retention tier the rule would assign, in days. */
+    retention_days: number
+    /** PropertyGroupFilter tree the rule would match on. */
+    filter_group: unknown
+}
+
+export interface LogsRetentionRuleNameSuggestionApi {
+    /** Suggested rule name. Empty when no suggestion could be generated — clients hide the hint. */
+    name: string
 }
 
 export interface _TracingDateRangeApi {
@@ -883,6 +969,69 @@ export interface _TracingTraceResponseApi {
     nextOffset: number | null
 }
 
+export interface _TracingTraceAiEventApi {
+    /** Event UUID. */
+    uuid: string
+    /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+    event: string
+    /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+    started_at: string
+    /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+    ai_trace_id: string
+    /**
+     * The `$ai_span_id` of the event.
+     * @nullable
+     */
+    ai_span_id: string | null
+    /**
+     * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+     * @nullable
+     */
+    ai_parent_id: string | null
+    /**
+     * The `$ai_span_name`, set on `$ai_span` events.
+     * @nullable
+     */
+    span_name: string | null
+    /**
+     * How long the call took, in seconds.
+     * @nullable
+     */
+    latency_seconds: number | null
+    /**
+     * The model the call used.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider the call went to.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Prompt tokens.
+     * @nullable
+     */
+    input_tokens: number | null
+    /**
+     * Completion tokens.
+     * @nullable
+     */
+    output_tokens: number | null
+    /**
+     * Total cost of the call, in USD.
+     * @nullable
+     */
+    total_cost_usd: number | null
+    /** Whether the call failed. */
+    is_error: boolean
+}
+
+export interface _TracingTraceAiEventsResponseApi {
+    /** AI events in the trace, earliest start first. */
+    results: _TracingTraceAiEventApi[]
+}
+
 export interface _TracingTreeQueryBodyApi {
     /** Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces. */
     spanName: string
@@ -1062,6 +1211,28 @@ export interface PatchedTracingViewApi {
     readonly created_by?: UserBasicApi | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+export type TracingRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TracingRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type TracingSpansAttributesRetrieveParams = {

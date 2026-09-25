@@ -1,20 +1,20 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
-import { LemonInput, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { ConfigureStarredModal } from './ConfigureStarredModal'
 import { NavAppRow } from './NavAppRow'
+import { NavAppsMenu } from './NavAppsMenu'
 import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabApps(): JSX.Element {
     const { search, groupedItems } = useValues(navAppsTabLogic)
-    const { setSearch } = useActions(navAppsTabLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
     const { fullFileSystemFiltered: starredApps } = useValues(
         projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })
@@ -22,24 +22,6 @@ export function NavTabApps(): JSX.Element {
 
     return (
         <div className="flex flex-col h-full min-h-0 group/colorful-product-icons colorful-product-icons-true">
-            <div className="p-1">
-                <LemonInput
-                    type="search"
-                    prefix={
-                        <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
-                            <IconSearch className="size-4" />
-                        </div>
-                    }
-                    size="small"
-                    className="min-h-[30px]"
-                    placeholder="Filter apps"
-                    aria-label="Filter apps"
-                    value={search}
-                    onChange={setSearch}
-                    fullWidth
-                    data-attr="nav-apps-search"
-                />
-            </div>
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
@@ -51,6 +33,7 @@ export function NavTabApps(): JSX.Element {
                         label="Starred"
                         dataAttr="nav-apps-starred-toggle"
                         key={`starred-${!!search.trim()}`}
+                        actions={<NavAppsMenu />}
                     >
                         {!shortcutDataHasLoaded ? (
                             <Spinner className="m-2" />
@@ -92,6 +75,7 @@ export function NavTabApps(): JSX.Element {
                     )}
                 </NavTabSection>
             </ScrollableShadows>
+            <ConfigureStarredModal />
         </div>
     )
 }

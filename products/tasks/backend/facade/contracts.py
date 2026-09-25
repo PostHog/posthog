@@ -598,6 +598,7 @@ class TaskRunDetailDTO:
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -664,6 +665,10 @@ SPACE_SETUP_SCOPES = (
     "task:write",
     "canvas:write",
     "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
     "query:read",
     "data_catalog:read",
     "insight:read",

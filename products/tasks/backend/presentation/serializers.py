@@ -3,7 +3,7 @@ import json
 import base64
 import logging
 import binascii
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -28,7 +28,7 @@ from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
-from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
+from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
@@ -53,7 +53,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
-from products.tasks.backend.facade.model_catalogue import ModelChoice
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -110,6 +110,22 @@ def _is_desktop_app_grant(request: Request) -> bool:
     return get_oauth_client_id(request) in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS and is_interactive_desktop_grant(request)
 
 
+def _may_select_claude_plan(request: Request) -> bool:
+    """Whether this caller may bill a run to a Claude plan.
+
+    PostHog stores no Claude token: a subscription run asks the person who started it for
+    one over the run's stream, and fails if nobody answers. The caller therefore has to be
+    something that can answer, on behalf of someone whose plan can be billed. Desktop does
+    it interactively; an API key acting as a user is a deliberate server-to-server
+    credential whose owner can run the same relay unattended, which is what internal
+    automation uses.
+
+    Sandbox tokens are excluded by both checks — the agent's own code must never be able to
+    put a run on its owner's plan.
+    """
+    return _is_desktop_app_grant(request) or is_api_key_request(getattr(request, "successful_authenticator", None))
+
+
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
     request = context.get("request")
     if request is None:
@@ -126,15 +142,19 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
                 raise serializers.ValidationError(
                     {"claude_model_access": "Open PostHog Desktop to resume this run with your Claude plan."}
                 )
-    if access == "own-subscription" and not _is_desktop_app_grant(request):
+    if access == "own-subscription" and not _may_select_claude_plan(request):
         raise serializers.ValidationError(
             {
                 "claude_model_access": (
-                    "Only PostHog Desktop can start a run on your Claude plan. "
-                    "Start the task from Desktop, or drop this setting to use PostHog credits."
+                    "Only PostHog Desktop or an API key can start a run on your Claude plan. "
+                    "Start the task from Desktop, authenticate with an API key, or select "
+                    "'posthog-gateway' to use PostHog credits."
                 )
             }
         )
+    # The PostHog API serves the ChatGPT token, so any caller can resume a Codex plan run.
+    if attrs.get("codex_model_access") == "own-subscription" and is_sandbox_oauth_request(request):
+        raise serializers.ValidationError({"codex_model_access": "Only a user can select a ChatGPT plan."})
 
 
 def request_distinct_id(context: dict[str, Any]) -> str | None:
@@ -465,6 +485,12 @@ class TaskRunDetailSerializer(DataclassSerializer):
     """
 
     task = serializers.UUIDField(help_text="Parent task id this run belongs to.")
+    scheduled_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default_timezone=UTC,
+        help_text="Earliest start time in UTC. Null for runs without a schedule.",
+    )
     log_url = serializers.URLField(
         allow_null=True, required=False, help_text="Presigned S3 URL for log access (valid for 1 hour)."
     )
@@ -525,6 +551,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "completed_at",
+            "scheduled_at",
             "preview_available",
         ]
 
@@ -1034,12 +1061,37 @@ class TaskWriteSerializer(serializers.Serializer):
         return attrs
 
 
-class TaskCreateSerializer(TaskWriteSerializer):
+@extend_schema_field(OpenApiTypes.STR)
+class TaskRunScheduledAtField(serializers.DateTimeField):
+    pass
+
+
+class TaskRunScheduleSerializer(serializers.Serializer):
+    scheduled_at = TaskRunScheduledAtField(
+        required=False,
+        allow_null=True,
+        default_timezone=UTC,
+        help_text=(
+            "Earliest start time for a one-off cloud run, in ISO 8601 format. "
+            "Must be in the future and within 30 days. Times without an offset use UTC. "
+            "Omit or send null to start immediately."
+        ),
+    )
+
+    def validate_scheduled_at(self, value: datetime | None) -> datetime | None:
+        if value is not None:
+            now = django_timezone.now()
+            if value <= now or value > now + timedelta(days=30):
+                raise serializers.ValidationError("Choose a future time within 30 days.")
+        return value
+
+
+class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
     start_run = serializers.BooleanField(
         required=False,
         default=False,
         write_only=True,
-        help_text="Start the task's first cloud run immediately after creation.",
+        help_text="Create the first cloud run. It starts immediately unless scheduled_at is set.",
     )
     signal_report_discussion_question = serializers.CharField(
         required=False,
@@ -1085,6 +1137,8 @@ class TaskCreateSerializer(TaskWriteSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
+        if attrs.get("scheduled_at") is not None and not attrs.get("start_run"):
+            raise serializers.ValidationError({"scheduled_at": "Set start_run to true to schedule a run."})
         # Mirror image of the signal_report_task_relationship check: a report-less signal_report
         # task still mints under the Signals OAuth app with the interactive run scope, but skips
         # the per-report cap entirely. Require the report so the cap and interactive budget always
@@ -1116,6 +1170,7 @@ class TaskCreateSerializer(TaskWriteSerializer):
                     "initial_permission_mode",
                     "pending_user_message",
                     "auto_publish",
+                    "scheduled_at",
                 )
                 if attrs.get(key) is not None
             }
@@ -1126,7 +1181,9 @@ class TaskCreateSerializer(TaskWriteSerializer):
             )
             run_serializer.is_valid(raise_exception=True)
             attrs["run_data"] = {
-                key: run_serializer.validated_data[key] for key in run_payload if key in run_serializer.validated_data
+                key: run_serializer.validated_data[key]
+                for key in (*run_payload, "runtime_adapter")
+                if key in run_serializer.validated_data
             }
         return attrs
 
@@ -1224,6 +1281,28 @@ class TaskSessionResponseSerializer(serializers.Serializer):
 class TaskSessionSyncResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Task session identifier")
     content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
+
+
+class TaskRunSubscriptionTokenRequestSerializer(serializers.Serializer):
+    rejected_access_token_sha256 = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this "
+        "names its current token; otherwise it returns the newer token it already holds.",
+    )
+
+
+class TaskRunSubscriptionTokenResponseSerializer(serializers.Serializer):
+    access_token = serializers.CharField(
+        help_text="ChatGPT access token for the Codex app-server. It can stay valid for several days."
+    )
+    account_id = serializers.CharField(help_text="ChatGPT account the access token belongs to")
+    plan_type = serializers.CharField(allow_null=True, help_text="ChatGPT plan of the account, when known")
+    expires_at = serializers.DateTimeField(
+        help_text="When the access token expires. Request a new one before this time."
+    )
 
 
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
@@ -3356,16 +3435,29 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
         default=None,
         help_text=(
             "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. Only PostHog Desktop can select "
+            "request a Claude token from whoever started the run; Desktop relays it interactively "
+            "and an API key caller relays it unattended. The token is sent in flight and never "
+            "stored on PostHog servers. Only PostHog Desktop and API keys can select "
             "'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep "
             "their billing choice and new runs use the PostHog gateway."
+        ),
+    )
+    codex_model_access = serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a "
+            "ChatGPT access token from the PostHog API, refreshed from the ChatGPT account "
+            "the run owner connected in Desktop settings. If omitted or null, resumed runs keep their "
+            "billing choice and new runs use the PostHog gateway."
         ),
     )
 
 
 class TaskRunCreateRequestSerializer(
-    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, serializers.Serializer
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, TaskRunPreferencesFieldMixin, TaskRunScheduleSerializer
 ):
     """Request body for creating a new task run"""
 
@@ -3452,7 +3544,7 @@ class TaskRunCreateRequestSerializer(
         required=False,
         default=None,
         allow_blank=False,
-        help_text="LLM model identifier to run in the selected runtime.",
+        help_text="LLM model identifier. The server derives the runtime adapter when it is omitted.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
@@ -3498,6 +3590,25 @@ class TaskRunCreateRequestSerializer(
         _validate_subscription_caller(attrs, self.context)
         errors: dict[str, str] = {}
         is_pi_task = _is_pi_task_run_request(self.context)
+        if attrs.get("scheduled_at") is not None:
+            if is_pi_task or attrs.get("mode") != "background":
+                errors["scheduled_at"] = "Scheduling requires a background ACP run."
+            for field in ("github_user_token", "imported_mcp_servers", "relayed_mcp_servers"):
+                if attrs.get(field):
+                    errors[field] = "Scheduled runs cannot use credentials or connections from a connected desktop."
+            if attrs.get("claude_model_access") == "own-subscription":
+                errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
+        if attrs.get("model") and attrs.get("runtime_adapter") is None:
+            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+                (
+                    RuntimeAdapter(choice.runtime_adapter)
+                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+                    if choice.model == attrs["model"]
+                ),
+                None,
+            )
+            if attrs["runtime_adapter"] is None:
+                errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
         if is_pi_task:
             for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
                 if attrs.get(field) is not None:
@@ -3513,6 +3624,8 @@ class TaskRunCreateRequestSerializer(
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
         if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
             errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+        if attrs.get("codex_model_access") == "own-subscription" and is_pi_task:
+            errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3685,6 +3798,8 @@ class TaskRunBootstrapCreateRequestSerializer(
         if is_pi_task:
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+            if attrs.get("codex_model_access") == "own-subscription":
+                errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:
@@ -4082,7 +4197,12 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
-class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
+class TaskRunResumeRequestSchemaSerializer(TaskRunScheduleSerializer):
+    model = serializers.CharField(required=False, allow_blank=False)
+    reasoning_effort = serializers.ChoiceField(
+        choices=TaskRunCreateRequestSerializer.REASONING_EFFORT_CHOICES, required=False
+    )
+
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
         required=False,

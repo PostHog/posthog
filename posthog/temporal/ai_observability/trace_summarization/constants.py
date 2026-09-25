@@ -44,9 +44,10 @@ MAX_TRACE_EVENTS_LIMIT = 50
 MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 
 # AI event types used in trace queries (sampling and fetching).
-# Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py
-# and the Node.js list in nodejs/src/ingestion/ai/process-ai-event.ts —
-# kept as a tuple here so HogQL placeholders can build a deterministic
+# Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py.
+# Node.js ingestion admits any `$ai_*` name by the prefix in
+# nodejs/src/ingestion/common/ai-event-types.ts, so it has no list to sync.
+# Kept as a tuple here so HogQL placeholders can build a deterministic
 # `event IN (...)` clause from a single source.
 AI_EVENT_TYPES = (
     "$ai_span",
@@ -77,6 +78,12 @@ SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has lo
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely when something is fundamentally broken.
 SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total for sampling (2 attempts * 900s + backoff)
+
+# The patch id keeps executions that started before the consent check shipped deterministic
+# on replay.
+CONSENT_CHECK_PATCH_ID = "llma-summarization-ai-consent-check-2026-09"
+CONSENT_CHECK_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
+CONSENT_CHECK_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 
 # Activity 1: Fetch + format + store in Redis (fast, ClickHouse-bound)
 FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)

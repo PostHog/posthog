@@ -20,7 +20,7 @@ async def s3_batch_export(
 ):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "a-bucket",
             "region": "us-east-1",

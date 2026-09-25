@@ -313,6 +313,42 @@ export function isSessionUpdateUsage(update: unknown): update is SessionUpdateUs
     return isRecord(update) && update.sessionUpdate === 'usage_update'
 }
 
+/** The agent's full slash-command list. Each frame replaces the previous list. */
+export interface SessionUpdateAvailableCommands {
+    sessionUpdate: 'available_commands_update'
+    availableCommands?: unknown
+}
+
+export function isSessionUpdateAvailableCommands(update: unknown): update is SessionUpdateAvailableCommands {
+    return isRecord(update) && update.sessionUpdate === 'available_commands_update'
+}
+
+/** An agent-advertised command, guarded down from the loosely-typed ACP `AvailableCommand`. */
+export interface AgentCommand {
+    name: string
+    description: string
+    hint?: string
+}
+
+export function parseAvailableCommands(raw: unknown): AgentCommand[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((command): AgentCommand[] => {
+        if (!isRecord(command) || typeof command.name !== 'string' || !command.name) {
+            return []
+        }
+        const hint = isRecord(command.input) && typeof command.input.hint === 'string' ? command.input.hint : undefined
+        return [
+            {
+                name: command.name.replace(/^\//, ''),
+                description: typeof command.description === 'string' ? command.description : '',
+                ...(hint ? { hint } : {}),
+            },
+        ]
+    })
+}
+
 /**
  * The user's own turn, echoed back by the agent adapter and persisted to the run log as a
  * `session/update` (not a `_posthog/*` ext-notification). Carries the full prompt text in a single

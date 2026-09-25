@@ -116,9 +116,10 @@ flags_hypercache = HyperCache(
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
 Before anything serializes or reads a flag, `_omit_unsupported_flags` classifies each stored `filters` document with `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
-Only a config version 1 document (no `version`, or a numeric 1) is published.
-A v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
+A config version 1 document (no `version`, or a numeric 1) is published, and so is an active config version 2 document that the shared validator (`validate_config`, under the deployed `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES`) admits; that document is published verbatim and carries no cohort or flag references.
+Any other v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
 That applies to inactive and archived rows too, so an inactive v2 or non-object row is never blanked into a v1-shaped `{"groups": []}` entry, and a dependent with `flag_evaluates_to: false` on it never matches against a target the matcher never evaluated.
+The Rust reader parses the published v2 document again; a document Python admits but Rust rejects is served as that one flag with `failed: true` and the `flag_data_parsing_error` reason while the team's other flags evaluate.
 The rebuild still succeeds with the remaining flags, the stored rows are not modified, and the omitted ids are logged.
 Unevaluable v1 rows are not read (`_is_unevaluable`), so a disabled row with an unreadable document keeps its established behavior: kept and blanked when referenced, dropped otherwise.
 Cohort references and flag dependencies are then read from the surviving flags' `filters` through `products/feature_flags/backend/facade/references.py`.
@@ -126,7 +127,8 @@ Cohort references and flag dependencies are then read from the surviving flags' 
 Because inactive flags are filtered before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
 `_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
-`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same omission, drop, and blanking rule: `omit_unsupported_flags` classifies the raw documents that `from_pg_keeping_undecodable` loads.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same omission, drop, and blanking rule: `omit_unsupported_flags` classifies the raw documents that `from_pg_keeping_undecodable` loads, keeping an active v2 row whose parse succeeded.
+The service's PostgreSQL fallback runs the same classification, so a Redis miss serves the flag set the cache would have carried.
 Both builders run the same fixture, `rust/feature-flags/tests/fixtures/flags_cache_config_formats.json`.
 One known divergence remains: Rust decodes v1 documents into typed structs, so an evaluable row it cannot decode (a property filter without a `type` key, for example) is omitted there with its dependents, while Python, which only reads the cohort and flag references, still publishes it.
 `verify_team_flags` reports and repairs such a team, attributed to the writer that produced it.
