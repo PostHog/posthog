@@ -934,6 +934,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "url": {
                         "value": "https://example.com",
                         "bytecode": ["_H", 1, 32, "https://example.com"],
+                        "bytecode_contract": RUNTIME_CONTRACT,
                         "order": 0,
                     }
                 },
@@ -1339,7 +1340,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert hog_flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
         assert hog_flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
@@ -4580,7 +4586,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
         assert flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_draft_to_active_compiles_bytecode(self):
@@ -4606,7 +4617,12 @@ class TestHogFlowAPI(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
         assert flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_draft_partial_inputs_skips_input_bytecode(self):

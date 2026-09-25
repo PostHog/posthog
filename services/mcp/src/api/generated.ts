@@ -48781,7 +48781,7 @@ export namespace Schemas {
       transpiled?: unknown;
       filter_test_accounts?: boolean;
       bytecode_error?: string;
-      readonly bytecode_contract: string;
+      bytecode_contract?: string;
     }
 
     export interface HogFlowConversionEvent {

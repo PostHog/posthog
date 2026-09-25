@@ -15,6 +15,7 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
@@ -1142,6 +1143,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].filters == {
             "source": "events",
             "bytecode": ["_H", 1, 29],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }  # Assert the compiled bytecode for empty filter
         assert hog_function[0].hog == "return event"
         assert hog_function[0].enabled
