@@ -631,6 +631,7 @@ export interface sessionRecordingPlayerLogicValues {
     isHovering: boolean
     isKioskMode: boolean
     isMuted: boolean
+    isRetryingSnapshotLoad: boolean // snapshotDataLogic
     isScrubbing: boolean
     isSkippingInactivity: boolean
     isSkippingToMatchingEvent: boolean
@@ -775,6 +776,33 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    loadSnapshotsForSourceSuccess: (
+        snapshotsForSource:
+            | {
+                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  sources?: undefined
+              }
+            | {
+                  source?: undefined
+                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+              },
+        payload?: {
+            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        }
+    ) => {
+        snapshotsForSource:
+            | {
+                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  sources?: undefined
+              }
+            | {
+                  source?: undefined
+                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+              }
+        payload?: {
+            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        }
+    } // snapshotDataLogic
     retrySnapshotLoading: () => {
         value: true
     } // snapshotDataLogic
@@ -805,6 +833,9 @@ export interface sessionRecordingPlayerLogicActions {
         errorDetails: ResourceErrorDetails
     }
     clearPlayerError: () => {
+        value: true
+    }
+    clearTransientPlayerError: () => {
         value: true
     }
     closeExplorer: () => {
@@ -1194,6 +1225,16 @@ export type sessionRecordingPlayerLogicType = MakeLogicType<
     sessionRecordingPlayerLogicMeta
 >
 
+// Verdicts about the recording data itself, rather than a transient wait. Playback reaches a
+// buffering pass whenever the playhead sits in a range these errors describe, so a clear on every
+// pass would wipe them as fast as they are set and leave the player buffering with nothing to show.
+const TERMINAL_PLAYER_ERRORS = [
+    'snapshotSourceLoadExhausted',
+    'snapshotProcessingFailed',
+    'snapshotUnauthorized',
+    'noPlayableFullSnapshot',
+]
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -1209,6 +1250,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'allSourcesLoaded',
                 'storeVersion',
                 'isSnapshotUnauthorized',
+                'isRetryingSnapshotLoad',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1242,6 +1284,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'loadSnapshotsForSourceSuccess',
                 'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
@@ -1273,6 +1316,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        // Buffering uses this instead of clearPlayerError, so a terminal data failure survives the
+        // buffer passes that the failed range keeps producing.
+        clearTransientPlayerError: true,
         retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (
@@ -1533,6 +1579,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setPlayerError: (_, { reason }) => (reason.trim().length ? reason : null),
                 clearPlayerError: () => null,
+                clearTransientPlayerError: (state: string | null) =>
+                    state && TERMINAL_PLAYER_ERRORS.includes(state) ? state : null,
             },
         ],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
@@ -2712,7 +2760,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (segment?.kind === 'buffer' || isAwaitingMoreData(renderability)) {
                 values.player?.replayer?.pause()
                 actions.startBuffer()
-                actions.clearPlayerError()
+                actions.clearTransientPlayerError()
                 // Re-target the (window-blind) loader with the segment's windowId, or it may consider a seek satisfied by another window's FullSnapshot and never load what this position needs.
                 if (
                     renderability.kind === 'waitingForData' &&
@@ -2928,9 +2976,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError(
-                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
-            )
+            const reason = values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
+            // Counts the stalls a person actually sees, against the recovered ones below. Nothing else
+            // measures a permanent stall, because the give-up happens in the browser.
+            cache.reportedSnapshotStall = true
+            posthog.capture('recording_playback_stalled', {
+                sessionRecordingId: props.sessionRecordingId,
+                reason,
+            })
+            actions.setPlayerError(reason)
+        },
+        // A background retry or a manual one can still succeed after the give-up, so the terminal
+        // error must go when the data arrives — it outranks buffering and would otherwise hold the
+        // overlay over a player that can now play.
+        loadSnapshotsForSourceSuccess: () => {
+            if (!cache.reportedSnapshotStall) {
+                return
+            }
+            cache.reportedSnapshotStall = false
+            posthog.capture('recording_playback_stall_recovered', {
+                sessionRecordingId: props.sessionRecordingId,
+            })
+            if (values.playerError && TERMINAL_PLAYER_ERRORS.includes(values.playerError)) {
+                actions.clearPlayerError()
+            }
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
@@ -3236,7 +3305,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // when the buffering progresses
                     values.player?.replayer?.pause()
                     actions.startBuffer()
-                    actions.clearPlayerError()
+                    actions.clearTransientPlayerError()
                     return
                 }
 
