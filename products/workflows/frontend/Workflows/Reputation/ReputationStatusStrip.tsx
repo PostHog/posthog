@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconExternal, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -50,8 +50,9 @@ export function ReputationStatusStrip(): JSX.Element {
     const { awsReputation, teamReputation, sendingAllowance, ispSendingHealth } = useValues(workflowsReputationLogic)
 
     return (
-        <div
-            className="border rounded bg-surface-primary px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-2"
+        <LemonCard
+            hoverEffect={false}
+            className="px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-2"
             data-attr="workflows-reputation-status"
         >
             {awsReputation && (
@@ -114,8 +115,7 @@ export function ReputationStatusStrip(): JSX.Element {
                             className="inline-flex items-center gap-1 text-sm"
                             data-attr="workflows-reputation-tier-docs-link"
                         >
-                            <span>{`Tier ${sendingAllowance.tier} of ${sendingAllowance.max_tier}`}</span>
-                            <IconExternal />
+                            {`Tier ${sendingAllowance.tier} of ${sendingAllowance.max_tier}`}
                         </Link>
                     </Tooltip>
                     <AllowanceUsage
@@ -130,6 +130,6 @@ export function ReputationStatusStrip(): JSX.Element {
                     />
                 </div>
             )}
-        </div>
+        </LemonCard>
     )
 }

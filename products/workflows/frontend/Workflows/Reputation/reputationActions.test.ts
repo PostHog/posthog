@@ -7,20 +7,14 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { ReputationActionInputs, buildReputationActions } from './reputationActions'
+import { workflowRates } from './reputationFixtures'
 import { REPUTATION_DOCS_URL } from './reputationUtils'
 
 function workflow(
     id: string,
     rates: Pick<WorkflowEmailSendingRatesApi, 'emails_sent' | 'bounce_rate' | 'complaint_rate'>
 ): WorkflowEmailSendingRatesApi {
-    return {
-        hog_flow_id: id,
-        hog_flow_name: id,
-        ...rates,
-        email_sending_paused: false,
-        email_sending_paused_at: null,
-        email_sending_paused_reason: '',
-    }
+    return workflowRates(id, id, rates)
 }
 
 function finding(finding_type: AwsTenantFindingApi['finding_type'], impact: 'LOW' | 'HIGH'): AwsTenantFindingApi {
@@ -111,16 +105,6 @@ describe('buildReputationActions', () => {
         })
 
         expect(bounceFinding.primary.to).toEqual(REPUTATION_DOCS_URL)
-    })
-
-    it('keeps links on the surface the tab renders under', () => {
-        const [complaintAction] = buildReputationActions({
-            ...BASE,
-            tabUrl: urls.broadcasts,
-            workflows: [workflow('spammy', { emails_sent: 2000, bounce_rate: 0, complaint_rate: 0.008 })],
-        })
-
-        expect(complaintAction.secondary?.to).toEqual(urls.broadcasts('opt-outs'))
     })
 
     it('says when a provider row counts email from other projects', () => {

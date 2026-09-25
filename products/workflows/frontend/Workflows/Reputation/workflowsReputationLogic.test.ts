@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
@@ -5,28 +6,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type {
-    TeamEmailReputationResponseApi,
-    WorkflowEmailSendingRatesApi,
-} from 'products/workflows/frontend/generated/api.schemas'
+import type { TeamEmailReputationResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { workflowRates as workflow } from './reputationFixtures'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
-
-function workflow(
-    id: string,
-    name: string,
-    rates: Pick<WorkflowEmailSendingRatesApi, 'emails_sent' | 'bounce_rate' | 'complaint_rate'>,
-    pausedReason?: string
-): WorkflowEmailSendingRatesApi {
-    return {
-        hog_flow_id: id,
-        hog_flow_name: name,
-        ...rates,
-        email_sending_paused: pausedReason !== undefined,
-        email_sending_paused_at: pausedReason !== undefined ? '2026-09-01T00:00:00Z' : null,
-        email_sending_paused_reason: pausedReason ?? '',
-    }
-}
 
 // The newsletter causes the most bounces in absolute terms but only because it sends the most:
 // its rate matches the project's. The import bounces far more than its volume predicts.
@@ -148,14 +131,23 @@ describe('workflowsReputationLogic', () => {
         }
     }
 
-    function mountLogic(): void {
+    function mountLogic(path?: string): void {
         initKeaTests()
+        if (path) {
+            router.actions.push(path)
+        }
         logic = workflowsReputationLogic()
         logic.mount()
     }
 
+    async function search(term: string): Promise<void> {
+        logic.actions.setSearch(term)
+        await jest.advanceTimersByTimeAsync(250)
+    }
+
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     it('lists what to fix worst first, pointing each item where it gets fixed', async () => {
@@ -193,6 +185,20 @@ describe('workflowsReputationLogic', () => {
     })
 
     it.each([
+        [urls.workflows('reputation'), urls.workflows('channels')],
+        [urls.broadcasts('reputation'), urls.broadcasts('channels')],
+    ])('keeps the fix links on the surface of %s', async (path, channelsUrl) => {
+        useMocks(reputationMocks(NEEDS_WORK))
+        mountLogic(path)
+
+        await expectLogic(logic).toDispatchActions(['loadReputationSuccess'])
+
+        expect(logic.values.reputationActions.find((item) => item.key === 'finding:DMARC')?.primary.to).toEqual(
+            channelsUrl
+        )
+    })
+
+    it.each([
         ['every signal is healthy', HEALTHY, true],
         [
             'there is no email at all',
@@ -226,10 +232,10 @@ describe('workflowsReputationLogic', () => {
         mountLogic()
         await expectLogic(logic).toDispatchActions(['loadReputationSuccess'])
         const actionKeys = logic.values.reputationActions.map((item) => item.key)
+        jest.useFakeTimers()
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearch('onboarding')
-        }).toDispatchActions(['setSearch', 'searchWorkflowsSuccess'])
+        await search('onboarding')
+        await expectLogic(logic).toDispatchActions(['searchWorkflowsSuccess'])
 
         expect(logic.values.tableWorkflows.map((w) => w.hog_flow_id)).toEqual(['wf-onboarding'])
         expect(logic.values.reputationActions.map((item) => item.key)).toEqual(actionKeys)
@@ -239,14 +245,15 @@ describe('workflowsReputationLogic', () => {
         useMocks(reputationMocks(NEEDS_WORK))
         mountLogic()
         await expectLogic(logic).toDispatchActions(['loadReputationSuccess'])
-        await expectLogic(logic, () => {
-            logic.actions.setSearch('onboarding')
-        }).toDispatchActions(['searchWorkflowsSuccess'])
+        jest.useFakeTimers()
+        await search('onboarding')
+        await expectLogic(logic).toDispatchActions(['searchWorkflowsSuccess'])
 
         logic.actions.setSearch('win')
 
         expect(logic.values.tableLoading).toBe(true)
         expect(logic.values.tableWorkflows).toEqual([])
+        await jest.advanceTimersByTimeAsync(250)
         await expectLogic(logic).toDispatchActions(['searchWorkflowsSuccess'])
         expect(logic.values.tableLoading).toBe(false)
         expect(logic.values.tableWorkflows.map((w) => w.hog_flow_id)).toEqual(['wf-win-back'])
@@ -257,10 +264,10 @@ describe('workflowsReputationLogic', () => {
         mountLogic()
         await expectLogic(logic).toDispatchActions(['loadReputationSuccess'])
         useMocks({ get: { '/api/projects/:team_id/hog_flows/reputation/': [500, { detail: 'Nope' }] } })
+        jest.useFakeTimers()
 
-        await expectLogic(logic, () => {
-            logic.actions.setSearch('onboarding')
-        }).toDispatchActions(['searchWorkflowsSuccess'])
+        await search('onboarding')
+        await expectLogic(logic).toDispatchActions(['searchWorkflowsSuccess'])
 
         expect(logic.values.tableWorkflows).toEqual([])
         expect(logic.values.workflowSearchFailed).toBe(true)

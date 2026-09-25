@@ -1,28 +1,18 @@
 import clsx from 'clsx'
 
-import { IconArrowRight, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { ReputationAction, ReputationActionSeverity } from './reputationActions'
-
-const SEVERITY_TAG: Record<ReputationActionSeverity, { label: string; type: LemonTagType }> = {
-    high: { label: 'Fix now', type: 'danger' },
-    medium: { label: 'Needs attention', type: 'warning' },
-    low: { label: 'Worth a look', type: 'muted' },
-}
-
-const SEVERITY_BORDER: Record<ReputationActionSeverity, string> = {
-    high: 'border-l-danger',
-    medium: 'border-l-warning',
-    low: 'border-l-muted',
-}
+import type { ReputationAction } from './reputationActions'
+import { SEVERITY_STYLE } from './reputationUtils'
 
 export function ReputationActionRow({ action, position }: { action: ReputationAction; position: number }): JSX.Element {
+    const severity = SEVERITY_STYLE[action.severity]
     return (
         <li
             className={clsx(
                 'flex flex-col gap-3 px-4 py-3 border-b border-l-4 last:border-b-0 @xl:flex-row @xl:items-center',
-                SEVERITY_BORDER[action.severity]
+                severity.border
             )}
             data-attr="workflows-reputation-action"
         >
@@ -33,8 +23,8 @@ export function ReputationActionRow({ action, position }: { action: ReputationAc
                 <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-semibold break-words">{action.title}</span>
-                        <LemonTag type={SEVERITY_TAG[action.severity].type} size="small">
-                            {SEVERITY_TAG[action.severity].label}
+                        <LemonTag type={severity.tagType} size="small">
+                            {severity.label}
                         </LemonTag>
                     </div>
                     <p className="text-secondary mb-0 mt-1">{action.description}</p>
@@ -46,7 +36,7 @@ export function ReputationActionRow({ action, position }: { action: ReputationAc
                     size="small"
                     to={action.primary.to}
                     targetBlank={action.primary.external}
-                    sideIcon={action.primary.external ? <IconExternal /> : <IconArrowRight />}
+                    sideIcon={action.primary.external ? undefined : <IconArrowRight />}
                     data-attr={`workflows-reputation-action-${action.kind}-primary`}
                 >
                     {action.primary.label}
@@ -57,7 +47,6 @@ export function ReputationActionRow({ action, position }: { action: ReputationAc
                         size="small"
                         to={action.secondary.to}
                         targetBlank={action.secondary.external}
-                        sideIcon={action.secondary.external ? <IconExternal /> : undefined}
                         data-attr={`workflows-reputation-action-${action.kind}-secondary`}
                     >
                         {action.secondary.label}

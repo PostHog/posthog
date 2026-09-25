@@ -1,4 +1,10 @@
+import type { LemonTagType } from '@posthog/lemon-ui'
+
 import { percentage } from 'lib/utils/numbers'
+
+import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
+
+import type { ReputationActionSeverity } from './reputationActions'
 
 export const REPUTATION_DOCS_URL = 'https://posthog.com/docs/workflows/sending-reputation'
 export const SENDING_TIERS_DOCS_URL = `${REPUTATION_DOCS_URL}#sending-allowance-tiers`
@@ -14,6 +20,25 @@ export function formatRate(rate: number): string {
 }
 
 export type RateKind = 'bounce' | 'complaint'
+
+export const RATE_KINDS: Record<RateKind, { event: string; events: string; findingType: 'BOUNCE' | 'COMPLAINT' }> = {
+    bounce: { event: 'bounce', events: 'bounces', findingType: 'BOUNCE' },
+    complaint: { event: 'spam complaint', events: 'spam complaints', findingType: 'COMPLAINT' },
+}
+
+export const SEVERITY_STYLE: Record<
+    ReputationActionSeverity,
+    { label: string; tagType: LemonTagType; border: string }
+> = {
+    high: { label: 'Fix now', tagType: 'danger', border: 'border-l-danger' },
+    medium: { label: 'Needs attention', tagType: 'warning', border: 'border-l-warning' },
+    low: { label: 'Worth a look', tagType: 'muted', border: 'border-l-muted' },
+}
+
+/** An unnamed workflow shows its id, so the action list and the table name it the same way. */
+export function workflowName(workflow: WorkflowEmailSendingRatesApi): string {
+    return workflow.hog_flow_name || workflow.hog_flow_id
+}
 
 // Per-workflow rate classification. Reserved words like "Warning" / "Critical" belong to the
 // tenant-level AWS verdict. These coarser buckets are a triage aid for spotting which workflows

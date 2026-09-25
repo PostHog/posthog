@@ -8,6 +8,7 @@ import {
     RateLevel,
     classifyRate,
     formatRate,
+    RATE_KINDS,
     minimumVolumeToClassify,
 } from './reputationUtils'
 
@@ -28,13 +29,13 @@ export function RateCell({
     kind: RateKind
     volume: number
 }): JSX.Element {
-    const label = kind === 'bounce' ? 'bounce rate' : 'spam complaint rate'
+    const label = `${RATE_KINDS[kind].event} rate`
     const minimumVolume = minimumVolumeToClassify(kind)
     if (volume < minimumVolume) {
         const noun = kind === 'bounce' ? 'emails sent' : 'deliveries this provider reports complaints for'
         return (
             <Tooltip
-                title={`Too little volume to judge the ${label}. Under ${humanFriendlyNumber(minimumVolume)} ${noun}, one ${kind === 'bounce' ? 'bounce' : 'complaint'} on its own would put this above ${formatRate(RATE_THRESHOLDS[kind].elevated)}.`}
+                title={`Too little volume to judge the ${label}. Under ${humanFriendlyNumber(minimumVolume)} ${noun}, one ${RATE_KINDS[kind].event} on its own would put this above ${formatRate(RATE_THRESHOLDS[kind].elevated)}.`}
             >
                 <span className="tabular-nums text-secondary cursor-default">{formatRate(rate)}</span>
             </Tooltip>
