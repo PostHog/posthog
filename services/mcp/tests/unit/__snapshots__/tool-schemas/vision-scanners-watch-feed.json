@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "default": "-7d",
+            "description": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "scanner_ids": {
+            "description": "Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "scanner_type": {
+            "description": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
+            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "tags": {
+            "description": "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

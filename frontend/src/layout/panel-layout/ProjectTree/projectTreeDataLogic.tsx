@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
@@ -15,6 +17,7 @@ import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'li
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -225,6 +228,11 @@ export interface projectTreeDataLogicValues {
     shortcutEntryIdMap: Map<string, string>
     shortcutNonFolderPaths: Set<string>
     sortedItems: FileSystemEntry[]
+    starredNavigationRef:
+        | (ProjectTreeRef & {
+              pathname: string
+          })
+        | null
     treeItemsNew: TreeDataItem[]
     unfiledItems: boolean
     unfiledItemsLoading: boolean
@@ -245,6 +253,27 @@ export interface projectTreeDataLogicActions {
     setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => {
         identifier: PanelLayoutNavIdentifier
     } // panelLayoutLogic
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
     }
@@ -525,6 +554,13 @@ export interface projectTreeDataLogicActions {
     setLastNewFolder: (folder: string | null) => {
         folder: string | null
     }
+    setStarredNavigationRef: (
+        ref: ProjectTreeRef | null,
+        href?: string
+    ) => {
+        href: string | undefined
+        ref: ProjectTreeRef | null
+    }
     syncTypeAndRef: (
         type: string,
         ref: string
@@ -614,9 +650,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             userLogic,
             ['user'],
         ],
-        actions: [panelLayoutLogic, ['setActivePanelIdentifier'], featureFlagLogic, ['setFeatureFlags']],
+        actions: [
+            panelLayoutLogic,
+            ['setActivePanelIdentifier'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
+            router,
+            ['locationChanged'],
+        ],
     })),
     actions({
+        setStarredNavigationRef: (ref: ProjectTreeRef | null, href?: string) => ({ ref, href }),
         loadUnfiledItems: true,
 
         loadFolder: (folder: string, forceReload: boolean = false) => ({ folder, forceReload }),
@@ -1064,6 +1108,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     })),
     reducers({
+        starredNavigationRef: [
+            null as (ProjectTreeRef & { pathname: string }) | null,
+            {
+                setStarredNavigationRef: (_, { ref, href }) =>
+                    ref ? { ...ref, pathname: removeProjectIdIfPresent(href ?? '').split(/[?#]/)[0] } : null,
+                locationChanged: (state, { pathname }) =>
+                    state?.pathname === removeProjectIdIfPresent(pathname) ? state : null,
+            },
+        ],
         homeFolderLoaded: [false, { loadHomeFolderSuccess: () => true }],
         folders: [
             {} as Record<string, FileSystemEntry[]>,
@@ -1734,6 +1787,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        movedItem: ({ item }) => {
+            if (item.type === 'folder') {
+                // Matching paths can belong to folders in other environments that did not move.
+                actions.loadShortcuts()
+            }
+        },
         setFeatureFlags: () => {
             if (
                 values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL] &&

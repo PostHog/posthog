@@ -676,6 +676,7 @@ These tests consume the published sandbox image, not the agent source in the che
 The image pins the agent version in `Dockerfile.sandbox-base`.
 An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
 That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
+Before the pull request is approved, the bump workflow runs one Claude turn and one Codex turn from that image through the production Go ai-gateway, on the agent's default models and efforts.
 Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?

@@ -577,7 +577,7 @@ Per-team singleton config for Signals settings, including the default autonomy p
 
 Notes:
 
-- Auto-created as a team extension via `register_team_extension_signal`
+- Created on first access through `get_or_create_team_extension`. Readers treat a missing row as the field defaults.
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
 - `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
@@ -1034,6 +1034,7 @@ It is the only derived origin addressed to more than one scout. Every live scout
 A report no live scout touched falls back to the fleet-wide target only when no holder resolved, because a run reads the fleet-wide notes alongside its own and would otherwise hear the same edit twice.
 An impersonated edit forwards nothing: the reviewer-corrections project profile already excludes impersonated activity rows, since a support-staff edit is not the team's ownership evidence.
 Logins are shape-checked against GitHub's login rule before rendering, and an edit contributes at most `MAX_CORRECTION_LOGINS` of them: both write paths into the reviewers artefact accept any string of any length, and the value lands inside a backtick span in a prompt every scout reads.
+The note names the editor, because who corrected the routing is what tells a scout whether a domain owner spoke or somebody trimmed a list in passing; the name is normalized to one line, capped, and kept out of the backtick spans the suppression parser reads back, and an account with no name falls back to a neutral word.
 Repeated edits are coalesced rather than queued: a login already named in a note to a target, in the same direction, inside `SUPPRESSION_WINDOW` is left out of the next one, so one person trimming the same login off ten reports in a morning tells each scout once.
 Suppression is per direction, so an edit that reverses an earlier one inside the window — a login added and then removed — still forwards, since that is exactly the stale-routing correction the channel exists to carry.
 Authorization, the 30-day TTL, the child-environment rule, and the read-side withholding are the dismissal ones (`dismissal_notes.principal_may_steer_scouts`); the key scopes aren't demanded on top, because the logins already reach scouts through the report's reviewers artefact and the profile.
@@ -1268,7 +1269,7 @@ The autonomy system allows Signals to automatically start a Tasks coding run whe
 
 Autonomy is configured at two levels:
 
-1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Auto-created as a team extension via `register_team_extension_signal`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
+1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Created on first access through `get_or_create_team_extension`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
 
 2. **User level** (`SignalUserAutonomyConfig`): Per-user opt-in. A row existing means the user is opted in. Each user can optionally override the team priority threshold with `autostart_priority`. Managed via `GET/PUT/DELETE /api/users/@me/signal_autonomy/`.
 

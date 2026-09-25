@@ -54,6 +54,7 @@ import {
     type PermissionRequestFrame,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
+    type AgentCommand,
     type PosthogUsageUpdateParams,
     type SessionUpdateUsage,
     type SseErrorFrameData,
@@ -62,10 +63,12 @@ import {
     isNotificationFrame,
     isPermissionRequestFrame,
     isPosthogNotification,
+    isSessionUpdateAvailableCommands,
     isSessionUpdateNotification,
     isSessionUpdateUsage,
     isSessionUpdateUserMessage,
     isTaskRunStateFrame,
+    parseAvailableCommands,
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
@@ -1885,6 +1888,7 @@ export interface runStreamLogicValues {
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
     user: UserType | null // userLogic
+    availableCommands: AgentCommand[]
     awaitingOptimisticAttach: boolean
     bootstrapError: StreamErrorEnvelope | null
     bootstrapLoading: boolean
@@ -2139,6 +2143,9 @@ export interface runStreamLogicActions {
     ) => {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
+    }
+    setAvailableCommands: (commands: AgentCommand[]) => {
+        commands: AgentCommand[]
     }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
@@ -2473,6 +2480,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         mergeRunArtifacts: (partial: Partial<RunArtifacts>) => ({ partial }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
         setContextUsage: (usage: ContextUsage) => ({ usage }),
+        /** Latest-wins agent slash-command list from `available_commands_update`. */
+        setAvailableCommands: (commands: AgentCommand[]) => ({ commands }),
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
         reset: true,
@@ -2837,6 +2846,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setContextUsage: (_, { usage }) => usage,
                 reset: () => null,
+            },
+        ],
+        // Kept across a resume: the successor run re-advertises its list, and until then the old one holds.
+        availableCommands: [
+            [] as AgentCommand[],
+            {
+                setAvailableCommands: (_, { commands }) => commands,
+                reset: () => [],
             },
         ],
         // Diagnostic resume plumbing — adapter/session identity for telemetry. No UI.
@@ -4407,6 +4424,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
                         }
                     }
+                    return
+                }
+                if (isSessionUpdateAvailableCommands(update)) {
+                    actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
                     return
                 }
                 if (!isKnownSessionUpdate(update)) {

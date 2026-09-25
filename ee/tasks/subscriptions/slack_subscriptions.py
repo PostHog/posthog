@@ -10,6 +10,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import channel_id_from_target
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
@@ -176,7 +177,7 @@ def _prepare_slack_gallery(
         lines.append(explore_hint)
 
     return SlackGallery(
-        channel=subscription.target_value.split("|")[0],
+        channel=channel_id_from_target(subscription.target_value),
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
     )
@@ -244,7 +245,7 @@ def _prepare_slack_message(
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
 
-    channel = subscription.target_value.split("|")[0]
+    channel = channel_id_from_target(subscription.target_value)
     first_asset, *other_assets = assets
 
     title = _subscription_title(subscription, resource_info, is_new_subscription)

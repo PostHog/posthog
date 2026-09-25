@@ -55,6 +55,7 @@ def _resolved_catalog() -> dict[str, Any]:
                         "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
                         "supports_1m_context": model_catalog.supports_1m_context(model_id),
                         "supports_fast_mode": model_catalog.supports_fast_mode(model_id),
+                        "offered": model_catalog.is_offered_model(model_id),
                     }
                     for model_id in model_catalog.models_for_runtime_adapter(adapter)
                 },

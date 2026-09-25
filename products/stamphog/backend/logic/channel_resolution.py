@@ -39,7 +39,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
-from posthog.team_notifications.slack import SlackChannel, fetch_channel_map, find_channel
+from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig

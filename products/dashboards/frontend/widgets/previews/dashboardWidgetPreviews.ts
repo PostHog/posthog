@@ -1,3 +1,5 @@
+import { NotebookWidgetPreview } from 'products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidget'
+
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { ActivityEventsWidgetPreview } from './ActivityEventsWidgetPreview'
 import { ConversationsWidgetPreview } from './ConversationsWidgetPreview'
@@ -13,6 +15,7 @@ import { SurveyResultsWidgetPreview } from './SurveysWidgetPreviews'
 // on every logged-in page load.
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+    notebook_widget: NotebookWidgetPreview,
     conversations_recent_tickets: ConversationsWidgetPreview,
     activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
