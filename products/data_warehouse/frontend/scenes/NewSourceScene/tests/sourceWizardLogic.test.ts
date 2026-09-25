@@ -134,13 +134,18 @@ describe('sourceWizardLogic', () => {
         }
     })
 
-    it('opens the webhook step with the reason auto-creation is blocked', async () => {
+    it.each([
+        ['with the blocked reason', 'Stripe does not let apps create webhooks.', false],
+        ['without a reason when webhook info fails', null, true],
+    ])('opens the webhook step %s', async (_name, reason, infoFails) => {
         const stripeSource = buildSourceConfig({ name: 'Stripe' })
-        const reason = 'Stripe does not let apps create webhooks.'
         const create = jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as any)
-        const getWebhookInfo = jest
-            .spyOn(api.externalDataSources, 'getWebhookInfo')
-            .mockResolvedValue({ auto_creation_blocked_reason: reason } as any)
+        const getWebhookInfo = jest.spyOn(api.externalDataSources, 'getWebhookInfo')
+        if (infoFails) {
+            getWebhookInfo.mockRejectedValue(new Error('network error'))
+        } else {
+            getWebhookInfo.mockResolvedValue({ auto_creation_blocked_reason: reason } as any)
+        }
         const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
         const unmount = logic.mount()
 

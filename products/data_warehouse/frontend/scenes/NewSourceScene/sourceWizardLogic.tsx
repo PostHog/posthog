@@ -728,6 +728,9 @@ export interface sourceWizardLogicActions {
     setStep: (step: number) => {
         step: number
     }
+    setWebhookAutoCreationBlockedReason: (reason: string | null) => {
+        reason: string | null
+    }
     setWebhookFieldInputsManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -740,9 +743,6 @@ export interface sourceWizardLogicActions {
     }
     setWebhookFieldInputsValues: (values: DeepPartial<Record<string, any>>) => {
         values: DeepPartial<Record<string, any>>
-    }
-    setWebhookAutoCreationBlockedReason: (reason: string | null) => {
-        reason: string | null
     }
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null

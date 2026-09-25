@@ -362,7 +362,7 @@ class TestStripeSource:
             (StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_test_123"), False),
         ],
     )
-    def test_webhook_creation_blocked_only_for_oauth(self, auth_method, blocked):
+    def test_webhook_creation_blocked_only_for_oauth(self, auth_method: StripeAuthMethodConfig, blocked: bool) -> None:
         reason = self.source.webhook_creation_blocked_reason(StripeSourceConfig(auth_method=auth_method), team_id=1)
 
         assert (reason is not None) is blocked
