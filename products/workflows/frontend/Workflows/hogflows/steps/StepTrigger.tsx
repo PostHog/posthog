@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import {
     IconBolt,
@@ -723,15 +723,25 @@ function StepTriggerBatchCsvUpload({
     filters: BatchTriggerFilters
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
+
+    // The conditions stay editable while the file uploads, so the cohort appends to whatever is
+    // stored when the upload finishes, not to what was on screen when it started.
+    const workflowRef = useRef(workflow)
+    workflowRef.current = workflow
 
     const logic = batchAudienceCsvLogic({
         id: actionId,
         onCohortCreated: (cohort) => {
+            const storedConfig = workflowRef.current.actions.find((action) => action.id === actionId)?.config as
+                | { filters?: BatchTriggerFilters }
+                | undefined
+            const currentFilters = storedConfig?.filters ?? filters
             partialSetWorkflowActionConfig(actionId, {
                 filters: {
-                    ...filters,
+                    ...currentFilters,
                     properties: [
-                        ...filters.properties,
+                        ...(currentFilters.properties ?? []),
                         {
                             type: PropertyFilterType.Cohort,
                             key: 'id',
