@@ -972,7 +972,9 @@ class TestAdminShutdownErrorClassification:
             ),
         ],
     )
-    async def test_close_does_not_report_expected_lease_release_errors(self, error, drops_connection):
+    async def test_close_does_not_report_expected_lease_release_errors(
+        self, error: BaseException, drops_connection: bool
+    ) -> None:
         # Queue DB drops the poll connection while _close() tries the best-effort lease
         # release — via an administrator command, or a generic connection drop (e.g. the
         # pod's own network path tearing down concurrently with its graceful shutdown).
@@ -982,7 +984,9 @@ class TestAdminShutdownErrorClassification:
 
         async def raise_error(*args: Any, **kwargs: Any) -> None:
             if drops_connection:
-                consumer._poll_conn.closed = True
+                # `closed` is a read-only property on the real AsyncConnection; swap in a
+                # fresh mock with it set, rather than assigning the attribute in place.
+                consumer._poll_conn = _make_healthy_conn(closed=True)
             raise error
 
         with (
