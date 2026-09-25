@@ -222,7 +222,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             return value
         # An IdP sign-on URL is never hosted by PostHog, so a PostHog host means the admin pasted
         # the ACS consumer URL shown above the field. Accepting it locks the organization out of login.
-        entered_host = urlsplit(normalized if "//" in normalized else f"//{normalized}").hostname
+        try:
+            entered_host = urlsplit(normalized if "//" in normalized else f"//{normalized}").hostname
+        except ValueError as error:
+            raise serializers.ValidationError("Enter a valid URL.") from error
         site_host = urlsplit(settings.SITE_URL).hostname
         if entered_host and site_host and entered_host == site_host:
             raise serializers.ValidationError(

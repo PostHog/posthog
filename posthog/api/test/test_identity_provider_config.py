@@ -254,6 +254,20 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.json()["attr"], "saml_acs_url")
         self.assertFalse(IdentityProviderConfig.objects.filter(organization=self.organization).exists())
 
+    def test_malformed_saml_sign_on_url_is_a_validation_error(self):
+        self._make_admin()
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {
+                "config_scope": "saml",
+                "domain_scope": "all",
+                "saml_entity_id": "entity",
+                "saml_acs_url": "https://[broken",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "saml_acs_url")
+
     def test_can_update_saml_sign_on_url_to_identity_provider_url(self):
         self._make_admin()
         config = IdentityProviderConfig.objects.create(
