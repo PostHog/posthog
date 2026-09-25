@@ -227,18 +227,13 @@ export function createProduceCollectedUrlsStep<
         for (const { cacheKey } of usable) {
             producedTransportUrls.add(cacheKey)
         }
-        const publishable = await excludeFreshCrawlHistory(
-            usable,
-            key ? undefined : crawlHistory,
-            nowMs,
-            (error, count) => {
-                if (nowMs < nextCrawlHistoryWarningAtMs) {
-                    return
-                }
-                nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
-                logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
+        const publishable = await excludeFreshCrawlHistory(usable, crawlHistory, nowMs, (error, count) => {
+            if (nowMs < nextCrawlHistoryWarningAtMs) {
+                return
             }
-        )
+            nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
+        })
         if (publishable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }

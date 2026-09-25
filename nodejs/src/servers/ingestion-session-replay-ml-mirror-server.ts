@@ -15,6 +15,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
@@ -220,7 +221,15 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const legacy = new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const v2TableName = this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE
+        if (!v2TableName) {
+            return legacy
+        }
+        return new VersionedCrawlHistory(
+            legacy,
+            new DynamoDBCrawlHistory(this.crawlHistoryClient, v2TableName, timeoutMs, timeoutMs)
+        )
     }
 
     protected getCleanupResources(): CleanupResources {
