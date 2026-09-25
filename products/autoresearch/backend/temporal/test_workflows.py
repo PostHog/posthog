@@ -150,14 +150,24 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         score_due = {p.pipeline_id: p.score_due for p in result.pipelines}.get(str(pipeline.id))
         assert score_due == expected_score_due
 
-    @parameterized.expand([("creator_lost_access", True), ("outside_the_rollout", False)])
+    @parameterized.expand(
+        [
+            ("creator_lost_access", True, True, {}),
+            ("outside_the_rollout", False, False, {}),
+            ("organization_deactivated", False, True, {"is_active": False}),
+            ("organization_pending_deletion", False, True, {"is_pending_deletion": True}),
+        ]
+    )
     def test_load_active_pipelines_excludes_pipelines_it_cannot_run(
-        self, _name: str, creator_lost_access: bool
+        self, _name: str, creator_lost_access: bool, in_rollout: bool, organization_fields: dict[str, bool]
     ) -> None:
+        self.mock_access.return_value = in_rollout
+        for field, value in organization_fields.items():
+            setattr(self.organization, field, value)
+        self.organization.save()
         if creator_lost_access:
             pipeline = self._create_pipeline(created_by=User.objects.create(email="left@example.com"))
         else:
-            self.mock_access.return_value = False
             pipeline = self._create_pipeline()
 
         result = activity_load_active_pipelines(LoadActivePipelinesInput())
@@ -219,10 +229,11 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, "already_running"),
-            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, "already_ran_today"),
-            ("tasks_usage_limited", None, True, True, "tasks_gated"),
-            ("rollout_withdrawn_since_discovery", None, False, False, "tasks_gated"),
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, True, True, "already_ran_today"),
+            ("tasks_usage_limited", None, True, True, True, "tasks_gated"),
+            ("rollout_withdrawn_since_discovery", None, False, False, True, "tasks_gated"),
+            ("organization_deactivated_since_discovery", None, False, True, False, "tasks_gated"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
@@ -232,6 +243,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         run_status: Optional[str],
         usage_limited: bool,
         in_rollout: bool,
+        organization_active: bool,
         expected_reason: str,
         mock_run_training: MagicMock,
     ) -> None:
@@ -240,6 +252,8 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
         self.mock_usage_limited.return_value = usage_limited
         self.mock_access.return_value = in_rollout
+        self.organization.is_active = organization_active
+        self.organization.save()
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 

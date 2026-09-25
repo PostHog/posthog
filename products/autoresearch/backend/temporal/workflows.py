@@ -397,7 +397,8 @@ _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seco
 def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActivePipelinesResult:
     """Return every live pipeline the sweep runs, across every team, and whether each is due for scoring.
 
-    A pipeline whose creator no longer has access to its team is paused here, before any run is
+    A deactivated organization, or one pending deletion, is left out. A pipeline whose creator no
+    longer has access to its team is paused here, before any run is
     dispatched, because every scheduled query and training run acts as the creator. A pipeline
     outside the ``autoresearch`` rollout is skipped but stays live, so it resumes when the rollout
     reaches it again.
@@ -408,6 +409,9 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     candidates = (
         AutoresearchPipeline.objects.unscoped()
         .filter(status__in=_LIVE_STATUSES)
+        # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
+        .filter(team__organization__is_active=True)
+        .exclude(team__organization__is_pending_deletion=True)
         .select_related("team", "created_by")
         .order_by("created_at")
     )
@@ -516,6 +520,8 @@ def _tasks_gate(creator: User, organization: Organization, team_id: int) -> str 
     The rollout is checked again because kickoff waits for scoring, hours after discovery checked it.
     An unresolvable Desktop access decision raises, so the activity retries instead of launching.
     """
+    if not organization.is_active or organization.is_pending_deletion:
+        return "The organization is deactivated or pending deletion"
     if not has_autoresearch_access(creator, team_id=team_id, organization_id=str(organization.id)):
         return "Outside the autoresearch rollout"
     decision = get_desktop_access_decision(creator, organization)
