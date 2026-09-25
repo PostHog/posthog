@@ -82,10 +82,9 @@ class RetriedFailedObservation(_McpToolScorer):
 
     def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
         retries = parser.get_tool_calls("vision-observations-retry")
-        hit = [c for c in retries if str(c.input.get("id")) == seed.get("failed_observation_id")]
+        hit = [c for c in retries if not c.is_error and str(c.input.get("id")) == seed.get("failed_observation_id")]
         return Score(
             name=self._name(),
             score=1.0 if hit else 0.0,
-            # The retry itself needs Temporal; the call's error flag is reported, not scored.
-            metadata={"retries": len(retries), "targeted": len(hit), "errored": [c.is_error for c in hit]},
+            metadata={"retries": len(retries), "succeeded_on_target": len(hit)},
         )

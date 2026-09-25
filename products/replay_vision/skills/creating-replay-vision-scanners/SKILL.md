@@ -165,8 +165,9 @@ observations they have to go read.
   to the `investigating-replay` skill.
 - **History is opt-in.** A new scanner only sees recordings from now on. To cover the past, run
   `vision-scanners-backfills-estimate` for the window, give the user `total_sessions` and `total_credits`,
-  and call `vision-scanners-backfills-create` only once they agree. Watch it with
-  `vision-scanners-backfills-get`.
+  and call `vision-scanners-backfills-create` only once they agree, passing that `total_credits` as
+  `max_total_credits`. If the create is rejected because the window now costs more, estimate again and ask
+  again. Watch it with `vision-scanners-backfills-get`.
 - **Notifications and digests.** `vision-alerts-create` (plus a destination) notifies on findings;
   `vision-scanners-scouts-create` adds a scheduled scout that writes a report about the scanner's findings.
 - **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
