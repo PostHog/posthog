@@ -97,7 +97,7 @@
             "commands": {
                 "nvim": "/opt/posthog-packages/neovim-0.11.1-r1/bin/nvim"
             },
-            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/14e9e1c6c46978cc87e9c6fba37d726ff807bad4"
+            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/b6267668fd1f5cfbb431f19f6b834b79a75265c4"
         }
     },
     "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/745b60735f92fd480ff3aaf712b28c99ddd3221d",
