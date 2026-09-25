@@ -5,6 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { CyclotronJobFiltersType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { STALE_FLAG_DEFINITION } from './staleFlags'
+
 export interface FeatureFlagNotificationsTabProps {
     featureFlag: FeatureFlagType
 }
@@ -29,15 +31,18 @@ function notificationTriggersForFlag(featureFlag: FeatureFlagType): Notification
             { key: 'flag_id', type: PropertyFilterType.Event, value: [itemId], operator: PropertyOperator.Exact },
         ],
     }
-    // The list matches any of these. The activity side panel's Subscribe menu binds the same flag with a
-    // different shape (top-level scope, string values), so probe for that too.
+    // The list matches a notification when any of these is contained in its filters. Each shape is what
+    // one place in the app writes for the same flag, so each needs its own probe.
+    // test_list_with_filter_groups_finds_the_notifications_bound_to_one_flag mirrors them.
     const changeListFilterGroups = [
+        // This tab's dialog (changeFilters above)
         {
             events: [
                 { id: ACTIVITY_LOG_EVENT, type: 'events', properties: [{ key: 'scope', value: ['FeatureFlag'] }] },
             ],
             properties: [{ key: 'item_id', value: [itemId] }],
         },
+        // The Subscribe menu of the activity side panel opened on a flag (SidePanelActivity.tsx): string values
         {
             events: [{ id: ACTIVITY_LOG_EVENT, type: 'events' }],
             properties: [
@@ -45,6 +50,7 @@ function notificationTriggersForFlag(featureFlag: FeatureFlagType): Notification
                 { key: 'item_id', value: itemId },
             ],
         },
+        // The Subscribe button of the audit log page filtered to the flag (advancedActivityFilterTranslation.ts)
         {
             events: [{ id: ACTIVITY_LOG_EVENT, type: 'events' }],
             properties: [
@@ -82,9 +88,9 @@ export function FeatureFlagNotificationsTab({ featureFlag }: FeatureFlagNotifica
         <NotificationsPane
             triggers={notificationTriggersForFlag(featureFlag)}
             scopeLabel={featureFlag.key}
-            description={`Get notified when the ${featureFlag.key} flag is enabled, disabled, or otherwise changed, or when it becomes stale: not evaluated for 30 days, or fully rolled out with no usage data.`}
+            description={`Get notified when the ${featureFlag.key} flag is enabled, disabled, or otherwise changed, or when it becomes stale: ${STALE_FLAG_DEFINITION}.`}
             dialogTitle={`New notification for ${featureFlag.key}`}
-            emptyText="No notifications set up for this flag yet. Add one to hear about changes to this flag."
+            emptyText="No notifications set up for this flag yet. Add one to hear when this flag changes or becomes stale."
             returnTo={`${urls.featureFlag(featureFlag.id)}?tab=${FeatureFlagsTab.NOTIFICATIONS}`}
         />
     )

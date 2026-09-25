@@ -490,6 +490,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.approvals",
+    "products.cdp",
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",

@@ -139,7 +139,7 @@ describe('newNotificationDialogLogic', () => {
             multiLogic.unmount()
         }
     })
-    
+
     it('keeps a scoped name within the name column limit', () => {
         const name = notificationName('Notify Slack for feature flag changes', 'k'.repeat(400))
 

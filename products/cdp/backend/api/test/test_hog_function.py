@@ -1610,43 +1610,122 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert len(response.json()["results"]) == 2
 
-    def test_list_with_filter_groups_finds_a_notification_bound_to_one_activity_log_item(self, *args):
-        # The shape a flag's Notifications tab creates and lists by
-        def bound_filters(item_id: str) -> dict:
+    def test_list_with_filter_groups_finds_the_notifications_bound_to_one_flag(self, *args):
+        # A flag's Notifications tab lists with these probes (notificationTriggersForFlag in
+        # products/feature_flags/frontend/FeatureFlagNotificationsTab.tsx). Each is a subset of what one
+        # place in the app writes, so the stored shapes below are those writers' output, not the probes.
+        def change_probes(item_id: str) -> list[dict]:
+            return [
+                {
+                    "events": [
+                        {
+                            "id": "$activity_log_entry_created",
+                            "type": "events",
+                            "properties": [{"key": "scope", "value": ["FeatureFlag"]}],
+                        }
+                    ],
+                    "properties": [{"key": "item_id", "value": [item_id]}],
+                },
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events"}],
+                    "properties": [{"key": "scope", "value": "FeatureFlag"}, {"key": "item_id", "value": item_id}],
+                },
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events"}],
+                    "properties": [{"key": "scope", "value": ["FeatureFlag"]}, {"key": "item_id", "value": [item_id]}],
+                },
+            ]
+
+        def stale_probes(item_id: str) -> list[dict]:
+            return [
+                {
+                    "events": [{"id": "$feature_flag_stale", "type": "events"}],
+                    "properties": [{"key": "flag_id", "value": [item_id]}],
+                }
+            ]
+
+        def event_property(key: str, value: str | list[str]) -> dict:
+            return {"key": key, "type": "event", "value": value, "operator": "exact"}
+
+        # The flag tab's dialog
+        def tab_change_filters(item_id: str) -> dict:
             return {
                 "source": "internal-events",
                 "events": [
                     {
                         "id": "$activity_log_entry_created",
                         "type": "events",
-                        "properties": [
-                            {"key": "scope", "type": "event", "value": ["FeatureFlag"], "operator": "exact"}
-                        ],
+                        "properties": [event_property("scope", ["FeatureFlag"])],
                     }
                 ],
-                "properties": [{"key": "item_id", "type": "event", "value": [item_id], "operator": "exact"}],
+                "properties": [event_property("item_id", [item_id])],
             }
 
+        # The activity side panel's Subscribe menu, opened on a flag
+        def side_panel_filters(item_id: str) -> dict:
+            return {
+                "events": [{"id": "$activity_log_entry_created", "type": "events"}],
+                "properties": [event_property("scope", "FeatureFlag"), event_property("item_id", item_id)],
+            }
+
+        # The audit log page's Subscribe button, filtered to a flag
+        def audit_log_filters(item_id: str) -> dict:
+            return {
+                "events": [{"id": "$activity_log_entry_created", "type": "events"}],
+                "properties": [event_property("scope", ["FeatureFlag"]), event_property("item_id", [item_id])],
+            }
+
+        def tab_stale_filters(item_id: str) -> dict:
+            return {
+                "source": "internal-events",
+                "events": [{"id": "$feature_flag_stale", "type": "events"}],
+                "properties": [event_property("flag_id", [item_id])],
+            }
+
+        stored = {
+            "tab_change_42": tab_change_filters("42"),
+            "tab_change_43": tab_change_filters("43"),
+            "side_panel_42": side_panel_filters("42"),
+            "audit_log_42": audit_log_filters("42"),
+            "tab_stale_42": tab_stale_filters("42"),
+            "tab_stale_43": tab_stale_filters("43"),
+        }
         created_ids = {}
-        for item_id in ("42", "43"):
+        for name, filters in stored.items():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
-                    "name": f"Notify Slack for feature flag changes (flag-{item_id})",
+                    "name": name,
                     "hog": "fetch('https://example.com');",
                     "type": "internal_destination",
                     "template_id": "template-slack",
                     "inputs": {"slack_workspace": {"value": 1}, "channel": {"value": "#general"}},
-                    "filters": bound_filters(item_id),
+                    "filters": filters,
                 },
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
-            created_ids[item_id] = response.json()["id"]
+            created_ids[name] = response.json()["id"]
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps([bound_filters('42')])}"
-        )
-        assert [result["id"] for result in response.json()["results"]] == [created_ids["42"]]
+        def listed(filter_groups: list[dict]) -> set[str]:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_functions/?filter_groups={json.dumps(filter_groups)}"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return {result["id"] for result in response.json()["results"]}
+
+        assert listed(change_probes("42")) == {
+            created_ids["tab_change_42"],
+            created_ids["side_panel_42"],
+            created_ids["audit_log_42"],
+        }
+        assert listed(stale_probes("42")) == {created_ids["tab_stale_42"]}
+        # The tab sends both triggers' probes in one request
+        assert listed(change_probes("42") + stale_probes("42")) == {
+            created_ids["tab_change_42"],
+            created_ids["side_panel_42"],
+            created_ids["audit_log_42"],
+            created_ids["tab_stale_42"],
+        }
 
     def test_list_with_type_filter(self, *args):
         response_destination = self.client.post(

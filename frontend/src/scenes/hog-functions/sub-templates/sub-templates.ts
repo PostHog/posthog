@@ -283,8 +283,8 @@ function buildFlagChangeVerbPhrase(): string {
 
 const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
 
-// reason is the sentence the flag page shows, e.g. "Flag has not been called in 45 days"
 const FLAG_STALE_LINK = '{project.url}/feature_flags/{event.properties.flag_id}'
+// reason is the sentence the flag page shows, e.g. "Flag has not been called in 45 days"
 const FLAG_STALE_MESSAGE =
     'Feature flag `{event.properties.flag_key}` may be stale: {event.properties.reason}. Review its usage and code references before removing it.'
 
@@ -810,7 +810,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Post to Microsoft Teams on team activity',
             description: 'Posts a message to Microsoft Teams when a team activity occurs',
             inputs: {
-                content: {
+                text: {
                     value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
@@ -867,7 +867,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Notify Microsoft Teams for feature flag changes',
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
-                // The Teams template reads text, not content
                 text: {
                     value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },

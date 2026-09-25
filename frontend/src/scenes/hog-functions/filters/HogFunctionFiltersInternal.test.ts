@@ -29,7 +29,6 @@ describe('setSimpleFilterValue', () => {
         ],
     }
 
-    // Touching the Trigger select used to drop both filters
     it('keeps a resource-bound activity log notification bound when its trigger is re-selected', () => {
         const next = setSimpleFilterValue(options, '$activity_log_entry_created', boundToFlag, 'activity-log')
 
@@ -45,5 +44,24 @@ describe('setSimpleFilterValue', () => {
             name: 'Early access feature updated',
             type: 'events',
         })
+        expect(next.properties).toBeUndefined()
+    })
+
+    it('keeps an alert bound to its resource when a different trigger is chosen', () => {
+        const boundToAlert: CyclotronJobFiltersType = {
+            source: 'internal-events',
+            events: [{ id: '$logs_alert_firing', type: 'events' }],
+            properties: [
+                { key: 'alert_id', type: PropertyFilterType.Event, value: ['7'], operator: PropertyOperator.Exact },
+            ],
+        }
+        const alertOptions = [
+            { label: 'Alert firing', value: '$logs_alert_firing' },
+            { label: 'Alert resolved', value: '$logs_alert_resolved' },
+        ]
+
+        const next = setSimpleFilterValue(alertOptions, '$logs_alert_resolved', boundToAlert, 'logs-alerting')
+
+        expect(next.properties).toEqual(boundToAlert.properties)
     })
 })

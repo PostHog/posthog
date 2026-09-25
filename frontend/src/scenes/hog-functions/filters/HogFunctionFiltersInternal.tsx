@@ -24,7 +24,9 @@ const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefin
 }
 
 // Contexts bound to a parent resource through a top-level property (alert_id, batch_export_id,
-// item_id, flag_id). The binding must survive a change of trigger event.
+// item_id, flag_id). The binding must survive a change of trigger event, except for activity-log:
+// its other events carry no item_id, and a binding written for one scope must not follow the
+// switch back to "Team activity" without that scope.
 const CONTEXTS_WITH_RESOURCE_BINDING: HogFunctionConfigurationContextId[] = [
     'logs-alerting',
     'batch-export-alerts',
@@ -53,7 +55,10 @@ export const setSimpleFilterValue = (
             },
         ],
     }
-    if (CONTEXTS_WITH_RESOURCE_BINDING.includes(contextId) && previous?.properties && previous.properties.length > 0) {
+    const keepsBinding =
+        CONTEXTS_WITH_RESOURCE_BINDING.includes(contextId) &&
+        (contextId !== 'activity-log' || previousEvent?.id === value)
+    if (keepsBinding && previous?.properties && previous.properties.length > 0) {
         next.properties = previous.properties
     }
     return next

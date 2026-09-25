@@ -57,6 +57,7 @@ import {
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
+import { MAX_STALE_FLAG_NOTIFICATIONS_PER_DAY, STALE_FLAG_DEFINITION } from 'products/feature_flags/frontend/staleFlags'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
@@ -766,7 +767,7 @@ function ProjectFeatureFlagNotificationsTab(): JSX.Element {
                 { subTemplateId: 'feature-flag-change', label: 'A flag is created, updated, or deleted' },
                 { subTemplateId: 'feature-flag-stale', label: 'A flag becomes stale' },
             ]}
-            description="Get notified when feature flags are created, updated, or deleted, or when a flag becomes stale: not evaluated for 30 days, or fully rolled out with no usage data."
+            description={`Get notified when feature flags are created, updated, or deleted, or when a flag becomes stale: ${STALE_FLAG_DEFINITION}. Flags that are already stale when you subscribe are reported too, at most ${MAX_STALE_FLAG_NOTIFICATIONS_PER_DAY} a day.`}
             dialogTitle="New feature flag notification"
             returnTo={urls.featureFlags(FeatureFlagsTab.NOTIFICATIONS)}
         />
@@ -833,7 +834,10 @@ export function FeatureFlags(): JSX.Element {
             />
             <LemonTabs
                 activeKey={
-                    activeTab === FeatureFlagsTab.USAGE && !showRequestUsageTab ? FeatureFlagsTab.OVERVIEW : activeTab
+                    (activeTab === FeatureFlagsTab.USAGE && !showRequestUsageTab) ||
+                    (activeTab === FeatureFlagsTab.NOTIFICATIONS && !showNotificationsTab)
+                        ? FeatureFlagsTab.OVERVIEW
+                        : activeTab
                 }
                 onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
