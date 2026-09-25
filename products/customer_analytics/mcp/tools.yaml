@@ -544,6 +544,9 @@ tools:
     calendar-sync-backfill-create:
         operation: calendar_sync_backfill_create
         enabled: false
+    calendar-sync-interval-create:
+        operation: calendar_sync_interval_create
+        enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
         enabled: false
