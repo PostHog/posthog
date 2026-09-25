@@ -365,7 +365,6 @@ products/tasks/backend/temporal/slack_relay/tests/test_activities.py::TestSplitT
 products/tasks/backend/tests/test_agentsh.py::TestBuildAuditQueryCommand
 products/tasks/backend/tests/test_agentsh.py::TestBuildExecPrefix
 products/tasks/backend/tests/test_agentsh.py::TestGenerateConfigYaml
-products/tasks/backend/tests/test_ai_run_defaults.py::TestRunCreateSerializerModeWithoutAdapter
 products/tasks/backend/tests/test_api.py::TestTaskRunRedisStreamKeepalive
 products/tasks/backend/tests/test_api.py::TestUsageLimitResponse
 products/tasks/backend/tests/test_facade.py::TestAppendLogAgentActivity
