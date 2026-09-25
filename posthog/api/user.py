@@ -83,6 +83,8 @@ from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, Ava
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
+    report_user_email_change_requested,
+    report_user_identity_change_refused,
     report_user_logged_in,
     report_user_updated,
     report_user_verified_email,
@@ -775,6 +777,7 @@ class UserSerializer(serializers.ModelSerializer):
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
             email_verification_code_verifier.send_code(instance, target_email=new_email)
+            report_user_email_change_requested(cast(User, instance), verification_required=True)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -807,6 +810,11 @@ class UserSerializer(serializers.ModelSerializer):
         if credential_changed:
             # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
             revoke_other_sessions_for_request(self.context["request"], instance)
+
+        if changes_email and "email" in validated_data:
+            # Without email configured the new address lands on the account directly, so the change
+            # completes here rather than at verification.
+            report_user_email_change_requested(instance, verification_required=False)
 
         report_user_updated(instance, updated_attrs)
 
@@ -1110,6 +1118,11 @@ class UserViewSet(
         # OAuth token must not reset either of them.
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             if changes_email or "password" in data:
+                report_user_identity_change_refused(
+                    cast(User, request.user),
+                    field="email" if changes_email else "password",
+                    reason="token_auth",
+                )
                 raise exceptions.PermissionDenied(
                     "You can only change your email or password from the PostHog app, not with an API key or token."
                 )
@@ -1119,6 +1132,7 @@ class UserViewSet(
         # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
         # for an account without a password means a passkey or an SSO round trip.
         if changes_email and not reauth_is_fresh(request.session):
+            report_user_identity_change_refused(cast(User, request.user), field="email", reason="stale_reauth")
             raise exceptions.PermissionDenied(
                 "Confirm it's you before changing your email.",
                 code="sensitive_action_required_reauth",
