@@ -378,6 +378,9 @@ export interface mcpGatewayLogicActions {
         templates: MCPServerTemplateApi[]
         payload?: any
     }
+    markTemplateUnavailable: (templateId: string) => {
+        templateId: string
+    }
     openAddServerModal: () => {
         value: true
     }
@@ -428,9 +431,6 @@ export interface mcpGatewayLogicActions {
     }
     removeServer: (serverId: string) => {
         serverId: string
-    }
-    markTemplateUnavailable: (templateId: string) => {
-        templateId: string
     }
     removeServerComplete: (serverId: string) => {
         serverId: string
@@ -644,7 +644,6 @@ export interface mcpGatewayLogicMeta {
         activeAgentCount: (serviceAccounts: MCPServiceAccountApi[]) => number
         agentSharedServerCounts: (serviceAccounts: MCPServiceAccountApi[]) => Record<string, number>
         enabledServerCount: (mergedServers: MCPGatewayServerApi[]) => number
-        unavailableServerIds: (mergedServers: MCPGatewayServerApi[], unavailableTemplateIds: Set<string>) => Set<string>
     }
 }
 
