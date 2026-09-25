@@ -399,7 +399,7 @@ describe('InstructionsFormatter', () => {
     // on unrelated requests. The exec description reaches any client that lists tool
     // descriptions, so both surfaces carrying the section must scope it by topic.
     describe('knowledge-search scoping', () => {
-        it.each([
+        const knowledgeSurfaces = [
             {
                 name: 'buildToolsInstructions',
                 render: (formatter: InstructionsFormatter) => formatter.buildToolsInstructions(fullCtx),
@@ -412,7 +412,14 @@ describe('InstructionsFormatter', () => {
                         businessKnowledgeSearchEnabled: true,
                     }),
             },
-        ])('$name only mandates a search for PostHog and company questions', ({ render }) => {
+        ]
+
+        /** The sentence that tells the agent when to reach for docs-search. */
+        function docsSearchBullet(rendered: string): string {
+            return rendered.split('\n').find((line) => line.startsWith('- ') && line.includes('docs-search')) ?? ''
+        }
+
+        it.each(knowledgeSurfaces)('$name only mandates a search for PostHog and company questions', ({ render }) => {
             const result = render(new InstructionsFormatter())
 
             expect(result).toContain('### PostHog knowledge sources')
@@ -421,6 +428,17 @@ describe('InstructionsFormatter', () => {
             // The gate is the topic, never the location: a PostHog SDK question that names a
             // file in the user's repository still has to reach docs-search.
             expect(result).toContain('The topic decides, not the location')
+        })
+
+        // Scoping the section by topic still sent every project-data request to docs-search,
+        // because a request about the user's own data is a request about PostHog. The
+        // documentation holds no project data, so the bullet has to exclude that traffic
+        // itself rather than lean on the section header.
+        it.each(knowledgeSurfaces)('$name keeps docs-search off project-data requests', ({ render }) => {
+            const result = render(new InstructionsFormatter())
+
+            expect(result).not.toContain("the user's PostHog project and its data")
+            expect(docsSearchBullet(result)).toMatch(/no project data; skip it/)
         })
     })
 
