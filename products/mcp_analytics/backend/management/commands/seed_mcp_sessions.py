@@ -4,7 +4,7 @@ import random
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
@@ -598,7 +598,9 @@ class _SeededFeedback:
         }
 
 
-def _render_feedback_text(rng: random.Random, text: _FeedbackText, tool: str, error: str) -> _FeedbackText:
+def _render_feedback_text(
+    rng: random.Random, text: _FeedbackText, tool: str, error: str, keep_details: bool = False
+) -> _FeedbackText:
     def optional(value: str | None) -> str | None:
         if value is None or rng.random() >= FEEDBACK_OPTIONAL_TEXT_PROBABILITY:
             return None
@@ -606,7 +608,9 @@ def _render_feedback_text(rng: random.Random, text: _FeedbackText, tool: str, er
 
     return _FeedbackText(
         summary=text.summary.format(tool=tool, error=error),
-        details=optional(text.details),
+        details=text.details.format(tool=tool, error=error)
+        if keep_details and text.details
+        else optional(text.details),
         friction_points=optional(text.friction_points),
         suggested_improvement=optional(text.suggested_improvement),
     )
@@ -628,7 +632,10 @@ def failure_rate(calls: list[_SeededCall]) -> float:
 
 def build_feedback(rng: random.Random, calls: list[_SeededCall]) -> _SeededFeedback:
     failures = [(call, call.failure) for call in calls if call.failure is not None]
+    successes = [call for call in calls if call.failure is None]
     feedback_type = rng.choices(list(FEEDBACK_TYPE_WEIGHTS), weights=list(FEEDBACK_TYPE_WEIGHTS.values()), k=1)[0]
+    if feedback_type == "praise" and not successes:
+        feedback_type = "other"
 
     anchor = rng.choice(calls)
     tool_name: str | None = None
@@ -659,12 +666,14 @@ def build_feedback(rng: random.Random, calls: list[_SeededCall]) -> _SeededFeedb
         tool_name = anchor.tool_name
         template = TOOL_ISSUES[tool_name]
     elif feedback_type == "praise":
+        anchor = rng.choice(successes)
         tool_name = anchor.tool_name
         template = TOOL_PRAISE[tool_name]
     else:
         template = rng.choice(OTHER_FEEDBACK)
 
-    text = _render_feedback_text(rng, template, tool=tool_name or "", error=error)
+    # The details of a failure-linked issue carry the error quote, so they are never dropped.
+    text = _render_feedback_text(rng, template, tool=tool_name or "", error=error, keep_details=bool(error))
     sentiment = (
         rng.choices(list(sentiment_weights), weights=list(sentiment_weights.values()), k=1)[0]
         if rng.random() < FEEDBACK_SENTIMENT_PROBABILITY
@@ -754,16 +763,11 @@ class Command(BaseCommand):
         clear: bool = options["clear"]
 
         if min_calls > max_calls:
-            self.stderr.write(self.style.ERROR("--min-calls must be <= --max-calls"))
-            return
+            raise CommandError("--min-calls must be <= --max-calls")
         if missing_capability_count < 0 or missing_capability_count > session_count:
-            self.stderr.write(self.style.ERROR("--missing-capabilities must be between 0 and --sessions"))
-            return
+            raise CommandError("--missing-capabilities must be between 0 and --sessions")
         if feedback_count < 0 or feedback_count > max_feedback_count:
-            self.stderr.write(
-                self.style.ERROR(f"--feedback must be between 0 and {MAX_FEEDBACK_PER_SESSION} x --sessions")
-            )
-            return
+            raise CommandError(f"--feedback must be between 0 and {MAX_FEEDBACK_PER_SESSION} x --sessions")
 
         try:
             team = Team.objects.get(pk=team_id)
@@ -1116,13 +1120,6 @@ class Command(BaseCommand):
             )
 
         seeded_feedback_count = sum(feedback_per_session.values())
-        if seeded_feedback_count < feedback_count:
-            self.stderr.write(
-                self.style.ERROR(
-                    f"Seeded only {seeded_feedback_count} of {feedback_count} feedback reports: too few sessions "
-                    f"have tool calls. Raise --min-calls or --sessions."
-                )
-            )
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {session_count} sessions ({total_events} events, including "
@@ -1130,3 +1127,8 @@ class Command(BaseCommand):
                 f"from {len(feedback_per_session)} sessions) for team {team_id}."
             )
         )
+        if seeded_feedback_count < feedback_count:
+            raise CommandError(
+                f"Seeded only {seeded_feedback_count} of {feedback_count} feedback reports: too few sessions "
+                f"have tool calls. Raise --min-calls or --sessions."
+            )
