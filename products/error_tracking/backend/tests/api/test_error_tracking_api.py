@@ -27,6 +27,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.taxonomy.taxonomy import ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES
 
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
@@ -549,7 +550,9 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == status_prop
         assert event.properties["previous_status"] == previous_prop
         # The issue-property set destination filters can reference, matching the
-        # ingestion-driven events.
+        # ingestion-driven events. The taxonomy documents this same set, so a rename here
+        # must reach the event descriptions too.
+        assert set(ERROR_TRACKING_ISSUE_NOTIFICATION_PROPERTIES) <= set(event.properties)
         assert event.properties["severity"] == "critical"
         assert event.properties["issue_description"] == issue.description
         assert event.properties["first_seen"] == issue.created_at.isoformat()
