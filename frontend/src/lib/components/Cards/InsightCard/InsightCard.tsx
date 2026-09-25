@@ -50,6 +50,7 @@ import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
+import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -440,7 +441,9 @@ function InsightCardInternal(
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
         <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
-    ) : null
+    ) : (
+        <InsightVisualizationSkeleton query={insight.query} />
+    )
 
     return (
         <div
