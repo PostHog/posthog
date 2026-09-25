@@ -6,6 +6,7 @@ from django.test import override_settings
 import jwt as pyjwt
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.security.backend.logic.snapshot import (
     current_snapshot,
@@ -30,6 +31,10 @@ HUB = {
     "SECURITY_HUB_REGION": "us",
     "SECURITY_HUB_OUTBOUND_JWT_SECRETS": ["out-us"],
 }
+
+
+def _sync_count(result: str) -> float:
+    return REGISTRY.get_sample_value("posthog_security_access_rules_sync_total", {"result": result}) or 0.0
 
 
 def _response(status: int, body: object = None) -> MagicMock:
@@ -139,6 +144,23 @@ class TestSync(BaseTest):
         with self.assertRaises(requests.exceptions.JSONDecodeError):
             sync_access_rules()
         assert stored_version() == "v1"
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @patch("products.security.backend.logic.sync.requests.get")
+    def test_a_rejected_token_reports_itself_instead_of_raising(self, _name: str, status: int, get: MagicMock) -> None:
+        get.return_value = _response(
+            200, {"version": "v1", "region": "us", "rules": [RULE], "generatedAt": GENERATED_AT}
+        )
+        sync_access_rules()
+        synced_before = last_synced_at()
+        rejected_before = _sync_count("auth_rejected")
+        get.return_value = _response(status)
+
+        assert sync_access_rules().status == "auth_rejected"
+        assert _sync_count("auth_rejected") == rejected_before + 1
+        assert stored_version() == "v1"
+        # The hub refused, so the rules are stale and the staleness alert must keep counting.
+        assert last_synced_at() == synced_before
 
     @parameterized.expand(
         [
