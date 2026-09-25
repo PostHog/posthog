@@ -30385,6 +30385,7 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
+                "clickhouse",
                 "youtube-analytics"
             ],
             "type": "string"

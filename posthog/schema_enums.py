@@ -1742,6 +1742,7 @@ class IntegrationKind(StrEnum):
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    CLICKHOUSE = "clickhouse"
     YOUTUBE_ANALYTICS = "youtube-analytics"
 
 

@@ -6,6 +6,7 @@ import IconApple from 'public/services/apple_search_ads.png'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconClickUp from 'public/services/clickup.svg'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
@@ -129,6 +130,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    clickhouse: IconClickHouse,
     'youtube-analytics': IconYouTubeAnalytics,
 }
 
@@ -176,6 +178,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Apple Push Notification Service'
         case 'postgresql':
             return 'PostgreSQL'
+        case 'clickhouse':
+            return 'ClickHouse'
         case 'aws-s3':
             return 'AWS S3'
         // Named after the batch export destination users already see, not the `aws-` kind prefix.

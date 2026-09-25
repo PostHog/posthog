@@ -75,6 +75,7 @@ from posthog.models.integration import (
     AWSS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
+    ClickHouseIntegration,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
@@ -1040,6 +1041,22 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
             try:
                 instance = PostgreSQLIntegration.integration_from_config(
+                    team_id=team_id,
+                    created_by=request.user,
+                    **config,
+                )
+            except IntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "clickhouse":
+            config = validated_data.get("config", {})
+
+            for key in ("team_id", "created_by", "organization_id"):
+                _ = config.pop(key, None)
+
+            try:
+                instance = ClickHouseIntegration.integration_from_config(
                     team_id=team_id,
                     created_by=request.user,
                     **config,

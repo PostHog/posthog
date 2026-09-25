@@ -2536,6 +2536,10 @@ snapshots:
         hash: v1.k794b7964.a185426152cd2eefc7f50d49912520d31c80bae794a3fa07325a79ed83ab2e32.EbAE045p1rUEWTAbBKaFubM7_Ssb0-9uowfBM7EY_cU
     data-warehouse-destinationmodal--big-query--light:
         hash: v1.k794b7964.a41935447297354c0fe7697c937ced69ee3073eb979dd167bf062743e0b10c5e.AuPDAoceAzaHLoPcX4VImFk7DfB0CevOa5HS-_7zk4o
+    data-warehouse-destinationmodal--click-house--dark:
+        hash: v1.k794b7964.966d76540d5f99fae6f8f134c5c74cc56e9002e5b41dcba5520056ea7d584a39.ICBZkWZeZ6I59AU3AdKtRhzhyPCGUNUAwMzSPHsMw0Y
+    data-warehouse-destinationmodal--click-house--light:
+        hash: v1.k794b7964.c4624ef1efd4f2e251938b8e704a756b60d74c987aac43526dc186b5c8e9cb3f.jFzHeqM9kMcrnB1CkQqA-nN2MgOQT8AJZfrfuFdJw6Q
     data-warehouse-destinationmodal--databricks--dark:
         hash: v1.k794b7964.91975ae27dd69fb9465cb84bbff2ba084313541d380541f8d8ee8c4aedf45de4.S3TVRhODbqvLS-OcpZsq3HvfqFFeYIpcfHtEBVO_ghE
     data-warehouse-destinationmodal--databricks--light:

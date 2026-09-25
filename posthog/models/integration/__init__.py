@@ -28,6 +28,7 @@ from .aws import (
     validate_aws_credentials,
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
+from .clickhouse import ClickHouseIntegration
 from .clickup import ClickUpIntegration
 from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
@@ -235,6 +236,7 @@ __all__ = [
     "DatabricksIntegration",
     "AzureBlobIntegrationError",
     "AzureBlobIntegration",
+    "ClickHouseIntegration",
     "DuplicateNameError",
     "is_unique_aws_role_by_organization_id",
     "validate_aws_credentials",

@@ -5626,6 +5626,7 @@ export const INTEGRATION_KINDS = [
     'aws-redshift',
     's3-compatible',
     'snowflake',
+    'clickhouse',
     'youtube-analytics',
 ] as const
 

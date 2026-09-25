@@ -19,6 +19,7 @@ const INTEGRATIONS = [
     'aws-s3',
     's3-compatible',
     'azure-blob',
+    'clickhouse',
 ].map((kind, index) => ({
     id: index + 1,
     kind,
@@ -76,3 +77,6 @@ S3.args = { type: 'S3' }
 
 export const AzureBlob = Template.bind({})
 AzureBlob.args = { type: 'AzureBlob' }
+
+export const ClickHouse = Template.bind({})
+ClickHouse.args = { type: 'ClickHouse' }
