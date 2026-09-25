@@ -32,6 +32,12 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 When in doubt, write a memory entry instead of filing a report. Surveys are personal data; the panic radius for a wrong "users hate feature X" report is high.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: are surveys even active?
 
 If `surveys-get-all` (with `archived: false`) returns an empty list **and** `surveys-global-stats` shows zero events in the last 30 days, surveys aren't active on this project. Write one scratchpad entry:

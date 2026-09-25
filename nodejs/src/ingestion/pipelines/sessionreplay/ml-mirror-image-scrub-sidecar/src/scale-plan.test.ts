@@ -37,6 +37,7 @@ describe('scale-plan', () => {
         expect(plan.text.content.height).toBeLessThanOrEqual(plan.frame.height)
         expect(plan.stored.width).toBeLessThanOrEqual(plan.frame.width)
         expect(plan.stored.height).toBeLessThanOrEqual(plan.frame.height)
+        expect(plan.code.scale).toBeLessThanOrEqual(1)
     })
 
     it.each(SHAPES)('keeps the frame inside its own budget for %s', (_case, width, height) => {
@@ -73,18 +74,20 @@ describe('scale-plan', () => {
 
         const textSeen = Math.min(plan.text.content.width, plan.text.content.height)
         const faceSeen = Math.min(plan.frame.width, plan.frame.height) * plan.face.scale
+        const codeSeen = Math.min(plan.frame.width, plan.frame.height) * plan.code.scale
         const kept = Math.min(plan.stored.width, plan.stored.height)
         // A stored axis floored to one pixel cannot express a ratio; such a frame carries no text.
         if (kept > 1) {
             expect(textSeen / kept).toBeGreaterThanOrEqual(required)
             expect(faceSeen / kept).toBeGreaterThanOrEqual(required)
+            expect(codeSeen / kept).toBeGreaterThanOrEqual(required)
         }
     })
 
     it('is the tightest subject that sets the ratio', () => {
         // Whichever subject has least room decides, so adding a detector can only tighten it.
         expect(bindingRatio()).toBe(Math.max(...Object.values(FLOORS).map(requiredRatio)))
-        expect(requiredRatio(FLOORS.text)).toBeCloseTo(7 / 3, 5)
+        expect(requiredRatio(FLOORS.text)).toBeCloseTo(4.3 / 3, 5)
     })
 
     it('respects the stored budget when that is the tighter bound', () => {

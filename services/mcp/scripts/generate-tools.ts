@@ -772,9 +772,8 @@ function composeToolSchema(
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
                     if (override.required) {
-                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
-                        // tool schema requires the field, matching the backend serializer.
-                        expr += '.unwrap()'
+                        // Keep the Orval field description when requiring a PATCH body field.
+                        expr += '.nonoptional()'
                         optionalParamNames.delete(paramName)
                     }
                     if (override.default !== undefined) {

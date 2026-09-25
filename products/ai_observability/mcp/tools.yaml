@@ -23,6 +23,18 @@ tools:
     ai-observability-instrumentation-checklist-retrieve:
         operation: ai_observability_instrumentation_checklist_retrieve
         enabled: false
+    ai-observability-offline-experiments-complete-create:
+        operation: ai_observability_offline_experiments_complete_create
+        enabled: false
+    ai-observability-offline-experiments-create:
+        operation: ai_observability_offline_experiments_create
+        enabled: false
+    ai-observability-offline-experiments-fail-create:
+        operation: ai_observability_offline_experiments_fail_create
+        enabled: false
+    ai-observability-offline-experiments-upload-create:
+        operation: ai_observability_offline_experiments_upload_create
+        enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
         enabled: false

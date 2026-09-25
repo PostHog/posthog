@@ -48,7 +48,13 @@ A gap would break that, which is why the buffer is emptied when capture starts a
 A snapshot that completes without the marker, because capture never ran for the table while it snapshotted, purges the whole buffer at the hand-over.
 
 A TRUNCATE resets the table, empties its buffer, and drops that run's pending changes for it.
-The reset also cancels the table's running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+The reset also pauses the table's schedule and cancels its running sync, so a snapshot that began before a repeated reset cannot hand over without the changes the reset drops.
+A cancel only asks the workflow to stop, and the loader still applies batches the sync queued, so while either is in progress the reset waits (`cdc_reset_waits_for_running_sync`).
+The table then carries `cdc_reset_pending`, capture leaves it out, and each later run tries the reset again before it reads the WAL.
+The new snapshot reads the table after the reset, so nothing skipped is lost.
+The key stays until the schedule is unpaused, so a failed unpause is retried too.
+A reset from slot-invalidation recovery marks the key `awaiting_slot` until the replacement slot exists, so no later run can unpause the table before capture has a point to resume from, and the table stays out of capture until then.
+Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 A table whose data was deleted is still streaming but not seeded; its next sync runs a full refresh and the buffer replays over it.
@@ -148,7 +154,7 @@ Capture converts that state before every read (`cdc/legacy_conversion.py`), so n
   A failed or skipped rebuild keeps `cdc_schedule_resume_pending` on the table, and the next capture run retries it, so the snapshot starts once a deliberate hold below lifts.
 - **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
 
-A rebuilt schedule is skipped where the pause is deliberate: billing paused the schema (status `Paused`), an admin-triggered run holds it, the schema is halted and waits for Repair CDC, or it has no sync frequency.
+A rebuilt schedule is skipped where the pause is deliberate: the schema's status is `Paused`, an admin-triggered run holds it, the schema is halted and waits for Repair CDC, or it has no sync frequency.
 Every step logs (`cdc_legacy_source_converted`, `cdc_legacy_snapshot_restarted_in_buffer`, `cdc_stranded_capture_jobs_closed`); once none of them appears across the fleet, the module can go.
 
 A source whose slot is gone does not capture at all, so it converts only after Repair CDC, which already resets every table and marks the source buffered.

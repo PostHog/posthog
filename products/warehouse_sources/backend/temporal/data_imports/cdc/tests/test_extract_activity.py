@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
@@ -123,6 +124,15 @@ def _stub_app_db_writes():
     # The real sync_type_config merge and the legacy-state conversion both go to the app DB, which
     # these mock-only tests don't have. The conversion has its own tests.
     with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+            return_value=None,
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_queued_batches",
+            return_value=False,
+        ),
+        patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
         patch.object(
             CDCExtractActivity,
             "_update_schema_sync_type_config",
@@ -1054,6 +1064,31 @@ class TestSlotInvalidationRecovery:
         assert "cannot recreate slot" not in schema.latest_error
         capture.reader.close.assert_called_once()
 
+    @parameterized.expand([("recreation_failed", True), ("recreation_succeeded", False)])
+    def test_a_reset_waits_for_the_new_slot_before_a_later_run_can_finish_it(self, _name, awaits_slot):
+        # A reset left pending by recovery must stay paused while the slot is missing: its snapshot
+        # would start with no consistent point for capture to resume from.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+
+        with (
+            self._invalidated_slot(source, schema) as capture,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value="users-snapshot",
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            if awaits_slot:
+                capture.adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+                with pytest.raises(RuntimeError, match="cannot recreate slot"):
+                    capture.extract()
+            else:
+                capture.extract()
+
+        unpause.assert_not_called()
+        assert schema.sync_type_config["cdc_reset_pending"]["awaiting_slot"] is awaits_slot
+
     def test_non_invalidation_errors_do_not_trigger_recovery(self):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
@@ -1866,22 +1901,44 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("cancelled", None),
-            ("already_finished", RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")),
-            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+            ("sync_still_stopping", None, None, {}, "waits"),
+            (
+                "sync_closed_with_batches_still_loading",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                30.0,
+                {},
+                "waits",
+            ),
+            (
+                "sync_closed_and_nothing_queued",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                None,
+                {},
+                "resets",
+            ),
+            (
+                "deferred_runs_left_and_nothing_queued",
+                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+                None,
+                {"cdc_deferred_runs": [{"run_uuid": "r1"}]},
+                "resets",
+            ),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, {}, "raises"),
         ]
     )
     @patch(f"{_ACTIVITIES}.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
-    def test_a_reset_stops_the_tables_running_sync_first(self, _name, cancel_error, MockJob, mock_purge):
+    def test_a_reset_stops_the_tables_running_sync_first(
+        self, _name, cancel_error, oldest_queued_batch_age, config, outcome, MockJob, mock_purge
+    ):
         # A snapshot that started before a repeated reset missed the changes the reset drops, so it
         # must not reach its hand-over.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        schema.sync_type_config.update(config)
         act = _make_extract_activity(source)
         running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
         running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
-        fails = cancel_error is not None and cancel_error.status != RPCStatusCode.NOT_FOUND
 
         with (
             patch(f"{_ACTIVITIES}.cancel_running_sync", cancel_running_sync),
@@ -1889,17 +1946,83 @@ class TestBufferedIngressCapture:
                 "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
                 side_effect=cancel_error,
             ) as cancel,
+            patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as pause,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.has_queued_batches",
+                has_queued_batches,
+            ),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.BatchQueue.get_oldest_non_terminal_batch_age_seconds",
+                return_value=oldest_queued_batch_age,
+            ),
         ):
-            if fails:
+            if outcome == "raises":
                 with pytest.raises(RPCError):
                     act._reset_schema_to_snapshot(schema)
             else:
                 act._reset_schema_to_snapshot(schema)
 
+        assert mock_purge.called is (outcome == "resets")
+        assert schema.sync_type_config.get("reset_pipeline") is (True if outcome == "resets" else None)
+        assert ("cdc_reset_pending" in schema.sync_type_config) is (outcome != "raises")
+        assert (schema.name in act._tables_awaiting_reset) is (outcome == "waits")
+        pause.assert_called_once_with(str(schema.id))
         cancel.assert_called_once_with("users-snapshot")
-        # A cancel that did not go through fails the run before the reset, so the retry repeats both.
-        assert mock_purge.called is not fails
-        assert schema.sync_type_config.get("reset_pipeline") is (None if fails else True)
+
+    @parameterized.expand(
+        [
+            ("sync_still_stopping", "users-snapshot", True),
+            ("sync_stopped", None, False),
+        ]
+    )
+    def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(self, _name, stopping_workflow_id, waits):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=stopping_workflow_id,
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            capture.extract()
+
+        assert capture.purge.called is not waits
+        assert unpause.called is not waits
+        assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
+        assert ("cdc_reset_pending" in schema.sync_type_config) is waits
+        assert capture.buffer.write_batch.called is not waits
+        capture.reader.confirm_position.assert_called_once_with("0/100")
+
+    def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self):
+        # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here
+        # would unpause the schedule, and the snapshot would start with no slot to resume from. A
+        # read that succeeds proves the slot is back, so the next run finishes the reset — recovery
+        # is not the only way out, or a failure right after the recreation would strand the table.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "awaiting_slot": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync"
+            ) as cancel,
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+        ):
+            capture.extract()
+
+        cancel.assert_not_called()
+        unpause.assert_not_called()
+        assert capture.purge.called is False
+        assert capture.buffer.write_batch.called is False
+        assert schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "awaiting_slot": False}
 
     @parameterized.expand(
         [

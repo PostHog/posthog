@@ -978,37 +978,82 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    def _create_bearer_token(self, credential: str) -> str:
+        if credential == "key":
+            return self.create_personal_api_key_with_scopes(["user:write"])
+        if credential == "full_access_key":
+            return self.create_personal_api_key_with_scopes(["*"])
+        app = OAuthApplication.objects.create(
+            name="Third-party app",
+            client_id="test_identity_guard_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_identity_guard_access_token",
+            scope="user:write",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return token.token
+
     @parameterized.expand(
         [
-            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, 403),
-            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, 403),
-            ("taken_email", {"email": "taken@example.com"}, 403),
-            ("invalid_email", {"email": "not-an-email"}, 403),
-            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, 200),
-            ("profile_field", {"first_name": "Newname"}, 200),
-            ("non_object_body", ["email", "password"], 400),
+            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, "key", True, 403),
+            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, "key", True, 403),
+            ("taken_email", {"email": "taken@example.com"}, "key", True, 403),
+            ("invalid_email", {"email": "not-an-email"}, "key", True, 403),
+            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, "key", True, 200),
+            ("profile_field", {"first_name": "Newname"}, "key", True, 200),
+            ("non_object_body", ["email", "password"], "key", True, 400),
+            ("email_with_full_access_key", {"email": "beta@example.com"}, "full_access_key", True, 403),
+            ("email_with_oauth_token", {"email": "beta@example.com"}, "oauth_token", True, 403),
+            ("password_with_oauth_token", {"password": "a_new_password"}, "oauth_token", True, 403),
+            ("first_password_on_passwordless_account", {"password": "a_new_password"}, "key", False, 403),
+            (
+                "first_password_on_passwordless_account_with_oauth_token",
+                {"password": "a_new_password"},
+                "oauth_token",
+                False,
+                403,
+            ),
         ]
     )
     @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.api.user.is_email_available", return_value=True)
     def test_token_auth_cannot_change_email_or_password(
-        self, _name: str, payload: Any, expected_status: int, _mock_is_email_available, mock_send_code
+        self,
+        _name: str,
+        payload: Any,
+        credential: str,
+        has_password: bool,
+        expected_status: int,
+        _mock_is_email_available,
+        mock_send_code,
     ):
         self.user.email = "alpha@example.com"
+        if not has_password:
+            self.user.set_unusable_password()
         self.user.save()
         User.objects.create_user("taken@example.com", "pwd1234*", "Other")
-        key = self.create_personal_api_key_with_scopes(["user:write"])
+        token = self._create_bearer_token(credential)
         self.client.logout()
 
         response = self.client.patch(
-            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {key}"
+            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
 
         assert response.status_code == expected_status, response.content
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
-        assert self.user.check_password(self.CONFIG_PASSWORD)
+        if has_password:
+            assert self.user.check_password(self.CONFIG_PASSWORD)
+        else:
+            assert not self.user.has_usable_password()
         mock_send_code.assert_not_called()
 
     @parameterized.expand(
@@ -1051,6 +1096,73 @@ class TestUserAPI(APIBaseTest):
             assert response.json()["code"] == "sensitive_action_required_reauth"
             assert self.user.pending_email is None
             mock_send_code.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("email_service_available", True, True),
+            ("email_service_unavailable", False, False),
+        ]
+    )
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    @patch("posthog.api.user.report_user_email_change_requested")
+    def test_staging_an_email_change_reports_it(
+        self,
+        _name: str,
+        email_available: bool,
+        verification_required: bool,
+        mock_report,
+        _mock_send_code,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with patch("posthog.api.user.is_email_available", return_value=email_available):
+            response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_report.assert_called_once_with(self.user, verification_required=verification_required)
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.report_user_email_change_requested")
+    def test_an_unchanged_email_reports_nothing(self, mock_report, _mock_is_email_available):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "ALPHA@example.com", "first_name": "Newname"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_report.assert_not_called()
+
+    @patch("posthog.api.user.report_user_identity_change_refused")
+    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_report):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        key = self.create_personal_api_key_with_scopes(["user:write"])
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"email": "beta@example.com"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_report.assert_called_once_with(self.user, field="email", reason="token_auth")
+
+    @patch("posthog.api.user.report_user_identity_change_refused")
+    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_report):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - settings.SESSION_FRESH_REAUTH_AGE - 1
+        session.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
 
     def test_email_change_rejected_when_new_email_is_plus_addressed(self):
         self.user.email = "alpha@example.com"
@@ -2361,6 +2473,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
+                "data_catalog_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2385,6 +2498,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_daily": True,
                 "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
+                "data_catalog_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
                 "pipeline_notifications_disabled": {},
@@ -2657,6 +2771,7 @@ class TestUserAPI(APIBaseTest):
                 "materialized_view_sync_failed_daily": True,  # Default value
                 "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
+                "data_catalog_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
                 "pipeline_notifications_disabled": {},  # Default value

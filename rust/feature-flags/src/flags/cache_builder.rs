@@ -51,9 +51,7 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let (mut flags, undecodable) =
-        FeatureFlagList::from_pg_keeping_undecodable(pg_reader.clone(), team_id).await?;
-    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    let mut flags = load_supported_flags(pg_reader.clone(), team_id).await?;
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -77,10 +75,21 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
     flag.active && !flag.deleted
 }
 
+/// The team's rows minus those this cache cannot carry; the PostgreSQL fallback loads here too.
+pub(crate) async fn load_supported_flags(
+    pg_reader: PostgresReader,
+    team_id: TeamId,
+) -> Result<Vec<FeatureFlag>, FlagError> {
+    let (mut flags, undecodable) =
+        FeatureFlagList::from_pg_keeping_undecodable(pg_reader, team_id).await?;
+    omit_unsupported_flags(team_id, &mut flags, &undecodable);
+    Ok(flags)
+}
+
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
-/// non-v1 and non-object documents whatever their lifecycle, and evaluable v1 objects the
-/// typed decoder rejected. Mirrors Python's `_omit_unsupported_flags()` in
-/// `products/feature_flags/backend/flags_cache.py`, where the rationale lives.
+/// non-v1 documents unless active and their v2 parse succeeded, non-object documents
+/// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
+/// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
 fn omit_unsupported_flags(
     team_id: TeamId,
     flags: &mut Vec<FeatureFlag>,
@@ -89,15 +98,20 @@ fn omit_unsupported_flags(
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
-            !flag.filters.is_v1()
-                || match undecodable.get(&flag.id) {
-                    Some(UndecodableDocument::NotAnObject) => true,
-                    Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
-                    None => false,
-                }
+            if !flag.filters.is_v1() {
+                return !(is_evaluable(flag) && flag.filters.supported_v2().is_some());
+            }
+            match undecodable.get(&flag.id) {
+                Some(UndecodableDocument::NotAnObject) => true,
+                Some(UndecodableDocument::UnreadableV1Object) => is_evaluable(flag),
+                None => false,
+            }
         })
         .map(|flag| flag.id)
         .collect();
+    if unsupported.is_empty() {
+        return;
+    }
     let mut dependents: HashMap<FeatureFlagId, Vec<FeatureFlagId>> = HashMap::new();
     for flag in flags.iter() {
         for dependency_id in extract_direct_flag_dependency_ids(flag) {
@@ -113,18 +127,16 @@ fn omit_unsupported_flags(
             }
         }
     }
-    if !excluded.is_empty() {
-        let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
-        unsupported_flag_ids.sort_unstable();
-        let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
-        dependent_flag_ids.sort_unstable();
-        tracing::warn!(
-            team_id,
-            ?unsupported_flag_ids,
-            ?dependent_flag_ids,
-            "Omitted flags the service cache cannot carry"
-        );
-    }
+    let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
+    unsupported_flag_ids.sort_unstable();
+    let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
+    dependent_flag_ids.sort_unstable();
+    tracing::warn!(
+        team_id,
+        ?unsupported_flag_ids,
+        ?dependent_flag_ids,
+        "Omitted flags the service cache cannot carry"
+    );
     flags.retain(|flag| !excluded.contains(&flag.id));
 }
 
@@ -1169,9 +1181,11 @@ mod tests {
             if flag["expect"] != "kept" {
                 continue;
             }
-            let filters = serde_json::to_value(&published[&ids[key]].filters).unwrap();
+            let filters = serde_json::to_value(published[&ids[key]]).unwrap()["filters"].take();
             if flag["blanked"] == true {
                 assert_eq!(filters, serde_json::json!({"groups": []}), "{key}");
+            } else if flag["filters"]["version"] == 2 {
+                assert_eq!(filters, flag["filters"], "{key}");
             } else {
                 // Group count and payloads rather than the whole document, because a
                 // JSONB round trip renders `rollout_percentage` as a float.

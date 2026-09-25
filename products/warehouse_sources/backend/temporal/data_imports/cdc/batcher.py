@@ -231,12 +231,16 @@ def enrich_delete_rows(
 
     pk_arrays = [table.column(col).to_pylist() for col in present_pks]
 
-    # Build lookup: pk_tuple -> data from last non-DELETE row in this batch
-    batch_lookup: dict[tuple, dict[str, object]] = {}
+    # Each DELETE row's index -> data from the last non-DELETE row before it with the same PK. A row
+    # after the delete is a re-insert of the key, not the state the delete removed.
+    latest_by_key: dict[tuple, dict[str, object]] = {}
+    batch_lookup: dict[int, dict[str, object]] = {}
     for i, op in enumerate(ops):
+        key = tuple(arr[i] for arr in pk_arrays)
         if op != "D":
-            key = tuple(arr[i] for arr in pk_arrays)
-            batch_lookup[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+            latest_by_key[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+        elif key in latest_by_key:
+            batch_lookup[i] = latest_by_key[key]
 
     # Build lookup from existing DeltaLake rows (cross-batch fallback)
     existing_lookup: dict[tuple, dict[str, object]] = {}
@@ -260,7 +264,7 @@ def enrich_delete_rows(
 
     for i in delete_indices:
         key = tuple(arr[i] for arr in pk_arrays)
-        source = batch_lookup.get(key) or existing_lookup.get(key)
+        source = batch_lookup.get(i) or existing_lookup.get(key)
         if source:
             for col in all_data_cols:
                 # Only fill if the DELETE row's column is currently null

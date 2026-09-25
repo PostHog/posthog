@@ -374,6 +374,11 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     Runs holding a failed batch are excluded by the query, matching the loader's claim gate — their
     remaining batches can never be claimed, so they cannot write anything to collide with.
     """
+    return has_queued_batches(schema)
+
+
+def has_queued_batches(schema: ExternalDataSchema) -> bool:
+    """Whether any batch of this schema is still waiting or loading in the queue."""
     conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
     try:
         age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(

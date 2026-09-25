@@ -168,9 +168,9 @@ def _start_restarted_snapshot(schema: ExternalDataSchema, logger: FilteringBound
 def _resume_schedule(schema: ExternalDataSchema, *, trigger: bool) -> bool:
     """Rebuild the table's schedule unpaused, and create it if it is missing. Returns whether it did.
 
-    A plain unpause does nothing to a missing schedule. Skipped where the pause is deliberate:
-    billing pauses a schema (status Paused) and lifts the pause itself, an admin-triggered run holds
-    the schedule until it finishes, and a broken source waits for Repair CDC, which unpauses it. A
+    A plain unpause does nothing to a missing schedule. Skipped where the pause is deliberate: a
+    schema whose status is Paused, an admin-triggered run that holds the schedule until it finishes,
+    and a broken source that waits for Repair CDC, which unpauses it. A
     capture pause is not checked, because capture is running, so that pause is over. A schema with
     no sync frequency is skipped because the schedule builder cannot turn a null interval into a
     cadence.

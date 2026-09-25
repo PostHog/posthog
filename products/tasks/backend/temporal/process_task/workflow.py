@@ -220,6 +220,7 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    sandbox_backend: str | None = None
 
 
 @frozen
@@ -1981,6 +1982,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 image_source=self._image_source,
                 agent_ready_at=self._agent_ready_at.isoformat() if self._agent_ready_at else None,
                 agent_boot_interaction_telemetry_enabled=self._agent_boot_interaction_telemetry_enabled,
+                sandbox_backend=self.context.sandbox_backend,
             ),
         )
 
@@ -2027,7 +2029,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(
+                run_id=input.run_id,
+                create_pr=input.create_pr,
+                resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
+                resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
+            ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -2860,6 +2867,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
                 ),
                 seconds_since_last_agent_heartbeat=seconds_since_last_agent_heartbeat,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
