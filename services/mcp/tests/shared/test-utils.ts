@@ -685,6 +685,7 @@ export function makeToolExecutorState(
             isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
+            isAnthropicConnector: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
