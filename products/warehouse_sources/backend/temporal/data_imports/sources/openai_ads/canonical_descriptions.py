@@ -9,6 +9,7 @@ _INSIGHTS_COMMON_COLUMNS = {
     "readable_time": "Human-readable bucket label, e.g. the bucket's calendar date for daily granularity.",
     "impressions": "Number of times ads were shown during the bucket.",
     "clicks": "Number of clicks recorded during the bucket.",
+    "currency_code": "Account currency code fetched from the ad account metadata for this sync.",
     "spend": "Amount spent during the bucket, in the ad account's currency (decimal, not micros).",
     "ctr": "Click-through rate: clicks divided by impressions.",
     "cpc": "Average cost per click, in the ad account's currency.",
