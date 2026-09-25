@@ -36,8 +36,8 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 def decisions_available_here() -> bool:
-    """Dark launch: local development and the US cloud only, so no flag or setting can bring it up in the EU."""
-    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+    """Decisions are available in local development and the supported cloud regions."""
+    return bool(settings.DEBUG) or (settings.CLOUD_DEPLOYMENT or "").upper() in {"US", "EU"}
 
 
 def decisions_enabled(team_id: int) -> bool:

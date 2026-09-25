@@ -3753,9 +3753,37 @@ snapshots:
     layout-apps-and-files--collapsed--light:
         hash: v1.k794b7964.4e69eef40e28d9b063759264639ee685ce796c07a623bd78aabb7cc51a6eea59.EquaH8oP-2UUsgXNQGDkK-ZZWpWsFWL2U-K1tVlOOpM
     layout-apps-and-files--configure-starred--dark:
-        hash: v1.k794b7964.197e8b7d21de6bf648e423849276256b897f1c43b5578180da6c207094e2e4d0.CWse8jMS1-xZVZZscUcyPqqiujsKn_m7yWZgYH2gbY0
+        hash: v1.k794b7964.b985cb6d0ae8abbf5b8861c0636b61b0777db222e7c406a861fb52838581403b.F-Oc_2q_aIpUAnTaN0MIdqfnuuxQFGtjHAMXe_GRKQ8
     layout-apps-and-files--configure-starred--light:
-        hash: v1.k794b7964.e4e9b887e700c2e0c7c7a5e1e3a44900b6ed18810a623fc02e0353ad0b69742a.AxSAfKYfleVQexMIuk2yH1XceCBBAh2wzntfRcr5jFk
+        hash: v1.k794b7964.58a49cc3968b2b4edbdd63c23c1bc403de6baf139279c439742c806edc2cebf2.YukOaD3pa-PYI5ld9r3mx9tX9jZZTF_mcfA-BN_LgvI
+    layout-apps-and-files--configure-starred-dark--dark:
+        hash: v1.k794b7964.3c6867f1ae141bbff3c2f16b3db27702d056e5bbde54745832d3b5ab4343c7d6.LgjKRJ5sf0Ue-TWxQRIx-umiTYRrd5b0R2doFN8fVFs
+    layout-apps-and-files--configure-starred-dark--light:
+        hash: v1.k794b7964.c41d59fcbb00498a1b495a7a5a48d2c722b7461b6cf7c838701b67acc10788b0.vQrfGtZtBmKwTe4cAaio1WQPmeeCjyjomZLc4DLjyiI
+    layout-apps-and-files--configure-starred-narrow--dark:
+        hash: v1.k794b7964.71fb63708d10f03747a5311efd33d5b77073f0d716a43653747577acebd6e3f0.NlGx1_VO2btqy6nmoKNN_H03j1VfSETZeg-EHApv5To
+    layout-apps-and-files--configure-starred-narrow--light:
+        hash: v1.k794b7964.9dc7847d52e45ded3f8e9e7406e8eab28f47b657d6e33bee722418c643d30b6f.xXyidtOV_J9ILiXgselzlMkq-wpWIiuHxMi8-E9lKiI
+    layout-apps-and-files--configure-starred-no-matches--dark:
+        hash: v1.k794b7964.dc94ad2058e55763d4708f87a05fbc80004300a9747968d79eeb759af50ef119.65-rFezcTWEhqANoNq8UYcMkJVPIPhJj3uKKB22_zIA
+    layout-apps-and-files--configure-starred-no-matches--light:
+        hash: v1.k794b7964.9afe63c5cc31e4464f13e2d5fe255a3527b21813a9066a3ff90e5f8fb91adebf.y-pDhT7Am4dHfwNZEWDwZEmCKQLAA-VbtSgJB7Ulcs4
+    layout-apps-and-files--configure-starred-ranked--dark:
+        hash: v1.k794b7964.3c6867f1ae141bbff3c2f16b3db27702d056e5bbde54745832d3b5ab4343c7d6.BM9HYwUIV-hbrBPVwZwzTLjVe3QzXmx9w3jtphkeFHE
+    layout-apps-and-files--configure-starred-ranked--light:
+        hash: v1.k794b7964.145a902cc4812653ad196ca45aed7ad5f8038fcfa3286cd8a2734ed8300d00e9.3SQAfa4gD_I1sa5Zlk35skA6m41aDQ1jpCgm9kqyRtg
+    layout-apps-and-files--configure-starred-save-failure--dark:
+        hash: v1.k794b7964.b58b75b3c213aa5dee4842ffe019e75fb506519d0c6aa339552a7adb4a19e10d.cuVWhk2cTvWgg5dRWfpeQndRl9lxX6aYVja-aKzKP3o
+    layout-apps-and-files--configure-starred-save-failure--light:
+        hash: v1.k794b7964.0ba735108ff21724afa243444c6c7d4c0545e58228dbcebb139633949b932b91.Tafl7FnOp-vBtMLMsZVYbxOO918u-r1LygpY0pGeya4
+    layout-apps-and-files--configure-starred-unavailable--dark:
+        hash: v1.k794b7964.bc9dd1a67e8f804fb680ad8a7b055bced532bfccb516cf96c0ccdc8741f58127.4_bibVoJrm4tAQzFGKJ0S2O8uCDd3eufL6lfBbJbv3c
+    layout-apps-and-files--configure-starred-unavailable--light:
+        hash: v1.k794b7964.3901e12610abd2fde2cddaebc1c09d551941b0bf39efdbca67b8e67f3b9bbb71.YjpRHorttVNo2KL1WLmapKxl0A9KGXCuD60viD2gDWo
+    layout-apps-and-files--configure-starred-without-ai-consent--dark:
+        hash: v1.k794b7964.197e8b7d21de6bf648e423849276256b897f1c43b5578180da6c207094e2e4d0.w0zEOq7uRHwzRCNA1amr1eClAeK_3XdsJ3UQ49j7swM
+    layout-apps-and-files--configure-starred-without-ai-consent--light:
+        hash: v1.k794b7964.895a0c8665ec8d1f32275fc270649d529f1bb4ffc7231ef1938486c3c805d499.8aJzVWH9dQz9uUCdATPoFLZ-G-0aKF-arFBBKT9vNjU
     layout-apps-and-files--dark--dark:
         hash: v1.k794b7964.bc8ed5f9038a33b7fb58ab8aeaca459fc01760b9d4a6fb39cf7314d2923f1e07.TYALwAUfZ0I99Cd_fVwcYUPeQLkhkqtrYn2exs2ilw0
     layout-apps-and-files--dark--light:
