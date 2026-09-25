@@ -476,9 +476,11 @@ email@example.org
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
-        analytics_metadata = patch_capture.call_args[0][2]
-        self.assertTrue(analytics_metadata["is_static"])
-        self.assertTrue(analytics_metadata["has_csv"])
+        self.assertEqual(patch_capture.call_count, 1)
+        _, event_name, analytics_metadata = patch_capture.call_args[0]
+        self.assertEqual(event_name, "cohort created")
+        self.assertIs(analytics_metadata["is_static"], True)
+        self.assertIs(analytics_metadata["has_csv"], True)
         # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
         distinct_ids = _cohort_member_distinct_ids(cohort.team_id, cohort)
         self.assertEqual(distinct_ids, {"123", "0"})
