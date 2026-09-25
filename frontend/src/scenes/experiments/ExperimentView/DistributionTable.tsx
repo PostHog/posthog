@@ -16,6 +16,7 @@ import {
 
 import { AuthorizedUrlList } from '~/lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from '~/lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { CopyToClipboardInline } from '~/lib/components/CopyToClipboard'
 import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { IconOpenInApp } from '~/lib/lemon-ui/icons'
 import {
@@ -109,7 +110,8 @@ export function DistributionModal(): JSX.Element {
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
     const { experiment, excludedVariants, experimentUpdateLoading } = useValues(experimentLogic)
-    const { reportExperimentReleaseConditionsViewed, setVariantExcluded } = useActions(experimentLogic)
+    const { reportExperimentReleaseConditionsViewed, reportExperimentVariantPreviewOpened, setVariantExcluded } =
+        useActions(experimentLogic)
 
     const excludedVariantsEnabled = useFeatureFlag('EXPERIMENTS_EXCLUDED_VARIANTS')
 
@@ -125,17 +127,32 @@ export function DistributionTable(): JSX.Element {
         variants.filter(({ key }) => key !== baselineKey && !excludedVariants.includes(key)).length <= 1
 
     const onSelectElement = (variant: string): void => {
+        const previewQuery = `?__experiment_id=${experiment?.id}&__experiment_variant=${variant}`
+        reportExperimentVariantPreviewOpened(experiment.id, variant)
         LemonDialog.open({
             title: 'Select a domain',
             description: 'Choose the domain on which to preview this experiment variant',
             content: (
-                <>
+                <div className="flex flex-col gap-2">
+                    <LemonBanner type="info">
+                        <p>
+                            Each link opens the address in the list. If you changed a different page, open that page and
+                            add these parameters to the end of its address:
+                        </p>
+                        <CopyToClipboardInline description="preview parameters" explicitValue={previewQuery}>
+                            <code>{previewQuery}</code>
+                        </CopyToClipboardInline>
+                        <p className="mt-2 mb-0">
+                            If your site still shows the original page, initialize posthog-js with{' '}
+                            <code>disable_web_experiments: false</code>.
+                        </p>
+                    </LemonBanner>
                     <AuthorizedUrlList
-                        query={'?__experiment_id=' + experiment?.id + '&__experiment_variant=' + variant}
+                        query={previewQuery}
                         experimentId={experiment?.id}
                         type={AuthorizedUrlListType.WEB_EXPERIMENTS}
                     />
-                </>
+                </div>
             ),
             primaryButton: {
                 children: 'Close',
