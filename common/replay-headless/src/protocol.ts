@@ -33,6 +33,10 @@ export interface PlayerConfig {
     viewportEvents?: ViewportEvent[]
 }
 
+// Height of the metadata footer overlay. Keep in step with the `#metadata-footer` height in
+// index.html; the rasterizer crops this band off before it judges whether a frame painted.
+export const METADATA_FOOTER_HEIGHT_PX = 32
+
 export interface PlayerError {
     code: string
     message: string

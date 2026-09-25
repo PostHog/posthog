@@ -5,6 +5,7 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
+import { assertCaptureIsNotBlank } from '~/session-replay/recording-rasterizer/capture/blank-capture'
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
@@ -132,6 +133,10 @@ async function rasterizeRecordingActivity(
         })
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
+        // After rasterizeRecording returns, so the probe no longer holds a browser-pool slot, and
+        // before the success metrics and the upload, so a video with nothing in it neither counts as
+        // a rendered capture nor reaches a caller.
+        await assertCaptureIsNotBlank(outputPath, result.capture_duration_s, !!input.show_metadata_footer, log)
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
 

@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises'
 
+import { assertCaptureIsNotBlank } from '~/session-replay/recording-rasterizer/capture/blank-capture'
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
@@ -39,6 +40,7 @@ jest.mock('@temporalio/common', () => ({
     },
 }))
 
+jest.mock('~/session-replay/recording-rasterizer/capture/blank-capture')
 jest.mock('~/session-replay/recording-rasterizer/capture/recorder')
 jest.mock('~/session-replay/recording-rasterizer/storage')
 jest.mock('~/session-replay/recording-rasterizer/metrics')
@@ -54,6 +56,7 @@ jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
 
 const { ApplicationFailure } = require('@temporalio/common')
 const mockedRasterizeRecording = rasterizeRecording as jest.MockedFunction<typeof rasterizeRecording>
+const mockedAssertCaptureIsNotBlank = assertCaptureIsNotBlank as jest.MockedFunction<typeof assertCaptureIsNotBlank>
 const mockedUploadToS3 = uploadToS3 as jest.MockedFunction<typeof uploadToS3>
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
@@ -168,6 +171,18 @@ describe('rasterizeRecordingActivity', () => {
         mockSuccessfulRecording({ capture_duration_s: 39.96 })
         const result = await rasterizeRecordingActivity(baseInput())
         expect(result.video_duration_s).toBe(39.96)
+    })
+
+    it('uploads nothing when the capture came out blank', async () => {
+        // A blank video reads downstream as a broken page, so it must never reach a caller.
+        mockSuccessfulRecording()
+        mockedAssertCaptureIsNotBlank.mockRejectedValueOnce(
+            new RasterizationError('Capture is blank', true, 'BLANK_CAPTURE')
+        )
+
+        await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('Capture is blank')
+
+        expect(mockedUploadToS3).not.toHaveBeenCalled()
     })
 
     describe('temp file cleanup', () => {

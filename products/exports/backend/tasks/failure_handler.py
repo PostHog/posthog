@@ -104,6 +104,9 @@ RASTERIZATION_CODE_TO_FAILURE_TYPE: dict[str, str] = {
     "NO_SNAPSHOTS": FAILURE_TYPE_USER,
     "INVALID_INPUT": FAILURE_TYPE_USER,
     "RECORDING_TOO_LARGE": FAILURE_TYPE_USER,
+    # The render finished but drew nothing. A blank video is our renderer's fault, not the
+    # recording's, so it belongs in front of whoever watches infra alerts.
+    "BLANK_CAPTURE": FAILURE_TYPE_SYSTEM,
     # Reaching the recording's data failed, which nobody exporting it can do anything about.
     "DATA_LOAD_FAILED": FAILURE_TYPE_SYSTEM,
     "S3_UPLOAD_UNDECODABLE_RESPONSE": FAILURE_TYPE_SYSTEM,
@@ -134,6 +137,7 @@ _RASTERIZATION_MESSAGES: dict[str, str] = {
     "NO_SNAPSHOTS": "This recording has no playable data, so there is nothing to export.",
     "INVALID_INPUT": "This export request was not valid. Contact support if it keeps happening.",
     "RECORDING_TOO_LARGE": "This recording is too large to render as a video.",
+    "BLANK_CAPTURE": "The video of this recording came out blank, so we did not save it. Try the export again.",
     "DATA_LOAD_FAILED": "We could not load this recording's data. Try the export again in a few minutes.",
     "S3_UPLOAD_UNDECODABLE_RESPONSE": "The finished video could not be saved. Try the export again.",
     "S3_UPLOAD_FAILED": "The finished video could not be saved. Try the export again.",
