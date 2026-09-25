@@ -116,11 +116,11 @@ def project_comment_activity(
             )
         else:
             owner_id = target_owner_id
-            if owner_id is None and comment.scope == "task_artifact":
+            if owner_id is None and comment.scope == "task_artifact" and task is not None:
                 try:
                     owner_id = (
                         TaskArtifact.objects.for_team(team_id)
-                        .filter(task_id=task_id, id=comment.item_id)
+                        .filter(task_id=task.id, id=comment.item_id)
                         .values_list("created_by_id", flat=True)
                         .first()
                     )

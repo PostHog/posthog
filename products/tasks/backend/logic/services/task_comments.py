@@ -380,7 +380,7 @@ def retrieve_comment(
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
     return _retrieve_thread(
-        comments=_comments(team_id, task_id),
+        base_comments=_comments(team_id, task_id),
         target_names=lambda roots: _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots),
         comment_id=comment_id,
         limit=limit,
@@ -402,7 +402,7 @@ def retrieve_canvas_comment(
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
     return _retrieve_thread(
-        comments=_canvas_comments(team_id, canvas_id),
+        base_comments=_canvas_comments(team_id, canvas_id),
         target_names=lambda roots: {("canvas", str(canvas_id)): canvas_name},
         comment_id=comment_id,
         limit=limit,
@@ -414,7 +414,7 @@ def retrieve_canvas_comment(
 
 def _retrieve_thread(
     *,
-    comments: QuerySet[Comment],
+    base_comments: QuerySet[Comment],
     target_names: TargetNames,
     comment_id: UUID,
     limit: int,
@@ -422,15 +422,15 @@ def _retrieve_thread(
     content_comment_id: UUID | None,
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
-    root = comments.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
+    root = base_comments.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
     if root is None:
         return None
     latest_state_reply = (
-        comments.filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
+        base_comments.filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
         .order_by("-created_at", "-id")
         .first()
     )
-    thread_comments_qs = comments.filter(Q(id=root.id) | Q(source_comment_id=root.id)).filter(
+    thread_comments_qs = base_comments.filter(Q(id=root.id) | Q(source_comment_id=root.id)).filter(
         Q(id=root.id)
         | Q(item_context__isnull=True)
         | ~Q(item_context__has_key="threadState")
