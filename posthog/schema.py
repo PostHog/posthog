@@ -6081,16 +6081,13 @@ class MCPToolQualityRowItem(BaseModel):
             " previous unit."
         ),
     )
-    previous_error_rate_pct: float | None = Field(
-        default=None,
-        description=("Error rate in the previous period, or null when the tool had no calls then."),
-    )
+    previous_errors: int = Field(..., description="Errored calls in the previous period.")
     previous_p95_duration_ms: float | None = Field(
-        default=None,
-        description=("p95 duration in the previous period, or null when the tool had no calls then."),
+        ...,
+        description=("p95 duration in the previous period, or null when no previous call carried a duration."),
     )
-    previous_sessions: int | None = Field(
-        default=None,
+    previous_sessions: int = Field(
+        ...,
         description="Distinct sessions that called the tool in the previous period.",
     )
     sessions: int
@@ -13179,8 +13176,8 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
-    previousTotalSessions: int | None = Field(
-        default=None,
+    previousTotalSessions: int = Field(
+        ...,
         description=("The same total for the previous period, the denominator for each row's previous session share."),
     )
     query_metadata: dict[str, Any] | None = None
@@ -19117,8 +19114,8 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    previousTotalSessions: int | None = Field(
-        default=None,
+    previousTotalSessions: int = Field(
+        ...,
         description=("The same total for the previous period, the denominator for each row's previous session share."),
     )
     query_status: QueryStatus | None = Field(
@@ -24266,8 +24263,8 @@ class QueryResponseAlternative104(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    previousTotalSessions: int | None = Field(
-        default=None,
+    previousTotalSessions: int = Field(
+        ...,
         description=("The same total for the previous period, the denominator for each row's previous session share."),
     )
     query_status: QueryStatus | None = Field(

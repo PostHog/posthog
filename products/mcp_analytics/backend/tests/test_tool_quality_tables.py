@@ -44,7 +44,7 @@ def _emit(
     exec_tool_name: str | None = None,
     category: str | None = None,
     is_error: bool = False,
-    duration_ms: float = 100,
+    duration_ms: float | None = 100,
     session_id: str = "s1",
     mcp_session_id: str | None = None,
     distinct_id: str = "d1",
@@ -54,11 +54,12 @@ def _emit(
         "$mcp_tool_name": tool_name,
         "$mcp_source": NEW_SDK_SOURCE,
         "$mcp_is_error": is_error,
-        "$mcp_duration_ms": duration_ms,
         "$session_id": session_id,
     }
     if mcp_session_id is not None:
         properties["$mcp_session_id"] = mcp_session_id
+    if duration_ms is not None:
+        properties["$mcp_duration_ms"] = duration_ms
     if category is not None:
         properties["$mcp_tool_category"] = category
     if exec_tool_name is not None:
@@ -274,13 +275,17 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
             _emit(self.team, tool_name="steady_tool", duration_ms=1000, timestamp=previous_window)
         _emit(self.team, tool_name="steady_tool", duration_ms=100, timestamp=now)
         _emit(self.team, tool_name="new_tool", timestamp=now)
+        _emit(self.team, tool_name="untimed_tool", duration_ms=None, timestamp=previous_window)
+        _emit(self.team, tool_name="untimed_tool", timestamp=now)
         flush_persons_and_events()
 
         rows = {row.tool: row for row in self._run().results}
 
-        assert (rows["steady_tool"].error_rate_pct, rows["steady_tool"].previous_error_rate_pct) == (0, 25)
+        assert (rows["steady_tool"].errors, rows["steady_tool"].previous_errors) == (0, 1)
         assert (rows["steady_tool"].p95_duration_ms, rows["steady_tool"].previous_p95_duration_ms) == (100, 1000)
-        assert (rows["new_tool"].previous_error_rate_pct, rows["new_tool"].previous_p95_duration_ms) == (None, None)
+        assert (rows["new_tool"].previous_errors, rows["new_tool"].previous_p95_duration_ms) == (0, None)
+        # Previous calls exist but none carried a duration, so there is no previous p95 to compare.
+        assert rows["untimed_tool"].previous_p95_duration_ms is None
 
     def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
         now = datetime.now(tz=UTC)

@@ -209,8 +209,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                     / (previous_calls + greatest({_min_k}, round({_volume_fraction} * sum(total_calls) OVER ())))
                     AS trend_score,
                 count() OVER () AS total_count,
-                if(previous_calls = 0, NULL, round(previous_errors * 100.0 / previous_calls, 1))
-                    AS previous_error_rate_pct,
+                previous_errors,
                 if(previous_calls = 0 OR isNaN(previous_p95), NULL, previous_p95) AS previous_p95_duration_ms,
                 previous_sessions
             FROM (
@@ -362,7 +361,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 first_seen=str(row[10] or ""),
                 last_seen=str(row[11] or ""),
                 trend_score=float(row[12] or 0),
-                previous_error_rate_pct=None if row[14] is None else float(row[14]),
+                previous_errors=int(row[14] or 0),
                 previous_p95_duration_ms=None if row[15] is None else float(row[15]),
                 previous_sessions=int(row[16] or 0),
             )

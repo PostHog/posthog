@@ -11633,6 +11633,7 @@
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
+                "previousTotalSessions",
                 "results",
                 "timezone",
                 "totalCount",
@@ -33613,12 +33614,12 @@
                     "$ref": "#/definitions/integer",
                     "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
                 },
-                "previous_error_rate_pct": {
-                    "description": "Error rate in the previous period, or null when the tool had no calls then.",
-                    "type": ["number", "null"]
+                "previous_errors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Errored calls in the previous period."
                 },
                 "previous_p95_duration_ms": {
-                    "description": "p95 duration in the previous period, or null when the tool had no calls then.",
+                    "description": "p95 duration in the previous period, or null when no previous call carried a duration.",
                     "type": ["number", "null"]
                 },
                 "previous_sessions": {
@@ -33655,7 +33656,10 @@
                 "sessions",
                 "first_seen",
                 "last_seen",
-                "trend_score"
+                "trend_score",
+                "previous_errors",
+                "previous_p95_duration_ms",
+                "previous_sessions"
             ],
             "type": "object"
         },
@@ -33798,7 +33802,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "totalCount", "totalSessions"],
+            "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
             "type": "object"
         },
         "MCPToolQualitySortColumn": {
@@ -48367,7 +48371,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results", "totalCount", "totalSessions"],
+                    "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
                     "type": "object"
                 },
                 {
