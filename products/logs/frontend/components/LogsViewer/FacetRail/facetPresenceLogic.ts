@@ -10,10 +10,9 @@ import { logsAttributesRetrieve } from '../../../generated/api'
 import { customFacetsLogic } from './customFacetsLogic'
 import { FACETS, FacetConfig, presenceProbeKeys, presenceProbeWindow, resolveFacets } from './facets'
 
-// The curated keys the probe asks about. Asking for exact keys, rather than listing the top-N keys by
-// volume, keeps a facet from vanishing for tenants that emit many resource attributes.
-// The window goes out as flat date_from/date_to: the generated client String()s object params, so a
-// dateRange object would arrive as "[object Object]" and the backend would fall back to the last hour.
+// Request the exact keys used by curated facets. Other resource keys cannot hide a facet.
+// Send date_from and date_to as separate parameters. The generated client converts objects to strings.
+// A dateRange object becomes "[object Object]". The endpoint then uses its one-hour fallback.
 const PRESENCE_KEYS = presenceProbeKeys(FACETS)
 
 export interface FacetPresenceLogicProps {
@@ -127,7 +126,7 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
 
     selectors({
         presenceWindow: [(s) => [s.utcDateRange], (utcDateRange) => presenceProbeWindow(utcDateRange)],
-        // A string, so a fresh-but-equal window object doesn't re-probe.
+        // Use a string so an equal window object does not start another probe.
         presenceWindowSignature: [(s) => [s.presenceWindow], (presenceWindow) => JSON.stringify(presenceWindow)],
         // Column facets always render; resource-attribute facets only when the tenant emits the key (or one
         // of its aliases, which resolution rewrites the facet onto). Custom facets skip that presence gate
@@ -153,7 +152,7 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
     })),
 
     subscriptions(({ actions }) => ({
-        // Only a selection that starts before the default window moves the probe; ranges inside it don't refetch.
+        // A change between recent selections does not change the signature or start a new probe.
         presenceWindowSignature: (signature: string, previous: string | undefined) => {
             if (previous !== undefined && signature !== previous) {
                 actions.loadPresentResourceKeys()

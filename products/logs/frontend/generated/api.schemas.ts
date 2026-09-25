@@ -2872,12 +2872,12 @@ export type LogsAttributesRetrieveParams = {
      */
     dateRange?: _DateRangeApi
     /**
-     * Start of the date range, as a flat param. Only read when dateRange is not sent.
+     * Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
      * @minLength 1
      */
     date_from?: string
     /**
-     * End of the date range, as a flat param. Only read when dateRange is not sent.
+     * End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
      * @minLength 1
      */
     date_to?: string
@@ -2886,7 +2886,7 @@ export type LogsAttributesRetrieveParams = {
      */
     filterGroup?: _LogPropertyFilterApi[]
     /**
-     * Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.
+     * Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.
      * @minLength 1
      */
     keys?: string

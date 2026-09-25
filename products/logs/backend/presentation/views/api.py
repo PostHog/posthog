@@ -216,15 +216,15 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
     )
     keys = serializers.CharField(
         required=False,
-        help_text="Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.",
+        help_text="Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
     )
     date_from = serializers.CharField(
         required=False,
-        help_text="Start of the date range, as a flat param. Only read when dateRange is not sent.",
+        help_text="Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
     )
     date_to = serializers.CharField(
         required=False,
-        help_text="End of the date range, as a flat param. Only read when dateRange is not sent.",
+        help_text="End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
     )
     serviceNames = serializers.ListField(
         child=serializers.CharField(),

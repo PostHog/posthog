@@ -30239,7 +30239,7 @@ class LogAttributesQuery(BaseModel):
     )
     attributeKeys: list[str] | None = Field(
         default=None,
-        description=("Only return these exact attribute keys. Used to check whether specific keys are present."),
+        description=("Return only attribute keys that exactly match an entry in this list."),
     )
     attributeType: str
     dateRange: DateRange | None = None

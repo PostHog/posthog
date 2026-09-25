@@ -162,7 +162,8 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
         return query
 
     def _key_filter(self) -> ast.Expr:
-        # Kept out of where(): where() also scopes the resource-fingerprint subquery, which has no attribute_key.
+        # Keep this filter out of where(). That method also filters the resource fingerprint subquery.
+        # The subquery has no attribute_key.
         if not self.query.attributeKeys:
             return ast.Constant(value=True)
         return parse_expr(

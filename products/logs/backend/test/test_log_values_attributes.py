@@ -437,8 +437,8 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # 100 filler keys on two logs outrank an environment key on one log, so a plain top-100 listing
-        # drops the environment key. The facet rail presence probe has to survive this case.
+        # The 100 filler keys occur in two logs. The environment key occurs in one log.
+        # A list of the 100 most common keys omits the environment key. The facet probe must find it.
         filler = dict.fromkeys(cls.FILLER_KEYS, "x")
         resources = [
             {"service.name": "api", **filler},
@@ -482,7 +482,7 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_keys_survive_resource_attribute_filter(self):
-        # The key predicate must stay out of the resource-fingerprint subquery, which has no attribute_key.
+        # Keep the key filter out of the resource fingerprint subquery. That subquery has no attribute_key.
         filter_group = json.dumps(
             {
                 "type": "AND",

@@ -17,7 +17,7 @@ describe('facetPresenceLogic', () => {
     beforeEach(() => {
         requestParams = null
         emittedKeys = []
-        // Mocked at the HTTP layer, not the generated client, so the request goes through the generated URL builder.
+        // Mock the HTTP response so the request uses the generated client's URL builder.
         useMocks({
             get: {
                 '/api/projects/:team_id/logs/attributes/': ({ request }) => {
@@ -44,9 +44,9 @@ describe('facetPresenceLogic', () => {
 
         expect(requestParams?.get('attribute_type')).toEqual('resource')
         expect(requestParams?.get('keys')?.split(',')).toEqual(presenceProbeKeys(FACETS))
-        // An object param goes out as "[object Object]", which the backend reads as "last hour".
+        // The generated client converts an object to "[object Object]". The backend reads it as "last hour".
         expect(Array.from(requestParams?.values() ?? [])).not.toContain('[object Object]')
-        // A recent selection leaves the endpoint's default window in charge.
+        // The endpoint uses its default window for a recent selection.
         expect(requestParams?.has('date_from')).toBe(false)
     })
 

@@ -226,9 +226,8 @@ export const FACETS: FacetConfig[] = [
 ]
 
 /**
- * Every resource-attribute key (current spelling and aliases) the given facets can resolve onto. These are
- * the exact keys the presence probe asks the backend about, so the answer never depends on how many other
- * keys the tenant emits.
+ * Return each resource attribute key and alias for these facets once.
+ * The presence probe uses these exact keys. Other resource keys cannot hide a facet.
  */
 export function presenceProbeKeys(facets: FacetConfig[]): string[] {
     const keys = facets.flatMap((facet) =>
@@ -237,13 +236,14 @@ export function presenceProbeKeys(facets: FacetConfig[]): string[] {
     return Array.from(new Set(keys))
 }
 
-/** The window the attributes endpoint scans when no date range is sent. */
+/** The endpoint uses seven days when the request has no date range. */
 export const PRESENCE_DEFAULT_LOOKBACK_DAYS = 7
 
 /**
- * The window the presence probe scans. `null` means the endpoint default (the last 7 days), which covers any
- * selection that starts inside it. A selection that starts earlier is probed as-is, so a key that appears only
- * in older logs still gets its facet while those logs are on screen. The read stays bounded by the user's range.
+ * Return the probe window for a selected range.
+ * Return null to use the endpoint's default seven-day window.
+ * If the selection starts before that window, use its range to include older keys.
+ * This limits the read to the selected range.
  */
 export function presenceProbeWindow(range: {
     date_from?: string | null

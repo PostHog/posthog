@@ -5516,12 +5516,12 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         .string()
         .min(1)
         .optional()
-        .describe('Start of the date range, as a flat param. Only read when dateRange is not sent.'),
+        .describe('Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.'),
     date_to: zod
         .string()
         .min(1)
         .optional()
-        .describe('End of the date range, as a flat param. Only read when dateRange is not sent.'),
+        .describe('End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.'),
     filterGroup: zod
         .array(
             zod.object({
@@ -5579,7 +5579,7 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.'
+            'Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.'
         ),
     limit: zod
         .number()

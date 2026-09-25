@@ -330,7 +330,7 @@ describe('facets', () => {
             ])
         })
 
-        // The probe and resolution must agree: any key the probe can report has to keep a facet.
+        // Each key in the probe must keep its facet when resolveFacets receives it.
         it.each(presenceProbeKeys(CONFIGURED_FACETS))('a reported %s keeps a resource facet on it', (key) => {
             const resolved = resolveFacets(CONFIGURED_FACETS, [key])
             expect(resolved.some((f) => f.source.type === 'resourceAttribute' && f.source.key === key)).toBe(true)

@@ -31109,7 +31109,7 @@
             "additionalProperties": false,
             "properties": {
                 "attributeKeys": {
-                    "description": "Only return these exact attribute keys. Used to check whether specific keys are present.",
+                    "description": "Return only attribute keys that exactly match an entry in this list.",
                     "items": {
                         "type": "string"
                     },
