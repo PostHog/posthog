@@ -331,8 +331,8 @@ export interface inboxReportDetailLogicValues {
     isReResearch: boolean
     isReportActive: boolean
     isUpdatingReviewers: boolean
-    mergedIntoReportId: string | null
     latestCommitArtefact: SignalReportArtefact | null
+    mergedIntoReportId: string | null
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null

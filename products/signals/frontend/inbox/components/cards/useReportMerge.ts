@@ -46,10 +46,10 @@ export function useReportMerge({
             reportId: report.id,
             reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
             onConfirm: async ({ survivor, reason }) => {
-                if (currentTeamId == null) {
-                    return
-                }
                 try {
+                    if (currentTeamId == null) {
+                        throw new Error('No current project')
+                    }
                     await signalsReportsMergeCreate(String(currentTeamId), survivor.id, {
                         source_report_ids: [report.id],
                         ...(reason ? { reason } : {}),
