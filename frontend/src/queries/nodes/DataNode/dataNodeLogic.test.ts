@@ -185,6 +185,25 @@ describe('dataNodeLogic', () => {
         )
     })
 
+    it('skips the cache on mount and on a query change when refreshOnLoad forces a refresh', async () => {
+        const trendsQuery = (dateFrom: string): DataNodeLogicProps['query'] =>
+            setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$feature_flag_called' }],
+                dateRange: { date_from: dateFrom },
+            })
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic = dataNodeLogic({ key: testUniqueKey, query: trendsQuery('-30d'), refreshOnLoad: 'force_async' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        expect(mockedQuery.mock.calls[0][2]).toEqual('force_blocking')
+
+        mockedQuery.mockClear()
+        dataNodeLogic({ key: testUniqueKey, query: trendsQuery('-7d'), refreshOnLoad: 'force_async' })
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        expect(mockedQuery.mock.calls[0][2]).toEqual('force_blocking')
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [
