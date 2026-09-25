@@ -261,6 +261,27 @@ _PR_DESCRIPTION_FORM_RULES = (
 )
 
 
+# PostHog owns who a self-driving pull request reaches: the report's `suggested_reviewers` artefact
+# routes the report, and `reviewer_pr_assignment.py` writes the one GitHub assignee it derives from
+# that. A review request is never written server-side, so anything the run adds is unreviewable and
+# arrives as noise on somebody else's notifications.
+#
+# The run needs telling, because the material it reads is full of names that read like routing: a
+# steering note's team roster, the report's suggested reviewers, CODEOWNERS, the git history. Each
+# answers "who owns this area", one short step from "request their review", and a run that takes
+# the step fans one pull request across a whole team. The boundary sits here rather than next to
+# each source of names, so a new source does not have to remember to disclaim itself.
+_PR_ROUTING_BOUNDARY = (
+    "Who the PR reaches is not yours to set. Do not add or remove reviewers, assignees, teams, or "
+    "labels on it, and do not @-mention anybody in its title, body, or comments. PostHog routes the "
+    "PR from the report that started this run. Names reach you from several places — a note from "
+    "your team, the report itself, CODEOWNERS, the git history — and every one of them answers who "
+    "owns an area, never who to put on this PR. Treat a roster as context for your own summary. If "
+    "you believe somebody specific has to see this work, say so in your summary and leave the PR "
+    "alone.\n\n"
+)
+
+
 SELF_DRIVING_HEAD_BRANCH_PREFIX = "posthog-self-driving/"
 
 
@@ -372,6 +393,7 @@ def _build_autostart_task_description(
         "the scaffolding a first draft accumulates, and any comment that only narrates the code. Only "
         "remove, never widen the change, and rerun the tests if you removed anything. If you are told "
         "the run is short on budget or time, skip this polish pass: the pushed branch is what matters.\n\n"
+        f"{_PR_ROUTING_BOUNDARY}"
         "Write everything you produce in Simplified Technical English, following the "
         "`writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, "
         "one idea per sentence.\n\n"
