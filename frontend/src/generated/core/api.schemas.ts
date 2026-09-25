@@ -509,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -523,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -538,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -579,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
