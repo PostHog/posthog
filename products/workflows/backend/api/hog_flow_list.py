@@ -330,7 +330,9 @@ def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
         queryset = annotate_trigger_type(queryset)
     for trigger_types, negate in trigger_type_filters:
         condition = Q(_trigger_type__in=sorted(trigger_types))
-        queryset = queryset.filter(~condition if negate else condition)
+        # NOT IN is unknown for a NULL annotation, so a row with no trigger type would drop out of an
+        # exclude. It has none of the excluded values, so it stays.
+        queryset = queryset.filter((~condition | Q(_trigger_type__isnull=True)) if negate else condition)
 
     for key, negate in (("channel", False), ("exclude_channel", True)):
         channels = _comma_list(params, key, CHANNEL_VALUES)

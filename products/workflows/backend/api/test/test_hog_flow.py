@@ -20,6 +20,7 @@ from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -390,16 +391,24 @@ class TestHogFlowAPI(APIBaseTest):
                 ("status_include_and_exclude", "status=active,draft&exclude_status=draft", {"Welcome", "Legacy"}),
                 ("created_by_single_value", "created_by=OTHER", {"Digest"}),
                 ("created_by_multi_value", "created_by=ME,OTHER", {"Welcome", "Digest", "Legacy"}),
-                ("exclude_created_by_keeps_rows_without_creator", "exclude_created_by=ME", {"Digest", "Sync"}),
+                ("exclude_created_by_keeps_rows_without_creator", "exclude_created_by=ME", {"Digest", "Sync", "Blank"}),
                 ("trigger_type_follows_trigger_action", "trigger_type=event,schedule", {"Welcome", "Digest"}),
                 ("trigger_type_falls_back_to_trigger_column", "trigger_type=batch", {"Legacy"}),
-                ("exclude_trigger_type", "exclude_trigger_type=webhook", {"Welcome", "Digest", "Legacy"}),
+                (
+                    "exclude_trigger_type_keeps_rows_without_trigger",
+                    "exclude_trigger_type=webhook",
+                    {"Welcome", "Digest", "Legacy", "Blank"},
+                ),
                 ("channel_email", "channel=email", {"Welcome"}),
                 ("channel_slack_or_webhook", "channel=slack,webhook", {"Digest", "Sync"}),
-                ("exclude_channel", "exclude_channel=email,push", {"Digest", "Sync"}),
-                ("exclude_type", "exclude_type=messaging", {"Sync"}),
+                (
+                    "exclude_channel_keeps_rows_without_channel",
+                    "exclude_channel=email,push",
+                    {"Digest", "Sync", "Blank"},
+                ),
+                ("exclude_type_keeps_rows_without_steps", "exclude_type=messaging", {"Sync", "Blank"}),
                 ("params_are_and", "status=active&channel=push", {"Legacy"}),
-                ("type_unchanged", "type=automation", {"Sync"}),
+                ("type_unchanged", "type=automation", {"Sync", "Blank"}),
                 ("trigger_json_unchanged", 'trigger={"type": "batch"}', {"Legacy"}),
                 ("search_unchanged", "search=digest", {"Digest"}),
             ]
@@ -444,6 +453,9 @@ class TestHogFlowAPI(APIBaseTest):
             trigger={"type": "batch"},
             actions=[step("function_push", "template-firebase-push")],
         )
+
+        # No steps, no trigger and no creator: every exclude_* filter must keep it, because it has none of the values.
+        HogFlow.objects.create(team=self.team, name="Blank", status=HogFlow.State.ARCHIVED, actions=[])
 
         query = query.replace("ME", str(self.user.uuid)).replace("OTHER", str(other_user.uuid))
         with patch("products.workflows.backend.api.hog_flow_list.fetch_app_metric_totals_by_source", return_value={}):
@@ -5394,10 +5406,12 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         self._seed(self.flow_a.id, failed=2)
         self._seed(self.flow_b.id, failed=5)
 
-        totals = fetch_app_metric_totals_by_source(
-            team_id=self.team.pk, app_source="hog_flow", app_source_ids=[str(self.flow_b.id)], max_execution_time=5
-        )
+        with patch("posthog.api.app_metrics2.sync_execute", wraps=sync_execute) as execute:
+            totals = fetch_app_metric_totals_by_source(
+                team_id=self.team.pk, app_source="hog_flow", app_source_ids=[str(self.flow_b.id)], max_execution_time=5
+            )
         assert totals == {str(self.flow_b.id): {"failed": 5}}
+        assert execute.call_args.kwargs["settings"] == {"max_execution_time": 5}
 
     def test_personal_api_key_hog_flow_read_only_allowed(self):
         # Aggregate counts carry no person data, so hog_flow:read alone is sufficient (no person:read).
