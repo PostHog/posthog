@@ -22,6 +22,7 @@ import {
 } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
+import { canRestoreReport } from '../../utils/reportActions'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -189,6 +190,7 @@ export function ReportCard({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
+    const canRestore = canRestoreReport(report)
     const showsDismiss = !!onDismiss || !redesign
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
@@ -357,13 +359,12 @@ export function ReportCard({
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
-                dismissed report can't be restored, so neither carries actions – skip the column (and
-                divider) for both. */}
-            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss || !redesign) && (
+                or merged dismissed report can't be restored, so neither carries actions – skip the
+                column (and divider) for both. */}
+            {!isResolved && !(isDismissed && !canRestore) && (isDismissed || showsDismiss || !redesign) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isDismissed ? (
-                        // A refunded report can't be restored (its PR can never be billed again).
-                        !isRefunded && (
+                        canRestore && (
                             <LemonButton
                                 type="secondary"
                                 size="small"

@@ -14,7 +14,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canResolveReport } from '../../utils/reportActions'
+import { canResolveReport, canRestoreReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportMerge } from '../cards/useReportMerge'
@@ -150,14 +150,13 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     // An already-dismissed report offers Restore instead of Dismiss (and no Create PR). A refunded
-    // report can't be restored (its PR can never be billed again), so Restore is hidden for it; a
-    // dismissed-but-still-charged report can still be refunded.
+    // or merged report can't be restored, so Restore is hidden for it; a dismissed-but-still-charged
+    // report can still be refunded.
     if (isDismissed) {
         return [
             ...(canRefund ? [refund] : []),
-            ...(report.refund
-                ? []
-                : [
+            ...(canRestoreReport(report)
+                ? [
                       {
                           key: 'restore',
                           label: 'Restore',
@@ -166,7 +165,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                           tooltip: 'Restore this report to your inbox',
                           onClick: () => void onRestoreClick(),
                       },
-                  ]),
+                  ]
+                : []),
         ]
     }
 

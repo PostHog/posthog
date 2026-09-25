@@ -137,6 +137,10 @@ describe('ReportContextMenu', () => {
                 refund: { id: 'refund-1' } as unknown as SignalReport['refund'],
             }),
         },
+        {
+            name: 'a report merged into another one',
+            report: makeReport({ status: SignalReportStatus.SUPPRESSED, dismissal_reason: 'merged' }),
+        },
     ])('renders no menu for $name', ({ report }) => {
         openMenu(report)
 

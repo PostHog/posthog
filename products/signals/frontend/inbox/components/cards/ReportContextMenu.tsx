@@ -43,7 +43,12 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canResolveReport,
+    canRestoreReport,
+    hasOpenImplementationPr,
+} from '../../utils/reportActions'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
@@ -59,7 +64,7 @@ import { useReportMerge } from './useReportMerge'
  * dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic. The dialog stays available for a note, a corrected repository, or an open
- * implementation PR warning. Rows with no action (resolved, refunded) render without a menu, so
+ * implementation PR warning. Rows with no action (resolved, refunded, merged) render without a menu, so
  * the browser's own menu still works there. On rows with a menu the trigger suppresses that native
  * menu over the row's link, so the standard link actions return as an explicit section at the
  * bottom (open, open in new tab, copy link).
@@ -79,8 +84,8 @@ export function ReportContextMenu({
     // Set when a menu item opens a dialog, read once when the menu closes right after.
     const openedDialogRef = useRef(false)
 
-    // Resolved reports are terminal, and a refunded dismissed report cannot be restored.
-    if (isResolved || (isDismissed && !!report.refund)) {
+    // Resolved reports are terminal, and a refunded or merged dismissed report cannot be restored.
+    if (isResolved || (isDismissed && !canRestoreReport(report))) {
         return <>{children}</>
     }
 
