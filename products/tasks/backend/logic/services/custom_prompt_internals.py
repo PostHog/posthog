@@ -21,6 +21,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.facade.contracts import AgentTaskRunDTO
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
@@ -341,8 +342,8 @@ async def create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
-) -> tuple[Task, TaskRun]:
-    return await _create_task_and_trigger(
+) -> AgentTaskRunDTO:
+    task, task_run = await _create_task_and_trigger(
         description,
         context,
         branch=branch,
@@ -356,6 +357,14 @@ async def create_task_and_trigger(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
+    )
+
+    return AgentTaskRunDTO(
+        task_id=task.id,
+        run_id=task_run.id,
+        team_id=task.team_id,
+        # Dispatch can be deferred until commit, before the prefixed workflow ID is persisted.
+        workflow_id=TaskRun.get_workflow_id(task.id, task_run.id, workflow_id_prefix),
     )
 
 
@@ -616,6 +625,30 @@ async def poll_for_turn(
         stale_seconds=stale_seconds,
         total_lines=skip_lines,
         turn_relevant_lines=turn_relevant_lines,
+    )
+
+
+async def poll_for_agent_task(
+    task_run: AgentTaskRunDTO,
+    *,
+    skip_lines: int = 0,
+    printed_lines: int = 0,
+    verbose: bool = False,
+    output_fn: OutputFn = None,
+    workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
+) -> TurnPollResult:
+    run = await sync_to_async(TaskRun.objects.get)(
+        id=task_run.run_id, task_id=task_run.task_id, team_id=task_run.team_id
+    )
+    return await poll_for_turn(
+        run,
+        skip_lines=skip_lines,
+        printed_lines=printed_lines,
+        verbose=verbose,
+        output_fn=output_fn,
+        workflow_handle=workflow_handle,
+        max_poll_seconds=max_poll_seconds,
     )
 
 

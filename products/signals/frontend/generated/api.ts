@@ -1386,8 +1386,8 @@ export const getSignalsScoutConfigTrialHistoryUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial-history/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial-history/`
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_history/`
 }
 
 /**
@@ -1422,8 +1422,8 @@ export const getSignalsScoutConfigTrialResultUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial-result/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial-result/`
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_result/`
 }
 
 /**
@@ -1458,8 +1458,8 @@ export const getSignalsScoutConfigTrialSetupUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial-setup/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial-setup/`
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_setup/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_setup/`
 }
 
 /**

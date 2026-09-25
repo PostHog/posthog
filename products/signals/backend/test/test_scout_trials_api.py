@@ -174,7 +174,7 @@ class TestScoutTrialLaunch(APIBaseTest):
                 self.addCleanup(gate_patch.stop)
         return f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/"
 
-    @parameterized.expand([("trial-setup",), ("trial-history",)])
+    @parameterized.expand([("trial_setup",), ("trial_history",)])
     def test_internal_inspection_requires_staff_and_exact_project(self, action: str) -> None:
         base = self._internal_scout_base()
         self.user.is_staff = False
@@ -202,7 +202,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             "products.signals.backend.scout_harness.trial_inspection.get_model_access_error",
             side_effect=lambda model, **kwargs: None if model == "gpt-5.5" else "Unavailable",
         ):
-            response = self.client.get(f"{base}trial-setup/")
+            response = self.client.get(f"{base}trial_setup/")
         assert response.status_code == 200, response.data
         setup = response.json()
         assert setup["ready"] is False
@@ -227,18 +227,18 @@ class TestScoutTrialLaunch(APIBaseTest):
             body="Investigate the revised source.",
             allowed_tools=["emit_report"],
         )
-        saved = self.client.get(f"{base}trial-setup/", {"context_id": str(launch.context_id)})
+        saved = self.client.get(f"{base}trial_setup/", {"context_id": str(launch.context_id)})
         assert saved.status_code == 200, saved.data
         assert saved.json()["skill_body"] == self.skill.body
         assert saved.json()["skill_version"] == 1
-        current = self.client.get(f"{base}trial-setup/")
+        current = self.client.get(f"{base}trial_setup/")
         assert current.status_code == 200, current.data
         assert current.json()["skill_body"] == "Investigate the revised source."
         other_user = self._create_user("other-operator@example.com")
         context = load_trial_context(self.team.id, launch.context_id).model_copy(update={"user_id": other_user.id})
         context_key = next(key for key in self.documents if "/contexts/" in key)
         self.documents[context_key] = context.model_dump_json()
-        assert self.client.get(f"{base}trial-setup/", {"context_id": str(launch.context_id)}).status_code == 404
+        assert self.client.get(f"{base}trial_setup/", {"context_id": str(launch.context_id)}).status_code == 404
 
     def test_history_only_lists_own_valid_private_runs_and_keeps_requested_settings(self) -> None:
         base = self._internal_scout_base()
@@ -267,7 +267,7 @@ class TestScoutTrialLaunch(APIBaseTest):
         invalid.task_run.task.created_by = self.user
         invalid.task_run.task.save(update_fields=["created_by"])
         _make_run(self.team, scout_config=self.config)
-        response = self.client.get(f"{base}trial-history/")
+        response = self.client.get(f"{base}trial_history/")
         assert response.status_code == 200, response.data
         history = response.json()
         assert len(history["results"]) == 1
@@ -354,11 +354,11 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert response.status_code == 202, response.data
             assert response.json()["launch_id"] == launch_id
             assert dispatch.call_args.kwargs["launch_id"] == launch_id
-            result = self.client.get(f"{base}trial-result/", {"launch_id": launch_id})
+            result = self.client.get(f"{base}trial_result/", {"launch_id": launch_id})
             assert result.status_code == 200, result.data
             assert result.json()["status"] == "pending"
             assert result.json()["cost_usd"] is None
-            assert self.client.get(f"{base}trial-result/", {"launch_id": str(uuid4())}).status_code == 404
+            assert self.client.get(f"{base}trial_result/", {"launch_id": str(uuid4())}).status_code == 404
 
     @parameterized.expand(
         [
@@ -401,7 +401,7 @@ class TestScoutTrialLaunch(APIBaseTest):
                 raise object_storage.ObjectStorageError("A runner export already exists.")
             self.documents[key] = content
 
-        url = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/trial-result/"
+        url = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/trial_result/"
         with (
             patch("products.signals.backend.scout_harness.trial_views.withheld_skills_for_team", return_value=set()),
             patch(

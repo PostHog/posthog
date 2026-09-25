@@ -1,5 +1,5 @@
-import { initialTrialVariants, trialFormError } from './scoutTrialUtils'
 import { trialFixtureSetup } from './scoutTrialsFixtures'
+import { initialTrialVariants, trialFormError } from './scoutTrialUtils'
 
 describe('scout comparison validation', () => {
     test.each([0, 1.5, 11, 100])('rejects %s repeats when the comparison has two variants', (repeats) => {

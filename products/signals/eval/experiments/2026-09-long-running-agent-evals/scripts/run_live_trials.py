@@ -153,7 +153,7 @@ class Comparison:
                     active += 1
                     self.save()
                 query = urlencode({"launch_id": str(body["launch_id"])})
-                result = self.client.request(f"{self.base}trial-result/?{query}")
+                result = self.client.request(f"{self.base}trial_result/?{query}")
                 row["last_status"] = result["status"]
                 if result["status"] == "not_started":
                     row["status"] = "pending"

@@ -92,7 +92,7 @@ class ScoutTrialConfigMixin:
     @action(
         detail=True,
         methods=["get"],
-        url_path="trial-setup",
+        url_path="trial_setup",
         required_scopes=["signal_scout:write", "llm_skill:write"],
     )
     def trial_setup(self, request: ValidatedRequest, **kwargs: str) -> Response:
@@ -116,7 +116,7 @@ class ScoutTrialConfigMixin:
     @action(
         detail=True,
         methods=["get"],
-        url_path="trial-history",
+        url_path="trial_history",
         required_scopes=["signal_scout:write", "llm_skill:write"],
     )
     def trial_history(self, request: ValidatedRequest, **kwargs: str) -> Response:
@@ -175,7 +175,7 @@ class ScoutTrialConfigMixin:
         summary="Read a private scout trial result",
         description="Read a trial's existing run status and its privately captured reports and memory changes.",
     )
-    @action(detail=True, methods=["get"], url_path="trial-result")
+    @action(detail=True, methods=["get"], url_path="trial_result")
     def trial_result(self, request: ValidatedRequest, **kwargs: str) -> Response:
         config = self._trial_config(request, kwargs.get("id", ""))
         identifier = request.validated_query_data["launch_id"]
