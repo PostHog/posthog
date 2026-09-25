@@ -272,6 +272,7 @@ class TestAIObservabilityModuleIntegrity:
             "prepare_evaluation_backfill_tick_activity",
             "find_evaluation_backfill_candidates_activity",
             "advance_evaluation_backfill_cursor_activity",
+            "measure_evaluation_backfill_remainder_activity",
             "fail_evaluation_backfill_activity",
         ]
         actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]
