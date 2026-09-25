@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { createRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
@@ -17,8 +20,8 @@ function pasteInto(target: HTMLElement, files: File[], text: string): boolean {
     return fireEvent.paste(target, { clipboardData: { files, getData: () => text } })
 }
 
-function dropFiles(target: HTMLElement, files: File[]): void {
-    fireEvent.drop(target, { dataTransfer: { files, types: ['Files'] } })
+function dropFiles(target: HTMLElement, files: File[]): boolean {
+    return fireEvent.drop(target, { dataTransfer: { files, types: ['Files'] } })
 }
 
 describe('ComposerAttachments', () => {
@@ -35,6 +38,10 @@ describe('ComposerAttachments', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_TASKS_ATTACHEMENTS], {
+            [FEATURE_FLAGS.PHAI_TASKS_ATTACHEMENTS]: true,
+        })
         logic = composerAttachmentsLogic({ attachmentsKey: 'scene' })
         logic.mount()
     })
@@ -122,6 +129,24 @@ describe('ComposerAttachments', () => {
 
             expect(notPrevented).toBe(false)
         })
+    })
+
+    it('stages nothing through any route while the feature flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        render(
+            <div ref={dropTargetRef}>
+                <ComposerAttachments attachmentsKey="scene" dropTargetRef={dropTargetRef} />
+                <PasteTarget />
+            </div>
+        )
+
+        expect(document.querySelector('[data-attr="posthog-ai-attach-file"]')).toBeNull()
+        const notPrevented = dropFiles(dropTargetRef.current!, [new File(['a'], 'dropped.png')])
+        pasteInto(document.querySelector('textarea')!, [new File(['a'], 'pasted.png')], '')
+
+        expect(logic.values.attachments).toEqual([])
+        // The browser would otherwise open the dropped file and lose the draft.
+        expect(notPrevented).toBe(false)
     })
 
     it('stops listening once unmounted, so a later drop stages nothing', () => {
