@@ -50,3 +50,10 @@ RUST_LOG=debug cargo run --bin feature-flags
 ```sh
 cargo fmt --package feature-flags
 ```
+
+# Trying a PR against live traffic
+
+Comment `/pr-canary` on an approved PR to build the `feature-flags` image from the PR head and route a share of traffic to it.
+The default target is `dev`. `/pr-canary help` lists the `weight=` and `env=` options.
+Send a request with the `X-PostHog-Fleet: canary` header to reach the canary pods, or `X-PostHog-Fleet: stable` to skip them.
+The canary stops when the PR closes, or after 48 hours.
