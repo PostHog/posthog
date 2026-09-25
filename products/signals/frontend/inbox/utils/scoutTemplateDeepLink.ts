@@ -5,6 +5,7 @@ import { base64Decode, base64Encode } from 'lib/utils/base64'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from 'products/skills/frontend/skillConstants'
 
 import type { ScoutCreateInitialValues } from '../logics/scoutCreateModalLogic'
+import { MAX_SCOUT_DISPLAY_NAME_LENGTH, scoutCronScheduleError } from './scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from './scoutTags'
 
 /**
@@ -14,6 +15,7 @@ import { MAX_SCOUT_TAGS, normalizeScoutTags } from './scoutTags'
  */
 export interface ScoutTemplatePayload {
     name?: string
+    display_name?: string
     description?: string
     body?: string
     config?: ScoutTemplateConfig
@@ -40,8 +42,6 @@ const STORED_TEMPLATE_KEY_PREFIX = 'posthog.scout-create-template.'
 /** Matches the bounds the create form and the API hold a scout's cadence to. */
 const MIN_RUN_INTERVAL_MINUTES = 30
 const MAX_RUN_INTERVAL_MINUTES = 43200
-const CRON_FIELD_COUNT = 5
-const MAX_CRON_SCHEDULE_LENGTH = 100
 
 /** Encode a template as a URL-safe base64 fragment value (used by tests and by link authors). */
 export function encodeScoutCreateTemplate(template: ScoutTemplatePayload): string {
@@ -73,10 +73,10 @@ function cleanCron(value: unknown): string | undefined {
         return undefined
     }
     const schedule = value.trim()
-    if (schedule.length > MAX_CRON_SCHEDULE_LENGTH) {
-        return undefined
-    }
-    return schedule.split(/\s+/).length === CRON_FIELD_COUNT ? schedule : undefined
+    // The field count alone lets through expressions the create endpoint refuses, such as one that
+    // never matches a real date or runs more often than every 30 minutes. Dropping those here opens
+    // the form on its own default instead of one that fails the moment it is submitted.
+    return scoutCronScheduleError(schedule) === null ? schedule : undefined
 }
 
 function cleanTags(value: unknown): string[] | undefined {
@@ -149,7 +149,9 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
     }
 
     const { payload: parsed, stored } = parsedResult
-    const { name, description, body, config } = parsed
+    const { name, display_name: displayName, description, body, config } = parsed
+    const cleanDisplayName =
+        typeof displayName === 'string' ? displayName.trim().slice(0, MAX_SCOUT_DISPLAY_NAME_LENGTH) : ''
     const cleanDescription =
         typeof description === 'string' ? description.trim().slice(0, SKILL_DESCRIPTION_MAX_LENGTH) : ''
     const cleanBody = typeof body === 'string' ? (stored ? body : body.trim().slice(0, MAX_BODY_LENGTH)) : ''
@@ -163,6 +165,7 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
 
     return {
         ...defined('name', cleanScoutName(name) || undefined),
+        ...defined('display_name', cleanDisplayName || undefined),
         ...defined('description', cleanDescription || undefined),
         ...defined('body', cleanBody || undefined),
         ...defined('config', initialConfig ?? undefined),

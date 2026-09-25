@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -360,13 +360,28 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
         // A scout can't be installed as a skill — it runs on a schedule under privileged scopes. So
         // render it server-side, then hand the result to the scout form, where a person reviews the
         // schedule and submits it.
-        setUpScout: async ({ slug, variables }) => {
+        setUpScout: async ({ slug, variables }, breakpoint) => {
             try {
                 const rendered = await communitySkillsRenderCreate(String(ApiConfig.getCurrentTeamId()), slug, {
                     variables,
                 })
+                // A newer setup supersedes this one, so a slow render cannot replace the form the
+                // person asked for last, or pull them back after they moved on.
+                breakpoint()
+                // The catalog syncs hourly, so an open card can name an entry that is no longer a
+                // scout. The render response is the authority: without this the store would hand
+                // ordinary skill instructions to the form that creates an auto-running scout.
+                if (rendered.kind !== CommunitySkillKindEnumApi.Scout) {
+                    lemonToast.error('This entry is no longer a scout. Refresh the store and try again.')
+                    actions.setUpScoutFailure(slug)
+                    return
+                }
                 const template = storeCommunityScoutCreateTemplate({
-                    name: rendered.slug,
+                    // The display name travels, the skill name does not: the create endpoint derives
+                    // an identifier from the display name and adds a suffix when the project already
+                    // holds that slug, so a local name clash resolves itself instead of returning
+                    // 409 against a field the form never shows.
+                    display_name: rendered.name,
                     description: rendered.description,
                     body: rendered.body,
                     config: rendered.scout_config,
@@ -374,6 +389,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 actions.setUpScoutSuccess(slug)
                 router.actions.push(urls.inbox(INBOX_CONFIG_TAB_KEY), {}, { createScout: template })
             } catch (e) {
+                if (e instanceof Error && isBreakpoint(e)) {
+                    // Superseded: clear this card so it stops spinning, and let the newer setup navigate.
+                    actions.setUpScoutFailure(slug)
+                    throw e
+                }
                 console.error('Failed to set up community scout', e)
                 const detail = e instanceof ApiError ? e.detail : null
                 lemonToast.error(detail || 'Could not open this scout. Try again in a moment.')

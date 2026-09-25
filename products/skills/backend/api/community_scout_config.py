@@ -12,6 +12,7 @@ The bounds below are local copies of the ones Signals enforces on its own config
 not the authority — Signals validates the settings again when the form is submitted.
 """
 
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -27,6 +28,20 @@ CRON_MIN_GAP_SECONDS = MIN_RUN_INTERVAL_MINUTES * 60
 CRON_SAMPLE_OCCURRENCES = 100
 MAX_TAGS = 10
 MAX_TAG_LENGTH = 50
+
+# Local copies of the slug rules in `signals.scout_harness.tags`, for the same reason the bounds
+# above are local. A tag is stored as a lowercase kebab-case slug, so the catalog has to accept only
+# what survives that normalization — otherwise a published `"!!!"` syncs, and the setup form then
+# drops it without saying so while the Signals create path would have refused it outright.
+_TAG_SEPARATORS = re.compile(r"[\s_]+")
+_TAG_INVALID_CHARS = re.compile(r"[^a-z0-9-]+")
+_TAG_HYPHEN_RUNS = re.compile(r"-{2,}")
+
+
+def _slugify_tag(raw: str) -> str:
+    slug = _TAG_SEPARATORS.sub("-", raw.strip().lower())
+    slug = _TAG_INVALID_CHARS.sub("", slug)
+    return _TAG_HYPHEN_RUNS.sub("-", slug).strip("-")
 
 
 def _validate_run_interval_minutes(value: Any) -> int | None:
@@ -73,16 +88,26 @@ def _validate_emit(value: Any) -> bool | None:
 
 
 def _validate_tags(value: Any) -> list[str] | None:
+    """Return the tags in the stored slug form, so every accepted tag round-trips into the scout.
+
+    Measured on the slug rather than the raw string: what lands on the config is what the caps are
+    about, and a tag that normalizes to nothing is an error rather than a silent drop.
+    """
     if not isinstance(value, list) or not all(isinstance(tag, str) for tag in value):
         raise ValueError("scout_config.tags must be a list of strings")
-    tags = [tag for tag in (tag.strip() for tag in value) if tag]
-    if not tags:
+    normalized: set[str] = set()
+    for raw in value:
+        tag = _slugify_tag(raw)
+        if not tag:
+            raise ValueError(f"scout_config tag {raw!r} is empty once normalized to a lowercase slug")
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"each scout_config tag must be {MAX_TAG_LENGTH} characters or fewer")
+        normalized.add(tag)
+    if not normalized:
         return None
-    if len(tags) > MAX_TAGS:
+    if len(normalized) > MAX_TAGS:
         raise ValueError(f"scout_config.tags must have {MAX_TAGS} tags or fewer")
-    if any(len(tag) > MAX_TAG_LENGTH for tag in tags):
-        raise ValueError(f"each scout_config tag must be {MAX_TAG_LENGTH} characters or fewer")
-    return tags
+    return sorted(normalized)
 
 
 # Each validator returns the value to keep, or None to leave the field out so the scout-create form

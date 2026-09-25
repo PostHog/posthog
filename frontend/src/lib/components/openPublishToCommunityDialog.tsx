@@ -18,11 +18,17 @@ export function openPublishToCommunityDialog({
     skillName,
     githubLogin,
     isScout,
+    teamId,
     onPublish,
 }: {
     skillName: string
     githubLogin: string | null
     isScout?: boolean
+    /**
+     * Team the skill belongs to. The preview has to read the same team the publish writes to, or
+     * consent describes a skill the request never sends. Unset means the current team.
+     */
+    teamId?: number
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
     let expectedSkill: { id: string; version: number } | null = null
@@ -44,6 +50,7 @@ export function openPublishToCommunityDialog({
             <div className="flex flex-col gap-2">
                 <PublishToCommunityContents
                     skillName={skillName}
+                    teamId={teamId}
                     onPreviewChange={(preview) => {
                         expectedSkill = preview ? { id: preview.id, version: preview.version } : null
                     }}

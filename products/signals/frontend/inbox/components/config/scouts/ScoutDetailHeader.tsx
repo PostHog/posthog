@@ -8,11 +8,13 @@ import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
@@ -110,6 +112,7 @@ export function ScoutDetailHeader({
     const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const { currentProjectId } = useValues(teamLogic)
     const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
@@ -117,13 +120,18 @@ export function ScoutDetailHeader({
     const publishing = publishingScoutIds.includes(config.id)
     const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
     const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
+    // A scout's skill is seeded on the canonical parent team, so both the consent preview and the
+    // publish itself read that team rather than the child environment the page may be scoped to.
+    const canonicalProjectId = typeof currentProjectId === 'number' ? currentProjectId : undefined
+    // Ownership alone lets any project member through, but the publish endpoint needs skill editor
+    // access — without this the owner fills in the whole dialog and the submit returns 403.
     const publishDisabledReason = publishing
         ? 'Opening a pull request'
         : (config.owners ?? []).length === 0
           ? 'Add an owner before publishing to the community'
           : !isOwner
             ? "Only the scout's owners can publish it"
-            : undefined
+            : getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
 
     return (
         <div className="flex flex-col gap-2 border-b border-primary bg-surface-primary px-4 py-3">
@@ -178,6 +186,7 @@ export function ScoutDetailHeader({
                                     // linked GitHub identity, so the handle field starts empty here.
                                     githubLogin: null,
                                     isScout: true,
+                                    teamId: canonicalProjectId,
                                     onPublish: (_skillName, options) => publishScoutToCommunity(config.id, options),
                                 })
                             }

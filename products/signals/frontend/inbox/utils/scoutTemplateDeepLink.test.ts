@@ -71,6 +71,9 @@ describe('scoutTemplateDeepLink', () => {
         ['an out-of-range interval', { run_interval_minutes: 5 }],
         ['an interval past the 30-day cap', { run_interval_minutes: 43201 }],
         ['a cron expression with the wrong field count', { run_cron_schedule: '0 9 * *' }],
+        // Five fields alone is not enough: the create endpoint refuses both of these on submit.
+        ['a cron that runs more often than the cadence floor', { run_cron_schedule: '* * * * *' }],
+        ['a cron that never matches a real date', { run_cron_schedule: '0 0 31 2 *' }],
         ['a non-boolean emit', { emit: 'yes' }],
         ['a non-array tags value', { tags: 'web-analytics' }],
     ])('drops %s', (_label, config) => {
@@ -82,6 +85,11 @@ describe('scoutTemplateDeepLink', () => {
     it('keeps a valid cron expression', () => {
         const encoded = encodeScoutCreateTemplate({ description: 'd', config: { run_cron_schedule: '0 9 * * 1' } })
         expect(decodeScoutCreateTemplate(encoded)?.config).toEqual({ run_cron_schedule: '0 9 * * 1' })
+    })
+
+    it('carries a display name so the created scout keeps the name the store showed', () => {
+        const encoded = encodeScoutCreateTemplate({ display_name: 'Feed scout', description: 'd' })
+        expect(decodeScoutCreateTemplate(encoded)).toEqual({ display_name: 'Feed scout', description: 'd' })
     })
 
     it('ignores unknown top-level fields', () => {

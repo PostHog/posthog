@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ...models.community_skills import CommunitySkill
+from ..community_scout_config import validate_shareable_scout_config
 from ..community_skill_sync import _validate_entry_shape, _validate_entry_within_caps, sync_community_skills_from_github
 from ..skill_services import MAX_SKILL_BODY_BYTES
 
@@ -63,6 +64,13 @@ class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
             self._entry(kind="scout", scout_config={"run_interval_minutes": 720, "emit": False, "tags": ["feeds"]})
         )
 
+    def test_scout_tags_are_stored_in_the_slug_form_the_setup_flow_keeps(self) -> None:
+        # The setup form normalizes a tag to a lowercase slug, so a catalog entry that stored the
+        # raw spelling would arrive as a tag nobody can filter the fleet by.
+        entry = self._entry(kind="scout", scout_config={"tags": ["Web Analytics", "web_analytics", "Revenue"]})
+        _validate_entry_shape(entry)
+        self.assertEqual(validate_shareable_scout_config(entry["scout_config"])["tags"], ["revenue", "web-analytics"])
+
     @parameterized.expand(
         [
             ("an unknown kind", {"kind": "agent"}, "is not one of"),
@@ -96,6 +104,13 @@ class TestCommunitySkillScoutEntryValidation(SimpleTestCase):
                 "a cron that never occurs",
                 {"kind": "scout", "scout_config": {"run_cron_schedule": "0 0 31 2 *"}},
                 "real date",
+            ),
+            (
+                # Signals refuses one outright, so accepting it here would sync a tag the setup form
+                # silently drops rather than one the created scout carries.
+                "a tag that normalizes to nothing",
+                {"kind": "scout", "scout_config": {"tags": ["!!!"]}},
+                "empty once normalized",
             ),
             (
                 "bundled files",

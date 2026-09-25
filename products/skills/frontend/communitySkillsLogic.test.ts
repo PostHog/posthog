@@ -93,12 +93,68 @@ describe('communitySkillsLogic', () => {
         expect(mockInstall).not.toHaveBeenCalled()
         expect(router.values.location.pathname).toContain('/inbox/config')
         expect(decodeScoutCreateTemplate(router.values.hashParams.createScout)).toEqual({
-            name: 'signals-scout-feed',
+            display_name: 'Feed scout',
             description: 'Watch a feed for problems.',
             body: `# Scout\n${'x'.repeat(20_000)}`,
             config: { run_interval_minutes: 720, emit: false, mcp_gateway_server_ids: [] },
         })
         expect(String(router.values.hashParams.createScout)).toHaveLength(43)
+    })
+
+    it('refuses an entry the catalog no longer calls a scout', async () => {
+        // The catalog syncs hourly, so an open card can outlive the kind it was rendered from.
+        mockRender.mockResolvedValue({
+            slug: 'signals-scout-feed',
+            kind: 'skill',
+            name: 'Feed scout',
+            description: 'Watch a feed for problems.',
+            body: '# Scout',
+            scout_config: {},
+            variable_bindings: {},
+        })
+        logic = communitySkillsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSkillsSuccess'])
+
+        logic.actions.setUpScout('signals-scout-feed')
+        await expectLogic(logic).toDispatchActions(['setUpScoutFailure'])
+
+        expect(router.values.location.pathname).not.toContain('/inbox/config')
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            'This entry is no longer a scout. Refresh the store and try again.'
+        )
+    })
+
+    it('lets the scout asked for last win when an earlier render finishes after it', async () => {
+        const scout = (slug: string, name: string): any => ({
+            slug,
+            kind: 'scout',
+            name,
+            description: `${name} description`,
+            body: `# ${name}`,
+            scout_config: {},
+            variable_bindings: {},
+        })
+        let finishFirst: (value: any) => void = () => {}
+        mockRender
+            .mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)))
+            .mockImplementationOnce(() => Promise.resolve(scout('signals-scout-second', 'Second scout')))
+        logic = communitySkillsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSkillsSuccess'])
+
+        logic.actions.setUpScout('signals-scout-first')
+        logic.actions.setUpScout('signals-scout-second')
+        await expectLogic(logic).toDispatchActions(['setUpScoutSuccess'])
+
+        finishFirst(scout('signals-scout-first', 'First scout'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The slower first render must not replace the form the person asked for last.
+        expect(decodeScoutCreateTemplate(router.values.hashParams.createScout)).toMatchObject({
+            display_name: 'Second scout',
+        })
+        expect(logic.values.settingUpSlugs['signals-scout-first']).toBe(false)
     })
 
     it('uses top rated as the default scout order', async () => {
