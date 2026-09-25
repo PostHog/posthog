@@ -13,7 +13,7 @@ from rest_framework.response import Response
 
 from posthog.api.utils import action
 
-from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
+from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule, pause_external_data_schedule
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -530,6 +530,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                     job_inputs.pop(key, None)
             instance.job_inputs = job_inputs
             instance.save(update_fields=["job_inputs", "updated_at"])
+
+        # The bulk update above bypasses update_should_sync, which is what pauses a table's schedule.
+        # Without this, every former CDC table keeps syncing, and billing, on its old schedule.
+        for schema_id in cdc_schema_ids:
+            try:
+                pause_external_data_schedule(str(schema_id))
+            except Exception as e:
+                base.capture_exception(e, {"source_id": str(instance.id), "schema_id": str(schema_id)})
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
