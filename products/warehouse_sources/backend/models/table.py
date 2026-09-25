@@ -910,6 +910,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+                estimated_row_count=estimated_row_count if isinstance(estimated_row_count, int) else None,
             )
 
         if self.external_data_source and self.external_data_source.is_direct_redshift:

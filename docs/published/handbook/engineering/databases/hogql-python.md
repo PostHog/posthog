@@ -70,7 +70,7 @@ The estimate has one entry per table in the FROM tree, each labeled with its sou
 An `events` scan is `measured`: it has a model of what the query reads and is scored by the accuracy query.
 A warehouse table is `size_only`: its rows and bytes are known from the last sync, the query's read of it is not.
 `persons` and `groups` are `size_only` too, from a count of the team's rows that is cached for a day.
-A table on a customer's own database (a direct Postgres or MySQL source) is `size_only` from the row estimate its catalog reported at the last schema refresh, and is never scored, because nothing returns `read_rows` for a query that ran there.
+A table on a customer's own database (a direct Postgres, MySQL or Snowflake source) is `size_only` from the row estimate its catalog reported at the last schema refresh, and is never scored, because nothing returns `read_rows` for a query that ran there.
 `sessions` is `measured` like events: a daily rate, cached for a day, scaled to the range the query puts on the session start time.
 Any other table is `unknown` until its source gets a statistic.
 The headline `rows` sums the entries that have a number, and `upper_bound` says whether that sum is a ceiling.

@@ -27,6 +27,10 @@ from products.data_warehouse.backend.facade.sources import (
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
     DIRECT_POSTGRES_URL_PATTERN,
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
+    DIRECT_SNOWFLAKE_URL_PATTERN,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -388,6 +392,17 @@ class TestEstimateEventsScan(BaseTest):
                 {"host": "localhost", "port": 3306, "database": "app", "schema": "app"},
                 DIRECT_MYSQL_URL_PATTERN,
                 {DIRECT_MYSQL_SCHEMA_OPTION: "app", DIRECT_MYSQL_TABLE_OPTION: "orders"},
+            ),
+            (
+                "snowflake",
+                "Snowflake",
+                {"account_id": "acct", "database": "DB", "schema": "PUBLIC", "warehouse": "WH"},
+                DIRECT_SNOWFLAKE_URL_PATTERN,
+                {
+                    DIRECT_SNOWFLAKE_CATALOG_OPTION: "DB",
+                    DIRECT_SNOWFLAKE_SCHEMA_OPTION: "PUBLIC",
+                    DIRECT_SNOWFLAKE_TABLE_OPTION: "orders",
+                },
             ),
         ]
     )
