@@ -2244,6 +2244,42 @@ class TestOAuthAPI(APIBaseTest):
         db_token = OAuthAccessToken.objects.get(token=new_access_token)
         self.assertEqual(db_token.scoped_teams, [self.team.id])
 
+    @parameterized.expand(["authorization_code", "refresh_token"])
+    def test_token_request_body_cannot_override_consented_scoping(self, grant_type: str):
+        team_scoped_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [self.team.id],
+        }
+        response = self.client.post("/oauth/authorize/", team_scoped_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        injected = {
+            "scoped_teams": "{}",
+            "scoped_organizations": "{}",
+            "impersonated_by_id": str(self.user.pk),
+        }
+        if grant_type == "authorization_code":
+            token_data = {**self.base_token_body, "code": code, **injected}
+        else:
+            refresh_token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()["refresh_token"]
+            token_data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+                **injected,
+            }
+
+        token_response = self.post("/oauth/token/", token_data)
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+
+        db_token = OAuthAccessToken.objects.get(token=token_response.json()["access_token"])
+        self.assertEqual(db_token.scoped_teams, [self.team.id])
+        self.assertEqual(db_token.scoped_organizations, [])
+        self.assertIsNone(db_token.impersonated_by_id)
+        self.assertIn("refresh_token", token_response.json())
+
     @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_refresh_succeeds_when_only_scoped_teams_is_set(self):
         """scoped_teams and scoped_organizations are both nullable ArrayFields. Historically

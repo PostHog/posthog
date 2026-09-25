@@ -5,7 +5,7 @@ import calendar
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
@@ -217,6 +217,20 @@ def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonRespo
     )
     response["Retry-After"] = str(retry_after_seconds)
     return response
+
+
+_CREDENTIAL_UNSET = object()
+
+
+def _authorize_credential(request, name: str, default: Any = None) -> Any:
+    """Return a value the authorize endpoint attached to the oauthlib request, else `default`.
+
+    `create_authorization_response` applies the `credentials` dict with `setattr`, so those
+    values live in the instance dict. `oauthlib.common.Request.__getattr__` answers every other
+    name from the query and body parameters, so `getattr` and `hasattr` would also return a
+    value the client sent to `/oauth/token/`. Only the instance dict is trusted here.
+    """
+    return vars(request).get(name, default)
 
 
 def _impersonator_id_for_request(request) -> int | None:
@@ -1252,7 +1266,7 @@ class OAuthValidator(OAuth2Validator):
 
         Returns the staff user's id, or None if not impersonator-issued.
         """
-        impersonator_id = getattr(request, "impersonated_by_id", None)
+        impersonator_id = _authorize_credential(request, "impersonated_by_id")
         if impersonator_id:
             return impersonator_id
 
@@ -1291,9 +1305,11 @@ class OAuthValidator(OAuth2Validator):
         scoped_teams = None
         scoped_organizations = None
 
-        if hasattr(request, "scoped_teams") and hasattr(request, "scoped_organizations"):
-            scoped_teams = request.scoped_teams
-            scoped_organizations = request.scoped_organizations
+        consented_teams = _authorize_credential(request, "scoped_teams", _CREDENTIAL_UNSET)
+        consented_organizations = _authorize_credential(request, "scoped_organizations", _CREDENTIAL_UNSET)
+        if consented_teams is not _CREDENTIAL_UNSET and consented_organizations is not _CREDENTIAL_UNSET:
+            scoped_teams = consented_teams
+            scoped_organizations = consented_organizations
         elif access_token:
             scoped_teams = access_token.scoped_teams
             scoped_organizations = access_token.scoped_organizations
