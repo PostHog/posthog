@@ -211,6 +211,7 @@ export interface loginLogicValues {
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
+    precheckTrusted: boolean
     resendResponse: {
         message: string
         success: boolean
@@ -220,6 +221,7 @@ export interface loginLogicValues {
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     signupUrl: string
+    ssoEnforcedErrorProvider: SSOProvider | null
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -383,6 +385,15 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
+        precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
+        ssoEnforcedErrorProvider: (
+            generalError: {
+                code: string
+                detail: string
+            } | null,
+            precheckTrusted: boolean,
+            precheckResponse: PrecheckResponseType
+        ) => SSOProvider | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
@@ -627,6 +638,11 @@ export const loginLogic = kea<loginLogicType>([
                         actions.setCodeVerificationRequired(emailAddress)
                         throw e
                     }
+                    if (code === 'sso_enforced') {
+                        // A password manager can fill both fields and submit before the email blur
+                        // runs the precheck. Run it now, so the form can name the provider and show its button.
+                        actions.precheck({ email })
+                    }
                     // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
                     // dropped connection) leaves code/detail null, so the user gets the generic catch-all
                     // message below. Capture the underlying status/message so these aren't untraceable.
@@ -662,6 +678,31 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
+    })),
+    // After forms(), which defines the `login` selector these read.
+    selectors(() => ({
+        // True only when the precheck resolved for the email now in the form. A failed precheck reports
+        // permissive defaults, and a stale one still describes the previous email's account.
+        precheckTrusted: [
+            (s) => [s.precheckResponse, s.login],
+            (precheckResponse: PrecheckResponseType, login: LoginForm): boolean =>
+                precheckResponse.status === 'completed' &&
+                !precheckResponse.precheckFailed &&
+                precheckResponse.email === login.email,
+        ],
+        // The provider to name when the server rejects a password because SSO is enforced. The server
+        // detail only carries an internal provider key, so the form uses the precheck's provider instead.
+        ssoEnforcedErrorProvider: [
+            (s) => [s.generalError, s.precheckTrusted, s.precheckResponse],
+            (
+                generalError: { code: string; detail: string } | null,
+                precheckTrusted: boolean,
+                precheckResponse: PrecheckResponseType
+            ): SSOProvider | null =>
+                generalError?.code === 'sso_enforced' && precheckTrusted
+                    ? (precheckResponse.sso_enforcement ?? null)
+                    : null,
+        ],
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {

@@ -20,7 +20,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { ERROR_MESSAGES, ssoEnforcedErrorMessage } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -123,6 +123,8 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        precheckTrusted,
+        ssoEnforcedErrorProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
@@ -210,9 +212,11 @@ export function LoginForm(): JSX.Element {
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
-                            {generalError.detail ||
-                                ERROR_MESSAGES[generalError.code] ||
-                                'Could not complete your login. Please try again.'}
+                            {ssoEnforcedErrorProvider
+                                ? ssoEnforcedErrorMessage(ssoEnforcedErrorProvider)
+                                : generalError.detail ||
+                                  ERROR_MESSAGES[generalError.code] ||
+                                  'Could not complete your login. Please try again.'}
                         </span>
                         {preflight?.cloud && (
                             <>
@@ -221,13 +225,6 @@ export function LoginForm(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        // Trust the precheck only when it resolved for the email now
-                                        // in the form: a failed precheck reports permissive defaults,
-                                        // and a stale one still holds the previous email's account.
-                                        const precheckTrusted =
-                                            precheckResponse.status === 'completed' &&
-                                            !precheckResponse.precheckFailed &&
-                                            precheckResponse.email === login.email
                                         openSupportForm({
                                             kind: 'support',
                                             email: login.email,

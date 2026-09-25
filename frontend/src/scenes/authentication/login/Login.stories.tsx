@@ -23,7 +23,7 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
+    generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent' | 'sso_enforced'
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
@@ -51,7 +51,7 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
+            options: ['none', 'invalid_credentials', 'code_based_verification_sent', 'sso_enforced'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
@@ -130,6 +130,7 @@ const Template: StoryFn<StoryArgs> = ({
             const messages: Record<string, string> = {
                 invalid_credentials: 'Invalid email or password.',
                 code_based_verification_sent: 'Check your email to verify your account.',
+                sso_enforced: 'You can only login with SSO for this account (google-oauth2).',
             }
             loginLogic.actions.setGeneralError(generalError, messages[generalError] ?? '')
         } else {
@@ -150,6 +151,10 @@ CloudEU.args = { region: 'EU' }
 
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }
+
+export const SSOEnforcedPasswordRejected: StoryFn<StoryArgs> = Template.bind({})
+SSOEnforcedPasswordRejected.storyName = 'SSO enforced, password rejected'
+SSOEnforcedPasswordRejected.args = { ssoEnforcement: 'google-oauth2', generalError: 'sso_enforced' }
 
 export const SAMLAvailable: StoryFn<StoryArgs> = Template.bind({})
 SAMLAvailable.args = { samlAvailable: true }

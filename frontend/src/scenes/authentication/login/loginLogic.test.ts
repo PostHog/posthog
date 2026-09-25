@@ -251,6 +251,49 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('password rejected because SSO is enforced', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        let precheckHandler: jest.Mock
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            precheckHandler = jest.fn(() => [200, { saml_available: false, sso_enforcement: 'google-oauth2' }])
+            useMocks({
+                post: {
+                    '/api/login/precheck': precheckHandler,
+                    '/api/login': () => [
+                        400,
+                        { type: 'validation_error', code: 'sso_enforced', detail: 'SSO only (google-oauth2).' },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('runs the skipped precheck so the error can name the provider, and drops it for another email', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure', 'precheckSuccess'])
+
+            expect(precheckHandler).toHaveBeenCalledTimes(1)
+            expect(logic.values.precheckResponse.sso_enforcement).toEqual('google-oauth2')
+            expect(logic.values.ssoEnforcedErrorProvider).toEqual('google-oauth2')
+
+            logic.actions.setLoginValue('email', 'other@example.com')
+            expect(logic.values.ssoEnforcedErrorProvider).toBe(null)
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock
