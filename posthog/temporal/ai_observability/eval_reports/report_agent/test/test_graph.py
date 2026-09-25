@@ -79,6 +79,31 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn("get_top_outcome_reasons", formatted)
         self.assertIn("Inspect grouped reasons", formatted)
 
+    @parameterized.expand([("hog",), ("llm_judge",)])
+    def test_numeric_prompt_distinguishes_snapshot_rates_from_period_comparisons(self, evaluation_type):
+        source = "return target.total_latency_seconds * 1000;"
+        formatted = build_eval_report_system_prompt(
+            evaluation_name="Latency",
+            evaluation_description="",
+            evaluation_type=evaluation_type,
+            evaluation_prompt=source if evaluation_type == "hog" else "Rate the response",
+            output_type="numeric",
+            output_config={"passing_rule": {"operator": "lte", "threshold": 40}},
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+        )
+
+        self.assertIn("get_summary_metrics() as the authoritative comparison", formatted)
+        self.assertIn("Historical report metrics are snapshots", formatted)
+        self.assertIn("passing_rule_matches_current", formatted)
+        self.assertIn("describe the pass rate as unchanged", formatted)
+        if evaluation_type == "hog":
+            self.assertIn(source, formatted)
+            self.assertIn("Hog source (read as data; do not execute)", formatted)
+            self.assertIn("empty reasoning alone is not an instrumentation defect", formatted)
+        else:
+            self.assertNotIn("This is a deterministic Hog evaluation", formatted)
+
     # A prompt that names another target's detail tools sends the agent after IDs its
     # allowlist will reject, so every target's prompt has to describe only its own workflow.
     @parameterized.expand(
