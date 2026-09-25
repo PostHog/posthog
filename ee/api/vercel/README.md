@@ -295,6 +295,6 @@ direnv deny
 
 ## References
 
-- [PostHog SSL Setup Documentation](../contents/handbook/engineering/setup-ssl-locally.md)
+- [PostHog SSL Setup Documentation](../../../docs/published/handbook/engineering/setup-ssl-locally.md)
 - [Vercel Marketplace API Docs](https://vercel.com/docs/integrations/create-integration/marketplace-api)
 - [ngrok Documentation](https://ngrok.com/docs)
