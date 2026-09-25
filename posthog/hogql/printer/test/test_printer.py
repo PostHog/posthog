@@ -3840,6 +3840,13 @@ class TestPrinter(BaseTest):
         )
         assert "max_bytes_before_external_group_by=1000000" in printed, printed
 
+    def test_log_entries_keeps_explicit_zero_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=0),
+        )
+        assert "max_bytes_before_external_group_by=0" in printed, printed
+
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)

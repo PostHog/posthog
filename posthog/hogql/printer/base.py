@@ -1612,8 +1612,13 @@ class BasePrinter(Visitor[str]):
 
     def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any]:
         merged = dict(settings.model_dump()) if settings else {}
-        # Drop only HogQL's default of 0 (spill disabled); an explicit caller threshold is kept.
-        if self._inherit_profile_spill and merged.get("max_bytes_before_external_group_by") == 0:
+        # Drop only HogQL's unset default of 0 (spill disabled); any value a caller set explicitly,
+        # including 0, is kept.
+        if (
+            self._inherit_profile_spill
+            and merged.get("max_bytes_before_external_group_by") == 0
+            and (settings is None or "max_bytes_before_external_group_by" not in settings.model_fields_set)
+        ):
             merged["max_bytes_before_external_group_by"] = None
         if not self._table_top_level_settings:
             return merged
