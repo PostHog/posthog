@@ -338,6 +338,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         exportLinksCsv: async () => {
             const projectId = String(teamLogic.values.currentTeamId)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.createResponse(getUserInterviewTopicsLinksCsvCreateUrl(projectId, props.id))
                 if (!response.ok) {
                     throw new Error(`Export failed (${response.status})`)

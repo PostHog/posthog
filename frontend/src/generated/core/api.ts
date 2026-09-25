@@ -15,6 +15,11 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    DataDeletionPreviewApi,
+    DataDeletionRequestApi,
+    DataDeletionRequestCreateApi,
+    DataDeletionRequestInputApi,
+    DataDeletionRequestsListParams,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
     EnterprisePropertyDefinitionApi,
@@ -49,6 +54,7 @@ import type {
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
+    PaginatedDataDeletionRequestListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -1464,6 +1470,94 @@ export const dashboardsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getDataDeletionRequestsListUrl = (projectId: string, params?: DataDeletionRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_deletion_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_deletion_requests/`
+}
+
+/**
+ * List self-service event deletion requests for this project.
+ */
+export const dataDeletionRequestsList = async (
+    projectId: string,
+    params?: DataDeletionRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataDeletionRequestListApi> => {
+    return apiMutator<PaginatedDataDeletionRequestListApi>(getDataDeletionRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataDeletionRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/`
+}
+
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const dataDeletionRequestsCreate = async (
+    projectId: string,
+    dataDeletionRequestCreateApi: DataDeletionRequestCreateApi,
+    options?: RequestInit
+): Promise<DataDeletionRequestApi> => {
+    return apiMutator<DataDeletionRequestApi>(getDataDeletionRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataDeletionRequestCreateApi),
+    })
+}
+
+export const getDataDeletionRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/${id}/`
+}
+
+/**
+ * Get one self-service event deletion request for this project.
+ */
+export const dataDeletionRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataDeletionRequestApi> => {
+    return apiMutator<DataDeletionRequestApi>(getDataDeletionRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataDeletionRequestsPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_deletion_requests/preview/`
+}
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const dataDeletionRequestsPreviewCreate = async (
+    projectId: string,
+    dataDeletionRequestInputApi: DataDeletionRequestInputApi,
+    options?: RequestInit
+): Promise<DataDeletionPreviewApi> => {
+    return apiMutator<DataDeletionPreviewApi>(getDataDeletionRequestsPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataDeletionRequestInputApi),
     })
 }
 

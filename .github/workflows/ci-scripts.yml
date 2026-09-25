@@ -9,13 +9,18 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            - .github/workflows/cd-sandbox-base-image.yml
+            - .github/workflows/update-sandbox-agent-version.yml
+            - .github/actions/wait-for-check/**
             - .github/actions/setup-uv/**
             # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
             # table does not declare, so adding one has to run these tests.
             - proto/**
-            # turbo-discover.test.js pins the Django segment table to these.
+            # turbo-discover.test.js pins the Django segment table to these, and checks
+            # that every path in the events_json list exists.
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
+            - .github/new-events-schema-targets.txt
             # The backend test selector and its verdict script gate ci-backend.
             - tools/snob_backend_test_selection_shadow.py
             - tools/test_snob_backend_test_selection_shadow.py

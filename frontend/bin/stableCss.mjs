@@ -2,6 +2,8 @@ import path from 'node:path'
 
 import { commonConfig, esbuildBuild } from '@posthog/esbuilder'
 
+import { cssGroupFileStem } from './stableCssPlan.mjs'
+
 /**
  * Builds every group with the app's own esbuild plugins (Sass, Tailwind, PostCSS), so each
  * stylesheet holds exactly the CSS the entry stylesheet holds for those files. Returns
@@ -11,7 +13,9 @@ export async function buildCssGroups(absWorkingDir, groups) {
     const result = await esbuildBuild({
         ...commonConfig,
         absWorkingDir,
-        entryPoints: Object.fromEntries([...groups.keys()].map((name) => [`styles-${name}`, `css-group:${name}`])),
+        entryPoints: Object.fromEntries(
+            [...groups.keys()].map((name) => [cssGroupFileStem(name), `css-group:${name}`])
+        ),
         outdir: path.resolve(absWorkingDir, 'dist'),
         entryNames: '[name]-[hash]',
         bundle: true,

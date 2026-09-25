@@ -13,15 +13,23 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
+
+jest.mock('../../utils/artifactUpload', () => ({
+    uploadRunAttachments: jest.fn(),
+    uploadStagedTaskAttachments: jest.fn(),
+}))
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
     id: 'task-1',
@@ -47,6 +55,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let cancelledWarmRuns: string[]
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
@@ -63,6 +72,7 @@ describe('taskTrackerSceneLogic', () => {
         localStorage.clear()
         createBody = null
         runBody = null
+        cancelledWarmRuns = []
         useMocks({
             get: {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
@@ -80,6 +90,10 @@ describe('taskTrackerSceneLogic', () => {
                     runBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
+                '/api/projects/:team/tasks/:taskId/runs/:id/cancel/': ({ params }) => {
+                    cancelledWarmRuns.push(params.id as string)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -96,6 +110,76 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+    })
+
+    describe('file attachments', () => {
+        let attachments: ReturnType<typeof composerAttachmentsLogic.build>
+
+        beforeEach(() => {
+            attachments = composerAttachmentsLogic({ attachmentsKey: 'scene' })
+            attachments.mount()
+            attachments.actions.addFiles([new File(['a'], 'rows.csv')])
+        })
+
+        afterEach(() => {
+            attachments.unmount()
+        })
+
+        // With no warm lease the create must give up warm reuse, which it does by leaving `branch` off.
+        it('stages the files on the cold task and attaches them to its run', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockResolvedValue(['art-1'])
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(createBody).not.toHaveProperty('branch')
+            expect(uploadStagedTaskAttachments).toHaveBeenCalledWith('997', 'new-task', [expect.any(File)])
+            expect(runBody?.pending_user_artifact_ids).toEqual(['art-1'])
+            expect(attachments.values.attachments).toEqual([])
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('keeps the files staged and never starts the run when the upload fails', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(runBody).toBeNull()
+            expect(attachments.values.attachments).toHaveLength(1)
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('hands a leased warm run back when the upload to it fails', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            const warm = taskWarmLogic({ panelId: undefined })
+            warm.mount()
+            warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(cancelledWarmRuns).toEqual(['warm-run'])
+            warm.unmount()
+        })
+    })
+
+    it('still offers a warm run its branch when nothing is attached', async () => {
+        router.actions.push('/tasks/new')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(createBody).toHaveProperty('branch', null)
+        expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
+        expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
     it.each([

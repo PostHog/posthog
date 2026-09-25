@@ -98,11 +98,24 @@ export const DesktopDefault: Story = {
   args: {
     initialFilters: {
       ...DEFAULT_CHANNEL_ITEM_FILTERS,
-      source: DESKTOP_SOURCE,
+      sources: [DESKTOP_SOURCE],
     },
     defaultFilters: {
       ...DEFAULT_CHANNEL_ITEM_FILTERS,
-      source: DESKTOP_SOURCE,
+      sources: [DESKTOP_SOURCE],
+    },
+  },
+};
+
+export const SeveralSources: Story = {
+  args: {
+    initialFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE, "slack"],
+    },
+    defaultFilters: {
+      ...DEFAULT_CHANNEL_ITEM_FILTERS,
+      sources: [DESKTOP_SOURCE],
     },
   },
 };

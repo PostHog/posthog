@@ -29,11 +29,11 @@ interface RegistrableDomainQueue {
     heapIndex: number
 }
 
-interface IndexedPriorityQueueItem {
+export interface IndexedPriorityQueueItem {
     heapIndex: number
 }
 
-class IndexedPriorityQueue<T extends IndexedPriorityQueueItem> {
+export class IndexedPriorityQueue<T extends IndexedPriorityQueueItem> {
     private readonly heap: T[] = []
 
     constructor(private readonly hasPriority: (left: T, right: T) => boolean) {}

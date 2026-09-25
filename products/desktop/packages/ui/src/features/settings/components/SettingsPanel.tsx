@@ -12,7 +12,6 @@ import {
   GithubLogo,
   Keyboard,
   Lightbulb,
-  Lightning,
   PaintBrush,
   Palette,
   Plugs,
@@ -26,7 +25,6 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Button, Input, MenuLabel } from "@posthog/quill";
-import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
@@ -67,7 +65,6 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: "notifications", icon: <Bell size={16} /> },
       { id: "personalization", icon: <Palette size={16} /> },
       { id: "shortcuts", icon: <Keyboard size={16} /> },
-      { id: "quick-ask", icon: <Lightning size={16} /> },
     ],
   },
   {
@@ -144,13 +141,9 @@ export function SettingsPanel({
     onCategoryChange ??
     ((cat: SettingsCategory) => nav.navigateToSettings(cat, { replace: true }));
   const { localWorkspaces } = useHostCapabilities();
-  const quickAskAvailable = useQuickAskAvailable();
   const backupAvailable = useSettingsBackupAvailable();
 
-  const hiddenCategories = getHiddenSettingsCategories({
-    localWorkspaces,
-    quickAskAvailable,
-  });
+  const hiddenCategories = getHiddenSettingsCategories({ localWorkspaces });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),

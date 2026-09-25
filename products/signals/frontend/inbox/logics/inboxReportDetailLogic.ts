@@ -830,10 +830,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
-        // The report's branch diff (its `commit` artefact's branch vs the repo default branch), rendered
-        // in the "Files changed" section. Loaded here rather than in the component so the fetch is keyed
-        // to the report and cascades off the artefact load — once artefacts resolve we know the latest
-        // commit artefact, and re-fetch only when a *new* commit lands (not on every 5s activity poll).
+        // The report's pull request or pre-PR branch diff, rendered in the "Files changed" section. Loaded
+        // here rather than in the component so the fetch is keyed to the report and cascades off the
+        // artefact load — once artefacts resolve we know the latest commit artefact, and re-fetch only when
+        // a *new* commit lands (not on every 5s activity poll).
         reportDiff: [
             null as CommitDiffResponseApi | null,
             {
@@ -993,15 +993,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag).
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
+                loadReportDiffFailure: () => "Couldn't load the diff. Try again, or open the pull request on GitHub.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
