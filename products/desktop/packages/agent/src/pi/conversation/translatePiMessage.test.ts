@@ -27,24 +27,49 @@ function makeAssistant(content: AssistantMessage["content"]): AssistantMessage {
 }
 
 describe("createPiMessageTranslator", () => {
-  it("translates a string user message into a user message chunk", () => {
-    const translator = createPiMessageTranslator();
+  it.each([
+    {
+      label: "plain text",
+      message: "hello there",
+      expected: [{ type: "text", text: "hello there" }],
+    },
+    {
+      label: "a hydrated text attachment",
+      message:
+        "<channel_context>space context</channel_context>\n\nAttached files:\n- /tmp/workspace/.posthog/attachments/0123456789abcdef0123456789abcdef-pasted-text.txt",
+      expected: [
+        {
+          type: "text",
+          text: "<channel_context>space context</channel_context>",
+        },
+        {
+          type: "resource_link",
+          uri: "attachment://pi?label=pasted-text.txt&path=%2Ftmp%2Fworkspace%2F.posthog%2Fattachments%2F0123456789abcdef0123456789abcdef-pasted-text.txt",
+          name: "pasted-text.txt",
+        },
+      ],
+    },
+  ])(
+    "translates $label user message content",
+    ({ message: input, expected }) => {
+      const translator = createPiMessageTranslator();
 
-    const message: UserMessage = {
-      role: "user",
-      content: "hello there",
-      timestamp: 0,
-    };
-
-    expect(translator.translate(message)).toEqual([
-      {
-        type: "user_message",
-        id: "pi-user-0-1",
+      const message: UserMessage = {
+        role: "user",
+        content: input,
         timestamp: 0,
-        content: [{ type: "text", text: "hello there" }],
-      },
-    ]);
-  });
+      };
+
+      expect(translator.translate(message)).toEqual([
+        {
+          type: "user_message",
+          id: "pi-user-0-1",
+          timestamp: 0,
+          content: expected,
+        },
+      ]);
+    },
+  );
 
   it("translates user message content blocks into user message chunks", () => {
     const translator = createPiMessageTranslator();
