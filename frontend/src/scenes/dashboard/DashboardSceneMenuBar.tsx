@@ -94,7 +94,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
-    const showMetalytics = dashboard != null && metalyticsInstanceId != null && !!featureFlags[FEATURE_FLAGS.METALYTICS]
+    const showMetalytics = dashboard != null && metalyticsInstanceId != null
 
     const { push } = useActions(router)
 

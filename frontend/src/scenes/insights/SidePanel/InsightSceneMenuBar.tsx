@@ -116,7 +116,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMode } = useActions(insightSceneLogic)
 
     const { createStaticCohort, startExport } = useActions(exportsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
@@ -164,10 +163,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
         (isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query))
     const canShowDebugPanel = isSavedInsight && (user?.is_staff || user?.is_impersonated || preflight?.is_debug)
     const showMetalytics =
-        isSavedInsight &&
-        metalyticsInstanceId != null &&
-        featureFlags['metalytics'] &&
-        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+        isSavedInsight && metalyticsInstanceId != null && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
 
     const handleToggleQueryEditorPanel = (): void => {
         if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
