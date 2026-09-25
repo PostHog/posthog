@@ -1176,6 +1176,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
+            # nosemgrep: schedule-must-avoid-minute-zero -- each run exports the interval that just closed, and batch_export.jitter already spreads the start
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
             time_zone_name=timezone,
