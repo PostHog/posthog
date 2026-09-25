@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useContext, useEffect, useMemo } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { useComponentPanelState } from './componentPanelContext'
@@ -9,7 +9,7 @@ import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { NotebookComponentShell } from './NotebookComponentShell'
 import { createMarkdownNotebookRegistry } from './registry'
-import { NotebookComponentRenderProps } from './types'
+import { NotebookComponentBlockNode, NotebookComponentRenderProps } from './types'
 
 function PanelStateProbe(): JSX.Element {
     const panelState = useComponentPanelState()
@@ -103,6 +103,73 @@ const RUN_SHORTCUTS: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?:
 ]
 
 describe('NotebookComponentShell', () => {
+    afterEach(cleanup)
+
+    it.each([
+        ['create', undefined, 'Weekly activity', 'Enter', 'Weekly activity'],
+        ['rename', 'Original title', 'Updated title', 'Tab', 'Updated title'],
+        ['cancel', 'Original title', 'Discarded title', 'Escape', 'Original title'],
+        ['clear', 'Original title', '', 'Enter', undefined],
+    ])('%s a title without collapsing the cell', async (action, initialTitle, draft, key, expectedTitle) => {
+        const registry = createMarkdownNotebookRegistry([
+            { tagName: 'Probe', label: 'Probe', category: 'Test', ViewComponent: PanelStateProbe },
+        ])
+        const setLocalComponentPanels = jest.fn()
+        const rememberComponentPanels = jest.fn()
+        const toggleComponentPanel = jest.fn()
+        function EditableTitleProbe(): JSX.Element {
+            const [node, setNode] = useState<NotebookComponentBlockNode>({
+                id: 'probe-node',
+                type: 'component',
+                tagName: 'Probe',
+                props: initialTitle ? { title: initialTitle } : {},
+            })
+            return (
+                <NotebookComponentShell
+                    node={node}
+                    mode="edit"
+                    componentPanels={{ filters: false, results: true }}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={registry}
+                    toggleComponentPanel={toggleComponentPanel}
+                    setLocalComponentPanels={setLocalComponentPanels}
+                    rememberComponentPanels={rememberComponentPanels}
+                    setBlockRef={jest.fn()}
+                    updateNode={(_nodeId, updater) =>
+                        setNode((current) => updater(current) as NotebookComponentBlockNode)
+                    }
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            )
+        }
+
+        render(<EditableTitleProbe />)
+        if (action === 'rename') {
+            await userEvent.click(screen.getByLabelText('More actions'))
+            await userEvent.click(screen.getByText('Edit title'))
+        } else {
+            await userEvent.click(screen.getByText(initialTitle ?? 'Add a title'))
+        }
+        const input = screen.getByLabelText('Component title')
+        expect(document.activeElement).toBe(input)
+        await userEvent.clear(input)
+        if (draft) {
+            await userEvent.type(input, draft)
+        }
+        await userEvent.keyboard(`{${key}}`)
+
+        expect(screen.queryByLabelText('Component title')).toBeNull()
+        expect(screen.getByText(expectedTitle ?? 'Add a title')).toBeTruthy()
+        expect(screen.getByTestId('panel-state').textContent).toBe('edit-closed view-open')
+        expect(setLocalComponentPanels).not.toHaveBeenCalled()
+        expect(rememberComponentPanels).not.toHaveBeenCalled()
+        expect(toggleComponentPanel).not.toHaveBeenCalled()
+    })
+
     it('provides markdown component panel state to rendered components', () => {
         const registry = createMarkdownNotebookRegistry([
             {
@@ -316,6 +383,7 @@ describe('NotebookComponentShell', () => {
         expect(screen.getByLabelText('More actions')).toBeTruthy()
         await userEvent.click(screen.getByLabelText('More actions'))
         expect(screen.queryByText('Change view')).toBeNull()
+        expect(screen.queryByText('Edit title')).toBeNull()
         expect(screen.getByText('Refresh')).toBeTruthy()
         viewRender.unmount()
     })
@@ -479,6 +547,7 @@ describe('NotebookComponentShell', () => {
 
         fireEvent.doubleClick(titleButton)
         expect(container.querySelector('.MarkdownNotebook__component-toolbar-title--input')).toBeNull()
+        expect(screen.queryByLabelText('More actions')).toBeNull()
 
         fireEvent.click(screen.getByText('Enabled'))
         expect(toggleStatus).toHaveBeenCalledTimes(1)

@@ -154,6 +154,7 @@ Saved result reads remain available if the execution flags are disabled, subject
 Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
+Click a cell's title or choose **Edit title** from its **More actions** menu to rename it without collapsing its panels. Enter or leaving the field saves; Escape cancels. The cell-type label toggles both panels, and the pencil toggles filters or the editor.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
