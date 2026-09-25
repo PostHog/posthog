@@ -14,6 +14,8 @@ type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert'
 
 interface StoryArgs {
     kind: Kind
+    /** The scene width next to an open side panel on a 1280px window. */
+    narrow?: boolean
 }
 
 const STREAM_KEY = 'turn-suggestion-story'
@@ -235,18 +237,19 @@ const FRAMES_BY_KIND: Record<Kind, Record<string, unknown>[]> = {
     error_alert: ERROR_ALERT_TURN_FRAMES,
 }
 
-function TurnSuggestionStory({ kind }: StoryArgs): JSX.Element {
+function TurnSuggestionStory({ kind, narrow }: StoryArgs): JSX.Element {
     useEffect(() => {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
         const unmountStream = stream.mount()
         for (const frame of FRAMES_BY_KIND[kind]) {
             stream.actions.ingestAcpFrame(frame as any, 'replay')
         }
+        stream.actions.setTurnSuggestionLedger({ taskId: SESSION_ID, muted: false, resolvedTurns: [] })
         return unmountStream
     }, [kind])
 
     return (
-        <div className="w-180 max-w-full rounded border p-4">
+        <div className={`${narrow ? 'w-130' : 'w-180'} max-w-full rounded border p-4`}>
             <BindLogic logic={runStreamLogic} props={{ streamKey: STREAM_KEY }}>
                 <ThreadView
                     virtualized={false}
@@ -312,13 +315,15 @@ const meta: Meta<StoryArgs> = {
     parameters: { mockDate: '2026-09-16', testOptions: { waitForLoadersToDisappear: true } },
     args: { kind: 'scout' },
     decorators: [mswDecorator(mocks())],
-    render: ({ kind }) => <TurnSuggestionStory kind={kind} />,
+    render: ({ kind, narrow }) => <TurnSuggestionStory kind={kind} narrow={narrow} />,
 }
 export default meta
 
 type Story = StoryObj<StoryArgs>
 
 export const ScoutSuggestion: Story = {}
+
+export const ScoutSuggestionNarrow: Story = { args: { kind: 'scout', narrow: true } }
 
 export const NotebookSuggestion: Story = { args: { kind: 'notebook' } }
 
