@@ -6800,6 +6800,30 @@ snapshots:
         hash: v1.k794b7964.c4ebc83f695831769cc95475925e983a71d5909636818ff2153e2dc7df5450a1.9VcSQPoSe9fMttmpga5INPhkJySlhF35v8dHEs52L90
     products-posthog-ai-virtualizedthread--streaming--light:
         hash: v1.k794b7964.e731151aea72bc9d5f4248dd2548e03fe07336fb29b2110d1e348020985ef9d1.NMSw9HS1VJuLZsmgp29MVPo708vTot8RLCqFv8IC7RQ
+    products-signals-relevance-shortlist--default--dark:
+        hash: v1.k794b7964.19f7b1ca60a95b58419ab01559df7230d9495e009ca10ed7a98d867ff3e34ae2.T5BeNvoDjJr0QeFYb1rRn_E9j9OgAw6g_ZgKtfdTdMg
+    products-signals-relevance-shortlist--default--light:
+        hash: v1.k794b7964.62fffbd8d0dcc872ea791543df58500a61a9812d400b68846b17e524db482d7a.VqcZs7HJ3-Cz3A-Y3lP0X8zl3bE1nhsMp0tAbKtBBzo
+    products-signals-relevance-shortlist--empty--dark:
+        hash: v1.k794b7964.c243ba73883fede6c5b889e1d313681ae91d64b69d25d4670872e02ee9785582.VWfsqdRrIKEQeY7ohViiIp0SE3SCWf6OLNq3oX5NQ0Q
+    products-signals-relevance-shortlist--empty--light:
+        hash: v1.k794b7964.75036655c4fe8868c641d68ab66cb194fb2ddeeb005911b5204bba9136b811e8.9cEja9-KH0SRAmZriqUOj9BRPFA-gxGC9Y3ELdSx5uk
+    products-signals-relevance-shortlist--error--dark:
+        hash: v1.k794b7964.5b31877f9c7370c0530ee253f51593780ea7f964a903cf437910f4e183a8ed01.zc82TfRMD66c05GyfyII_GFBOlZQOhE2YooljzRumLI
+    products-signals-relevance-shortlist--error--light:
+        hash: v1.k794b7964.cc276de56a0166a14b5e31b754b53a3ea473ebaaa354911eb036221fe16b9ef4.jMb_s6TP9k8i2psarxMW5V8o9Cbn5-eMUW8hfjt3lCE
+    products-signals-relevance-shortlist--loading--dark:
+        hash: v1.k794b7964.2e751975eb954d0ce872f280aea9b56797f854c3352b387dc30ebd5edecd9be7.YMKCJ4hed1cGD8drXYHhOzGCzjI9xEBbISi0jF5Wu2k
+    products-signals-relevance-shortlist--loading--light:
+        hash: v1.k794b7964.37db6805a791eef725c681fd139cce778f4ff5e06f7b89b276a88a8dcf8562ac.X7ZFddCY9m9WGPen8nuw5BwQD-6eyzohnWH8Xh_prKQ
+    products-signals-relevance-shortlist--narrow--dark:
+        hash: v1.k794b7964.5437f80a9268635a1ea8d6eaa5ef98f24cd6f65ca181f66eefee12ae3ba416b0.ToGSEv5RNQUHnPuql5ryO9aXZbzXCDF0a_3RcT0ePxQ
+    products-signals-relevance-shortlist--narrow--light:
+        hash: v1.k794b7964.8d70717ffba01fbc0fa187600fde22ec778913e2aed4329614b72cbe1492b52d.DiuelzexLZ9upGSMfe-m_8iuduvAETsKbsEMgOUT-d0
+    products-signals-relevance-shortlist--snoozed--dark:
+        hash: v1.k794b7964.860f7e89e4a0586234c13a712d2a0e1f0724c43e870265c0541b0f78c7038628.cMwfjDXfL4Y-6RD2A5SlNS0u-7T4kJKvVjwSwd-tGRw
+    products-signals-relevance-shortlist--snoozed--light:
+        hash: v1.k794b7964.dd564c5513b6e20d4b8d92da89e01a2ec70adbee58a524b94bde62bfa6a75813.2xW2h9C_Anpz1IxjqGvuksicUNip3DyCvQZP-jlMLPI
     products-signals-self-driving-intro-modal--default--dark:
         hash: v1.k794b7964.e72031a3a874ed6a1825089edff6147a3ea0d74c20c74951f8b5d38d92f54464.WQmsYZby7Raw1OaQn_oKtu1eASs_te6AgRALWXM6xLE
     products-signals-self-driving-intro-modal--default--light:
