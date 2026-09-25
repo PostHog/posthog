@@ -100,10 +100,17 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
     )
 
 
+def is_webkit_browser(request: HttpRequest) -> bool:
+    """Safari, and every browser on iOS. Chromium browsers also send "AppleWebKit", but not without "Chrome/"."""
+    user_agent = request.headers.get("user-agent", "")
+    return "AppleWebKit" in user_agent and "Chrome/" not in user_agent
+
+
 def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
     """
     The query param wins, then the cookie, then the flag for a logged-in user. `feature_flags` are
     the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
+    WebKit browsers ignore the flag, so their events carry the flag value but use the default build.
     """
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param is not None:
@@ -114,6 +121,11 @@ def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[s
         return cookie == "1"
 
     if not request.user.is_authenticated or not feature_flags:
+        return False
+
+    # WebKit crashes on the stable build: a scene reads a kea hook from a namespace that is still
+    # undefined. The query param and cookie above still opt a WebKit browser in, to reproduce it.
+    if is_webkit_browser(request):
         return False
 
     return feature_flags.get(STABLE_CHUNKS_FLAG) is True

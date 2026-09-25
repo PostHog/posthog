@@ -30,6 +30,10 @@ VALID_MANIFEST = {
 }
 FLAG_ON = {STABLE_CHUNKS_FLAG: True}
 FLAG_OFF = {STABLE_CHUNKS_FLAG: False}
+SAFARI_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+CHROME_IOS = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/129.0.0.0 Mobile/15E148 Safari/604.1"
+CHROME_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+FIREFOX_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:131.0) Gecko/20100101 Firefox/131.0"
 
 
 class TestStableChunks(SimpleTestCase):
@@ -91,6 +95,24 @@ class TestStableChunks(SimpleTestCase):
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
 
         assert stable_chunks_choice(request, feature_flags) == expected
+
+    @parameterized.expand(
+        [
+            ("safari with the flag on", "", None, SAFARI_MAC, False),
+            ("chrome on ios with the flag on", "", None, CHROME_IOS, False),
+            ("chrome with the flag on", "", None, CHROME_MAC, True),
+            ("firefox with the flag on", "", None, FIREFOX_MAC, True),
+            ("param on still opts safari in", "?stable_chunks=1", None, SAFARI_MAC, True),
+            ("cookie on still opts safari in", "", "1", SAFARI_MAC, True),
+        ]
+    )
+    def test_the_flag_skips_webkit(self, _name, query, cookie, user_agent, expected):
+        request = RequestFactory().get(f"/{query}", HTTP_USER_AGENT=user_agent)
+        request.user = User()
+        if cookie:
+            request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
+
+        assert stable_chunks_choice(request, FLAG_ON) == expected
 
     @parameterized.expand(
         [
