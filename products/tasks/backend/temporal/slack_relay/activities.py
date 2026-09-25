@@ -195,7 +195,11 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare, project_web_url
+    from products.slack_app.backend.services.slack_messages import (
+        mentions_slack_user,
+        normalize_labeled_mentions_to_bare,
+        project_web_url,
+    )
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor
@@ -260,8 +264,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # reads those only at the start of a line, so a mention in front of one would turn it into
     # literal text. Those answers take the mention on a line of its own, which keeps the construct
     # intact and still notifies.
+    # An answer that already mentions the target notifies them itself, so a prefix would tag them twice.
     mention_separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
-    mention_prefix = f"<@{target}>{mention_separator}" if target else ""
+    mention_prefix = f"<@{target}>{mention_separator}" if target and not mentions_slack_user(text, target) else ""
 
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
 
