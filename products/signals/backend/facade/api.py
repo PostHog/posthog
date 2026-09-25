@@ -20,6 +20,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
@@ -1177,7 +1178,8 @@ def repair_report_actionability_cache(
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     """Whether to offer the user scout creation on the team's project.
 
-    Two checks, both on the canonical project: it runs scouts (enrollment in the `signals-scout` flag
+    The user needs access to the requested project, as the create endpoint's permission checks. Two
+    more checks run on the canonical project: it runs scouts (enrollment in the `signals-scout` flag
     payload), and the user passes the scout create endpoint's own check (editor access to skills).
     """
     from products.signals.backend.scout_harness.team_limits import (
@@ -1187,6 +1189,8 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     team = Team.objects.select_related("parent_team").filter(id=team_id).first()
     user = User.objects.filter(id=user_id, is_active=True).first()
     if team is None or user is None:
+        return False
+    if not UserAccessControl(user=user, team=team).has_project_access:
         return False
     canonical_team = team.parent_team or team
     if not team_is_enrolled(canonical_team.id):

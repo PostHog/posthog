@@ -9,6 +9,7 @@ from products.signals.backend.facade.api import scout_creation_available
 
 TEAM_LIMITS = "products.signals.backend.scout_harness.team_limits"
 CREATE_ACCESS = "products.signals.backend.scout_harness.create_access"
+FACADE = "products.signals.backend.facade.api"
 
 
 class TestScoutCreationAvailable(BaseTest):
@@ -35,3 +36,12 @@ class TestScoutCreationAvailable(BaseTest):
         ):
             user_access_control.return_value.check_access_level_for_resource.return_value = False
             assert scout_creation_available(team_id=self.team.id, user_id=self.user.id) is False
+
+    def test_requires_access_to_the_requested_project(self):
+        with (
+            patch(f"{TEAM_LIMITS}._read_flag_payload", return_value={"guaranteed_team_ids": ["*"]}),
+            patch(f"{FACADE}.UserAccessControl") as user_access_control,
+        ):
+            user_access_control.return_value.has_project_access = False
+            assert scout_creation_available(team_id=self.team.id, user_id=self.user.id) is False
+        assert user_access_control.call_args.kwargs["team"].id == self.team.id
