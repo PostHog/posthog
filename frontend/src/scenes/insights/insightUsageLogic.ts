@@ -16,7 +16,7 @@ import { insightsViewedCreate } from 'products/product_analytics/frontend/genera
 
 import type { DataNode } from '../../queries/schema/schema-general'
 import type { InsightModel } from '../../types'
-import { insightLogic } from './insightLogic'
+import { insightLogic, insightOverridesPresent } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { keyForInsightLogicProps } from './sharedUtils'
 
@@ -98,7 +98,7 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
             const logic = insightSceneLogic.findMounted()
@@ -114,9 +114,14 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
                 const savedQuery = isNodeWithSource(values.savedInsight.query)
                     ? values.savedInsight.query.source
                     : values.savedInsight.query
+                const matchesSavedContext =
+                    savedQuery &&
+                    objectsEqual(query, savedQuery) &&
+                    !insightOverridesPresent(props.filtersOverride, props.variablesOverride, props.tileFiltersOverride)
                 void insightsViewedCreate(String(values.currentProjectId), {
                     insight_ids: [values.insight.id],
-                    context: savedQuery && objectsEqual(query, savedQuery) ? 'standalone' : undefined,
+                    context: matchesSavedContext ? (props.dashboardId ? 'dashboard' : 'standalone') : undefined,
+                    dashboard_id: matchesSavedContext ? props.dashboardId : undefined,
                 })
             }
 
