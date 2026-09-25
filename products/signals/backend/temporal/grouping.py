@@ -269,6 +269,7 @@ or if it should start a new group.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
+Look for a shared underlying cause, not simply structural similarity.
 
 IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
 - An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
@@ -1053,6 +1054,7 @@ CONTINUE_AS_NEW_THRESHOLD = 20
 BATCH_SIZE = 5
 BATCH_DEBOUNCE_SECONDS = 5
 TYPE_EXAMPLES_CACHE_TTL = timedelta(minutes=5)
+_PATCH_SIGNAL_EMBEDDING_LOOKUP = "signals-original-embedding-lookup"
 
 
 @dataclass
@@ -1197,7 +1199,16 @@ async def _process_signal_batch(
             )
         )
 
-        # Step 4: Semantic search for all queries (all parallel)
+        all_searches_flat = [
+            (sig_idx, query, all_query_embeddings[query_idx])
+            for query_idx, (sig_idx, query) in enumerate(all_queries_flat)
+        ]
+        if workflow.patched(_PATCH_SIGNAL_EMBEDDING_LOOKUP):
+            all_searches_flat = [
+                (sig_idx, signal.description, signal_embeddings[sig_idx]) for sig_idx, signal in enumerate(batch)
+            ] + all_searches_flat
+
+        # Step 4: Semantic search for the signals and generated queries (all parallel)
         all_search_results: list[RunSignalSemanticSearchOutput] = list(
             await asyncio.gather(
                 *[
@@ -1207,28 +1218,22 @@ async def _process_signal_batch(
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
-                    for emb in all_query_embeddings
+                    for _, _, emb in all_searches_flat
                 ]
             )
         )
 
-        # Regroup flat results back to per-signal
-        # Each query becomes an embedding vector for lookup
         type EmbeddingVector = list[float]
-        # For each new signal, we generate a number N of query strings
-        type SignalQueries = list[str]
-        # For each new signal, we generate an embedding for each query (so N embeddings)
-        type SignalQueryEmbeddings = list[EmbeddingVector]
-        # For each new signal, for each query, we get a list of M candidates back (10 at time of writing)
-        type SignalQueryResults = list[SignalCandidate]
-        # For each new signal, we run each query, so we get N * M total candidates for matching (although we fold down overlap across queries)
-        type SignalMatchCandidates = list[SignalQueryResults]
-        per_signal_queries: list[SignalQueries] = [[] for _ in batch]
-        per_signal_query_embeddings: list[SignalQueryEmbeddings] = [[] for _ in batch]
+        type SignalLookupTexts = list[str]
+        type SignalLookupEmbeddings = list[EmbeddingVector]
+        type SignalLookupResults = list[SignalCandidate]
+        type SignalMatchCandidates = list[SignalLookupResults]
+        per_signal_queries: list[SignalLookupTexts] = [[] for _ in batch]
+        per_signal_query_embeddings: list[SignalLookupEmbeddings] = [[] for _ in batch]
         per_signal_ch_results: list[SignalMatchCandidates] = [[] for _ in batch]
-        for flat_idx, (sig_idx, q_text) in enumerate(all_queries_flat):
+        for flat_idx, (sig_idx, q_text, embedding) in enumerate(all_searches_flat):
             per_signal_queries[sig_idx].append(q_text)
-            per_signal_query_embeddings[sig_idx].append(all_query_embeddings[flat_idx].embedding)
+            per_signal_query_embeddings[sig_idx].append(embedding.embedding)
             per_signal_ch_results[sig_idx].append(all_search_results[flat_idx].candidates)
 
         # Step 4.5: Fetch report contexts for all CH candidates (group-aware matching)
