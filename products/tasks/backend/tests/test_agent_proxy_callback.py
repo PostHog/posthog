@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from unittest.mock import patch
 
@@ -129,6 +130,93 @@ class TestAgentProxyCallback(TestCase):
     def test_invalid_body_returns_400(self) -> None:
         response = self._post({"kind": "heartbeat"}, token=self._token())
         self.assertEqual(response.status_code, 400)
+
+    def test_budget_steer_capture_uses_token_identity_and_stable_event_id(self) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            timestamp="2026-01-01T00:00:06.000Z",
+            stage="critical",
+            mode="publish",
+            delivered=True,
+            spent_usd=7,
+            cap_usd=10,
+            threshold_spent_usd=6.5,
+            threshold_at="2026-01-01T00:00:00.000Z",
+            delivered_at="2026-01-01T00:00:05.000Z",
+            run_id="spoofed-run",
+        )
+        token = self._token()
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture:
+            responses = [self._post(body, token=token), self._post(body, token=token)]
+
+        self.assertTrue(all(response.status_code == 200 and response.json()["dispatched"] for response in responses))
+        expected = {
+            "team_id": self.team.id,
+            "event_uuid": str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:7")),
+            "timestamp": "2026-01-01T00:00:06+00:00",
+            "properties": {
+                "team_id": self.team.id,
+                "task_id": str(self.task.id),
+                "run_id": str(self.task_run.id),
+                "stage": "critical",
+                "mode": "publish",
+                "delivered": True,
+                "spent_usd": 7.0,
+                "cap_usd": 10.0,
+                "threshold_spent_usd": 6.5,
+                "threshold_at": "2026-01-01T00:00:00.000Z",
+                "delivered_at": "2026-01-01T00:00:05.000Z",
+            },
+        }
+        self.assertEqual([call.kwargs["kwargs"] for call in capture.call_args_list], [expected, expected])
+
+    @parameterized.expand(
+        [
+            ("missing_sequence", {"sequence": None}),
+            ("invalid_stage", {"stage": "other"}),
+            ("negative_spend", {"spent_usd": -1}),
+        ]
+    )
+    def test_invalid_budget_steer_is_rejected(self, _name: str, overrides: dict[str, Any]) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            stage="warn",
+            mode="wrap_up",
+            delivered=True,
+            spent_usd=5,
+            cap_usd=10,
+        )
+        body.update(overrides)
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture:
+            response = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 400)
+        capture.assert_not_called()
+
+    def test_budget_steer_dispatch_failure_can_retry(self) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            stage="warn",
+            mode="wrap_up",
+            delivered=True,
+            spent_usd=5,
+            cap_usd=10,
+        )
+        with patch(
+            "products.tasks.backend.logic.stream.budget_steer.current_app.send_task",
+            side_effect=[RuntimeError("down"), None],
+        ) as dispatch:
+            response = self._post(body, token=self._token())
+            retried = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(retried.status_code, 200)
+        self.assertTrue(retried.json()["dispatched"])
+        self.assertEqual(dispatch.call_args_list[0], dispatch.call_args_list[1])
 
     def test_heartbeat_dispatches_when_active(self) -> None:
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:

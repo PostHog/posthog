@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -161,32 +162,44 @@ def dovetail_source(
             resumable_source_manager.save_state(DovetailResumeConfig(paginator_state=dict(state)))
 
     if endpoint_config.fanout:
-        # DocComments has no server-side filter of its own, so every sync walks the full Docs
-        # list to discover doc ids and re-fetches comments per doc; that's inherent to the API
-        # (no workspace-wide comments-list endpoint exists) and mirrors other fan-out sources.
-        dependent_resource = build_dependent_resource(
-            endpoint_configs=cast(Any, DOVETAIL_ENDPOINTS),
-            child_endpoint=endpoint,
-            fanout=endpoint_config.fanout,
-            client_config=_client_config(api_key),
-            path_format_values={},
-            team_id=team_id,
-            job_id=job_id,
-            db_incremental_field_last_value=None,
-            page_size_param="page[limit]",
-            parent_endpoint_extra={
-                "paginator": _paginator_config(),
-                "data_selector": "data",
-            },
-            child_endpoint_extra={
-                "paginator": _paginator_config(),
-                "data_selector": "data",
-            },
-            child_params_extra={"sort": "created_at:asc"},
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_paginator_state,
-        )
-        return _make_source_response(endpoint_config, lambda: dependent_resource)
+        # Neither fan-out child has a server-side filter of its own, so every sync walks the full
+        # parent list and re-fetches the child per parent; that's inherent to the API (Dovetail
+        # exposes no workspace-wide comments or fields listing) and mirrors other fan-out sources.
+        variants = endpoint_config.fanout_param_variants or ({},)
+        # Each pass has its own paginator while the manager holds a single checkpoint, so a
+        # multi-pass fan-out syncs without resume rather than resuming into the wrong pass.
+        resumable = len(variants) == 1
+        dependent_resources = [
+            build_dependent_resource(
+                endpoint_configs=cast(Any, DOVETAIL_ENDPOINTS),
+                child_endpoint=endpoint,
+                fanout=endpoint_config.fanout,
+                client_config=_client_config(api_key),
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                page_size_param="page[limit]",
+                parent_endpoint_extra={
+                    "paginator": _paginator_config(),
+                    "data_selector": "data",
+                },
+                child_endpoint_extra={
+                    "paginator": _paginator_config(),
+                    "data_selector": "data",
+                },
+                child_params_extra={"sort": "created_at:asc", **variant},
+                resume_hook=save_checkpoint if resumable else None,
+                initial_paginator_state=initial_paginator_state if resumable else None,
+            )
+            for variant in variants
+        ]
+
+        def fanout_items() -> Iterator[Any]:
+            for dependent_resource in dependent_resources:
+                yield from dependent_resource
+
+        return _make_source_response(endpoint_config, fanout_items)
 
     config: RESTAPIConfig = {
         "client": _client_config(api_key),

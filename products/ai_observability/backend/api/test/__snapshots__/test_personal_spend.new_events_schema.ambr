@@ -1,0 +1,176 @@
+# serializer version: 1
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.1]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT nullIf(arrayJoin(splitByChar(',', coalesce(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_tools_called`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_tools_called`)), if(isNull(nullIf(toString(events.properties.`$ai_tools_called`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$ai_tools_called`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$ai_tools_called`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$ai_tools_called`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$ai_tools_called`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$ai_tools_called`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$ai_tools_called`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$ai_tools_called`), '[]'), '{}'), toString(events.properties.`$ai_tools_called`))))), ''))), '') AS tool,
+         count() AS generation_count,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
+         round(avg(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')), 0) AS avg_input_tokens
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_generation'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY tool
+  ORDER BY cost_usd DESC
+  LIMIT 51 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.2]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))) AS product,
+         count() AS event_count,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY product
+  ORDER BY cost_usd DESC
+  LIMIT 51 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.3]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$ai_model`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$ai_model`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`))))) AS model,
+         count() AS generation_count,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
+         sum(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')) AS input_tokens,
+         sum(accurateCastOrNull(events.properties.`$ai_output_tokens`, 'Float64')) AS output_tokens
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY model
+  ORDER BY cost_usd DESC
+  LIMIT 51 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.4]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT toDate(events.timestamp) AS day,
+         count() AS event_count,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
+         sum(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')) AS input_tokens,
+         sum(accurateCastOrNull(events.properties.`$ai_output_tokens`, 'Float64')) AS output_tokens
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY day
+  ORDER BY day ASC
+  LIMIT 92 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.5]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$ai_model`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$ai_model`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`))))) AS model
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))), isNotNull(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$ai_model`)), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$ai_model`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$ai_model`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$ai_model`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`)))))))
+  GROUP BY model
+  ORDER BY sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')) DESC, model ASC
+  LIMIT 6 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.6]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT toDate(events.timestamp) AS day,
+         NULL AS model,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
+         sum(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')) AS input_tokens,
+         sum(accurateCastOrNull(events.properties.`$ai_output_tokens`, 'Float64')) AS output_tokens,
+         count() AS generation_count
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  GROUP BY day,
+           model
+  ORDER BY day ASC, cost_usd DESC,
+                    model ASC
+  LIMIT 637 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema]
+  '''
+  /* user_id:0 request:_snapshot_@me_spend_ */
+  SELECT countIf(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0)) AS scoped_event_count,
+         round(sumIf(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^ai_product)), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.ai_product, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.ai_product), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.ai_product, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product))))), 'posthog_code'), 0)), 6) AS scoped_cost_usd,
+         count() AS event_count,
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS total_cost_usd
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---

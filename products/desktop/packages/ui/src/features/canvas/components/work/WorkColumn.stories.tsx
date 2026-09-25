@@ -1,8 +1,10 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
+import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { WorkColumn } from "./WorkColumn";
 
 const ME_ID = 1;
@@ -73,37 +75,82 @@ const CHANNELS: TaskChannel[] = [
   channel("web-analytics"),
 ];
 
-/**
- * The column reads its rows through authenticated queries that never resolve in
- * Storybook, so seed their caches — a disabled query still serves cached data.
- */
-function seededClient(): QueryClient {
+function seededClient({
+  pinnedTaskIds = [],
+  tasks = TASKS,
+}: {
+  pinnedTaskIds?: string[];
+  tasks?: Task[];
+} = {}): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(["me"], { id: ME_ID, uuid: "me-uuid" });
   client.setQueryData(TASK_CHANNELS_QUERY_KEY, CHANNELS);
-  client.setQueryData(taskKeys.list({ createdBy: ME_ID }), TASKS);
+  client.setQueryData(taskKeys.list({ createdBy: ME_ID }), tasks);
+  client.setQueryData(["task-pins"], pinnedTaskIds);
   return client;
+}
+
+const MARKED_TASKS: Task[] = TASKS.map((entry, index) =>
+  index === 1 ? { ...entry, origin_product: "slack" } : entry,
+);
+
+function column(client: QueryClient) {
+  return function Decorator(Story: () => ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
+        <div className="h-screen w-[280px] border-border border-r">
+          <Story />
+        </div>
+      </QueryClientProvider>
+    );
+  };
+}
+
+function app(client: QueryClient) {
+  return function Decorator(Story: () => ReactElement) {
+    return (
+      <QueryClientProvider client={client}>
+        <div className="flex h-screen bg-chrome">
+          <NavRail />
+          <div className="w-[280px] shrink-0">
+            <Story />
+          </div>
+          <div className="flex-1 rounded-tl-sm border-border border-t border-l bg-background" />
+        </div>
+      </QueryClientProvider>
+    );
+  };
 }
 
 const meta = {
   title: "Canvas/WorkColumn",
   component: WorkColumn,
   parameters: { layout: "fullscreen" },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={seededClient()}>
-        <div className="h-screen w-[280px] border-border border-r">
-          <Story />
-        </div>
-      </QueryClientProvider>
-    ),
-  ],
 } satisfies Meta<typeof WorkColumn>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Recent capped at five rows, spaces below it. */
-export const Default: Story = {};
+export const Default: Story = {
+  decorators: [column(seededClient())],
+};
+
+export const WithPinned: Story = {
+  decorators: [
+    column(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
+export const InTheApp: Story = {
+  decorators: [
+    app(seededClient({ pinnedTaskIds: ["task-2", "task-5", "task-9"] })),
+  ],
+};
+
+export const WithBadges: Story = {
+  decorators: [
+    column(seededClient({ pinnedTaskIds: ["task-3"], tasks: MARKED_TASKS })),
+  ],
+};

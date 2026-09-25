@@ -29,6 +29,9 @@ from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team,
+)
 from products.ai_observability.backend.summarization.budget import text_repr_budget
 from products.ai_observability.backend.summarization.llm.call import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -950,7 +953,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if len(text_repr) <= self.TRACE_SUMMARIZATION_THRESHOLD:
             return text_repr
 
-        cache_key = get_summary_cache_key(self._team.id, "trace", trace_id)
+        restricted_properties = await database_sync_to_async(get_restricted_properties_with_group_type_index_for_team)(
+            user=self._user, team=self._team
+        )
+        cache_key = get_summary_cache_key(self._team.id, "trace", trace_id, restricted_properties=restricted_properties)
         cached_result = await database_sync_to_async(django_cache.get)(cache_key)
         if cached_result is not None:
             summary = SummarizationResponse.model_validate(cached_result["summary"])

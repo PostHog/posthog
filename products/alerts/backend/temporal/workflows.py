@@ -19,7 +19,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.alerts.backend.temporal.metrics import increment_deliveries_previewed, safe_record
-from products.alerts.backend.temporal.outcomes import alerts_product_record_outcomes_activity
+from products.alerts.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
 from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
 LOGGER = get_write_only_logger(__name__)
@@ -47,7 +47,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts.backend.temporal.postgres import check_postgres_connection
 
 
-POSTGRES_PROBE_FAILURE = "AlertsProductPostgresProbeFailure"
+POSTGRES_PROBE_FAILURE = "AlertsPlatformPostgresProbeFailure"
 
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
@@ -70,17 +70,17 @@ SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
 
 
 @frozen
-class AlertsProductInputs:
+class AlertsPlatformInputs:
     pass
 
 
 @activity.defn
-async def alerts_product_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
+async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
     return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
 
 
 @activity.defn
-async def alerts_product_probe_postgres_activity() -> None:
+async def alerts_platform_probe_postgres_activity() -> None:
     try:
         await sync_to_async(check_postgres_connection, thread_sensitive=False)()
     except (OperationalError, InterfaceError):
@@ -88,15 +88,15 @@ async def alerts_product_probe_postgres_activity() -> None:
 
 
 @activity.defn
-async def alerts_product_deliver_activity() -> None:
+async def alerts_platform_deliver_activity() -> None:
     pass
 
 
 @activity.defn
-async def alerts_product_deliver_preview_activity(preview: AlertDeliveryPreview) -> None:
+async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview) -> None:
     """Records what delivery would have sent. The PoC contacts no destination."""
     await LOGGER.ainfo(
-        "alerts_product_delivery_preview",
+        "alerts_platform_delivery_preview",
         source=preview.source.value,
         alert_id=preview.alert_id,
         alert_name=preview.alert_name,
@@ -110,14 +110,14 @@ async def alerts_product_deliver_preview_activity(preview: AlertDeliveryPreview)
     safe_record(increment_deliveries_previewed, preview.source.value)
 
 
-@workflow.defn(name="alerts-product-deliver-preview")
-class AlertsProductDeliverPreviewWorkflow(PostHogWorkflow):
+@workflow.defn(name="alerts-platform-deliver-preview")
+class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
     inputs_cls = AlertDeliveryPreview
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryPreview) -> None:
         await workflow.execute_activity(
-            alerts_product_deliver_preview_activity,
+            alerts_platform_deliver_preview_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=10),
             schedule_to_close_timeout=dt.timedelta(seconds=30),
@@ -125,30 +125,30 @@ class AlertsProductDeliverPreviewWorkflow(PostHogWorkflow):
         )
 
 
-@workflow.defn(name="alerts-product-deliver")
-class AlertsProductDeliverWorkflow(PostHogWorkflow):
-    inputs_cls = AlertsProductInputs
+@workflow.defn(name="alerts-platform-deliver")
+class AlertsPlatformDeliverWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
 
     @workflow.run
-    async def run(self, inputs: AlertsProductInputs) -> None:
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
         await workflow.execute_activity(
-            alerts_product_deliver_activity,
+            alerts_platform_deliver_activity,
             start_to_close_timeout=dt.timedelta(seconds=10),
             schedule_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
 
-@workflow.defn(name="alerts-product-evaluate")
-class AlertsProductEvaluateWorkflow(PostHogWorkflow):
-    inputs_cls = AlertsProductInputs
+@workflow.defn(name="alerts-platform-evaluate")
+class AlertsPlatformEvaluateWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsPlatformInputs
 
     @workflow.run
-    async def run(self, inputs: AlertsProductInputs) -> None:
+    async def run(self, inputs: AlertsPlatformInputs) -> None:
         try:
             await workflow.execute_activity(
-                alerts_product_probe_postgres_activity,
-                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                alerts_platform_probe_postgres_activity,
+                task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 schedule_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -165,17 +165,17 @@ class AlertsProductEvaluateWorkflow(PostHogWorkflow):
                 raise
         # Delivery must outlive the tick, so wait for start confirmation without awaiting the handle.
         await workflow.start_child_workflow(
-            AlertsProductDeliverWorkflow.run,
+            AlertsPlatformDeliverWorkflow.run,
             inputs,
-            id=f"alerts-product-deliver-{workflow.info().run_id}",
-            task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+            id=f"alerts-platform-deliver-{workflow.info().run_id}",
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
             parent_close_policy=workflow.ParentClosePolicy.ABANDON,
             execution_timeout=dt.timedelta(minutes=1),
         )
 
 
-@workflow.defn(name="alerts-product-source-dispatch")
-class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
+@workflow.defn(name="alerts-platform-source-dispatch")
+class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
     """One run per source per page. Receives all of the source's remaining demand, starts one
     evaluation child per batch key up to `MAX_EVALUATIONS_PER_DISPATCH`, and reports the keys it
     did not take so a later page picks them up.
@@ -200,10 +200,10 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
                 if source_workflow is None:
                     # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
                     await workflow.start_child_workflow(
-                        AlertsProductEvaluateWorkflow.run,
-                        AlertsProductInputs(),
+                        AlertsPlatformEvaluateWorkflow.run,
+                        AlertsPlatformInputs(),
                         id=evaluation_workflow_id,
-                        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                         execution_timeout=SOURCE_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
@@ -213,7 +213,7 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
                         source_workflow,
                         SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
                         id=evaluation_workflow_id,
-                        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                         execution_timeout=SOURCE_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
@@ -243,8 +243,8 @@ def _should_continue_as_new() -> bool:
     return workflow.info().is_continue_as_new_suggested()
 
 
-@workflow.defn(name="alerts-product-orchestrate")
-class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
+@workflow.defn(name="alerts-platform-orchestrate")
+class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
     """One minute tick. Discovers demand once, then pages source dispatchers until the demand is
     exhausted or the dispatch budget is spent. Dispatchers are part of the tick: they keep the
     default TERMINATE close policy and their reports are awaited. Evaluation is never awaited.
@@ -275,7 +275,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
 
         if inputs.demand is None:
             discovered = await workflow.execute_activity(
-                alerts_product_discover_demand_activity,
+                alerts_platform_discover_demand_activity,
                 DemandDiscoveryInputs(cutoff=inputs.cutoff),
                 start_to_close_timeout=dt.timedelta(seconds=5),
                 schedule_to_close_timeout=dt.timedelta(seconds=10),
@@ -306,7 +306,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
             paged = sorted(demand.items())
             handles = [
                 await workflow.start_child_workflow(
-                    AlertsProductSourceDispatchWorkflow.run,
+                    AlertsPlatformSourceDispatchWorkflow.run,
                     SourceDispatchInputs(
                         tick_id=info.workflow_id,
                         source=source,
@@ -317,7 +317,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                     id=f"{info.workflow_id}-{source.value}-p{page}",
                     # The tick awaits these, so they run on its own fleet. An evaluation fleet with
                     # no free slots would otherwise leave the dispatcher unpicked and stall the tick.
-                    task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+                    task_queue=settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
                     execution_timeout=page_timeout,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -369,17 +369,17 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
 
 
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
-    AlertsProductOrchestrateWorkflow,
-    AlertsProductSourceDispatchWorkflow,
+    AlertsPlatformOrchestrateWorkflow,
+    AlertsPlatformSourceDispatchWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
-EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_platform_discover_demand_activity]
+EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
-    alerts_product_probe_postgres_activity,
-    alerts_product_record_outcomes_activity,
+    alerts_platform_probe_postgres_activity,
+    alerts_platform_record_outcomes_activity,
 ]
-DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow, AlertsProductDeliverPreviewWorkflow]
+DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformDeliverWorkflow, AlertsPlatformDeliverPreviewWorkflow]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
-    alerts_product_deliver_activity,
-    alerts_product_deliver_preview_activity,
+    alerts_platform_deliver_activity,
+    alerts_platform_deliver_preview_activity,
 ]

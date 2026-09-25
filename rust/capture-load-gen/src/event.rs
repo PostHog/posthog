@@ -126,7 +126,7 @@ impl EventFactory {
         let event = self.random_event_name(rng);
         share += u16::from(self.mix.person_updates);
         if roll < share {
-            return Self::person_update_event(base, event);
+            return Self::person_update_event(base, event, &self.distinct_ids[index]);
         }
         RawEvent { event, ..base }
     }
@@ -212,11 +212,12 @@ impl EventFactory {
     }
 
     /// A person update: a regular event carrying a `$set` payload. The value
-    /// is unique per event so every update actually changes the person.
-    fn person_update_event(base: RawEvent, event: String) -> RawEvent {
+    /// is unique per event so every update actually changes the person, and
+    /// the key names the user so a merged pair's keys each have one writer.
+    fn person_update_event(base: RawEvent, event: String, user: &str) -> RawEvent {
         let mut set = HashMap::new();
         set.insert(
-            "loadgen_last_update".to_string(),
+            format!("loadgen_last_update_{user}"),
             Value::String(Uuid::now_v7().to_string()),
         );
         RawEvent {
@@ -362,8 +363,14 @@ mod tests {
         for event in &batch {
             assert!(["a", "b"].contains(&event.event.as_str()));
             assert!(!event.properties.contains_key("$anon_distinct_id"));
+            let user = event.distinct_id.as_ref().unwrap().as_str().unwrap();
             let set = event.set.as_ref().unwrap();
-            values.push(set["loadgen_last_update"].as_str().unwrap().to_string());
+            values.push(
+                set[&format!("loadgen_last_update_{user}")]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            );
         }
         values.sort();
         values.dedup();

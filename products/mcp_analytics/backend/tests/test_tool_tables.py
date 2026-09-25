@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    EventPropertyFilter,
     IntervalType,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
@@ -17,6 +18,7 @@ from posthog.schema import (
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NeighborDirection,
+    PropertyOperator,
 )
 
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -617,3 +619,149 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert len(rows) == 1
         assert rows[0].neighbor_tool == expected_neighbor
         assert rows[0].co_occurrences == 1
+
+
+# Shaped so every table on the tool detail page has a row to drop once the filters apply.
+def _setup_included_and_excluded_calls(team: Any) -> None:
+    now = datetime.now(tz=UTC)
+    for distinct_id, client_name, neighbor_tool in (
+        ("d_included", "claude-ai", "neighbor_included"),
+        ("d_excluded", "cursor-vscode", "neighbor_excluded"),
+    ):
+        _emit_tool_call(
+            team,
+            distinct_id=distinct_id,
+            client_name=client_name,
+            session_id=f"conv_{distinct_id}",
+            is_error=True,
+            description=f"description seen by {client_name}",
+            intent='{"goal":"x"}',
+            timestamp=now - timedelta(minutes=1),
+        )
+        _emit_tool_call(
+            team,
+            tool_name=neighbor_tool,
+            distinct_id=distinct_id,
+            client_name=client_name,
+            session_id=f"conv_{distinct_id}",
+            timestamp=now,
+        )
+
+
+# One case per runner, because a runner that accepts the shared filters and drops them from its
+# WHERE shows unfiltered data behind filter controls that claim otherwise.
+class TestMCPToolDetailSharedFilters(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "top_users",
+                MCPToolTopUsersQueryRunner,
+                MCPToolTopUsersQuery,
+                {},
+                lambda rows: {r.distinct_id for r in rows},
+                {"d_included", "d_excluded"},
+                {"d_included"},
+            ),
+            (
+                "failures",
+                MCPToolFailuresQueryRunner,
+                MCPToolFailuresQuery,
+                {},
+                lambda rows: sum(r.occurrences for r in rows),
+                2,
+                1,
+            ),
+            (
+                "failure_occurrences",
+                MCPToolFailureOccurrencesQueryRunner,
+                MCPToolFailureOccurrencesQuery,
+                {"errorType": "unknown"},
+                len,
+                2,
+                1,
+            ),
+            (
+                "stats",
+                MCPToolStatsQueryRunner,
+                MCPToolStatsQuery,
+                {},
+                lambda rows: rows[0].calls,
+                2,
+                1,
+            ),
+            (
+                "daily_stats",
+                MCPToolDailyStatsQueryRunner,
+                MCPToolDailyStatsQuery,
+                {},
+                lambda rows: sum(r.calls for r in rows),
+                2,
+                1,
+            ),
+            (
+                "descriptions",
+                MCPToolDescriptionsQueryRunner,
+                MCPToolDescriptionsQuery,
+                {},
+                len,
+                2,
+                1,
+            ),
+            (
+                "sample_intents",
+                MCPToolSampleIntentsQueryRunner,
+                MCPToolSampleIntentsQuery,
+                {},
+                len,
+                2,
+                1,
+            ),
+            (
+                "neighbors",
+                MCPToolNeighborsQueryRunner,
+                MCPToolNeighborsQuery,
+                {"neighborDirection": NeighborDirection.AFTER},
+                lambda rows: {r.neighbor_tool for r in rows},
+                {"neighbor_included", "neighbor_excluded"},
+                {"neighbor_included"},
+            ),
+        ]
+    )
+    def test_property_filter_and_test_accounts_narrow_the_results(
+        self,
+        _name: str,
+        runner_cls: Any,
+        query_cls: Any,
+        query_kwargs: dict[str, Any],
+        metric_fn: Any,
+        expected_unfiltered: Any,
+        expected_filtered: Any,
+    ) -> None:
+        _setup_included_and_excluded_calls(self.team)
+        flush_persons_and_events()
+
+        def run(**filter_kwargs: Any) -> Any:
+            query = query_cls(
+                toolName="query_run",
+                dateRange=DateRange(date_from="-7d"),
+                **query_kwargs,
+                **filter_kwargs,
+            )
+            return metric_fn(runner_cls(query=query, team=self.team).calculate().results)
+
+        assert run() == expected_unfiltered
+
+        assert (
+            run(
+                properties=[
+                    EventPropertyFilter(key="$mcp_client_name", value=["claude-ai"], operator=PropertyOperator.EXACT)
+                ]
+            )
+            == expected_filtered
+        )
+
+        self.team.test_account_filters = [
+            {"key": "$mcp_client_name", "value": ["cursor-vscode"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        assert run(filterTestAccounts=True) == expected_filtered

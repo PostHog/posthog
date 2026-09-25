@@ -78,7 +78,7 @@ describe("mobile composer options", () => {
           model: "claude-opus-5-5",
           effort: "xhigh",
           modelLabel: "Claude Opus 5.5",
-          effortLabel: "Extra High",
+          effortLabel: "Extra high",
         },
       ]);
     });

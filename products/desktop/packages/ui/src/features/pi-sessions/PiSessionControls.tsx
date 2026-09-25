@@ -63,13 +63,15 @@ function modelLabel(model?: PiModelOption): string {
   return model?.name ?? model?.id ?? "Model";
 }
 
+// Pi's thinking levels, not the catalog's reasoning efforts: Pi adds `off` and `minimal`
+// and has no `ultracode`, so this map cannot come from the catalog.
 const thinkingLevelLabels: Record<PiThinkingLevel, string> = {
   off: "Off",
   minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "Extra High",
+  xhigh: "Extra high",
   max: "Max",
 };
 

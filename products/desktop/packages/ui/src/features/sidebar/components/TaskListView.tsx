@@ -12,7 +12,7 @@ import type {
   TaskGroup,
 } from "@posthog/core/sidebar/sidebarData.types";
 import { cn, MenuLabel, Text } from "@posthog/quill";
-import { builderHog } from "@posthog/ui/assets/hedgehogs";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
@@ -306,7 +306,7 @@ export function TaskListView({
         groupedTasks.length === 0 ? (
           <div className="flex flex-col items-center gap-1 px-4 pt-6 pb-4 text-center">
             <motion.img
-              src={builderHog}
+              src={hoggiePng("construction-1")}
               alt=""
               className="pointer-events-none w-[72px]"
               initial={{ opacity: 0, y: 8 }}

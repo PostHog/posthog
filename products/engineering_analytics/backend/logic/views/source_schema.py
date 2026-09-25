@@ -87,6 +87,35 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
+# Contract for the Depot source's ``job_attempts`` table: one row per Depot CI job attempt, the
+# columns ``views.depot_ci`` reshapes into the two GitHub contracts above. Ids are Depot's strings.
+DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
+    **{
+        name: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"}
+        for name in (
+            "run_id",
+            "repo",
+            "ref",
+            "head_sha",
+            "workflow_id",
+            "workflow_name",
+            "workflow_status",
+            "workflow_created_at",
+            "workflow_started_at",
+            "workflow_finished_at",
+            "job_key",
+            "job_display_name",
+            "attempt_id",
+            "attempt_status",
+            "attempt_started_at",
+            "attempt_finished_at",
+            "sandbox_id",
+        )
+    },
+    "attempt": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "run_workflow_count": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+}
+
 # Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every
 # type kept (a source-side filter would pin the desc-walk watermark). ``actor`` / ``issue`` are
 # the nested GitHub objects verbatim as JSON. Same Nullable/string discipline as above.
@@ -116,10 +145,14 @@ REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows
 # are GitHub user objects with the parent team's identity injected by the source fan-out
 # (``team_id`` / ``team_slug`` / ``team_name``); ``login`` + ``team_slug`` are the join keys the
-# membership-based merge timing reads. Same Nullable discipline as above.
+# membership-based merge timing reads, and ``role`` (``maintainer`` / ``member``) is what the
+# roster read orders reviewers by. Same Nullable discipline as above. GitHub omits ``role`` from
+# the documented member object, so a real table can land without it and the source resolver
+# probes for it rather than assuming it (see MEMBER_ROLE_COLUMN).
 TEAM_MEMBERS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "login": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "role": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "team_slug": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "team_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

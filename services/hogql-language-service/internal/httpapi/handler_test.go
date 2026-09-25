@@ -205,6 +205,8 @@ func TestValidateEncodesDiagnosticPositions(t *testing.T) {
 	query := "SELECT '😀', missing FROM events"
 	byteStart := strings.Index(query, "missing")
 	utf16Start := len(utf16.Encode([]rune(query[:byteStart])))
+	tableByteStart := strings.Index(query, "events")
+	tableUTF16Start := len(utf16.Encode([]rune(query[:tableByteStart])))
 
 	for _, test := range []struct {
 		encoding         string
@@ -239,6 +241,16 @@ func TestValidateEncodesDiagnosticPositions(t *testing.T) {
 		diagnostic := result.Diagnostics[0]
 		if diagnostic.Start != test.start || diagnostic.End != test.start+len("missing") {
 			t.Fatalf("%s diagnostic span = [%d,%d), want [%d,%d)", test.responseEncoding, diagnostic.Start, diagnostic.End, test.start, test.start+len("missing"))
+		}
+		if len(result.Notices) != 1 || result.Notices[0].Message != "Table 'events'" {
+			t.Fatalf("notices = %#v", result.Notices)
+		}
+		tableStart := tableByteStart
+		if test.responseEncoding == "utf-16" {
+			tableStart = tableUTF16Start
+		}
+		if result.Notices[0].Start != tableStart || result.Notices[0].End != tableStart+len("events") {
+			t.Fatalf("%s notice span = [%d,%d), want [%d,%d)", test.responseEncoding, result.Notices[0].Start, result.Notices[0].End, tableStart, tableStart+len("events"))
 		}
 	}
 }

@@ -519,12 +519,14 @@ tools:
         description: >
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
-            boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A
-            session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
-            `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
-            paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit
-            `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.
+            boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric
+            output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment',
+            omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation'
+            (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the
+            'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
+            immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
+            llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
+            '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -811,8 +813,8 @@ tools:
             runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against
             session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's
             aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period.
-            Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog
-            code before creating or updating a 'hog' type evaluation.
+            Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output
+            previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
@@ -825,14 +827,17 @@ tools:
         title: Update evaluation
         description: >
             Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it,
-            call llma-evaluation-list first to look it up by name. Toggle enabled, change its type or evaluation config,
-            or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider
-            and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or
-            provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
-            hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
-            editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
-            'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a
-            directory, or pass null to move it to the top level.
+            call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new
+            evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A
+            passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores;
+            saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the
+            model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model.
+            When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both
+            fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or
+            sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
+            provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.
+            Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or
+            pass null to move it to the top level.
         param_overrides:
             id:
                 aliases:
@@ -917,6 +922,12 @@ tools:
             or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
             With full content the response also includes `config`, the JSON object of model parameters or agent
             configuration stored with the version (null when the version has none).
+            Prompt content can contain `@@@prompt:...@@@` references to other prompts. By default the response is
+            the assembled content with each reference replaced by the referenced prompt's content, and
+            `resolved_references` lists the exact versions spliced in. Pass `resolve=false` to get the raw text
+            with the tags intact — always do this before editing the prompt (see llma-prompt-update).
+            References are rolling out gradually: when not enabled for the team, responses return the raw tags
+            and no `resolved_references`, so treat content containing `@@@prompt:` as unresolved.
         param_overrides:
             prompt_name:
                 aliases:
@@ -975,6 +986,10 @@ tools:
             are omitted. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full
             prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the
             prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.
+            With `label` and `content=full`, prompt content is returned with `@@@prompt:...@@@` references resolved and
+            `resolved_references` listing the spliced versions; unlabeled listings return raw content with any reference
+            tags intact. Reference resolution is rolling out gradually and returns raw tags when not enabled for the
+            team.
     llma-prompt-resolve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
@@ -1000,6 +1015,10 @@ tools:
             Pass 'config' (a JSON object) to set model parameters or agent configuration on the new version.
             If 'config' is omitted the current version's config is carried forward; pass null to clear it.
             A config-only publish (no 'prompt' or 'edits') keeps the prompt content unchanged.
+            If the prompt contains `@@@prompt:...@@@` references, fetch it with `resolve=false` first and edit
+            that raw text: the default llma-prompt-get response inlines the referenced prompts, so republishing
+            it replaces the references with flattened copies that stop following label moves. 'edits' written
+            against resolved content also fail to match, because the stored content keeps the tags.
         include_params:
             - prompt
             - edits

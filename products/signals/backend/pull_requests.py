@@ -107,6 +107,7 @@ def link_pull_request(
             .exclude(id=link.id)
             .exists()
         ):
+            from products.signals.backend.pull_request_label import schedule_pull_request_label
             from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
             from products.signals.backend.reviewer_pr_ready import schedule_open_pull_request_ready
 
@@ -114,6 +115,9 @@ def link_pull_request(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
             schedule_open_pull_request_ready(
+                team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
+            )
+            schedule_pull_request_label(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
     return pr

@@ -38,6 +38,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.facade.api import search_workflows
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
@@ -54,6 +55,7 @@ class EntityKind(StrEnum):
     SURVEYS = "surveys"
     ALERTS = "alerts"
     ACCOUNTS = "accounts"
+    WORKFLOWS = "workflows"
     ALL = "all"
 
 
@@ -68,6 +70,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
     EntityKind.SURVEYS: "survey",
     EntityKind.ALERTS: "alert_configuration",
     EntityKind.ACCOUNTS: "account",
+    EntityKind.WORKFLOWS: "hog_flow",
 }
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -169,10 +172,12 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = set(ENTITY_MAP.keys())
+            entity_types = {*ENTITY_MAP, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}
+        workflow_requested = "hog_flow" in entity_types
+        workflow_results: list[dict[str, Any]] = []
 
         if "account" in entity_types:
             # Account uses a fail-closed manager and is not in ENTITY_MAP, so it can't go through the shared FTS path
@@ -181,6 +186,17 @@ class EntitySearchContext:
             results.extend(account_results)
             counts["account"] = account_count
 
+        if workflow_requested:
+            entity_types = entity_types - {"hog_flow"}
+            workflow_results, workflow_count = await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=query,
+                access_control=self.user_access_control,
+                limit=SEARCH_LIMIT,
+            )
+            counts["hog_flow"] = workflow_count
+
+        fts_results: list[dict[str, Any]] = []
         if entity_types:
             fts_results, fts_counts, _ = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entity_types,
@@ -190,8 +206,22 @@ class EntitySearchContext:
                 ENTITY_MAP,
             )
             assert fts_counts is not None
-            results.extend(fts_results)
             counts.update(fts_counts)
+
+        if workflow_requested:
+            database_results = [*workflow_results, *fts_results]
+            if query:
+                database_results.sort(key=lambda result: result.get("rank", 0), reverse=True)
+            else:
+                database_results.sort(
+                    key=lambda result: (
+                        result["type"],
+                        result.get("extra_fields", {}).get("name") or result.get("extra_fields", {}).get("title") or "",
+                    )
+                )
+            results.extend(database_results[:SEARCH_LIMIT])
+        else:
+            results.extend(fts_results)
 
         return results, counts
 
@@ -243,6 +273,14 @@ class EntitySearchContext:
         elif entity_type == "account":
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
+        elif entity_type == "hog_flow":
+            return await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=None,
+                access_control=self.user_access_control,
+                limit=limit,
+                offset=offset,
+            )
         elif entity_type == "feature_flag":
             # Specialized queryset so we can surface each flag's status
             return await self.list_feature_flags(limit, offset)
@@ -546,6 +584,8 @@ class EntitySearchContext:
                 return f"{base_url}/error_tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/alerts?alert_id={result_id}"
+            case "hog_flow":
+                return f"{base_url}/workflows/{result_id}/workflow"
             case "account":
                 # Deep-link to the specific account (filtered + expanded) rather than the bare list.
                 return f"{base_url}{build_account_deeplink(account_id=result_id)}"

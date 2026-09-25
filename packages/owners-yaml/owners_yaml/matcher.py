@@ -25,13 +25,13 @@ SEP = "/"
 
 
 def normalize_path(file_path: str) -> str:
-    """Repo-relative, forward-slash path with any leading ``./`` or ``/`` stripped."""
+    """Repo-relative, forward-slash path with any leading ``./`` or ``/`` and any trailing ``/``
+    stripped. ``dir/`` and ``dir`` must resolve alike: with the slash kept, the walk would read the
+    directory's own ownership file, and a new directory could opt out of its parent's additions."""
     p = file_path.replace("\\", SEP)
     while p.startswith("./"):
         p = p[2:]
-    while p.startswith(SEP):
-        p = p[1:]
-    return p
+    return p.strip(SEP)
 
 
 def pattern_to_segments(pattern: str) -> list[str]:

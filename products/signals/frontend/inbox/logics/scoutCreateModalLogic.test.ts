@@ -44,6 +44,7 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         enabled: false,
         status: 'paused_by_user',
         pause_reason: null,
+        deprecation: null,
         emit: false,
         run_interval_minutes: 60,
         run_cron_schedule: null,

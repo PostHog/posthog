@@ -11,6 +11,7 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
@@ -28,11 +29,11 @@ interface PanelLayoutPanelProps {
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
-    sortDropdown?: React.ReactNode
+    panelMenuItems?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'pointer-events-auto w-full flex flex-col max-h-screen min-h-screen absolute border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'pointer-events-auto w-full flex flex-col h-full min-h-0 max-h-full absolute border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         isLayoutNavCollapsed: {
             true: '',
@@ -66,7 +67,7 @@ export function PanelLayoutPanel({
     panelActionsNewSceneLayout,
     children,
     filterDropdown,
-    sortDropdown,
+    panelMenuItems,
 }: PanelLayoutPanelProps): JSX.Element {
     const { setPanelWidth, setPanelIsResizing } = useActions(panelLayoutLogic)
     const { isLayoutNavCollapsed, panelWidth: computedPanelWidth, panelWillHide } = useValues(panelLayoutLogic)
@@ -99,36 +100,32 @@ export function PanelLayoutPanel({
                     'bg-surface-tertiary'
                 )}
             >
-                {searchField || filterDropdown || sortDropdown ? (
+                {searchField || filterDropdown || panelMenuItems ? (
                     <>
-                        <div
-                            className={cn(
-                                'flex gap-1 p-1 items-center justify-between',
-                                layout === 'inline' && 'flex-nowrap'
-                            )}
-                        >
+                        <div className="flex gap-1 p-1 items-center justify-between">
                             <div className={layout === 'inline' ? 'flex-1 min-w-0' : 'contents'}>
                                 {searchField ?? null}
                             </div>
 
                             <div className={cn('flex gap-px', layout === 'inline' && 'shrink-0')}>
-                                {filterDropdown || sortDropdown ? (
-                                    <div className="flex gap-px">
-                                        {filterDropdown ?? null}
-                                        {sortDropdown ?? null}
-                                    </div>
-                                ) : null}
+                                {filterDropdown ?? null}
 
-                                {validPanelActions && validPanelActions.length > 0 && (
+                                {(panelMenuItems || !!validPanelActions?.length) && (
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <ButtonPrimitive iconOnly>
+                                            <ButtonPrimitive
+                                                iconOnly
+                                                aria-label="More file options"
+                                                data-attr="tree-panel-options-button"
+                                            >
                                                 <IconEllipsis className="text-tertiary size-3" />
                                             </ButtonPrimitive>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent side="bottom" align="start">
+                                            {panelMenuItems}
+                                            {panelMenuItems && !!validPanelActions?.length && <DropdownMenuSeparator />}
                                             <DropdownMenuGroup>
-                                                {validPanelActions.map((action) => (
+                                                {validPanelActions?.map((action) => (
                                                     <DropdownMenuItem key={action['data-attr']} asChild>
                                                         <ButtonPrimitive menuItem {...action} size="base">
                                                             {action.children}

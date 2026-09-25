@@ -17,7 +17,7 @@ import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
+    base: 'gap-0 w-fit relative h-[calc(100dvh-var(--terminal-dock-height,0px))] z-[var(--z-layout-panel)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -140,7 +140,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                 or right overlays — panel content re-enables pointer-events via its own cva. */}
             {isMobileLayout && (
                 <div
-                    className="fixed top-0 left-0 h-screen z-[var(--z-layout-panel)] pointer-events-none"
+                    className="fixed top-0 left-0 h-[calc(100dvh-var(--terminal-dock-height,0px))] z-[var(--z-layout-panel)] pointer-events-none"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: 0 }}
                 >

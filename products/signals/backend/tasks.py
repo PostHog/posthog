@@ -42,6 +42,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
@@ -292,7 +293,7 @@ def deliver_scout_slack_thread_replies(
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     channel_id = _slack_channel_id(channel)
 
     def _schedule_retry(
@@ -727,6 +728,21 @@ def move_merged_report_signals(team_id: int, survivor_report_id: str, source_rep
             source_report_id=source_report_id,
             signal_count=moved,
         )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.label_implementation_pr",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def label_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
+    """Put the team's label on a report's implementation PR, so GitHub search can find it.
+
+    Runs on a worker for the same reason as reviewer assignment: the GitHub calls must not hold up
+    the claim, sync, or webhook that queued it. Best-effort end to end, so this never retries.
+    """
+    apply_pull_request_label(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

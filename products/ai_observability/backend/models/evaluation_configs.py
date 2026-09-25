@@ -1,4 +1,5 @@
-from typing import Annotated, Any, Literal
+import math
+from typing import Annotated, Any, Literal, Self
 
 from django.db import models
 
@@ -17,6 +18,7 @@ class OutputType(models.TextChoices):
     """What type of result is expected"""
 
     BOOLEAN = "boolean", "Boolean (Pass/Fail)"
+    NUMERIC = "numeric", "Numeric"
     SENTIMENT = "sentiment", "Sentiment"
 
 
@@ -50,11 +52,65 @@ class HogEvalConfig(BaseModel):
 class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
+    model_config = ConfigDict(extra="forbid")
+
     allows_na: bool = False
     # Detector-style evaluations look for a problem, so their true result is the undesirable one and
     # must be reported as a fail. Defaulting to False keeps stored configs written before this field
     # reading exactly as they did, with no backfill and no default to re-supply at each read site.
     true_is_failure: bool = False
+
+
+class NumericPassingRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    operator: Literal["gte", "lte"]
+    threshold: float
+
+    def passes(self, score: float) -> bool:
+        return score >= self.threshold if self.operator == "gte" else score <= self.threshold
+
+
+class NumericScoreOutOfBounds(ValueError):
+    pass
+
+
+class NumericOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    min: float | None = None
+    max: float | None = None
+    step: float | None = Field(default=None, gt=0)
+    allows_na: bool = False
+    passing_rule: NumericPassingRule | None = None
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError("Minimum score cannot exceed maximum score")
+        if self.passing_rule is not None:
+            self.passing_rule.threshold = self.validate_score(self.passing_rule.threshold)
+        return self
+
+    def validate_score(self, value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError("Numeric evaluations must return a finite number")
+        try:
+            score = float(value)
+        except OverflowError as error:
+            raise ValueError("Numeric evaluations must return a finite number") from error
+        if not math.isfinite(score):
+            raise ValueError("Numeric evaluations must return a finite number")
+        # One representable step absorbs arithmetic roundoff without rounding genuine outliers.
+        if self.min is not None and score < self.min:
+            if score < math.nextafter(self.min, -math.inf):
+                raise NumericScoreOutOfBounds(f"Score must be at least {self.min}")
+            score = self.min
+        if self.max is not None and score > self.max:
+            if score > math.nextafter(self.max, math.inf):
+                raise NumericScoreOutOfBounds(f"Score must be at most {self.max}")
+            score = self.max
+        return score
 
 
 class SentimentEvalConfig(BaseModel):
@@ -248,6 +304,8 @@ def validate_target_config(target: str, target_config: dict) -> dict:
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
 EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[BaseModel]]] = {
+    (EvaluationType.LLM_JUDGE.value, OutputType.NUMERIC.value): (LLMJudgeConfig, NumericOutputConfig),
+    (EvaluationType.HOG.value, OutputType.NUMERIC.value): (HogEvalConfig, NumericOutputConfig),
     (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
     (EvaluationType.HOG.value, OutputType.BOOLEAN.value): (HogEvalConfig, BooleanOutputConfig),
     (EvaluationType.SENTIMENT.value, OutputType.SENTIMENT.value): (SentimentEvalConfig, SentimentOutputConfig),
@@ -259,13 +317,17 @@ EVALUATION_CONFIG_CONTENT_KEYS: dict[str, str] = {
     EvaluationType.SENTIMENT.value: "source",
 }
 
-REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value, OutputType.SENTIMENT.value)
+REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (
+    OutputType.BOOLEAN.value,
+    OutputType.SENTIMENT.value,
+    OutputType.NUMERIC.value,
+)
 # Sentiment is generation-only (see the target check in the evaluations API), so the aggregate
-# targets report on boolean results alone.
+# targets support boolean and numeric results.
 REPORTABLE_OUTPUT_TYPES_BY_TARGET: dict[str, tuple[str, ...]] = {
     "generation": REPORTABLE_OUTPUT_TYPES,
-    "trace": (OutputType.BOOLEAN.value,),
-    "session": (OutputType.BOOLEAN.value,),
+    "trace": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value),
+    "session": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value),
 }
 
 
@@ -273,7 +335,9 @@ def evaluation_uses_model_configuration(evaluation_type: str | None) -> bool:
     return evaluation_type == EvaluationType.LLM_JUDGE.value
 
 
-def evaluation_supports_reports(output_type: str | None, target: str | None) -> bool:
+def evaluation_supports_reports(output_type: str | None, target: str | None, output_config: dict | None = None) -> bool:
+    if output_type == OutputType.NUMERIC and not (output_config or {}).get("passing_rule"):
+        return False
     return output_type in REPORTABLE_OUTPUT_TYPES_BY_TARGET.get(target or "", ())
 
 

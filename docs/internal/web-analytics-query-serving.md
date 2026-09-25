@@ -179,3 +179,29 @@ A `*_lazy_query` taking seconds is a bucket-read problem (rare).
 A fast-path or full-join tag on an enrolled team means the lazy gate rejected the query (filters, avg-time-on-page, >90d range, opt-out) or the buckets weren't fresh — in which case a background warm is already in flight and the next identical request should hit.
 
 Conversion goal property filters accept event, person, session and cohort filters. Unsupported filter types fail query validation. `includeTrafficMetrics` also retains session counts for page breakdowns with bounce rate or average time on page, including the join-free strategies.
+
+## Identifying a failed marketing query
+
+Marketing Analytics query errors show a query ID when the request has one.
+Use that ID to find the failed request in the query log.
+The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
+Errors outside the query path, such as configuration failures, may have no query ID.
+
+## Campaign breakdown columns
+
+Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.
+A fresh visit restores those preferences without saving query results or draft conversion goals.
+Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.
+Changing tabs or dashboard filters preserves those column options in the URL.
+Reset to defaults clears the custom selection, sorting, and pins for later visits.
+
+## Marketing metric chart
+
+The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
+The query-owning caller switches between total and breakdown data and supplies error content, including the failed query ID and retry action.
+Chart clicks select the nearest line and return the raw breakdown identity so selections can match table rows even when display labels differ.
+An empty string is a selectable breakdown key; `null` clears selection.
+Percentage series contain fractions: a value of `0.42` displays as `42.0%` in the axis and tooltip.
+The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
+Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
+The component does not activate the five-section dashboard or change its queries.

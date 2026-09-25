@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
 
+import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { NavAppRow } from './NavAppRow'
 
@@ -25,6 +27,21 @@ describe('NavAppRow', () => {
 
     afterEach(cleanup)
 
+    it('closes the temporary navigation when selecting the current app', () => {
+        router.actions.push('/project/1/feature_flags')
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.toggleLayoutNavCollapsed(true)
+        panelLayoutLogic.actions.setNavOverlayOpen(true)
+        const { container } = render(
+            <NavAppRow item={{ path: 'Feature flags', iconType: 'feature_flag', href: '/feature_flags' }} />
+        )
+
+        fireEvent.click(container.querySelector('[data-attr="nav-apps-item"]')!)
+
+        expect(panelLayoutLogic.values.isNavOverlayOpen).toBe(false)
+        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
+    })
+
     it('disables navigation and starring when access to a product is denied', () => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT!,
@@ -43,36 +60,42 @@ describe('NavAppRow', () => {
         const row = container.querySelector<HTMLButtonElement>('[data-attr="nav-apps-item"]')
         expect(row?.disabled).toBe(true)
         expect(row?.hasAttribute('href')).toBe(false)
-        expect(getByLabelText('Open Feature flags menu').getAttribute('aria-disabled')).toBe('true')
+        expect(getByLabelText('Add to starred').getAttribute('aria-disabled')).toBe('true')
     })
 
-    it('adds and removes a star through the existing shortcut API', async () => {
-        const create = jest.fn(() => [
-            201,
-            { id: 'star-test', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
-        ])
+    it.each([
+        ['Feature flags', 'feature_flag', '/feature_flags', false],
+        ['Home', 'home', '/', true],
+    ])('adds and removes a star for %s through the shortcut API', async (path, type, href, hasMenu) => {
+        const create = jest.fn(() => [201, { id: 'star-test', path, type, href }])
         const remove = jest.fn(() => [204])
         useMocks({
             post: { '/api/environments/:team_id/file_system_shortcut/': create },
             delete: { '/api/environments/:team_id/file_system_shortcut/star-test/': remove },
         })
-        const { getByLabelText, getByText, findByText } = render(
-            <NavAppRow
-                item={{ path: 'Feature flags', type: 'feature_flag', iconType: 'feature_flag', href: '/feature_flags' }}
-            />
-        )
+        const { getByLabelText, queryByLabelText, findByText } = render(<NavAppRow item={{ path, type, href }} />)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
-        fireEvent.click(getByLabelText('Open Feature flags menu'))
-        const add = await findByText('Add to starred')
+        const initialPath = router.values.location.pathname
+        const starButton = async (name: string): Promise<HTMLElement> => {
+            if (hasMenu) {
+                fireEvent.click(getByLabelText(`Open ${path} menu`))
+                expect(await findByText('Configure home')).toBeTruthy()
+                return await findByText(name)
+            }
+            expect(queryByLabelText(`Open ${path} menu`)).toBeNull()
+            return getByLabelText(name)
+        }
+        const add = await starButton('Add to starred')
         fireEvent.click(add)
         fireEvent.click(add)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(1))
         expect(create).toHaveBeenCalledTimes(1)
-        fireEvent.click(getByLabelText('Open Feature flags menu'))
-        fireEvent.click(await findByText('Remove from starred'))
+        const removeButton = await starButton('Remove from starred')
+        fireEvent.click(removeButton)
+        fireEvent.click(removeButton)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(0))
         expect(remove).toHaveBeenCalledTimes(1)
-        fireEvent.click(getByLabelText('Open Feature flags menu'))
-        expect(getByText('Add to starred')).toBeTruthy()
+        expect(await starButton('Add to starred')).toBeTruthy()
+        expect(router.values.location.pathname).toBe(initialPath)
     })
 })
