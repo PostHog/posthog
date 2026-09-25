@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -24,6 +23,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus
+from products.exports.backend.temporal.subscriptions.ai_observability import generation_config, generation_properties
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -468,21 +468,13 @@ async def _synthesize(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> str:
-    posthog_properties: dict[str, Union[str, int]] = {
-        "feature": "ai_subscription",
-        "stage": "synthesis",
-        "trace_id": str(uuid.uuid4()),
-    }
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
-
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
         billable=True,
-        posthog_properties=posthog_properties,
+        posthog_properties=generation_properties(stage="synthesis", subscription_id=trace_correlation_id),
     )
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
@@ -498,6 +490,7 @@ async def _synthesize(
                 ("system", synthesis_prompt),
                 ("human", _compose_synthesis_human_message(spec, rendered_results)),
             ],
+            config=generation_config(team=team),
         )
     except Exception as exc:
         raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
@@ -675,17 +668,13 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
-
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
         billable=True,
-        posthog_properties=posthog_properties,
+        posthog_properties=generation_properties(stage="query_fix", subscription_id=trace_correlation_id),
     ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
 
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
@@ -702,7 +691,9 @@ async def _arequest_hogql_fix(
     rendered = f"{rendered}\n\n{_fix_project_context_block(context_blob)}"
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)], config=generation_config(team=team)
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",
