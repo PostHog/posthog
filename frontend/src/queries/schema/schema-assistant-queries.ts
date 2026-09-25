@@ -1337,8 +1337,13 @@ export interface AssistantTrendsActorsQuery {
     /** The source insight query whose data point we are drilling into. */
     source: AssistantTrendsQuery
 
-    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
-    day: string
+    /**
+     * Bucket date for one data point, as an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.
+     * Omit it to list the persons behind the whole date range instead of one bucket. A source that
+     * shows one value per series rather than a time series (`trendsFilter.display` set to
+     * `BoldNumber`, `ActionsPie`, `ActionsTable`, and the like) has no buckets, so it takes no day.
+     */
+    day?: string
 
     /** Series index (0-based) when the source has multiple series. */
     series?: integer

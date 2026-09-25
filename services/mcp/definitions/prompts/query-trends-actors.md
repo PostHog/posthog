@@ -1,11 +1,17 @@
 List the persons behind a specific data point in a trends insight. Use this to answer "who were the users that did X on day Y?" or "which users are in this breakdown bucket?".
 
+The whole trends query goes inside `source`, and the selectors sit beside it. Do not send the trends query flattened at the top level:
+
+```json
+{ "source": { "series": [{ "kind": "EventsNode", "event": "$pageview" }] }, "day": "2024-01-15" }
+```
+
 Pair this with `query-trends`: first run the trends query to identify the data point of interest, then call this tool with the same trends query as `source` plus selectors that narrow to one cell.
 
 Selectors:
 
-- `day` **(required)**: a single bucket date as an ISO date string (YYYY-MM-DD), e.g. `"2024-01-15"`. Must match exactly one data point from the trends result.
-- `series`: 0-based index of the series to drill into when the trends query has multiple series. Defaults to 0.
+- `day`: a single bucket date as an ISO date string (YYYY-MM-DD), e.g. `"2024-01-15"`. Must match exactly one data point from the trends result. Omit it to list everyone in the source's whole date range. A source that shows one value per series rather than a time series (`trendsFilter.display` set to `BoldNumber`, `ActionsPie`, `ActionsTable`, and the like) has no buckets, so omit `day` there.
+- `series`: 0-based index of the series to drill into when the trends query has multiple series. Defaults to 0. This is an index, not the source's `series` array.
 - `breakdown`: always an array, one value per `breakdownFilter.breakdowns` dimension, in the same order. Single dimension: `breakdown: ["Opera"]`. Multiple dimensions: `breakdown: ["Opera", "en-US"]`.
 - `compare`: `current` (default) or `previous` when the source has `compareFilter` enabled.
 - `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings (faster if recordings are not needed).
@@ -21,6 +27,5 @@ The response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `t
 Guidance:
 
 - Keep the `source` trends query minimal - only include the filters/breakdowns needed to identify the cell.
-- Always pick a specific `day` from the trends result.
 - To read every person, page with `offset` rather than raising `limit` past 1000, and keep `source` and the other selectors identical across pages so rows don't repeat or go missing.
 - When you only need a sample, one page is enough — tighten the trends query (filters, date range) instead of paging through everyone.
