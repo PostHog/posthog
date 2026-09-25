@@ -8,7 +8,7 @@ import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 /** The "…" menu next to "New workflow": picks the optional columns of the list. */
 export function WorkflowsListV2ColumnsMenu(): JSX.Element {
-    const { visibleColumns } = useValues(workflowsListV2Logic)
+    const { shownColumns } = useValues(workflowsListV2Logic)
     const { toggleColumn, resetColumns } = useActions(workflowsListV2Logic)
 
     return (
@@ -19,7 +19,7 @@ export function WorkflowsListV2ColumnsMenu(): JSX.Element {
                     title: 'Columns',
                     items: OPTIONAL_COLUMNS.map((column) => ({
                         label: OPTIONAL_COLUMN_TITLES[column],
-                        icon: visibleColumns.includes(column) ? <IconCheck /> : <span className="w-4" />,
+                        icon: shownColumns.includes(column) ? <IconCheck /> : <span className="w-4" />,
                         onClick: () => toggleColumn(column),
                         'data-attr': `workflows-list-v2-column-${column}`,
                     })),

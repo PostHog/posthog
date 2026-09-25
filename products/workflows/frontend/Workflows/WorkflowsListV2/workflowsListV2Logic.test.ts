@@ -27,7 +27,9 @@ describe('workflowsListV2Logic', () => {
         workflowRequests = []
         serverSearch = async () => []
         const byId = new Map(FIXTURE_WORKFLOWS.map((workflow) => [workflow.id, workflow]))
+        // A workflow created during the load shifts the offsets, so page two repeats the last row of page one.
         const secondPage = [
+            FIXTURE_WORKFLOWS[FIXTURE_WORKFLOWS.length - 1],
             buildWorkflowRow({ id: 'wf-page-two', name: 'Second page', updated_at: '2026-09-19T12:00:00Z' }),
         ]
         useMocks({
@@ -82,6 +84,31 @@ describe('workflowsListV2Logic', () => {
         ])
     })
 
+    it('stops following a next link that never ends and shows the load error', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': () => {
+                    requests++
+                    return [
+                        200,
+                        paginated(
+                            [buildWorkflowRow({ id: `wf-loop-${requests}` })],
+                            'http://localhost/api/projects/997/hog_flows/summaries/?limit=1000&offset=1000'
+                        ),
+                    ]
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadListFailure'])
+        expect(logic.values.loadFailed).toBe(true)
+        expect(requests).toBeLessThanOrEqual(100)
+    })
+
     it('shows a load error instead of an empty list', async () => {
         useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': () => [500, { detail: 'Boom' }] } })
         router.actions.push(urls.workflows())
@@ -121,6 +148,58 @@ describe('workflowsListV2Logic', () => {
             ],
             text: 'renew',
         })
+    })
+
+    it('keeps a later page param, because only the first URL is a bookmarked old link', async () => {
+        router.actions.push(urls.workflows(), { q: 'kind:workflow' })
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadListSuccess'])
+
+        router.actions.push(router.values.location.pathname, { ...router.values.searchParams, page: 2 })
+        expect(router.values.searchParams).toEqual({ q: 'kind:workflow', page: 2 })
+    })
+
+    it.each(['text', 'search'])('keeps number-like free text from the %s param as written', async (param) => {
+        // A pasted link reaches the router as written; `router.actions.push` would already parse `007` to 7.
+        router.actions.locationChanged({
+            method: 'PUSH',
+            pathname: urls.workflows(),
+            search: `?${param}=007`,
+            searchParams: { [param]: 7 },
+            hash: '',
+            hashParams: {},
+            url: `${urls.workflows()}?${param}=007`,
+        })
+        logic = workflowsListV2Logic()
+        logic.mount()
+
+        expect(logic.values.value.text).toEqual('007')
+        logic.actions.setValue({ filters: [], text: '0070' })
+        expect(logic.values.value.text).toEqual('0070')
+        expect(router.values.location.search).toEqual('?text=0070')
+    })
+
+    it.each([
+        ['removes the row once the delete succeeds', 200, ['tpl-newsletter']],
+        ['keeps the row when the delete fails', 500, ['tpl-receipt', 'tpl-newsletter']],
+    ])('deleteTemplate %s', async (_, status, expected) => {
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/messaging_templates/:id': () => [
+                    status,
+                    status === 200 ? {} : { detail: 'No' },
+                ],
+            },
+        })
+        router.actions.push(urls.workflows(), { q: 'kind:email-template' })
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadListSuccess'])
+
+        const receipt = logic.values.rows.find((row) => row.id === 'tpl-receipt')!
+        await expectLogic(logic, () => logic.actions.deleteTemplate(receipt as any)).toFinishAllListeners()
+        expect(shownIds(logic)).toEqual(expected)
     })
 
     it('drops old params with values it does not know', () => {
@@ -164,6 +243,30 @@ describe('workflowsListV2Logic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(shownIds(logic)).toEqual(['wf-renewal', 'wf-sync'])
         expect(workflowRequests.map((params) => params.get('search')).filter(Boolean)).toEqual(['spring', 'renews'])
+
+        // Back to the earlier text while a newer search is still out: the late answer must not replace it.
+        let answerDetour: (ids: string[]) => void = () => {}
+        let markDetourSent: () => void = () => {}
+        const detourSent = new Promise<void>((resolve) => {
+            markDetourSent = resolve
+        })
+        serverSearch = (search) => {
+            if (search === 'renewsx') {
+                markDetourSent()
+                return new Promise((resolve) => {
+                    answerDetour = resolve
+                })
+            }
+            return Promise.resolve(search === 'renews' ? ['wf-sync'] : [])
+        }
+        logic.actions.setValue({ filters: [], text: 'renewsx' })
+        await detourSent
+        await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renews' })).toDispatchActions([
+            'searchWorkflowsSuccess',
+        ])
+        answerDetour([])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(shownIds(logic)).toEqual(['wf-renewal', 'wf-sync'])
     })
 
     it('does not ask the server for text under 3 characters', async () => {

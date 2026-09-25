@@ -13,7 +13,7 @@ import { workflowsListV2Logic } from './workflowsListV2Logic'
 const PAGE_SIZE = 100
 
 export function WorkflowsListV2(): JSX.Element {
-    const { rows, filteredRows, facets, matchesText, value, listLoaded, listDataLoading, loadFailed, visibleColumns } =
+    const { rows, filteredRows, facets, matchesText, value, listLoaded, listDataLoading, loadFailed, shownColumns } =
         useValues(workflowsListV2Logic)
     const { setValue, loadList, clearFilters } = useActions(workflowsListV2Logic)
 
@@ -60,8 +60,9 @@ export function WorkflowsListV2(): JSX.Element {
                 dataSource={filteredRows}
                 loading={!listLoaded}
                 rowKey={(row) => `${row.kind}-${row.id}`}
-                columns={buildWorkflowsListV2Columns(visibleColumns, value.filters)}
-                pagination={{ pageSize: PAGE_SIZE }}
+                columns={buildWorkflowsListV2Columns(shownColumns, value.filters)}
+                // Client-side pages stay out of the URL; `page` there is an old list param.
+                pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
                 nouns={['item', 'items']}
                 emptyState="No workflows yet"
             />
