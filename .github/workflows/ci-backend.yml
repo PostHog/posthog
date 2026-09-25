@@ -1301,7 +1301,11 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only the legacy-schema variant uploads durations — both schema variants run the
               # same test IDs, and two artifacts for the same tests would race in the merge.
-              if: ${{ github.ref == 'refs/heads/master' && !matrix.new-events-schema }}
+              # A job whose products have no backend tests writes no JUnit, so it has no fresh
+              # timings either. Its artifact would hold only the restored map, and the timing
+              # refresh then rejects the whole Products slice because the timing and JUnit shard
+              # sets differ.
+              if: ${{ github.ref == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '' }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
