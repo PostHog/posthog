@@ -347,7 +347,8 @@ class PipelineV3(Generic[ResumableData]):
         # Recorded where extraction begins, so one observation is one attempt that actually did
         # work. A rising distribution means runs are restarting and re-extracting what earlier
         # attempts already staged.
-        get_run_attempt_metric(source_type).record(self._attempt)
+        if activity.in_activity():
+            get_run_attempt_metric(source_type).record(self._attempt)
 
         start_time = time.perf_counter()
         status = "success"
