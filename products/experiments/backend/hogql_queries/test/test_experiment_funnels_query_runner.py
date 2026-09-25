@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, timedelta
 from typing import cast
 
@@ -31,6 +32,7 @@ from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.test.test_journeys import journeys_for
 
 from products.experiments.backend.hogql_queries.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
+from products.experiments.backend.hogql_queries.funnels_statistics_v2 import SAMPLE_SIZE
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -255,8 +257,10 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.success_count, 3)
         self.assertEqual(test_variant.failure_count, 1)
 
-        self.assertAlmostEqual(result.probability["control"], 0.407, places=2)
-        self.assertAlmostEqual(result.probability["test"], 0.593, places=2)
+        # 17/42 and 25/42 are the exact win probabilities of the Beta(3, 2) and Beta(4, 2) posteriors.
+        max_standard_error = 0.5 / math.sqrt(SAMPLE_SIZE)
+        self.assertAlmostEqual(result.probability["control"], 17 / 42, delta=5 * max_standard_error)
+        self.assertAlmostEqual(result.probability["test"], 25 / 42, delta=5 * max_standard_error)
 
         self.assertAlmostEqual(result.credible_intervals["control"][0], 0.1941, places=3)
         self.assertAlmostEqual(result.credible_intervals["control"][1], 0.9324, places=3)
