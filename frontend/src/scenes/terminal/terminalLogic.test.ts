@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
+import { ApiError } from 'lib/api-error'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -107,6 +108,26 @@ describe('terminal lifecycle', () => {
         finishStop()
         await waitFor(() => expect(terminalLogic.values.status).toBe('idle'))
         expect(window.posthogTerminal).toBeUndefined()
+    })
+
+    it('shows the server reason when a Modal start is throttled', async () => {
+        const message = 'Request was throttled. Expected available in 42 seconds.'
+        jest.mocked(ModalTerminalRuntime).mockImplementationOnce(
+            () =>
+                ({
+                    start: jest.fn(async () => {
+                        throw new ApiError(message, 429, new Headers({ 'Retry-After': '42' }))
+                    }),
+                    stop: jest.fn(async () => {}),
+                    disconnect: jest.fn(),
+                    resize: jest.fn(),
+                }) as unknown as ModalTerminalRuntime
+        )
+        terminalLogic.actions.setEnvironment('modal')
+        terminalLogic.actions.attach(document.createElement('div'))
+        terminalLogic.actions.start()
+        await waitFor(() => expect(terminalLogic.values.status).toBe('error'))
+        expect(terminalLogic.values.error).toBe(message)
     })
 
     it('auto-starts WASM and requires confirmation before switching to Modal', async () => {

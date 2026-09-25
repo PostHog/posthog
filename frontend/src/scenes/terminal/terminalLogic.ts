@@ -549,9 +549,13 @@ export const terminalLogic = kea<terminalLogicType>([
                         window.posthogTerminal = agent
                         actions.setStatus('ready')
                     }
-                } catch {
+                } catch (error) {
                     if (cache.modalRuntime === runtime && !disposables.isDisposed && values.status !== 'stopping') {
-                        actions.setError('Could not connect to the Modal sandbox. Try reconnecting.')
+                        actions.setError(
+                            error instanceof Error
+                                ? error.message
+                                : 'Could not connect to the Modal sandbox. Try reconnecting.'
+                        )
                         actions.setStatus('error')
                     }
                 }
