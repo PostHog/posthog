@@ -64,6 +64,21 @@ describe('resolveProjectCreationBlock', () => {
         expect(resolveProjectCreationBlock({ org: org(overrides), scopedTeams: [] })).toBeUndefined()
     })
 
+    it('reports the plan limit to a member the organization lets create projects', () => {
+        const overrides = {
+            membership_level: 1,
+            members_can_create_projects: true,
+            available_product_features: [
+                { key: 'organizations_projects', limit: 1 },
+                { key: 'organization_invite_settings' },
+            ],
+        }
+
+        const block = resolveProjectCreationBlock({ org: org(overrides), scopedTeams: [] })
+
+        expect(block).toContain('upgrade')
+    })
+
     it('reports project-scoped credentials before reading the organization', () => {
         const block = resolveProjectCreationBlock({ org: undefined, scopedTeams: [42] })
 

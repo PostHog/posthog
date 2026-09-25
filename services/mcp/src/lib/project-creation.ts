@@ -45,7 +45,14 @@ function findFeature(
     return features.find((feature) => feature?.key === key)
 }
 
-/** Non-demo projects the caller can see, counted the way the backend counts them. */
+/**
+ * Non-demo projects the caller can see, counted once per project.
+ *
+ * The organization payload lists only the teams the caller may see, but the backend counts
+ * every team in the organization, so this total can be too low. A total that is too low only
+ * hides a warning. It never produces a wrong one, because a total that reaches the allowance
+ * here reaches it in the backend too.
+ */
 function countProjectsInUse(org: ProjectCreationOrgFields): number | undefined {
     const teams = org.teams
     if (!Array.isArray(teams)) {
