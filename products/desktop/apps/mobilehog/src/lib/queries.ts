@@ -124,16 +124,12 @@ export function useRepositories() {
     queryFn: async () => {
       const client = getClient();
       const integrations = await client.getGithubUserIntegrations();
-      const pages = await Promise.all(
+      const lists = await Promise.all(
         integrations.map((integration) =>
-          client.getGithubUserRepositoriesPage(
-            integration.installation_id,
-            0,
-            100,
-          ),
+          client.getGithubUserRepositories(integration.installation_id),
         ),
       );
-      return [...new Set(pages.flatMap((page) => page.repositories))].sort();
+      return [...new Set(lists.flat())].sort();
     },
     enabled: !!session,
     staleTime: 5 * 60_000,
