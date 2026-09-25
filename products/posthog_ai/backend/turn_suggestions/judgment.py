@@ -35,7 +35,7 @@ from posthog.llm.system_one import (
 from posthog.llm.system_one_client import (
     GATEWAY_MAX_CHOICE_OPTIONS,
     SystemOneClient,
-    SystemOneModels,
+    TypeSafeFallback,
     build_system_one_client,
     system_one_configured,
 )
@@ -57,10 +57,11 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
 
 logger = structlog.get_logger(__name__)
 
-# Pinned rather than `jev-latest`, because an alias moves on each release. The thresholds in
-# classifier.py are tuned against the TypeSafe model's probabilities.
-JUDGE_MODELS = SystemOneModels(gateway="posthog/hogference/jevk5-fp8-0.2", typesafe="jev-1.13.0")
 JUDGE_SOURCE = "posthog_ai_turn_suggestions"
+JUDGE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+# Pinned rather than `jev-latest`, because an alias moves on each release. The thresholds in
+# classifier.py are tuned against this model's probabilities.
+JUDGE_TYPESAFE_FALLBACK = TypeSafeFallback(model="jev-1.13.0", source=JUDGE_SOURCE, priority=Priority.BATCH)
 JUDGE_TIMEOUT_SECONDS = 10.0
 
 _NO_MATCH = "none"
@@ -207,15 +208,14 @@ class TurnJudgment:
 
 
 def judge_configured() -> bool:
-    return system_one_configured()
+    return system_one_configured(JUDGE_TYPESAFE_FALLBACK)
 
 
 def _judge_client(team_id: int | None) -> SystemOneClient:
     return build_system_one_client(
-        models=JUDGE_MODELS,
+        model=JUDGE_MODEL,
         ai_product=JUDGE_SOURCE,
-        typesafe_source=JUDGE_SOURCE,
-        priority=Priority.BATCH,
+        typesafe_fallback=JUDGE_TYPESAFE_FALLBACK,
         distinct_id=team_distinct_id(team_id) if team_id is not None else None,
         properties={"team_id": str(team_id)} if team_id is not None else None,
         timeout=JUDGE_TIMEOUT_SECONDS,
