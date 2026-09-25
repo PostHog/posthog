@@ -894,6 +894,12 @@ class TestAlertFilterEvaluation(AlertTestMixin):
                 {"properties": [{"key": "assignee_name", "operator": "is_not_set", "type": "event"}]},
                 {"assignee": None},
             ),
+            # A name Python parses as a number ("Nan" becomes float nan) must stay a string.
+            (
+                "numeric_looking_assignee_name",
+                {"properties": [{"key": "assignee_name", "value": "Nan", "type": "event"}]},
+                {"extra": {"assignee_name": "Nan"}},
+            ),
             # Event branches are OR'd: another branch's exception-property leaf is irrelevant.
             (
                 "other_event_branch",

@@ -100,6 +100,8 @@ On an unassigned issue the keys are missing, so a test run against an unassigned
 - `event.properties.assignee_name` — the user's full name (their email when they have no name), or the role name.
 - `event.properties.assignee_email` — user assignees only.
 
+When the assigned user has left the organization, the event keeps `assignee` but leaves out `assignee_name` and `assignee_email`.
+
 To show the assignee in a message, use `{event.properties.assignee_name ?? 'Unassigned'}`.
 To alert only on unassigned issues, add the property filter `assignee` **is not set**.
 

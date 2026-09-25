@@ -13,7 +13,7 @@ import structlog
 from posthog.models import Team
 
 from products.error_tracking.backend.models import ErrorTrackingAlert
-from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
+from products.error_tracking.backend.temporal.alerts.types import NUMERIC_EXTRA_KEYS, AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
 
 from common.hogvm.python.execute import execute_bytecode
@@ -93,7 +93,10 @@ def alert_filters_match(
     # The producers always emit these keys, null included, and on the CDP plane a null
     # lifecycle value shadows the exception's own property; mirror that so both planes agree.
     lifecycle_properties: dict[str, object] = {
-        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
+        **{
+            key: _coerce_numeric(value) if key in NUMERIC_EXTRA_KEYS else value
+            for key, value in (inputs.extra or {}).items()
+        },
         "name": inputs.issue_name,
         "description": inputs.issue_description,
         "issue_description": inputs.issue_description,

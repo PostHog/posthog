@@ -19,6 +19,7 @@ from rest_framework import status
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -810,6 +811,30 @@ class TestErrorTracking(APIBaseTest):
             expected_properties
         )
         assert json.loads(event.properties["assignee"]) == {"type": assignee_type, "id": assignee_id}
+
+    def test_issue_lifecycle_event_omits_former_member_assignee_details(self):
+        issue = self.create_issue()
+        former_member = User.objects.create_and_join(self.organization, "former@example.com", "password", "Former")
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": former_member.id, "type": "user"}},
+        )
+        OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert properties["assignee"] == f'{{"type":"user","id":{former_member.id}}}'
+        assert "assignee_name" not in properties
+        assert "assignee_email" not in properties
 
     def test_issue_unassign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()
