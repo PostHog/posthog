@@ -15,7 +15,6 @@ export default defineConfig({
     "src/model-catalog.ts",
     "src/posthog-property-headers.ts",
     "src/product-engineer-prompt.ts",
-    "src/quick-ask-shortcuts.ts",
     "src/rich-output-prompt.ts",
     "src/task-context.ts",
     "src/types.ts",
