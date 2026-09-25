@@ -33,6 +33,7 @@ const conversationsTicketsList = (): ToolBase<
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
+                count_mode: params.count_mode,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 distinct_ids: params.distinct_ids,

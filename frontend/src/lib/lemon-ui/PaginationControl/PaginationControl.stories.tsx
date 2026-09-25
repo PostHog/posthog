@@ -25,3 +25,20 @@ export const PaginationControl_: Story = {
 export const Bordered: Story = {
     args: { bordered: true },
 }
+
+export const CappedEntryCount: Story = {
+    render: () => {
+        const DATA_SOURCE = Array(10)
+            .fill(null)
+            .map((_, index) => index)
+        const state = usePagination(DATA_SOURCE, {
+            controlled: true,
+            pageSize: 10,
+            currentPage: 1,
+            entryCount: 1000,
+            entryCountCapped: true,
+            onForward: () => {},
+        })
+        return <PaginationControl {...state} />
+    },
+}

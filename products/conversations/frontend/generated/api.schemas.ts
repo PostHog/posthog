@@ -268,6 +268,8 @@ export interface PaginatedTicketListApi {
     /** @nullable */
     previous?: string | null
     results: TicketApi[]
+    /** True when more tickets match than `count` reports. Only `count_mode=capped` can set this; the default exact count always reports the full total and leaves this false. */
+    count_capped?: boolean
 }
 
 /**
@@ -1022,6 +1024,10 @@ export type ConversationsTicketsListParams = {
      */
     channel_source?: ConversationsTicketsListChannelSource
     /**
+     * How to compute `count`. `exact` (default) counts every matching ticket. `capped` stops counting at 1000 and sets `count_capped` when more match, which keeps the count cheap on a large ticket list. Paging and the `next` link are exact in both modes.
+     */
+    count_mode?: ConversationsTicketsListCountMode
+    /**
      * Only include tickets updated on or after this date. Accepts absolute dates (`2026-01-01`) or relative ones (`-7d`, `-1mStart`). Pass `all` to disable the filter.
      */
     date_from?: string
@@ -1110,6 +1116,14 @@ export const ConversationsTicketsListChannelSource = {
     Slack: 'slack',
     Teams: 'teams',
     Widget: 'widget',
+} as const
+
+export type ConversationsTicketsListCountMode =
+    (typeof ConversationsTicketsListCountMode)[keyof typeof ConversationsTicketsListCountMode]
+
+export const ConversationsTicketsListCountMode = {
+    Capped: 'capped',
+    Exact: 'exact',
 } as const
 
 export type ConversationsTicketsListSla = (typeof ConversationsTicketsListSla)[keyof typeof ConversationsTicketsListSla]

@@ -320,8 +320,63 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
+    """Paginate tickets, with an opt-in ceiling on the count.
+
+    An exact ``count`` makes Postgres read every ticket the filters match, and the model's
+    indexes are built for top-N ordered pages, not for counting. A caller that only needs to
+    know whether more pages exist can send ``count_mode=capped``: the count then runs inside a
+    LIMIT subquery that stops one row past the ceiling, so a filter that an index serves costs
+    the same however many tickets a team has. The LIMIT bounds matching rows, not rows read:
+    for a sparse filter with no index behind it (priority, a tag, a search term) Postgres still
+    scans to find the matches, the same rows the uncapped ``COUNT(*)`` read.
+
+    The default stays exact. ``count`` is published on a route that personal API keys reach and
+    a generated client consumes, so a lower bound is something a caller opts into rather than
+    something that arrives under an unchanged request. The ceiling always leaves room for one
+    row past the current page, so "is there a next page" stays correct at any offset in either
+    mode.
+    """
+
     default_limit = 100
     max_limit = 1000
+    count_ceiling = 1000
+    count_mode_query_param = "count_mode"
+    capped_count_requested = False
+    count_capped = False
+
+    def paginate_queryset(self, queryset: QuerySet, request: Request, view: Any = None) -> list[Any] | None:
+        page_end = (self.get_limit(request) or 0) + self.get_offset(request)
+        self.ceiling = max(self.count_ceiling, page_end + 1)
+        self.capped_count_requested = request.query_params.get(self.count_mode_query_param) == "capped"
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_count(self, queryset: QuerySet | Sequence[Any]) -> int:
+        if not self.capped_count_requested or not isinstance(queryset, QuerySet):
+            self.count_capped = False
+            return super().get_count(queryset)
+        # ``order_by()`` matters: with the sort still on, Postgres has to sort the matching
+        # rows before the LIMIT can cut the scan short. ``values("pk")`` drops the
+        # select_related joins that only serialization needs. Sampling one row past the
+        # ceiling is what separates an exact total that lands on the ceiling from a capped one.
+        sampled = queryset.order_by().values("pk")[: self.ceiling + 1].count()
+        self.count_capped = sampled > self.ceiling
+        return min(sampled, self.ceiling)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        response = super().get_paginated_response(data)
+        response.data["count_capped"] = self.count_capped
+        return response
+
+    def get_paginated_response_schema(self, schema: Any) -> dict[str, Any]:
+        response_schema = super().get_paginated_response_schema(schema)
+        response_schema["properties"]["count_capped"] = {
+            "type": "boolean",
+            "description": (
+                "True when more tickets match than `count` reports. Only `count_mode=capped` can set this; "
+                "the default exact count always reports the full total and leaves this false."
+            ),
+        }
+        return response_schema
 
 
 class TicketMessagePagination(pagination.LimitOffsetPagination):
@@ -1027,6 +1082,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 description="Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
+            ),
+            OpenApiParameter(
+                "count_mode",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["exact", "capped"],
+                description=(
+                    "How to compute `count`. `exact` (default) counts every matching ticket. `capped` stops "
+                    "counting at 1000 and sets `count_capped` when more match, which keeps the count cheap on "
+                    "a large ticket list. Paging and the `next` link are exact in both modes."
+                ),
             ),
             OpenApiParameter(
                 "order_by",

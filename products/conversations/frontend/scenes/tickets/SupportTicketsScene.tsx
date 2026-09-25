@@ -42,6 +42,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         ticketsLoading,
         currentPage,
         totalCount,
+        totalCountCapped,
         sorting,
         selectedTicketIds,
         searchQuery,
@@ -150,6 +151,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 currentPage,
                 pageSize: SUPPORT_TICKETS_PAGE_SIZE,
                 entryCount: totalCount,
+                entryCountCapped: totalCountCapped,
                 onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
                 onForward:
                     currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
