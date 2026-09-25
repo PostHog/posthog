@@ -26,6 +26,7 @@ class TeamExperimentsConfigInline(admin.StackedInline):
             {
                 "fields": [
                     "experiment_recalculation_time",
+                    "experiment_recalculation_times",
                     "default_experiment_confidence_level",
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",

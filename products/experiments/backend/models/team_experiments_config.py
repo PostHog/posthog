@@ -4,6 +4,9 @@ from django.db import models
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+MAX_RECALCULATION_TIMES = 2
+MIN_RECALCULATION_GAP_HOURS = 6
+
 
 class TeamExperimentsConfig(models.Model):
     class PrecomputationEnabledSetBy(models.TextChoices):
@@ -15,7 +18,20 @@ class TeamExperimentsConfig(models.Model):
     experiment_recalculation_time = models.TimeField(
         null=True,
         blank=True,
-        help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+        help_text=(
+            "Deprecated in favor of experiment_recalculation_times, which takes precedence when set. "
+            "Kept in sync with its first entry for older clients."
+        ),
+    )
+
+    experiment_recalculation_times = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Times of day (UTC) when experiment metrics are recalculated, as a list of 'HH:00:00' "
+            "strings on the hour, at most 2 entries at least 6 hours apart. Null means the default "
+            "time (02:00 UTC)."
+        ),
     )
 
     default_experiment_confidence_level = models.DecimalField(

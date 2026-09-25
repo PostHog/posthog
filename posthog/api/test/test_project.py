@@ -1159,6 +1159,59 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
 
+    def test_experiments_config_recalculation_times_sync_with_legacy_field(self):
+        # The hourly workflow and older clients read experiment_recalculation_time while
+        # newer clients read the list; if the sync breaks, recalcs run at the wrong hour.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": ["14:00:00", "02:00:00"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(config.experiment_recalculation_time.hour, 14)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_time": "08:00:00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
+        self.assertEqual(config.experiment_recalculation_time.hour, 8)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(config.experiment_recalculation_time)
+
+    @parameterized.expand(
+        [
+            ("not_on_the_hour", ["08:30:00"]),
+            ("bad_format", ["8am"]),
+            ("hour_out_of_range", ["24:00:00"]),
+            ("more_than_two", ["02:00:00", "10:00:00", "18:00:00"]),
+            ("duplicate_hours", ["02:00:00", "02:00:00"]),
+            ("closer_than_six_hours", ["08:00:00", "09:00:00"]),
+            ("closer_than_six_hours_across_midnight", ["23:00:00", "01:00:00"]),
+            ("empty_list", []),
+        ]
+    )
+    def test_experiments_config_rejects_invalid_recalculation_times(self, _name, times):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": times},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's
         # passthrough loop setattr()s everything left in validated_data onto the model.
