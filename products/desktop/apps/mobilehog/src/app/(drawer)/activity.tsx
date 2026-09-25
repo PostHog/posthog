@@ -231,16 +231,9 @@ export default function ActivityScreen() {
                   >
                     {row.item.taskTitle}
                   </Text>
-                  <View style={styles.metaRow}>
-                    <Text style={styles.meta} numberOfLines={1}>
-                      {row.metadata}
-                    </Text>
-                    {row.space ? (
-                      <Text style={styles.spaceChip} numberOfLines={1}>
-                        {row.space}
-                      </Text>
-                    ) : null}
-                  </View>
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {row.metadata}
+                  </Text>
                   {row.item.snippet ? (
                     <Text style={styles.snippet} numberOfLines={2}>
                       {row.item.snippet}
@@ -368,22 +361,10 @@ const styles = StyleSheet.create({
   body: { flex: 1, gap: 2 },
   rowTitle: { fontFamily: fonts.sansMedium, fontSize: 16, color: colors.ink },
   rowTitleUnread: { fontFamily: fonts.sansSemi },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   meta: {
-    flexShrink: 1,
     fontFamily: fonts.sans,
     fontSize: 13,
     color: colors.inkMute,
-  },
-  spaceChip: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12,
-    color: colors.inkSoft,
-    backgroundColor: colors.bgDeep,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    overflow: "hidden",
   },
   snippet: {
     fontFamily: fonts.sans,

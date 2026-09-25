@@ -69,7 +69,6 @@ export default function RootLayout() {
         reconnect();
         const client = getAccountQueryClient();
         void client.invalidateQueries({ queryKey: keys.tasks });
-        void client.invalidateQueries({ queryKey: keys.channels });
       }
     });
     return () => subscription.remove();
@@ -118,16 +117,6 @@ export default function RootLayout() {
               options={{
                 presentation: "fullScreenModal",
                 animation: "slide_from_bottom",
-              }}
-            />
-            <Stack.Screen
-              name="space"
-              options={{
-                presentation: "formSheet",
-                sheetAllowedDetents: [0.55, 1],
-                sheetGrabberVisible: true,
-                sheetCornerRadius: 32,
-                contentStyle: { backgroundColor: colors.bg },
               }}
             />
             <Stack.Screen

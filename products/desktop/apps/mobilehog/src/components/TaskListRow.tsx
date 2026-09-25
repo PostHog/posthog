@@ -6,12 +6,10 @@ import { colors, fonts } from "@/lib/theme";
 
 export function TaskListRow({
   task,
-  space,
   onPress,
   preview = false,
 }: {
   task: Task;
-  space?: string;
   onPress: () => void;
   preview?: boolean;
 }) {
@@ -39,7 +37,6 @@ export function TaskListRow({
             "Untitled task"}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {space ? `${space} · ` : ""}
           {formatRelativeAge(task.last_activity_at || task.updated_at)}
         </Text>
         {preview && task.description_preview ? (
@@ -56,15 +53,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 4,
   },
   dot: { paddingTop: 6 },
   body: { flex: 1, gap: 4 },
   title: {
     fontFamily: fonts.sansMedium,
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 19,
     color: colors.ink,
   },
   meta: { fontFamily: fonts.sans, fontSize: 12, color: colors.inkMute },

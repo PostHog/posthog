@@ -16,7 +16,7 @@ import { BellIcon, SearchIcon, SteeringIcon } from "@/components/Icons";
 import { TaskListRow } from "@/components/TaskListRow";
 import { useActivity } from "@/lib/activity";
 import { useAuth } from "@/lib/auth";
-import { useChannels, useTasks } from "@/lib/queries";
+import { useTasks } from "@/lib/queries";
 import { useReports, useSeenReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -24,7 +24,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const tasks = useTasks();
-  const channels = useChannels();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const unread = useActivity().data?.unread_count ?? 0;
   const reports = useReports().data ?? [];
@@ -35,10 +34,10 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = async (): Promise<void> => {
-    if (refreshing || tasks.isFetching || channels.isFetching) return;
+    if (refreshing || tasks.isFetching) return;
     setRefreshing(true);
     try {
-      await Promise.all([tasks.refetch(), channels.refetch()]);
+      await tasks.refetch();
     } finally {
       setRefreshing(false);
     }
@@ -106,7 +105,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             ]}
           >
             <SteeringIcon />
-            <Text style={styles.navLabel}>Inbox</Text>
+            <Text style={styles.navLabel}>Self-driving</Text>
             {newReports > 0 ? (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{newReports}</Text>
@@ -114,7 +113,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             ) : null}
           </Pressable>
         </View>
-        <Text style={styles.sectionTitle}>Your tasks</Text>
+        <Text style={styles.sectionTitle}>Recent Tasks</Text>
         {tasks.isLoading ? (
           <Text style={styles.hint}>Loading tasks</Text>
         ) : null}
@@ -137,9 +136,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
           <TaskListRow
             key={task.id}
             task={task}
-            space={
-              channels.data?.find((space) => space.id === task.channel)?.name
-            }
             onPress={() => {
               closeDrawer();
               router.push({

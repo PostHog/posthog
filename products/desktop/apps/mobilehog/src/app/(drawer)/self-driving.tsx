@@ -173,7 +173,9 @@ export default function SelfDrivingScreen() {
             <MenuIcon />
           </GlassCircleButton>
         )}
-        <Text style={styles.title}>{showDeck ? "Report" : "Inbox"}</Text>
+        <Text style={styles.title}>
+          {showDeck ? "Report" : "Self-driving inbox"}
+        </Text>
         <View style={{ width: 46 }} />
       </View>
 
