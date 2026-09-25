@@ -12,7 +12,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     const [modalOpen, setModalOpen] = useState(false)
     const [description, setDescription] = useState('')
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { aiConsentDisabledReason, isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const proposedMetrics =
         report.metrics?.filter(
             (metric) =>
@@ -111,6 +111,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                             loading={isDiscussing}
                             disabledReason={
                                 aiConsentDisabledReason ??
+                                (isCreatingPr ? 'An implementation is starting.' : undefined) ??
                                 (!description.trim() ? 'Describe the outcome first.' : undefined)
                             }
                         >
