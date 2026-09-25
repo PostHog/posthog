@@ -40,7 +40,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, GITHUB_PR_URL_PREFIX, PR_LOOP_ENABLED_STATE_KEY
+from products.tasks.backend.constants import (
+    DEFAULT_TRUSTED_DOMAINS,
+    GITHUB_PR_URL_PREFIX,
+    PR_LOOP_ENABLED_STATE_KEY,
+    TASK_RUN_TERMINATION_REASON_MARKERS,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
@@ -2533,6 +2538,11 @@ class TaskRun(models.Model):
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
         state.pop("sandbox_connect_token", None)
+        # Drop how the prior attempt ended, alongside its `error_message` above. The markers are
+        # what readers trust to tell a capped run from a genuine failure, so one left behind would
+        # report a live run as timed out, and would mark the next real failure as a timeout too.
+        for marker in TASK_RUN_TERMINATION_REASON_MARKERS:
+            state.pop(marker, None)
         # Drop the provider stamp because the resumed run re-resolves its backend from
         # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
         # Modal-only fallbacks, or the flag kill switch on the next context resolution.

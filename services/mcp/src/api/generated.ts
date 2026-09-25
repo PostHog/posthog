@@ -67344,6 +67344,20 @@ export namespace Schemas {
       Ultracode: 'ultracode',
     } as const;
 
+    /**
+     * * `sandbox_gone` - sandbox_gone
+     * * `timed_out_wall_clock` - timed_out_wall_clock
+     * * `timed_out_inactivity` - timed_out_inactivity
+     */
+    export type TerminationReasonEnum = typeof TerminationReasonEnum[keyof typeof TerminationReasonEnum];
+
+
+    export const TerminationReasonEnum = {
+      SandboxGone: 'sandbox_gone',
+      TimedOutWallClock: 'timed_out_wall_clock',
+      TimedOutInactivity: 'timed_out_inactivity',
+    } as const;
+
     export interface TaskRunSkillBundleMetadata {
       /**
          * Name of the local skill included in a skill_bundle artifact.
@@ -67537,6 +67551,12 @@ export namespace Schemas {
          */
       task_summary: string | null;
       state: TaskRunDetailDTOState;
+      /** Which lifecycle bound stopped this run, when one did. `timed_out_wall_clock` is the hard cap on total run time, `timed_out_inactivity` the idle cap, and `sandbox_gone` a sandbox that disappeared. Null when no bound was tripped, which on a terminal run means the run ended on its own, so a failed run with a null `error_message` and a null reason is a genuine failure rather than a timeout.
+       *
+       * * `sandbox_gone` - sandbox_gone
+       * * `timed_out_wall_clock` - timed_out_wall_clock
+       * * `timed_out_inactivity` - timed_out_inactivity */
+      termination_reason?: TerminationReasonEnum | null;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
       created_at?: string | null;

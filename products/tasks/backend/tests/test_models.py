@@ -20,6 +20,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
+from products.tasks.backend.constants import TASK_RUN_TERMINATION_REASON_MARKERS
 from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
@@ -1123,7 +1124,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_prepare_for_cloud_resume_clears_stale_sandbox_routing(self, _publish):
+    def test_prepare_for_cloud_resume_clears_stale_terminal_state(self, _publish):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -1137,6 +1138,9 @@ class TestTaskRun(TestCase):
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
+                "timed_out_wall_clock": True,
+                "timed_out_inactivity": True,
+                "sandbox_gone": True,
             },
         )
 
@@ -1151,6 +1155,10 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
+        # How the prior attempt ended must not survive, or the resumed run reports itself as
+        # timed out while it is still working.
+        for marker in TASK_RUN_TERMINATION_REASON_MARKERS:
+            self.assertNotIn(marker, run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
         self.assertTrue(run.state["same_run_resume"])
 

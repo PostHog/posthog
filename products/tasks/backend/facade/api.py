@@ -84,6 +84,7 @@ from products.tasks.backend.constants import (
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
+    TASK_RUN_TERMINATION_REASON_MARKERS as TASK_RUN_TERMINATION_REASON_MARKERS,  # re-exported for presentation
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
@@ -534,6 +535,13 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
+# ``_TASK_RUN_PUBLIC_STATE_KEYS`` withholds the markers, so without this a client sees a FAILED
+# run with a null ``error_message`` and nothing that says why.
+def _task_run_termination_reason(state: dict | None) -> str | None:
+    markers = state or {}
+    return next((marker for marker in TASK_RUN_TERMINATION_REASON_MARKERS if markers.get(marker)), None)
+
+
 def _task_run_log_url(run: TaskRun) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -603,6 +611,7 @@ def _task_run_detail_to_dto(
             run, task=task, user_id=user_id, include_agent_state=include_agent_state
         ),
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
+        termination_reason=_task_run_termination_reason(run.state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,

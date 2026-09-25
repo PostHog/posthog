@@ -19,6 +19,16 @@ CI_STATUSES = ("passing", "failing", "pending", "none")
 # prefix must use this constant rather than a literal of their own.
 GITHUB_PR_URL_PREFIX = "https://github.com/"
 
+# How a run ended, when a lifecycle bound rather than the agent stopped it. The workflow records
+# each as a boolean ``TaskRun.state`` marker instead of prose in ``error_message``, so no invented
+# sentence reaches the user. Ordered most specific first: a run whose sandbox disappeared also
+# trips a timeout, and the lost sandbox is what explains the timeout.
+TASK_RUN_TERMINATION_REASON_MARKERS = (
+    "sandbox_gone",
+    "timed_out_wall_clock",
+    "timed_out_inactivity",
+)
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
