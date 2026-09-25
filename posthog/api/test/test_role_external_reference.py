@@ -1,3 +1,5 @@
+import uuid
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -165,3 +167,37 @@ class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
     def test_cannot_delete_reference_from_other_org(self) -> None:
         response = self.client.delete(f"/api/organizations/{self.org_a.id}/role_external_references/{self.ref_b.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestRoleExternalReferenceListOrdering(APILicensedTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.role = Role.objects.create(name="Frontend", organization=self.organization)
+
+        self.reference_ids = [uuid.UUID(f"0190000{index}-0000-7000-8000-000000000000") for index in range(1, 6)]
+        for index, reference_id in enumerate(reversed(self.reference_ids)):
+            RoleExternalReference.objects.create(
+                id=reference_id,
+                organization=self.organization,
+                role=self.role,
+                provider="github",
+                provider_organization_id="posthog",
+                provider_role_id=str(index),
+                provider_role_slug=None,
+                provider_role_name=f"Team {index}",
+                created_by=self.user,
+            )
+
+    def test_pages_cover_every_reference_once_when_slugs_are_tied(self) -> None:
+        base_url = f"/api/organizations/{self.organization.id}/role_external_references/"
+        paged_ids: list[str] = []
+        for offset in range(0, len(self.reference_ids), 2):
+            response = self.client.get(f"{base_url}?limit=2&offset={offset}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            paged_ids.extend(result["id"] for result in response.json()["results"])
+
+        self.assertEqual(paged_ids, [str(reference_id) for reference_id in self.reference_ids])
