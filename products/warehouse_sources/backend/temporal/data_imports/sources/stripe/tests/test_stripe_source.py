@@ -1682,7 +1682,7 @@ class TestCreateWebhookPermissionErrorCopy:
             (
                 "api_key",
                 "forbidden",
-                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+                "Give it Write access on Webhook endpoints in Stripe, then select Try again",
                 None,
             ),
             ("oauth", "forbidden", "cannot create webhooks", "reconnect"),
