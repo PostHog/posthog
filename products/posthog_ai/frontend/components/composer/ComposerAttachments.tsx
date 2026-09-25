@@ -4,8 +4,20 @@ import { type ChangeEvent, type ClipboardEvent, type RefObject, useCallback, use
 import { IconDocument, IconImage, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { MAX_ATTACHMENTS_PER_MESSAGE, formatFileSize, isImageAttachment } from '../../utils/attachments'
+
+/**
+ * The single gate on attachments. Every way to stage a file — the button, the drop target, the paste —
+ * passes through this module, so a composer that renders it needs no gate of its own.
+ */
+function useAttachmentsEnabled(): boolean {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return !!featureFlags[FEATURE_FLAGS.PHAI_TASKS_ATTACHEMENTS]
+}
 
 /**
  * Not `LemonFileInput`'s `alternativeDropTargetRef`: it keeps its own copy of the file list and re-syncs it
@@ -99,6 +111,7 @@ export function ComposerAttachments({
     dropTargetRef,
     disabledReason,
 }: ComposerAttachmentsProps): JSX.Element {
+    const enabled = useAttachmentsEnabled()
     const logic = composerAttachmentsLogic({ attachmentsKey })
     const { stagedAttachments, uploading, isAtAttachmentLimit } = useValues(logic)
     const { addFiles, removeAttachment } = useActions(logic)
@@ -115,7 +128,11 @@ export function ComposerAttachments({
         },
         [addFiles, addDisabledReason]
     )
-    const isOver = useFileDrop(dropTargetRef, acceptDropped)
+    const isOver = useFileDrop(enabled ? dropTargetRef : undefined, acceptDropped)
+
+    if (!enabled) {
+        return <></>
+    }
 
     const onPicked = (event: ChangeEvent<HTMLInputElement>): void => {
         const files = Array.from(event.target.files ?? [])
@@ -185,11 +202,12 @@ export function ComposerAttachments({
  * outright would swallow what the user meant to write.
  */
 export function useComposerAttachmentPaste(attachmentsKey: string): (event: ClipboardEvent) => void {
+    const enabled = useAttachmentsEnabled()
     const { addFiles } = useActions(composerAttachmentsLogic({ attachmentsKey }))
     return useCallback(
         (event: ClipboardEvent) => {
             const files = Array.from(event.clipboardData?.files ?? [])
-            if (files.length === 0) {
+            if (!enabled || files.length === 0) {
                 return
             }
             if (!event.clipboardData?.getData('text/plain')) {
@@ -197,6 +215,6 @@ export function useComposerAttachmentPaste(attachmentsKey: string): (event: Clip
             }
             addFiles(files)
         },
-        [addFiles]
+        [addFiles, enabled]
     )
 }

@@ -435,6 +435,7 @@ export const FEATURE_FLAGS = {
     PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
+    PHAI_TASKS_ATTACHEMENTS: 'phai-tasks-attachements', // owner: #team-posthog-ai
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai
