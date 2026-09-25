@@ -4,7 +4,7 @@
  * frames the production plan hands the text stage.
  *
  * Setup, once:
- *   npm run setup                              # the production model, which the ppocrv3 entries use
+ *   npm run setup                              # the production model, which the prod entry uses
  *   tsx dev/text-det-setup.ts                  # candidate models + labelled public images
  *   tsx dev/text-det-corpus.ts                 # synthetic web images with exact boxes
  *   tsx dev/text-det-corpus.ts --calibration   # a disjoint synthetic set, for int8 calibration only
@@ -72,23 +72,17 @@ interface DetectorSpec {
 const IMAGENET = { mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] } as const
 const DOCTR = { mean: [0.798, 0.785, 0.772], std: [0.264, 0.2749, 0.287] } as const
 
-const PROD_PROB_THRESHOLD = numFromEnv('PROB_T', 0.3, 0.05, 0.9)
-const PROD_BOX_SCORE = numFromEnv('BOX_SCORE', 0.5, 0.05, 0.95)
+const PROD_PROB_THRESHOLD = numFromEnv('PROB_T', 0.2, 0.05, 0.9)
+const PROD_BOX_SCORE = numFromEnv('BOX_SCORE', 0.4, 0.05, 0.95)
+const PPOCRV3_THRESHOLDS = { probThreshold: 0.3, boxScoreMin: 0.5 } as const
+const PROD_DETECTOR = 'ppocrv6-tiny (prod)'
 
 // PaddleOCR decodes with OpenCV, so its detectors were trained on BGR with the ImageNet statistics
-// applied in that order. Production feeds RGB, which the ppocrv3-bgr entry measures.
+// applied in that order. The ppocrv3 entry feeds RGB and ppocrv3-bgr feeds BGR, so together they
+// measure what the channel order costs that model.
 const DETECTORS: DetectorSpec[] = [
     {
-        name: 'ppocrv3 (prod)',
-        file: 'models/dbnet_det.onnx',
-        channelOrder: 'rgb',
-        ...copyStats(IMAGENET),
-        output: 'probability',
-        probThreshold: PROD_PROB_THRESHOLD,
-        boxScoreMin: PROD_BOX_SCORE,
-    },
-    {
-        name: 'ppocrv3-bgr',
+        name: PROD_DETECTOR,
         file: 'models/dbnet_det.onnx',
         channelOrder: 'bgr',
         ...copyStats(IMAGENET),
@@ -97,13 +91,28 @@ const DETECTORS: DetectorSpec[] = [
         boxScoreMin: PROD_BOX_SCORE,
     },
     {
+        name: 'ppocrv3',
+        file: 'models/candidates/ppocrv3_det.onnx',
+        channelOrder: 'rgb',
+        ...copyStats(IMAGENET),
+        output: 'probability',
+        ...PPOCRV3_THRESHOLDS,
+    },
+    {
+        name: 'ppocrv3-bgr',
+        file: 'models/candidates/ppocrv3_det.onnx',
+        channelOrder: 'bgr',
+        ...copyStats(IMAGENET),
+        output: 'probability',
+        ...PPOCRV3_THRESHOLDS,
+    },
+    {
         name: 'ppocrv3-int8',
         file: 'models/candidates/ppocrv3_det_int8.onnx',
         channelOrder: 'rgb',
         ...copyStats(IMAGENET),
         output: 'probability',
-        probThreshold: PROD_PROB_THRESHOLD,
-        boxScoreMin: PROD_BOX_SCORE,
+        ...PPOCRV3_THRESHOLDS,
     },
     {
         name: 'ppocrv3-int8-conv',
@@ -111,8 +120,7 @@ const DETECTORS: DetectorSpec[] = [
         channelOrder: 'rgb',
         ...copyStats(IMAGENET),
         output: 'probability',
-        probThreshold: PROD_PROB_THRESHOLD,
-        boxScoreMin: PROD_BOX_SCORE,
+        ...PPOCRV3_THRESHOLDS,
     },
     {
         name: 'ppocrv4-mobile',
@@ -131,15 +139,6 @@ const DETECTORS: DetectorSpec[] = [
         output: 'probability',
         probThreshold: 0.3,
         boxScoreMin: 0.6,
-    },
-    {
-        name: 'ppocrv6-tiny',
-        file: 'models/candidates/ppocrv6_tiny_det.onnx',
-        channelOrder: 'bgr',
-        ...copyStats(IMAGENET),
-        output: 'probability',
-        probThreshold: 0.2,
-        boxScoreMin: 0.4,
     },
     {
         name: 'ppocrv6-tiny-int8',
@@ -576,7 +575,7 @@ async function quality(): Promise<void> {
     const limit = Number(arg('limit') ?? 1e9)
     const images = await loadSets(sets, limit)
     const detectors = await Promise.all(specs.map((s) => loadDetector(s, !process.argv.includes('--no-kleidiai'))))
-    const baselineDetector = detectors.find((d) => d.spec.name === 'ppocrv3 (prod)')
+    const baselineDetector = detectors.find((d) => d.spec.name === PROD_DETECTOR)
     const baseline = baselineDetector
         ? { detector: baselineDetector, prodModel: await loadDbnet(join(ROOT, baselineDetector.spec.file)) }
         : null

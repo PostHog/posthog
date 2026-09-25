@@ -21,6 +21,11 @@ const UA = 'Mozilla/5.0 posthog-replay-image-scrub'
 
 const CANDIDATES: { file: string; url: string; sha256: string }[] = [
     {
+        file: 'models/candidates/ppocrv3_det.onnx',
+        url: 'https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx',
+        sha256: 'f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b',
+    },
+    {
         file: 'models/candidates/ppocrv4_mobile_det.onnx',
         url: 'https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx',
         sha256: 'd2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9',
@@ -29,11 +34,6 @@ const CANDIDATES: { file: string; url: string; sha256: string }[] = [
         file: 'models/candidates/ppocrv5_mobile_det.onnx',
         url: 'https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx',
         sha256: '4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae',
-    },
-    {
-        file: 'models/candidates/ppocrv6_tiny_det.onnx',
-        url: 'https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx/resolve/2ba1506c0380b8f0b03dd142459aac66d4421f6c/inference.onnx',
-        sha256: '193bab7a04fca699a6c82e6abb5b81bdb28177f0abd4062552b04908dafb19f8',
     },
     {
         file: 'models/candidates/ppocrv6_small_det.onnx',

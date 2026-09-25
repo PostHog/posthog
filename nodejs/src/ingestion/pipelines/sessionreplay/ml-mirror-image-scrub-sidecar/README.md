@@ -118,13 +118,13 @@ The fill's edges are feathered by blurring the fill's _colour_ only, never the m
 All model inference and image processing run in optimized native libraries.
 The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
 
-| Stage                              | Library            | Native engine        |
-| ---------------------------------- | ------------------ | -------------------- |
-| NSFW/gore classify (SwiftFormer)   | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Face detection (YuNet)             | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node` | ONNX Runtime (C++)   |
-| QR/barcode detection               | `zxing-wasm`       | zxing-cpp (C++/wasm) |
-| resize / blur / composite / encode | `sharp`            | libvips (C++)        |
+| Stage                                  | Library            | Native engine        |
+| -------------------------------------- | ------------------ | -------------------- |
+| NSFW/gore classify (SwiftFormer)       | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Face detection (YuNet)                 | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv6 tiny) | `onnxruntime-node` | ONNX Runtime (C++)   |
+| QR/barcode detection                   | `zxing-wasm`       | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode     | `sharp`            | libvips (C++)        |
 
 We do not train anything and run no neural nets in JS.
 The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
@@ -201,7 +201,7 @@ The suite **gates** on session replay's representative domain (crisp rendered-UI
 
 ```text
 UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
-DOCUMENT TEXT (report): 19/20 clean, 2.7% worst  [report] # faint fax/scan print, out of domain
+DOCUMENT TEXT (report): 20/20 clean, 0.0% worst  [report] # faint fax/scan print, out of domain
 FACE:                   89/89 faces redacted (100%)
 ```
 
@@ -222,7 +222,7 @@ One rule sets every size: **each detector must see a subject at least `ratio` ti
 Anything still readable in the artifact was therefore large enough to have been found and filled.
 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
-Faces bind at 64/21 ≈ 3.05; codes need 3, and text 7/3 ≈ 2.33.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
 zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 

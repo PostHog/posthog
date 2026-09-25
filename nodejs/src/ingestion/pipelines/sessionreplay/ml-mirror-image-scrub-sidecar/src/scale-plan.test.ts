@@ -87,7 +87,7 @@ describe('scale-plan', () => {
     it('is the tightest subject that sets the ratio', () => {
         // Whichever subject has least room decides, so adding a detector can only tighten it.
         expect(bindingRatio()).toBe(Math.max(...Object.values(FLOORS).map(requiredRatio)))
-        expect(requiredRatio(FLOORS.text)).toBeCloseTo(7 / 3, 5)
+        expect(requiredRatio(FLOORS.text)).toBeCloseTo(4.3 / 3, 5)
     })
 
     it('respects the stored budget when that is the tighter bound', () => {
