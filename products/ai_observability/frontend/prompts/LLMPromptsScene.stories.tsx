@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { UserBasicType } from '~/types'
+import { ActivityScope, UserBasicType } from '~/types'
 
 import { LLMPrompt } from './types'
 
@@ -99,6 +99,67 @@ export default meta
 type Story = StoryObj<{}>
 
 export const PromptsList: Story = {}
+
+export const History: Story = {
+    parameters: {
+        pageUrl: `${urls.aiObservabilityPrompts()}?tab=history`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/activity_log/': {
+                    results: [
+                        {
+                            id: 'activity-003',
+                            user: MOCK_SECOND_USER,
+                            activity: 'updated',
+                            created_at: '2025-01-27T15:00:00Z',
+                            scope: ActivityScope.LLM_PROMPT_LABEL,
+                            item_id: 'customer-support-agent',
+                            detail: {
+                                name: 'customer-support-agent: production',
+                                changes: [
+                                    {
+                                        type: 'LLMPromptLabel',
+                                        action: 'changed',
+                                        field: 'version',
+                                        before: 2,
+                                        after: 3,
+                                    },
+                                ],
+                            },
+                        },
+                        {
+                            id: 'activity-002',
+                            user: MOCK_DEFAULT_BASIC_USER,
+                            activity: 'published',
+                            created_at: '2025-01-27T14:00:00Z',
+                            scope: ActivityScope.LLM_PROMPT,
+                            item_id: 'customer-support-agent',
+                            detail: {
+                                name: 'customer-support-agent',
+                                changes: [{ type: 'LLMPrompt', action: 'created', field: 'version', after: 3 }],
+                            },
+                        },
+                        {
+                            id: 'activity-001',
+                            user: MOCK_SECOND_USER,
+                            activity: 'published',
+                            created_at: '2025-01-26T09:00:00Z',
+                            scope: ActivityScope.LLM_PROMPT,
+                            item_id: 'code-review-assistant',
+                            detail: {
+                                name: 'code-review-assistant',
+                                changes: [{ type: 'LLMPrompt', action: 'created', field: 'version', after: 5 }],
+                            },
+                        },
+                    ],
+                    total_count: 3,
+                },
+            },
+        }),
+    ],
+}
 
 export const EmptyState: Story = {
     decorators: [
