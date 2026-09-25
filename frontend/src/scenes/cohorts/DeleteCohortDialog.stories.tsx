@@ -33,6 +33,15 @@ const usedIn: CohortUsedInResponseApi = {
 const meta: Meta<typeof DeleteCohortDialog> = {
     component: DeleteCohortDialog,
     title: 'Scenes-App/People/Delete cohort dialog',
+    // In the app the dialog sits in a LemonModal, which is never narrower than 28rem. Rendering the
+    // bare component lets it shrink to its text, so the snapshot would wrap at a width no user sees.
+    decorators: [
+        (Story) => (
+            <div className="w-[28rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         cohortId: 1,
         cohortName: 'Power users',
