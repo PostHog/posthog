@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
@@ -97,5 +97,34 @@ describe('NavAppRow', () => {
         expect(remove).toHaveBeenCalledTimes(1)
         expect(await starButton('Add to starred')).toBeTruthy()
         expect(router.values.location.pathname).toBe(initialPath)
+    })
+
+    it('does not treat a file shortcut with the same name as a starred app', async () => {
+        const fileShortcut = {
+            id: 'file-star',
+            path: 'Feature flags',
+            type: 'insight',
+            ref: 'insight-1',
+            href: '/insights/insight-1',
+        }
+        const appShortcut = { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }
+        const create = jest.fn(() => [201, appShortcut])
+        const removeFile = jest.fn(() => [204])
+        useMocks({
+            post: { '/api/environments/:team_id/file_system_shortcut/': create },
+            delete: { '/api/environments/:team_id/file_system_shortcut/file-star/': removeFile },
+        })
+        const { getByLabelText } = render(
+            <NavAppRow item={{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }} />
+        )
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
+        act(() => projectTreeDataLogic.actions.loadShortcutsSuccess([fileShortcut]))
+        expect(projectTreeDataLogic.values.shortcutData).toEqual([fileShortcut])
+
+        fireEvent.click(getByLabelText('Add to starred'))
+
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+        expect(removeFile).not.toHaveBeenCalled()
+        expect(projectTreeDataLogic.values.shortcutData).toEqual([fileShortcut, appShortcut])
     })
 })

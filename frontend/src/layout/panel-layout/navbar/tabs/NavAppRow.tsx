@@ -35,7 +35,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     const { uiCustomizationEnabled } = useValues(uiCustomizationLogic)
     const label = appsItemName(item)
     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
-    const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && entry.path === shortcutPath)
+    const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && !entry.ref && entry.path === shortcutPath)
     const currentPath = removeProjectIdIfPresent(pathname)
     const href = item.href ?? ''
     const active =
