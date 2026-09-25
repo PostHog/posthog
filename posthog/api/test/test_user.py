@@ -978,37 +978,82 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    def _create_bearer_token(self, credential: str) -> str:
+        if credential == "key":
+            return self.create_personal_api_key_with_scopes(["user:write"])
+        if credential == "full_access_key":
+            return self.create_personal_api_key_with_scopes(["*"])
+        app = OAuthApplication.objects.create(
+            name="Third-party app",
+            client_id="test_identity_guard_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_identity_guard_access_token",
+            scope="user:write",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return token.token
+
     @parameterized.expand(
         [
-            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, 403),
-            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, 403),
-            ("taken_email", {"email": "taken@example.com"}, 403),
-            ("invalid_email", {"email": "not-an-email"}, 403),
-            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, 200),
-            ("profile_field", {"first_name": "Newname"}, 200),
-            ("non_object_body", ["email", "password"], 400),
+            ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, "key", True, 403),
+            ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, "key", True, 403),
+            ("taken_email", {"email": "taken@example.com"}, "key", True, 403),
+            ("invalid_email", {"email": "not-an-email"}, "key", True, 403),
+            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, "key", True, 200),
+            ("profile_field", {"first_name": "Newname"}, "key", True, 200),
+            ("non_object_body", ["email", "password"], "key", True, 400),
+            ("email_with_full_access_key", {"email": "beta@example.com"}, "full_access_key", True, 403),
+            ("email_with_oauth_token", {"email": "beta@example.com"}, "oauth_token", True, 403),
+            ("password_with_oauth_token", {"password": "a_new_password"}, "oauth_token", True, 403),
+            ("first_password_on_passwordless_account", {"password": "a_new_password"}, "key", False, 403),
+            (
+                "first_password_on_passwordless_account_with_oauth_token",
+                {"password": "a_new_password"},
+                "oauth_token",
+                False,
+                403,
+            ),
         ]
     )
     @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.api.user.is_email_available", return_value=True)
     def test_token_auth_cannot_change_email_or_password(
-        self, _name: str, payload: Any, expected_status: int, _mock_is_email_available, mock_send_code
+        self,
+        _name: str,
+        payload: Any,
+        credential: str,
+        has_password: bool,
+        expected_status: int,
+        _mock_is_email_available,
+        mock_send_code,
     ):
         self.user.email = "alpha@example.com"
+        if not has_password:
+            self.user.set_unusable_password()
         self.user.save()
         User.objects.create_user("taken@example.com", "pwd1234*", "Other")
-        key = self.create_personal_api_key_with_scopes(["user:write"])
+        token = self._create_bearer_token(credential)
         self.client.logout()
 
         response = self.client.patch(
-            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {key}"
+            "/api/users/@me/", payload, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
 
         assert response.status_code == expected_status, response.content
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
-        assert self.user.check_password(self.CONFIG_PASSWORD)
+        if has_password:
+            assert self.user.check_password(self.CONFIG_PASSWORD)
+        else:
+            assert not self.user.has_usable_password()
         mock_send_code.assert_not_called()
 
     @parameterized.expand(
