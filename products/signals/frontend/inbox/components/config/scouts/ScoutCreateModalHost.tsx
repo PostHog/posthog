@@ -29,6 +29,8 @@ export interface ScoutCreateModalHostProps {
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
+    /** Offers the chat instead, with the description typed so far. */
+    onSwitchToChat?: (description: string) => void
 }
 
 /**
@@ -43,6 +45,7 @@ export function ScoutCreateModalHost({
     onClose,
     onCreated,
     onEnabled,
+    onSwitchToChat,
 }: ScoutCreateModalHostProps): JSX.Element | null {
     const isOpen = initialValues !== null
     // Open is the top of the create funnel. Without it only a successful create was captured, so an
@@ -71,6 +74,7 @@ export function ScoutCreateModalHost({
                     onCreated?.(scout)
                 }}
                 onEnabled={onEnabled}
+                onSwitchToChat={onSwitchToChat}
                 onClose={onClose}
             />
         </React.Suspense>

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconChat } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -48,6 +49,8 @@ export interface ScoutCreateModalProps {
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
+    /** Offers the chat instead, with the description typed so far. Not shown when turning a scout on. */
+    onSwitchToChat?: (description: string) => void
 }
 
 export function ScoutCreateModal({
@@ -56,6 +59,7 @@ export function ScoutCreateModal({
     initialValues,
     onCreated,
     onEnabled,
+    onSwitchToChat,
 }: ScoutCreateModalProps): JSX.Element {
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
@@ -131,6 +135,19 @@ export function ScoutCreateModal({
             hasUnsavedInput={scoutCreateFormChanged}
             footer={
                 <>
+                    {onSwitchToChat && !turningOn ? (
+                        <div className="flex-1">
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconChat />}
+                                disabledReason={busyReason}
+                                onClick={() => onSwitchToChat(scoutCreateForm.description?.trim() ?? '')}
+                                data-attr="scout-create-use-chat"
+                            >
+                                Chat with an agent instead
+                            </LemonButton>
+                        </div>
+                    ) : null}
                     <LemonButton type="secondary" disabledReason={busyReason} onClick={handleClose}>
                         Cancel
                     </LemonButton>
