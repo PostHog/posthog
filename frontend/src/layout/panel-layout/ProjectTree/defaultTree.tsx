@@ -165,7 +165,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconHome />,
     },
     task: {
-        icon: <IconBug />,
+        icon: <IconListCheck />,
     },
     logs: {
         icon: <IconLive />,
