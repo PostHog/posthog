@@ -175,7 +175,9 @@ export class TeamSkillsService {
       detail.files
         .filter((manifest) => !isIgnoredSkillPath(manifest.path))
         .map(async (manifest) => {
-          const file = await client.getLlmSkillFile(name, manifest.path);
+          const file = await client.getLlmSkillFile(name, manifest.path, {
+            version: detail.version,
+          });
           return { path: file.path, content: file.content };
         }),
     );
