@@ -301,10 +301,9 @@ class SESProvider:
 
     def __init__(self):
         # Initialize the boto3 clients
-        # Empty outside development, where boto3 then resolves the real AWS endpoint. Local
-        # development points it at the SES emulator. KEEP IN SYNC with the Node email worker's
-        # sesEndpoint (nodejs/src/cdp/services/messaging/email.service.ts): the two services talk
-        # to the same SES, so an endpoint only one of them honors makes them disagree.
+        # Empty outside development, where boto3 resolves the real AWS endpoint instead. KEEP IN
+        # SYNC with the Node email worker's sesEndpoint (nodejs/src/cdp/services/messaging/
+        # email.service.ts): an endpoint only one of the two services honors makes them disagree.
         endpoint_url = settings.SES_ENDPOINT or None
         self.sts_client = boto3.client(
             "sts",
