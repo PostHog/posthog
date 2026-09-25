@@ -19,6 +19,7 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import type { PaginatedResponse } from '../../../../frontend/src/lib/api'
 import type { DatabaseSchemaQueryResponse } from '../../../../frontend/src/queries/schema/schema-general'
@@ -99,6 +100,30 @@ export interface revenueAnalyticsSettingsLogicActions {
         config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         source: ExternalDataSource
     } // sourceManagementLogic
+    updateSourceRevenueAnalyticsConfigSuccess: (
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+        payload?: {
+            config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
+            source: ExternalDataSource
+        }
+    ) => {
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+        payload?: {
+            config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
+            source: ExternalDataSource
+        }
+    } // sourcesDataLogic
+    loadDatabase: (
+        args_0?:
+            | {
+                  force?: boolean
+                  shallow?: boolean
+              }
+            | undefined
+    ) => {
+        force?: boolean
+        shallow?: boolean
+    } // databaseTableListLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     addEvent: (
         eventName: string,
@@ -235,6 +260,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
             ['updateCurrentTeam'],
             sourceManagementLogic,
             ['updateSourceRevenueAnalyticsConfig', 'deleteJoin'],
+            sourcesDataLogic,
+            ['updateSourceRevenueAnalyticsConfigSuccess'],
+            databaseTableListLogic,
+            ['loadDatabase'],
             eventUsageLogic,
             [
                 'reportRevenueAnalyticsEventDeleted',
@@ -431,6 +460,9 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
                 return func(source.source_type)
             },
+            // Toggling a source creates or removes its revenue views and persons join on the server.
+            // Without a fresh schema the join table offers "Add join" for a join that already exists.
+            updateSourceRevenueAnalyticsConfigSuccess: () => actions.loadDatabase({ force: true }),
         }
     }),
     loaders(({ values }) => ({

@@ -9,6 +9,7 @@ _B = "products.revenue_analytics.backend."
 
 _LAZY = {
     "ensure_person_join": "joins",
+    "remove_customer_revenue_view_joins": "joins",
     "remove_person_join": "joins",
 }
 

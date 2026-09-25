@@ -55,3 +55,15 @@ def remove_person_join(team_id: int, table_prefix: str | None = None) -> None:
         deleted=False,
     ):
         join.soft_delete()
+
+
+def remove_customer_revenue_view_joins(team_id: int, table_prefix: str | None = None) -> None:
+    view_name = get_customer_revenue_view_name(table_prefix)
+    # Prefixes like "foo" and "foo_" share one view, so a remaining source can still own these joins.
+    if any(
+        get_customer_revenue_view_name(source.prefix) == view_name for source in get_stripe_sources_for_team(team_id)
+    ):
+        return
+
+    for join in DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=view_name, deleted=False):
+        join.soft_delete()

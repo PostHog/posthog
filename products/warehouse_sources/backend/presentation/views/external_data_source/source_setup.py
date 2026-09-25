@@ -1848,6 +1848,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             except Exception as e:
                 base.capture_exception(e)
 
+        # The revenue analytics view keeps its name across sources with the same prefix, so its joins
+        # would otherwise block the next Stripe source that reuses the prefix.
+        if source_type == ExternalDataSourceType.STRIPE:
+            try:
+                base.remove_customer_revenue_view_joins(self.team_id, instance.prefix)
+            except Exception as e:
+                base.capture_exception(e)
+
         # Best-effort external cleanup — soft-deletes are already committed
         latest_running_job = (
             ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id)

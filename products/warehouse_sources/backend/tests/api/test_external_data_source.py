@@ -3212,6 +3212,14 @@ class TestExternalDataSource(APIBaseTest):
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
+        persons_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=get_customer_revenue_view_name(source.prefix),
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="pdi.distinct_id",
+            field_name="persons",
+        )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
@@ -3219,6 +3227,8 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        persons_join.refresh_from_db()
+        assert persons_join.deleted
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.delete_discover_schemas_schedule"
