@@ -396,6 +396,9 @@ ready → candidate
 #   webhook could never reach. Restricted to the same statuses the machine allows below.
 ready | pending_input | failed → resolved (a run that died in processing still describes real work,
               so whoever fixed it can say so instead of being pushed onto the dismissal path)
+potential → resolved (only a researched report, see SignalReport.has_been_researched: a snooze
+              returns it to potential, and its merged PR must still close it; an unresearched
+              report has nothing to resolve, so the state API answers 409)
 suppressed → resolved (resolve an archived report straight out of the archive; the state action
               refuses this unless it was researched before being archived, so an unresearched
               report can't be laundered candidate → suppressed → resolved)
