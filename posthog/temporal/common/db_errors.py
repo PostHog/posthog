@@ -69,15 +69,28 @@ def _is_too_many_open_files_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE)
 
 
+# Count the raised error toward the limit so cyclic or very long chains stay bounded.
+_MAX_CAUSE_CHAIN_DEPTH = 10
+
+
 def is_transient_db_error(error: BaseException) -> bool:
-    if _is_too_many_open_files_error(error):
-        return True
-    if not isinstance(error, OperationalError | InterfaceError | InternalError):
-        return False
-    sqlstate = getattr(error.__cause__, "sqlstate", None)
-    if isinstance(sqlstate, str) and (
-        sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
-    ):
-        return True
-    message = str(error)
-    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+    """Check this error and its explicit causes for a transient database failure.
+
+    Ignore `__context__`: an unrelated failure inside an `except` block must stay reportable.
+    """
+    for _ in range(_MAX_CAUSE_CHAIN_DEPTH):
+        if _is_too_many_open_files_error(error):
+            return True
+        if isinstance(error, OperationalError | InterfaceError | InternalError):
+            sqlstate = getattr(error.__cause__, "sqlstate", None)
+            if isinstance(sqlstate, str) and (
+                sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
+            ):
+                return True
+            message = str(error)
+            if any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+                return True
+        if error.__cause__ is None:
+            break
+        error = error.__cause__
+    return False
