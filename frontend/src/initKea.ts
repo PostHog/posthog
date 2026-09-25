@@ -71,6 +71,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadReplayComments', // The replay Comments tab renders its own retry state
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
+    'loadFlagCoverage', // Background check behind the experiment recordings surfaces; they fail open to an unknown verdict
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
