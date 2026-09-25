@@ -285,6 +285,155 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
+    it('asks only once for a chat the server does not have, until it turns up', async () => {
+        const missingConversationId = 'missing-conversation-id'
+        const missingConversation = { ...MOCK_CONVERSATION, id: missingConversationId }
+        let requests = 0
+        let listed: ConversationDetail[] = []
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => [200, { results: listed }],
+                [`/api/environments/:team_id/conversations/${missingConversationId}`]: () => {
+                    requests += 1
+                    return listed.length > 0 ? [200, missingConversation] : [404, { detail: 'Not found' }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(missingConversationId)
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(missingConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // Every later history load asks after a chat it does not list, so the missing chat would
+        // otherwise be fetched again on each one.
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // A chat that turns up in the list is no longer missing, so it must be fetchable again.
+        listed = [missingConversation as ConversationDetail]
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(missingConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(2)
+    })
+
+    it('does not mark a chat missing when a newer history load already listed it', async () => {
+        const racingConversationId = 'racing-conversation-id'
+        const racingConversation = { ...MOCK_CONVERSATION, id: racingConversationId } as ConversationDetail
+        let listed: ConversationDetail[] = []
+        let requests = 0
+        let releaseDetail = (): void => {}
+        const detailBlocked = new Promise<void>((resolve) => {
+            releaseDetail = resolve
+        })
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => [200, { results: listed }],
+                [`/api/environments/:team_id/conversations/${racingConversationId}`]: async () => {
+                    requests += 1
+                    if (requests === 1) {
+                        await detailBlocked
+                        return [404, { detail: 'Not found' }]
+                    }
+                    return [200, racingConversation]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(racingConversationId)
+        logic.actions.pollConversation(racingConversationId, 0, 0)
+
+        // The list answers while that request is still open, so the 404 below is already stale.
+        listed = [racingConversation]
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        }).toDispatchActions(['loadConversationHistorySuccess'])
+
+        releaseDetail()
+        await expectLogic(logic).toFinishAllListeners()
+
+        listed = []
+        await expectLogic(logic, () => {
+            logic.actions.loadConversationHistory()
+        })
+            .toDispatchActions(['loadConversationHistorySuccess'])
+            .toFinishAllListeners()
+
+        expect(requests).toBe(2)
+    })
+
+    it('keeps a running poll chain going after an older request marked the chat missing', async () => {
+        const chainedConversationId = 'chained-conversation-id'
+        let requests = 0
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${chainedConversationId}`]: () => {
+                    requests += 1
+                    return requests === 1
+                        ? [404, { detail: 'Not found' }]
+                        : [200, { ...MOCK_CONVERSATION, id: chainedConversationId }]
+                },
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        logic.actions.setConversationId(chainedConversationId)
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // A fresh poll is skipped, so the repeat this branch removes stays removed.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(1)
+
+        // A continuation of a chain that already reached the endpoint is not.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(chainedConversationId, 1, 0)
+        }).toFinishAllListeners()
+
+        expect(requests).toBe(2)
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
