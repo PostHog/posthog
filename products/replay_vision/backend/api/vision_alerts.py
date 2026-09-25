@@ -212,7 +212,9 @@ class VisionAlertConfigurationSerializer(serializers.ModelSerializer):
         read_only=True, allow_null=True, help_text="When the alert was first enabled. Null means still a draft."
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the alert was created.")
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who created the alert; null once that user is deleted."
+    )
     updated_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the alert was last modified."
     )

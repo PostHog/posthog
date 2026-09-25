@@ -68785,7 +68785,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -78180,7 +78181,8 @@ export namespace Schemas {
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by?: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -99785,7 +99787,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable

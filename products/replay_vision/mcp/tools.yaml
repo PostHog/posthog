@@ -1075,7 +1075,7 @@ tools:
         description: >
             List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of
             the scout that filed it, `filed_at` and `title`. Read a report's summary and charts with
-            `vision-scanners-scout- reports-get`.
+            `vision-scanners-scout-reports-get`.
         response:
             exclude:
                 - '*.summary'
@@ -1099,7 +1099,7 @@ tools:
             so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name`
             people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`.
             The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with
-            `vision- scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never
+            `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never
             need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or
             `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a
             full agent run, so agree the schedule with the person.

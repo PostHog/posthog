@@ -246,7 +246,8 @@ export interface VisionAlertConfigurationApi {
     readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by: UserBasicApi | null
     /**
      * When the alert was last modified.
      * @nullable
@@ -391,7 +392,8 @@ export interface VisionAlertConfigurationDetailApi {
     readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by: UserBasicApi | null
     /**
      * When the alert was last modified.
      * @nullable
@@ -499,7 +501,8 @@ export interface PatchedVisionAlertConfigurationApi {
     readonly first_enabled_at?: string | null
     /** When the alert was created. */
     readonly created_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the alert; null once that user is deleted. */
+    readonly created_by?: UserBasicApi | null
     /**
      * When the alert was last modified.
      * @nullable
