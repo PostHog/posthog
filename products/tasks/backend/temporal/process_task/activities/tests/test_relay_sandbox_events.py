@@ -1720,7 +1720,9 @@ class TestBackgroundHeartbeat:
                 _background_heartbeat(
                     stop_event,
                     cast(temporalio.client.WorkflowHandle, handle),
-                    [time.monotonic() - 100.0],
+                    # The gate reads a value <= 0 as "no event yet". monotonic() counts from boot,
+                    # so subtracting an offset gives <= 0 on a runner that booted recently.
+                    [time.monotonic()],
                     [0.0],
                     [False],
                     inactivity_timeout_seconds=3600.0,
