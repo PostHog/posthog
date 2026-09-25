@@ -41,11 +41,10 @@ A `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` i
 In each of those cases say the option is unchecked, and name the SDK or the cap you could not read.
 An unread server SDK is the one that breaks both options, because it may send flag calls without a device ID and may evaluate them locally.
 
-Read the shares rather than the platform. A row near 0 on `device_id_share` cannot carry device-id bucketing whatever its `category`, and the flag service takes a device ID from any SDK that sends one.
-When every row on the surface reads near 0 and `target_surface.libs_truncated` is false, say device-id bucketing is unavailable rather than offering it.
+Read the shares rather than the platform, and read them in one direction only. Both count events and never the flag request: `target_surface.device_id_share` reads target events, and a `sdk_profile.libs` row reads flag-call events.
+A row near 1 says a device ID is present in that traffic. A row near 0 says only that those events carried none, which leaves the option unchecked rather than unavailable: a server SDK can forward the browser's device ID on the flag request while its own events carry no `$device_id`.
+So never rule device-id bucketing out from a share. Say it is unchecked, and name what would settle it, which is whether the SDK puts a device ID on the flag request.
 `sdk_profile.libs_on_any_event[]` names the platforms the project sends from, and that is all it does. It reads no flag call, so it cannot say whether a device ID reaches one or whether an SDK evaluates locally. Do not decide bucketing from it.
-
-`target_surface.device_id_share` and a `sdk_profile.libs` row's `device_id_share` are read from target events and flag-call events, never from the flag requests themselves, so neither proves that a request carried a device ID.
 
 Device-id bucketing and persistence cannot be combined, and the API rejects the pair.
 When `ensure_experience_continuity` is omitted, `experiment-create` applies the team's default (`team_defaults.flags_persistence_default`).

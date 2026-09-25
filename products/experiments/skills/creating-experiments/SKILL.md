@@ -83,7 +83,7 @@ Key decision points (covered in detail by `configuring-experiment-rollout`):
 
 - Variant split (how many variants, what percentage each)
 - Overall rollout percentage (what % of all users enter the experiment)
-- Bucketing and whether to persist the flag across authentication steps — decided from the project's facts in step 0
+- Bucketing and whether to persist the flag across authentication steps — the user chooses, because the project's facts cannot decide it
 
 If the user doesn't mention rollout specifics, use defaults: 50/50 control/test, 100% rollout.
 
