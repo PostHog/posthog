@@ -1548,6 +1548,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "Samantha-synthesis-engine",
+    "name": "Samantha synthesis engine",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "redCactiBot",
     "name": "redCactiBot",
     "category": "search_crawler",
@@ -1842,6 +1848,66 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "TabaaClassifier",
+    "name": "Tabaa Classifier",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SeaWebBot",
+    "name": "SeaWeb",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SignalOSBot",
+    "name": "SignalOS",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "KeenableBot",
+    "name": "Keenable",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RootmapBot",
+    "name": "Rootmap",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SparkTowerBot",
+    "name": "SparkTower",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "HunrBot",
+    "name": "Hunr",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Leagleagle",
+    "name": "Leagleagle",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PageSourceSearchBot",
+    "name": "PageSourceSearch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "HiddenJobsCareersDiscovery",
+    "name": "HiddenJobs Careers Discovery",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1916,6 +1982,30 @@
   {
     "pattern": "AutozellaBot",
     "name": "Autozella",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SenderBot",
+    "name": "Sender",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Source-Intelligence",
+    "name": "Source Intelligence",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "MailShrineGwen",
+    "name": "MailShrine",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "VendorLoomBot",
+    "name": "VendorLoom",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -2000,6 +2090,18 @@
   {
     "pattern": "NimbusBlocklistSync",
     "name": "Nimbus Blocklist Sync",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "WhosDownTodayBot",
+    "name": "WhosDownToday",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "jsllm-scraper",
+    "name": "jsllm scraper",
     "category": "monitoring",
     "traffic_type": "Bot"
   },

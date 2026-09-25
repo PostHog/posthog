@@ -8,6 +8,11 @@ describe('botDetection', () => {
                 'GPTBot',
                 'ai_crawler',
             ],
+            [
+                'Samantha-synthesis-engine/0.1 (+https://github.com/samantha-gb/samantha-hermes)',
+                'Samantha synthesis engine',
+                'ai_crawler',
+            ],
             ['ChatGPT-User/1.0; +https://openai.com/bot', 'ChatGPT', 'ai_assistant'],
             ['Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)', 'Claude', 'ai_crawler'],
             [

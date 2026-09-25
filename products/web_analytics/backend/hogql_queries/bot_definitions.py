@@ -767,6 +767,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "RightAIChoiceBot": BotDefinition(
         "Right AI Choice", "ai_crawler", "AI Agent", "Right AI Choice", documentation_url="https://rightaichoice.com"
     ),
+    "Samantha-synthesis-engine": BotDefinition(
+        "Samantha synthesis engine",
+        "ai_crawler",
+        "AI Agent",
+        "Samantha",
+        documentation_url="https://github.com/samantha-gb/samantha-hermes",
+    ),
     # Search / index crawlers
     "redCactiBot": BotDefinition(
         "redCactiBot", "search_crawler", "Bot", "redCacti", documentation_url="https://redcacti.com/bot"
@@ -901,6 +908,42 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://swissaitalent.ch/bot",
     ),
     "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
+    "TabaaClassifier": BotDefinition(
+        "Tabaa Classifier", "search_crawler", "Bot", "Tabaa", documentation_url="https://tabaa.net"
+    ),
+    "SeaWebBot": BotDefinition(
+        "SeaWeb", "search_crawler", "Bot", "SeaWeb", documentation_url="https://seaweb.tech/bot"
+    ),
+    "SignalOSBot": BotDefinition(
+        "SignalOS", "search_crawler", "Bot", "SignalOS", documentation_url="https://signalos-khaki.vercel.app"
+    ),
+    "KeenableBot": BotDefinition(
+        "Keenable", "search_crawler", "Bot", "Keenable", documentation_url="https://keenable.ai/"
+    ),
+    "RootmapBot": BotDefinition(
+        "Rootmap", "search_crawler", "Bot", "Rootmap", documentation_url="https://github.com/rootmap/rootmap"
+    ),
+    "SparkTowerBot": BotDefinition(
+        "SparkTower", "search_crawler", "Bot", "SparkTower", documentation_url="https://sparktower.app"
+    ),
+    "HunrBot": BotDefinition("Hunr", "search_crawler", "Bot", "Hunr", documentation_url="https://hunr.ai/bot"),
+    "Leagleagle": BotDefinition(
+        "Leagleagle", "search_crawler", "Bot", "Leagleagle", documentation_url="https://leagleagle.com/bot"
+    ),
+    "PageSourceSearchBot": BotDefinition(
+        "PageSourceSearch",
+        "search_crawler",
+        "Bot",
+        "PageSourceSearch",
+        documentation_url="https://pagesourcesearch.com/bot",
+    ),
+    "HiddenJobsCareersDiscovery": BotDefinition(
+        "HiddenJobs Careers Discovery",
+        "search_crawler",
+        "Bot",
+        "HiddenJobs",
+        documentation_url="https://hiddenjobs.dev",
+    ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -955,6 +998,18 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AutozellaBot": BotDefinition(
         "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"
     ),
+    "SenderBot": BotDefinition(
+        "Sender", "seo_crawler", "Bot", "Sender Online Marketing", documentation_url="https://sender-marketing.de/bot"
+    ),
+    "Source-Intelligence": BotDefinition(
+        "Source Intelligence", "seo_crawler", "Bot", "Phyex", documentation_url="https://phyex.dev"
+    ),
+    "MailShrineGwen": BotDefinition(
+        "MailShrine", "seo_crawler", "Bot", "MailShrine", documentation_url="https://mailshrine.com"
+    ),
+    "VendorLoomBot": BotDefinition(
+        "VendorLoom", "seo_crawler", "Bot", "VendorLoom", documentation_url="https://vendorloom.winterr.dev/bot"
+    ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -998,6 +1053,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "NimbusBlocklistSync": BotDefinition(
         "Nimbus Blocklist Sync", "monitoring", "Bot", "Nimbus", documentation_url="https://nimbus.com"
+    ),
+    "WhosDownTodayBot": BotDefinition(
+        "WhosDownToday", "monitoring", "Bot", "WhosDownToday", documentation_url="https://whosdowntoday.com"
+    ),
+    "jsllm-scraper": BotDefinition(
+        "jsllm scraper", "monitoring", "Bot", "ever-sec", documentation_url="https://github.com/ever-sec/jsllm"
     ),
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
