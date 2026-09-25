@@ -57,11 +57,11 @@ export interface accountViewsLogicValues {
     accountDetailTabs: AccountDetailTabsConfigApi
     config: UserCustomerAnalyticsConfigApi | null
     configDraft: AccountDetailTabsConfigApi
+    configDraftPendingLoad: boolean
     configError: unknown
     configLoading: boolean
     configSaving: boolean
     configureOpen: boolean
-    configDraftPendingLoad: boolean
     editingView: AccountViewApi | null
     editingViewId: string | null
     editorConflict: boolean
