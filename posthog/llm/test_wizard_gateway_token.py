@@ -37,6 +37,7 @@ from posthog.models.team.team import Team
 
 MINT_SETTINGS = {
     "WIZARD_GATEWAY_URL": "https://ai-gateway.us.posthog.com",
+    "WIZARD_GATEWAY_MINT_URL": "",
     "WIZARD_GATEWAY_MINT_KEY": "phs_wizard_secret",
     "WIZARD_GATEWAY_CLIENT_IDS": ["wizard-client-id"],
     # Not _DEFAULT_CAP_USD: equal values make the honored-setting and fell-back
@@ -66,12 +67,24 @@ class TestMintWizardGatewayToken:
         with override_settings(**MINT_SETTINGS):
             yield
 
-    def test_posts_pinned_attribution_and_bearer(self):
+    @pytest.mark.parametrize(
+        "mint_url,expected_url",
+        [
+            ("", "https://ai-gateway.us.posthog.com/v1/tokens"),
+            ("http://localhost:8080", "http://localhost:8080/v1/tokens"),
+            ("http://localhost:8080/v1/", "http://localhost:8080/v1/tokens"),
+        ],
+    )
+    def test_posts_pinned_attribution_and_bearer(self, mint_url: str, expected_url: str) -> None:
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25"}
-        with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
+        with (
+            override_settings(WIZARD_GATEWAY_MINT_URL=mint_url),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
             assert mint_wizard_gateway_token(obo="7", user="user_1") == minted
+            assert wizard_gateway_base_url() == "https://ai-gateway.us.posthog.com"
 
-        assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
+        assert post.call_args[0][0] == expected_url
         assert post.call_args.kwargs["json"] == {
             "cap_usd": "25.000000",
             "ttl_seconds": 86400,
@@ -116,7 +129,7 @@ class TestWizardModelAllowlist:
             assert set(efforts) <= set(WIZARD_EFFORT_LEVELS), model
             assert normalize_model(model) == model, model
 
-    @override_settings(WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com/v1/")
+    @override_settings(WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com/v1/", WIZARD_GATEWAY_MINT_URL="")
     def test_version_suffixed_setting_does_not_double_up(self):
         # The setting may carry /v1; both the mint path and the base handed to the
         # CLI must come out the same regardless.

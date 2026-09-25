@@ -15,12 +15,16 @@ import {
     Skeleton,
 } from '@posthog/quill-primitives'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
+import type {
+    WizardRunApi,
+    WizardRunArtifactApi,
+    WizardRunGitDiffArtifactApi,
+    WizardRunTaskApi,
+} from '../generated/api.schemas'
 import {
     WIZARD_LOCAL_RUNS_VISIBLE,
     wizardGithubRepositoryUrl,
@@ -73,6 +77,7 @@ function RetryItem({
 
 export function WizardRunDetailsDrawer({
     run,
+    tasks = [],
     artifacts,
     artifactsError,
     artifactsLoading,
@@ -87,12 +92,14 @@ export function WizardRunDetailsDrawer({
     onClose,
     onCloseDiff,
     onOpenDiff,
+    onArtifactClick,
     onRefresh,
     onCopyRunId,
     onCancel,
     onRunAgain,
 }: {
     run: WizardRunApi | null
+    tasks?: readonly WizardRunTaskApi[]
     artifacts: WizardRunArtifactApi[]
     artifactsError: string | null
     artifactsLoading: boolean
@@ -108,9 +115,10 @@ export function WizardRunDetailsDrawer({
     onCloseDiff: () => void
     onOpenDiff: (artifact: WizardRunGitDiffArtifactApi) => void
     onRefresh: () => void
-    onCopyRunId: (runId: string) => void
+    onArtifactClick: (artifact: WizardRunArtifactApi, source: 'button' | 'artifacts_section') => void
+    onCopyRunId: (runId: string, location: 'bottom_button' | 'run_id_label') => void
     onCancel: (run: WizardRunApi) => void
-    onRunAgain: (run: WizardRunApi) => void
+    onRunAgain?: (run: WizardRunApi) => void
 }): JSX.Element {
     const pullRequest = artifacts.find((artifact) => artifact.artifact_type === 'pull_request')
     const gitDiff = artifacts.find((artifact) => artifact.artifact_type === 'git_diff')
@@ -219,9 +227,14 @@ export function WizardRunDetailsDrawer({
                                         <div className="grid grid-cols-[120px_1fr] items-center gap-3">
                                             <dt className="text-xs font-semibold uppercase text-muted">Run ID</dt>
                                             <dd className="m-0 font-mono text-xs">
-                                                <CopyToClipboardInline
-                                                    explicitValue={run.id}
-                                                >{`${run.id.slice(0, 8)}…`}</CopyToClipboardInline>
+                                                <Button
+                                                    variant="link-muted"
+                                                    size="sm"
+                                                    onClick={() => onCopyRunId(run.id, 'run_id_label')}
+                                                >
+                                                    {`${run.id.slice(0, 8)}…`}
+                                                    <IconCopy />
+                                                </Button>
                                             </dd>
                                         </div>
                                     </dl>
@@ -246,17 +259,22 @@ export function WizardRunDetailsDrawer({
                                             error={artifactsError}
                                             loading={artifactsLoading}
                                             onOpenDiff={onOpenDiff}
+                                            onArtifactClick={onArtifactClick}
                                             onRetry={onRefresh}
                                         />
                                     </section>
 
                                     <section>
                                         <h4 className="mb-4">Run progress</h4>
-                                        <WizardRunProgress run={run} />
+                                        <WizardRunProgress run={run} tasks={tasks} />
                                         <div className="mt-4 flex items-center justify-between text-xs text-muted">
                                             <span>
                                                 {wizardRunIsActive(run) ? (
-                                                    'Updates automatically.'
+                                                    run.environment === 'local' ? (
+                                                        'Stop this run in the terminal where the Wizard is running.'
+                                                    ) : (
+                                                        'Updates automatically.'
+                                                    )
                                                 ) : run.finished_at ? (
                                                     <>
                                                         {wizardRunTerminalLabel(run.status)}{' '}
@@ -266,9 +284,10 @@ export function WizardRunDetailsDrawer({
                                                     `${wizardRunTerminalLabel(run.status)}.`
                                                 )}
                                             </span>
-                                            {run.status === 'failed' &&
+                                            {onRunAgain &&
+                                            run.status === 'failed' &&
                                             (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
-                                                <Button size="sm" onClick={() => onRunAgain(run)}>
+                                                <Button size="sm" onClick={() => onRunAgain?.(run)}>
                                                     Run again
                                                 </Button>
                                             ) : wizardRunIsActive(run) ? (
@@ -282,13 +301,14 @@ export function WizardRunDetailsDrawer({
                             )}
                         </DialogBody>
                         <DialogFooter className="flex-row justify-between">
-                            <Button variant="outline" onClick={() => onCopyRunId(run.id)}>
+                            <Button variant="outline" onClick={() => onCopyRunId(run.id, 'bottom_button')}>
                                 <IconCopy /> Copy run ID
                             </Button>
                             {pullRequest ? (
                                 <Button
                                     variant="primary"
                                     render={<LinkPrimitive to={pullRequest.url} target="_blank" />}
+                                    onClick={() => onArtifactClick(pullRequest, 'button')}
                                 >
                                     Open pull request
                                 </Button>
@@ -296,9 +316,10 @@ export function WizardRunDetailsDrawer({
                                 <Button variant="destructive" onClick={() => onCancel(run)} loading={cancelling}>
                                     <IconStopFilled /> Cancel run
                                 </Button>
-                            ) : run.status === 'failed' &&
+                            ) : onRunAgain &&
+                              run.status === 'failed' &&
                               (WIZARD_LOCAL_RUNS_VISIBLE || run.environment === 'cloud') ? (
-                                <Button variant="primary" onClick={() => onRunAgain(run)}>
+                                <Button variant="primary" onClick={() => onRunAgain?.(run)}>
                                     Run again
                                 </Button>
                             ) : null}

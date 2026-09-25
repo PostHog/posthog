@@ -56,13 +56,27 @@ POST  /api/projects/{project_id}/wizard/runs/
 GET   /api/projects/{project_id}/wizard/runs/{run_id}/
 PATCH /api/projects/{project_id}/wizard/runs/{run_id}/
 GET   /api/projects/{project_id}/wizard/runs/{run_id}/artifacts/
+PUT   /api/projects/{project_id}/wizard/runs/{run_id}/tasks/
+GET   /api/projects/{project_id}/wizard/runs/{run_id}/tasks/
+GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 ```
 
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
+Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
+The app-wide sync widget polls this summary and also fetches the five most recently created completed runs with `?status=completed&limit=5`.
+It opens one event stream for the displayed active run. Completed runs do not open a stream.
+It shows the newest active run by default, or the newest completed run when none are active.
+The selector lists up to five active and five completed runs by workspace and status, with the selected run marked and the total active count shown separately.
+The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
+Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent completed runs remain available after reloading unless dismissed.
+The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
 Local agents can create runs and update runs they created.
+The browser does not offer cancellation for local runs because the server cannot stop a local Wizard process. Users stop those runs in their terminal.
+These operations accept OAuth tokens with `wizard_run:write`; browser sessions can also create and manage runs.
+Run creation uses the existing per-user creation throttle for both environments.
 Cloud creation requires a signed-in browser session and enabled cloud execution.
 Cloud lifecycle updates are owned by the Wizard Worker.
 
@@ -79,6 +93,10 @@ The provisioning activity marks the run as `running` before it creates the Wizar
 The handoff activity marks the run as `completed` after it persists the Run Artifacts.
 If a worker activity exhausts its retries or the workflow is canceled, one finalization activity records the terminal state.
 Sandbox cleanup does not change a completed run if cleanup fails.
+
+The Worker passes the existing run ID to the setup agent through `POSTHOG_WIZARD_RUN_ID`.
+The agent uses that ID to publish task snapshots instead of creating another run.
+The Worker owns the cloud run's stages and terminal status.
 
 The Worker:
 
@@ -99,7 +117,7 @@ Tasks provides only generic repository-token and sandbox helpers through public 
 
 ## Analytics compatibility
 
-Cloud lifecycle events keep their existing names and deterministic event UUIDs.
+The service records `wizard run started`, `wizard run finished`, and `wizard run artifact created` with deterministic event UUIDs.
 They add the legacy properties `run_surface`, `project_id`, `version`, and `command`.
 The existing `environment`, `team_id`, `wizard_version`, and `wizard_run_id` properties remain available.
 `event_source` distinguishes `wizard_run_service` events from `wizard_ui` events.
@@ -113,17 +131,24 @@ The CLI keeps its separate, process-level `run_id`.
 
 The CLI remains the only source of `setup wizard finished`.
 Its `status` values remain `success`, `error`, and `cancelled`.
-Service completion events describe the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
+The service finish event describes the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
 Do not add the CLI and service completion events together when counting runs.
 
-The UI records library opens, successful command copies, create requests and outcomes, retry selections, run views, and diff opens.
+The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, FAB activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
 Polling does not create more view events. Clipboard failures do not count as command copies.
 Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
-Use `wizard_run_id` to join successful creation to existing lifecycle events, `wizard pull request created`, and `wizard run diff opened`.
-Events omit repository names, paths, full shell commands, diff contents, tokens, and raw error messages.
+Use `wizard_run_id` to join UI activity to run lifecycle and artifact events.
+Events omit local paths, full shell commands, diff contents, tokens, and raw error messages.
 
 ## Deployment configuration
+
+### AI gateway URLs
+
+`WIZARD_GATEWAY_URL` is the gateway address returned to the setup agent.
+`WIZARD_GATEWAY_MINT_URL` optionally sets a separate address for the backend's token-mint requests and defaults to `WIZARD_GATEWAY_URL` when unset.
+For local Docker sandboxes, set `WIZARD_GATEWAY_URL=http://host.docker.internal:8080` and `WIZARD_GATEWAY_MINT_URL=http://localhost:8080` in PostHog's `.env.local`.
+Restart the backend after changing these settings.
 
 ### Distributed tracing
 
@@ -181,6 +206,45 @@ For a Git-repository workspace with changes, V0 also stores the pull request URL
 Updated archives remain a future artifact type.
 
 ## State synchronization
+
+The setup agent sends its complete task snapshot to `PUT /api/projects/{project_id}/wizard/runs/{run_id}/tasks/`:
+
+```json
+{ "tasks": [{ "name": "Install SDK", "status": "running" }] }
+```
+
+The endpoint requires an OAuth token with `wizard_run:write` for the user who created the run.
+Add `wizard_run:write` to the Wizard OAuth application's scope ceiling before switching the agent to these endpoints.
+Agents that read snapshots also need `wizard_run:read`.
+Existing tokens need these grants through renewed authorization; the backend does not widen them automatically.
+It returns `204` with no body.
+Both local and cloud agents write to their assigned run ID.
+Task names must be unique within the snapshot and remain stable between updates: renaming a task creates a new task identity.
+Each snapshot replaces the stored list, preserves its order, and removes omitted tasks.
+An empty list clears the snapshot.
+A snapshot accepts up to 100 tasks, with names up to 255 characters.
+Task statuses are `created`, `running`, `completed`, and `failed`.
+Multiple tasks may run at once, and a snapshot does not need to contain a running task.
+Task statuses do not change the run's lifecycle status.
+
+`GET /api/projects/{project_id}/wizard/runs/{run_id}/tasks/` returns the full list as `{"tasks": [...]}` without pagination.
+Browser sessions and tokens with `wizard_run:read` can read the list within their project.
+Each task includes `name`, `status`, `created_at`, `started_at`, `completed_at`, `failed_at`, and `error_message`.
+The server preserves the first-observed timestamp for each state while the task remains in the snapshot.
+A task first received as completed has no known start time, so `started_at` remains null.
+The input does not include failure details; `error_message` remains null.
+Timestamps use the server clock and are returned as ISO 8601 strings.
+Snapshots are reconciled under a row lock so concurrent updates preserve recorded timestamps.
+The server applies snapshots in arrival order; clients must await each update before sending the next.
+
+The run's `stream/` endpoint requires a browser session and emits an initial state followed by updates after committed task, status, or stage changes.
+Each SSE `data` event contains `tasks`, `status`, `stage`, `error_code`, `error_message`, `updated_at`, `started_at`, and `finished_at`.
+Immutable run fields such as `id` are omitted.
+Redis notifications are scoped by project and run ID, and each notification reloads the committed state.
+Fanout is best effort: reconnecting reads the latest state, and GET remains available if a notification is missed.
+The stream sends heartbeat comments and rotates after 15 minutes with `event: end` and `data: reconnect`.
+It uses the existing `onboarding-wizard-sync-killswitch` flag; an enabled flag returns `204` so EventSource stops reconnecting.
+Use EventSource rather than the generated fetch wrapper to consume the stream.
 
 The existing Wizard session endpoint remains active during migration:
 

@@ -75,6 +75,34 @@ export const WizardRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+ *
+ * The Wizard should be the only client that can update the tasks of a run.
+ */
+export const wizardRunsTasksUpdateBodyTasksItemNameMax = 255
+
+export const WizardRunsTasksUpdateBody = /* @__PURE__ */ zod.object({
+    tasks: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(wizardRunsTasksUpdateBodyTasksItemNameMax)
+                    .describe('Task name, unique within this run and stable across snapshots.'),
+                status: zod
+                    .enum(['created', 'running', 'completed', 'failed'])
+                    .describe(
+                        '\* `created` - created\n\* `running` - running\n\* `completed` - completed\n\* `failed` - failed'
+                    )
+                    .describe(
+                        'Current task status reported by the setup agent.\n\n\* `created` - created\n\* `running` - running\n\* `completed` - completed\n\* `failed` - failed'
+                    ),
+            })
+        )
+        .describe("Complete task snapshot. An empty list clears the run's tasks."),
+})
+
+/**
  * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
 export const wizardSessionsCreateBodyPendingInputOneIdMax = 255

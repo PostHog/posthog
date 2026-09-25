@@ -23,6 +23,7 @@ export function WizardRunDetailsArtifacts({
     error,
     loading,
     onOpenDiff,
+    onArtifactClick,
     onRetry,
 }: {
     run: WizardRunApi
@@ -30,6 +31,7 @@ export function WizardRunDetailsArtifacts({
     error: string | null
     loading: boolean
     onOpenDiff: (artifact: WizardRunGitDiffArtifactApi) => void
+    onArtifactClick: (artifact: WizardRunArtifactApi, source: 'artifacts_section') => void
     onRetry: () => void
 }): JSX.Element {
     if (loading) {
@@ -75,6 +77,7 @@ export function WizardRunDetailsArtifacts({
                     variant="outline"
                     className="hover:bg-fill-hover"
                     render={<LinkPrimitive to={pullRequest.url} target="_blank" />}
+                    onClick={() => onArtifactClick(pullRequest, 'artifacts_section')}
                 >
                     <ItemMedia>
                         <IconGithub />

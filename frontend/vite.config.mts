@@ -88,6 +88,7 @@ export default defineConfig(({ mode }) => {
                 '@tiptap/core': resolve(__dirname, 'node_modules/@tiptap/core'),
                 '@tiptap/react': resolve(__dirname, 'node_modules/@tiptap/react'),
                 '@tiptap/pm': resolve(__dirname, 'node_modules/@tiptap/pm'),
+                '@tiptap/extension-image': resolve(__dirname, 'node_modules/@tiptap/extension-image'),
                 '@tiptap/extension-placeholder': resolve(__dirname, 'node_modules/@tiptap/extension-placeholder'),
                 products: resolve(__dirname, '../products'),
                 '@posthog/shared-onboarding': resolve(__dirname, '../docs/onboarding'),

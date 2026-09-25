@@ -14,6 +14,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunPage,
+    WizardRunTaskDTO,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
@@ -31,6 +32,7 @@ from products.wizard.backend.logic.runs.config import (
 )
 from products.wizard.backend.logic.runs.diagnostics import error_message
 from products.wizard.backend.logic.runs.mappers import record_to_run, workspace_to_record
+from products.wizard.backend.logic.runs.pubsub import publish_run_update
 from products.wizard.backend.models import WizardRun
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,7 @@ def set_run_stage(team_id: int, run_id: UUID, stage: WizardRunStage) -> WizardRu
     run.stage = stage.value
     run.stage_started_at = timezone.now()
     run.save(update_fields=["stage", "stage_started_at", "updated_at"])
+    publish_run_update(team_id, run_id)
 
     return record_to_run(run)
 
@@ -176,6 +179,8 @@ def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
 
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
     runs = WizardRun.objects.for_team(params.team_id).select_related("created_by").order_by("-created_at")
+    if params.statuses:
+        runs = runs.filter(status__in=params.statuses)
     page = runs[params.offset : params.offset + params.limit]
     results: list[WizardRunDTO] = []
     for run in page:
@@ -215,5 +220,29 @@ def set_run_status(
         update_fields.extend(["finished_at", "stage", "stage_started_at"])
 
     run.save(update_fields=update_fields)
+    publish_run_update(team_id, run_id)
+
+    return record_to_run(run)
+
+
+def update_run_task_list(team_id: int, run_id: UUID, tasks: tuple[WizardRunTaskDTO, ...]) -> WizardRunDTO:
+    run = _get_run_record(team_id, run_id)
+
+    run.tasks_snapshot = [
+        {
+            "title": task.title,
+            "status": task.status.value,
+            "created_at": task.created_at.isoformat(),
+            "started_at": task.started_at.isoformat() if task.started_at else None,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "failed_at": task.failed_at.isoformat() if task.failed_at else None,
+            "error_message": task.error_message,
+        }
+        for task in tasks
+    ]
+
+    run.tasks_snapshot_updated_at = timezone.now()
+    run.save(update_fields=["tasks_snapshot", "tasks_snapshot_updated_at", "updated_at"])
+    publish_run_update(team_id, run_id)
 
     return record_to_run(run)

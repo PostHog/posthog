@@ -26,6 +26,16 @@ class WizardSessionTaskStatus(StrEnum):
     CANCELED = "canceled"
 
 
+class WizardTaskStatus(StrEnum):
+    CREATED = "created"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+WIZARD_TASK_STATUS_CHOICES = [(status.value, status.value) for status in WizardTaskStatus]
+
+
 class WizardRunStatus(StrEnum):
     CREATED = "created"
     RUNNING = "running"
