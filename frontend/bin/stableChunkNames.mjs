@@ -63,11 +63,7 @@ export function rewriteChunkSource(source, identityByFile) {
 }
 
 export function alphanumericStem(name) {
-    return name
-        .split(/[^A-Za-z0-9]+/)
-        .filter(Boolean)
-        .map((part, index) => (index === 0 ? part : part[0].toUpperCase() + part.slice(1)))
-        .join('')
+    return name.replace(/[^A-Za-z0-9]+(.?)/g, (_, next) => next.toUpperCase())
 }
 
 export function stableFileName(originalFile, rewrittenSource) {
