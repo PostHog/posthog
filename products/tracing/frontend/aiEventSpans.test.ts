@@ -108,7 +108,7 @@ describe('buildAiEventSpans', () => {
         ],
     ])('places %s', (_name, overrides, expectedParents) => {
         const results = buildAiEventSpans(
-            overrides.map((override) => aiEvent({ timestamp: '2026-06-02T08:00:06.000Z', ...override })),
+            overrides.map((override) => aiEvent({ started_at: '2026-06-02T08:00:02.000Z', ...override })),
             SPANS
         )
 
