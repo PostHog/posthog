@@ -431,16 +431,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
         # (parent) team while every other source stays scoped to the URL environment, so the
         # toggle reads and updates the same project-level row the emit gate checks.
-        if not self._can_reach_canonical_team():
-            return queryset.filter(team_id=self.team_id).exclude(
-                source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
-                source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
-            )
         canonical_team_id = self.team.parent_team_id or self.team_id
         scout_source = Q(
             source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
             source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
         )
+        if not self._can_reach_canonical_team():
+            return queryset.filter(Q(team_id=self.team_id) & ~scout_source)
         return queryset.filter(
             (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
         )
