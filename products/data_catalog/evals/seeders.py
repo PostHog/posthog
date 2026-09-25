@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -391,40 +392,49 @@ def seed_long_series_metric(context: CustomPromptSandboxContext) -> dict[str, An
     )
 
 
+@frozen
+class _SeededMetric:
+    name: str
+    display_name: str
+    description: str
+    unit: str
+    definition: dict
+
+
 def seed_customer_count_metrics_across_nouns(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Only one of the three counts uses the user's noun, so name matching alone picks it and skips the clarification."""
     team, user = _team_and_user(context)
-    for name, display_name, description, unit, definition in (
-        (
-            PAYING_CUSTOMERS_METRIC_NAME,
-            PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
-            PAYING_CUSTOMERS_METRIC_DESCRIPTION,
-            "customers",
-            PAYING_CUSTOMERS_METRIC_DEFINITION,
+    for seeded in (
+        _SeededMetric(
+            name=PAYING_CUSTOMERS_METRIC_NAME,
+            display_name=PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+            description=PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+            unit="customers",
+            definition=PAYING_CUSTOMERS_METRIC_DEFINITION,
         ),
-        (
-            NEW_PAYING_CUSTOMERS_METRIC_NAME,
-            NEW_PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
-            NEW_PAYING_CUSTOMERS_METRIC_DESCRIPTION,
-            "customers",
-            NEW_PAYING_CUSTOMERS_METRIC_DEFINITION,
+        _SeededMetric(
+            name=NEW_PAYING_CUSTOMERS_METRIC_NAME,
+            display_name=NEW_PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+            description=NEW_PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+            unit="customers",
+            definition=NEW_PAYING_CUSTOMERS_METRIC_DEFINITION,
         ),
-        (
-            DAILY_ACTIVE_ORGS_METRIC_NAME,
-            DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME,
-            DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION,
-            "orgs",
-            DAILY_ACTIVE_ORGS_METRIC_DEFINITION,
+        _SeededMetric(
+            name=DAILY_ACTIVE_ORGS_METRIC_NAME,
+            display_name=DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME,
+            description=DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION,
+            unit="orgs",
+            definition=DAILY_ACTIVE_ORGS_METRIC_DEFINITION,
         ),
     ):
         metric = upsert_metric(
             team=team,
             user=user,
-            name=name,
-            display_name=display_name,
-            description=description,
-            unit=unit,
-            definition=definition,
+            name=seeded.name,
+            display_name=seeded.display_name,
+            description=seeded.description,
+            unit=seeded.unit,
+            definition=seeded.definition,
         )
         approve_metric(metric, user)
     return {

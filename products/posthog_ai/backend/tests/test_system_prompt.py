@@ -36,7 +36,13 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "Derive from an approved metric when one covers the same measure" in prompt
         assert "otherwise derive the number yourself" in prompt
         assert "Decide ambiguity from what the user could mean, not from how the catalog names its metrics" in prompt
+        assert "A bare population noun with no qualifier" in prompt
+        assert "billing against engagement" in prompt
+        assert "new against total" in prompt
+        assert "one time window against another" in prompt
+        assert "A metric that uses another noun for that population is still one of those matches" in prompt
         assert "The most natural reading is not the exact match" in prompt
+        assert "ask which basis the user wants" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
