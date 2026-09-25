@@ -68,10 +68,10 @@ The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per serve
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
-- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
+- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is one exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. A catalog entry with `dcr_required=True` is another exception: sync replaces a stored shared client only after a successful DCR probe, and deactivates the template when that probe fails. Rows absent from the catalog remain untouched.
 - **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. A reviewed instance credential source can satisfy the shared-client gate without copying secrets into the template.
 - **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it lets a configured credential source retry its shared-client probe; other entries still require operator review.
-- Probes run **only on creation**, except when a configured credential source is inactive or first adopted. DCR probes never repeat because they mint real clients.
+- Probes run **only on creation**, except when a configured credential source is inactive or first adopted, or when a template changes from a stored shared client to required DCR. DCR probes never repeat after a successful transition because they mint real clients.
 
 To add a server, follow the `adding-mcp-store-servers` skill (`.agents/skills/adding-mcp-store-servers/`).
 To probe a server by hand:
@@ -151,7 +151,7 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 
 ## Auth models
 
-- **OAuth with DCR** (most modern remote servers): nothing to provision. Each install discovers OAuth metadata fresh and mints a per-user client via RFC 7591. Template `oauth_credentials`/`oauth_metadata` stay empty.
+- **OAuth with DCR** (most modern remote servers): nothing to provision. Each install discovers OAuth metadata fresh and mints a per-user client via RFC 7591. Template `oauth_credentials` stays empty. Set `dcr_required=True` when catalog sync must replace a shared client that was provisioned before the server supported DCR.
 - **OAuth with an instance credential source**: a catalog entry can reuse a client already configured for that PostHog environment. The template stores only the source name; installs resolve the current credentials at runtime, so rotation does not create another secret copy. Each source pins its trusted issuer, authorization endpoint, and token endpoint before any secret leaves PostHog.
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.

@@ -37,7 +37,14 @@ class CatalogEntry:
     docs_url: str = ""
     oauth_scope_allowlist: tuple[str, ...] | None = None
     oauth_credentials_source: OAuthCredentialsSource | None = None
+    dcr_required: bool = False
     disabled: bool = False
+
+    def __post_init__(self) -> None:
+        if self.dcr_required and self.auth_type != "oauth":
+            raise ValueError("DCR requires OAuth authentication")
+        if self.dcr_required and self.oauth_credentials_source is not None:
+            raise ValueError("DCR cannot use a shared OAuth credential source")
 
 
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
@@ -48,6 +55,20 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="productivity",
         icon_domain="atlassian.com",
+        docs_url="https://developer.atlassian.com/cloud/rovo-mcp/",
+        oauth_scope_allowlist=(
+            "read:me",
+            "read:account",
+            "offline_access",
+            "email",
+            "read:jira:agent-interface",
+            "write:jira:agent-interface",
+            "search:jira:agent-interface",
+            "read:confluence:agent-interface",
+            "write:confluence:agent-interface",
+            "search:confluence:agent-interface",
+        ),
+        dcr_required=True,
     ),
     CatalogEntry(
         name="Box",
