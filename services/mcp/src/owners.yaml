@@ -3,6 +3,14 @@ owners:
     - team-context-mcp
 rules:
     - match:
+          - '/api/generated.ts'
+          - '/**/*.generated.ts'
+          - '/generated/'
+          - '/tools/generated/'
+          - '/ui-apps/generated/'
+          - '/ui-apps/apps/generated/'
+      status: generated
+    - match:
           - '/generated/mcp_analytics/'
           - '/hono/analytics.ts'
           - '/lib/posthog/analytics.ts'
