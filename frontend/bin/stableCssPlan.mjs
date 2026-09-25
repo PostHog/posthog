@@ -153,7 +153,6 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     }
 
     const eager = EAGER_ORDER.filter((name) => groups.has(name))
-    // A lazy prelude would call the undefined window.ESBUILD_LOAD_CSS if there's no eager layer to define it.
     if (lazyGroupsByEntry.size > 0 && eager.length === 0) {
         throw new Error('stable css: lazy chunks need split CSS but no eager layer would define the loader')
     }
