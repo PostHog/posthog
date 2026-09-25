@@ -23,6 +23,27 @@ describe('twoFactorLogic', () => {
         expect(logic.values.status).toMatchObject({ is_enabled: true, backup_codes_remaining: 3 })
     })
 
+    it('flags a failed status load and clears the flag when a retry succeeds', async () => {
+        const statusRequest = jest
+            .fn()
+            .mockReturnValueOnce([500, {}])
+            .mockReturnValue([200, { is_enabled: false, backup_codes_remaining: 0 }])
+        useMocks({ get: { '/api/users/@me/two_factor_status/': statusRequest } })
+        initKeaTests()
+        const logic = twoFactorLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            void logic.values.status
+        }).toDispatchActions(['loadStatusFailure'])
+        expect(logic.values).toMatchObject({ status: null, statusLoadFailed: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadStatus()
+        }).toDispatchActions(['loadStatusSuccess'])
+        expect(logic.values.statusLoadFailed).toBe(false)
+    })
+
     it('shows the new backup code count after generating codes without refetching the status', async () => {
         const statusRequest = jest.fn(() => [200, { is_enabled: true, backup_codes_remaining: 1 }])
         useMocks({

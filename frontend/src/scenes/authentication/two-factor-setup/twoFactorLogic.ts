@@ -56,6 +56,7 @@ export interface twoFactorLogicValues {
     } | null
     startSetupLoading: boolean
     status: TwoFactorStatusApi | null
+    statusLoadFailed: boolean
     statusLoading: boolean
     token: {
         token: string
@@ -281,6 +282,14 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         ],
     })),
     reducers({
+        statusLoadFailed: [
+            false,
+            {
+                loadStatus: () => false,
+                loadStatusSuccess: () => false,
+                loadStatusFailure: () => true,
+            },
+        ],
         isTwoFactorSetupModalOpen: [
             false,
             {
