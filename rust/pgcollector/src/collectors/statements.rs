@@ -78,7 +78,7 @@ pub async fn collect(
 ) -> Result<(Snapshot, State)> {
     let pg_rows = cx
         .conn
-        .query(&src.stats_sql, &[])
+        .query(&crate::tags::tagged(src.name, &src.stats_sql), &[])
         .await
         .with_context(|| src.name.to_string())?;
     let rows: Vec<Row> = pg_rows.iter().map(row_to_values).collect::<Result<_>>()?;
@@ -97,7 +97,13 @@ pub async fn collect(
     if watch_dealloc && cx.pg_version >= 140000 {
         if let Some(r) = cx
             .conn
-            .query_opt("SELECT dealloc FROM pg_stat_statements_info", &[])
+            .query_opt(
+                &crate::tags::tagged(
+                    &format!("{}_dealloc", src.name),
+                    "SELECT dealloc FROM pg_stat_statements_info",
+                ),
+                &[],
+            )
             .await?
         {
             let dealloc: i64 = r.get(0);
@@ -133,7 +139,10 @@ pub async fn collect(
         unseen.truncate(TEXT_BATCH);
         let texts = cx
             .conn
-            .query(&src.text_sql, &[&unseen])
+            .query(
+                &crate::tags::tagged(&format!("{}_text", src.name), &src.text_sql),
+                &[&unseen],
+            )
             .await
             .with_context(|| format!("{} text", src.name))?;
         let mut text_rows: Vec<Row> = texts.iter().map(row_to_values).collect::<Result<_>>()?;
