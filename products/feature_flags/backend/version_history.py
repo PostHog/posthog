@@ -1,3 +1,5 @@
+import copy
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -5,6 +7,7 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 
+from products.feature_flags.backend.facade.activity import is_supported_v2_config, is_v1_config, json_equal
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -99,6 +102,12 @@ def reconstruct_flag_at_version(
         raise VersionNotFound(f"Version {target_version} not found (current version is {current_version})")
 
     fields = _extract_tracked_fields(flag)
+    strict_history = not is_v1_config(fields["filters"])
+    if strict_history:
+        if not is_supported_v2_config(fields["filters"]):
+            raise VersionHistoryIncomplete("This flag's configuration is unsupported. Cannot reconstruct its history.")
+        fields = copy.deepcopy(fields)
+        fields["tags"] = sorted(flag.tagged_items.values_list("tag__name", flat=True))
 
     if target_version == current_version:
         return _build_response(
@@ -131,13 +140,53 @@ def reconstruct_flag_at_version(
     version_timestamp = None
     modified_by = None
     reached_target = False
+    expected_version = current_version
 
     for detail, created_at, user_id in entries:
+        if strict_history and (
+            not isinstance(detail, Mapping)
+            or not isinstance(detail.get("changes"), list)
+            or any(not isinstance(change, Mapping) for change in detail["changes"])
+        ):
+            raise VersionHistoryIncomplete(f"Activity log is incomplete. Cannot reconstruct version {target_version}.")
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
 
         if version_after is None:
             continue
+
+        if strict_history:
+            if type(version_after) is not int:
+                raise VersionHistoryIncomplete(
+                    f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                )
+            if version_after > current_version:
+                continue
+            context = (detail or {}).get("context") or {}
+            config_changes = context.get("config_changes") if isinstance(context, Mapping) else None
+            filter_changes = [change for change in changes if change.get("field") == "filters"]
+            if (
+                version_after != expected_version
+                or not isinstance(context, Mapping)
+                or context.get("filters_version") != 2
+                or not isinstance(config_changes, list)
+                or len(filter_changes) != int(bool(config_changes))
+            ):
+                raise VersionHistoryIncomplete(
+                    f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                )
+            version_change = next(change for change in changes if change.get("field") == "version")
+            if type(version_change.get("before")) is not int or version_change["before"] != expected_version - 1:
+                raise VersionHistoryIncomplete(
+                    f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                )
+            for change in changes:
+                field = change.get("field")
+                if isinstance(field, str) and (field in RECONSTRUCTABLE_FIELDS or field == "tags"):
+                    if not json_equal(change.get("after"), fields[field]):
+                        raise VersionHistoryIncomplete(
+                            f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                        )
 
         if version_after == target_version:
             version_timestamp = created_at
@@ -146,16 +195,23 @@ def reconstruct_flag_at_version(
             break
 
         if version_after > target_version:
+            if strict_history:
+                expected_version -= 1
             for change in changes:
                 field = change.get("field")
-                if field and field in RECONSTRUCTABLE_FIELDS:
-                    fields[field] = change.get("before")
+                if field and (field in RECONSTRUCTABLE_FIELDS or (strict_history and field == "tags")):
+                    if strict_history and field == "filters":
+                        if not is_supported_v2_config(change.get("before")):
+                            raise VersionHistoryIncomplete(
+                                f"Activity log is incomplete. Cannot reconstruct version {target_version}."
+                            )
+                    fields[field] = copy.deepcopy(change.get("before")) if strict_history else change.get("before")
         elif version_after < target_version:
             # Entries are newest-first; falling below the target means its entry is missing.
             break
 
     if not reached_target:
-        if target_version == 1:
+        if target_version == 1 and (not strict_history or expected_version == 1):
             # Version 1 is the creation — no activity log entry transitions "into" it.
             # We've undone all entries, so fields now represent the creation state.
             version_timestamp = flag.created_at
@@ -167,7 +223,12 @@ def reconstruct_flag_at_version(
     # (None, {}, or missing "groups"). Normalize so the response shape is
     # predictable for API consumers.
     raw_filters = fields.get("filters")
-    if not raw_filters:
+    if not is_v1_config(raw_filters):
+        if not is_supported_v2_config(raw_filters):
+            raise VersionHistoryIncomplete(
+                "This version's configuration is unsupported. Cannot reconstruct its history."
+            )
+    elif not raw_filters:
         fields["filters"] = {"groups": []}
     elif "groups" not in raw_filters:
         fields["filters"] = {**raw_filters, "groups": []}

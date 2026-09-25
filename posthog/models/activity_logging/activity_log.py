@@ -1550,9 +1550,13 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
             )
             return
 
-        serialized_data = ActivityLogSerializer(instance).data
+        serialized_data: dict[str, Any] = ActivityLogSerializer(instance).data
         # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
         serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
+        if instance.scope == "FeatureFlag":
+            from products.feature_flags.backend.facade.activity import activity_event_data
+
+            serialized_data = activity_event_data(serialized_data)
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 

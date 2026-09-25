@@ -7,6 +7,7 @@ import math
 import logging
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
@@ -102,6 +103,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.feature_flags.backend.activity_logging import complete_feature_flag_activity
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -2597,7 +2599,10 @@ class FeatureFlagSerializer(
 
                 _carry_loaded_state(instance, locked_instance)
 
-                with ImpersonatedContext(request):
+                with (
+                    ImpersonatedContext(request),
+                    complete_feature_flag_activity(locked_instance) if v2_limits is not None else nullcontext(),
+                ):
                     saved_instance = super().update(locked_instance, validated_data)
 
                 # The write landed on the locked row, which is a different object from the one
@@ -3246,6 +3251,11 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
 
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     filters = serializers.DictField(read_only=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tags at this version, when available for config version 2 history.",
+    )
     is_historical = serializers.BooleanField(
         read_only=True,
         help_text="False for the current version; true for reconstructed historical versions.",
@@ -3277,6 +3287,7 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "is_historical",
+            "tags",
             "version_timestamp",
             "modified_by",
         ]
