@@ -241,7 +241,8 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 suggestsSwitch: intent.suggests_switch,
                 wouldPromote: canPromote,
                 shown: values.variant === 'banner' ? !!values.suggestedSwitch : promoted,
-                // Value-shaped searches (emails, URLs) never reach the model, so a model answer carries no value.
+                // The server passes the search query only for model answers; value-shaped inputs (emails, URLs) never reach the model.
+                // Other free text searches still arrive when the model answered them.
                 query: intent.method === 'model' ? intent.query : undefined,
             })
         },
