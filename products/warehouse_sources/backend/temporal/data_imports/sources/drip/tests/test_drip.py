@@ -15,7 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.drip.drip 
     drip_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import DRIP_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.drip.settings import (
+    CAMPAIGN_SUBSCRIBER_STATUSES,
+    DRIP_ENDPOINTS,
+    ENDPOINTS,
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -278,3 +282,63 @@ class TestDripSourceResponse:
         )
         assert response.partition_keys == ["created_at"]
         assert response.partition_format == "month"
+
+
+class TestScalarEndpoints:
+    @parameterized.expand(
+        [
+            ("tags", "tag", ["Customer", "SEO"]),
+            ("custom_field_identifiers", "identifier", ["first_name", "last_name"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_bare_strings_become_single_column_rows(self, endpoint, column, values, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page(DRIP_ENDPOINTS[endpoint].data_key, values)])
+
+        rows = _run(session, endpoint, _make_manager())
+
+        assert rows == [{column: value} for value in values]
+
+
+class TestCampaignSubscribersFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_campaigns_for_every_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        # One campaign page, then one subscriber page per campaign for each of the three statuses.
+        responses = [_page("campaigns", [{"id": 10}, {"id": 11}])]
+        for index, _status in enumerate(CAMPAIGN_SUBSCRIBER_STATUSES):
+            if index:
+                responses.append(_page("campaigns", [{"id": 10}, {"id": 11}]))
+            responses.append(_page("subscribers", [{"id": f"s{index}0"}]))
+            responses.append(_page("subscribers", [{"id": f"s{index}1"}]))
+        captured = _wire(session, responses)
+
+        rows = _run(session, "campaign_subscribers", _make_manager())
+
+        assert rows == [
+            {"id": f"s{index}{offset}", "campaign_id": campaign, "campaign_subscription_status": status}
+            for index, status in enumerate(CAMPAIGN_SUBSCRIBER_STATUSES)
+            for offset, campaign in enumerate([10, 11])
+        ]
+        child_requests = [c.params for c in captured if "status" in c.params]
+        assert [c["status"] for c in child_requests] == [
+            status for status in CAMPAIGN_SUBSCRIBER_STATUSES for _ in range(2)
+        ]
+        assert all(c["per_page"] == 1000 and c["direction"] == "asc" for c in child_requests)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_pages_are_followed_per_campaign(self, MockSession) -> None:
+        session = MockSession.return_value
+        responses = []
+        for index, _status in enumerate(CAMPAIGN_SUBSCRIBER_STATUSES):
+            responses.append(_page("campaigns", [{"id": 10}]))
+            responses.append(_page("subscribers", [{"id": f"a{index}"}], total_pages=2))
+            responses.append(_page("subscribers", [{"id": f"b{index}"}], total_pages=2))
+        captured = _wire(session, responses)
+
+        rows = _run(session, "campaign_subscribers", _make_manager())
+
+        assert [row["id"] for row in rows] == ["a0", "b0", "a1", "b1", "a2", "b2"]
+        child_pages = [c.params["page"] for c in captured if "status" in c.params]
+        assert child_pages == [1, 2, 1, 2, 1, 2]
