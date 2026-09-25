@@ -10,7 +10,6 @@ from .workflows import (
     AutoresearchValidationWorkflow,
     activity_kickoff_training,
     activity_load_active_pipelines,
-    activity_load_champion,
     activity_run_inference,
     activity_run_validation,
 )
@@ -24,7 +23,6 @@ WORKFLOWS = [
 ACTIVITIES = [
     activity_kickoff_training,
     activity_load_active_pipelines,
-    activity_load_champion,
     activity_run_inference,
     activity_run_validation,
 ]

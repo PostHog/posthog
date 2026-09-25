@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from dataclasses import field
 from datetime import date, timedelta
-from typing import Optional, TypeVar
+from typing import TYPE_CHECKING, Optional, TypeVar
 
 import structlog
 from temporalio import activity, workflow
@@ -38,10 +38,15 @@ with workflow.unsafe.imports_passed_through():
         AutoresearchTrainingRun,
     )
     from products.autoresearch.backend.training.runner import run_training
+    from products.tasks.backend.facade.access import get_desktop_access_decision
+    from products.tasks.backend.facade.usage import task_run_usage_limited
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.base import PostHogWorkflow
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
 
@@ -71,21 +76,9 @@ class InferenceWorkflowResult:
 
 
 @frozen
-class LoadChampionInput:
-    pipeline_id: str
-    team_id: int
-
-
-@frozen
-class LoadChampionResult:
-    model_id: str
-
-
-@frozen
 class RunInferenceInput:
     pipeline_id: str
     team_id: int
-    model_id: str
     prediction_date: str  # ISO date string
 
 
@@ -100,29 +93,24 @@ class RunInferenceResult:
 # ── Activities ───────────────────────────────────────────────────────────────
 
 
-@activity.defn(name="autoresearch-inference.load_champion")
-def activity_load_champion(inp: LoadChampionInput) -> LoadChampionResult:
-    """Load the champion model for a pipeline. Raises if none exists."""
-    with team_scope(inp.team_id):
-        pipeline = AutoresearchPipeline.objects.get(pk=inp.pipeline_id)
-        champion = (
-            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-            .order_by("-created_at")
-            .first()
-        )
-    if not champion:
-        raise ValueError(f"No champion model for pipeline {inp.pipeline_id}")
-    return LoadChampionResult(model_id=str(champion.pk))
-
-
 @activity.defn(name="autoresearch-inference.run_inference")
 def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
-    """Score the inference population and emit autoresearch_prediction events."""
+    """Score the inference population with the current champion and emit autoresearch_prediction events.
+
+    The champion is read here, not passed in, so a retry after a promotion during scoring scores
+    with the new champion instead of failing again on the archived one.
+    """
     with team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
         if pipeline.status not in _LIVE_STATUSES:
             return RunInferenceResult(run_id="", rows_scored=0, status="skipped")
-        model = AutoresearchModel.objects.get(pk=inp.model_id)
+        model = (
+            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+            .order_by("-created_at")
+            .first()
+        )
+        if model is None:
+            raise ApplicationError(f"No champion model for pipeline {inp.pipeline_id}", non_retryable=True)
         run = run_inference_for_pipeline(
             pipeline=pipeline, model=model, prediction_date=date.fromisoformat(inp.prediction_date)
         )
@@ -136,11 +124,10 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
-# Load champion is a cheap DB read; score can take minutes for large populations.
-_LOAD_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
+# Scoring can take minutes for large populations.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
-# Covers every attempt of both activities plus their backoff, so the child never cuts off a retry.
+# Covers both attempts plus their backoff, so the child never cuts off a retry.
 _INFERENCE_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
 
@@ -149,11 +136,8 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
     """
     Temporal workflow that runs daily inference for one autoresearch pipeline.
 
-    Steps:
-    1. Load the champion model for the pipeline.
-    2. Score the inference population and emit autoresearch_prediction events.
-
-    Both steps delegate to products.autoresearch.backend.inference.scoring so the same
+    One activity scores the inference population with the current champion and emits
+    autoresearch_prediction events. It delegates to products.autoresearch.backend.inference.scoring so the same
     code is exercised by both the Temporal workflow and the local management
     command (autoresearch_score).
     """
@@ -167,19 +151,11 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
             extra={"pipeline_id": inp.pipeline_id, "prediction_date": inp.prediction_date},
         )
 
-        champion = await workflow.execute_activity(
-            activity_load_champion,
-            LoadChampionInput(pipeline_id=inp.pipeline_id, team_id=inp.team_id),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=_LOAD_RETRY,
-        )
-
         result = await workflow.execute_activity(
             activity_run_inference,
             RunInferenceInput(
                 pipeline_id=inp.pipeline_id,
                 team_id=inp.team_id,
-                model_id=champion.model_id,
                 prediction_date=inp.prediction_date,
             ),
             start_to_close_timeout=_SCORE_ATTEMPT_TIMEOUT,
@@ -398,8 +374,12 @@ def evaluate_pipeline_outcome(
 @frozen
 class KickoffTrainingResult:
     kicked_off: bool
-    reason: str  # "started" | "budget_exhausted" | "already_running" | "not_eligible" | "no_creator" | "not_launchable"
+    # "started" | "budget_exhausted" | "already_running" | "already_ran_today" | "not_eligible"
+    # | "tasks_gated" | "no_creator" | "not_launchable"
+    reason: str
     error: Optional[str] = None
+    # Why an expected skip happened, without counting it as a failure.
+    detail: Optional[str] = None
 
 
 # ── Coordinator activities ────────────────────────────────────────────────────
@@ -433,7 +413,9 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         except SandboxInferenceError as exc:
             _pause_orphaned_pipeline(pipeline, reason=str(exc))
             continue
-        if not has_autoresearch_access(creator, team_id=pipeline.team_id):
+        if not has_autoresearch_access(
+            creator, team_id=pipeline.team_id, organization_id=str(pipeline.team.organization_id)
+        ):
             continue
         # By calendar day, because a run finishes some time after the 02:00 UTC tick and an
         # elapsed-time comparison would skip the next day's tick.
@@ -467,6 +449,14 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     as in the facade's ``start_training``. A manual start cannot interleave, and a failed launch
     rolls the deduction back. A launch failure raises, so the activity retry applies.
     """
+    # The gates can call out to billing and flags, so they run before the row lock is taken.
+    with team_scope(inp.team_id):
+        loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
+    if loaded.created_by is not None and (
+        gate := _tasks_gate(loaded.created_by, loaded.team.organization, inp.team_id)
+    ):
+        return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
+
     with team_scope(inp.team_id), transaction.atomic():
         pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=inp.pipeline_id)
 
@@ -484,6 +474,12 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
         ).exists():
             return KickoffTrainingResult(kicked_off=False, reason="already_running")
+
+        # At most one scheduled run per UTC day. A retry after a lost activity response must not
+        # launch a second paid run once the first has already ended.
+        today = django_timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=today).exists():
+            return KickoffTrainingResult(kicked_off=False, reason="already_ran_today")
 
         # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
         # pipelines have no creator, so fail before spending budget rather than launching
@@ -507,6 +503,19 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             # anything. A retry cannot fix either, so these report instead of raising.
             return KickoffTrainingResult(kicked_off=False, reason="not_launchable", error=str(exc))
     return KickoffTrainingResult(kicked_off=True, reason="started")
+
+
+def _tasks_gate(creator: User, organization: Organization, team_id: int) -> str | None:
+    """Why the creator may not launch a paid Tasks sandbox now, or None. Mirrors the `/train` gates.
+
+    An unresolvable Desktop access decision raises, so the activity retries instead of launching.
+    """
+    decision = get_desktop_access_decision(creator, organization)
+    if not decision.allowed:
+        return f"PostHog Desktop access: {decision.value}"
+    if task_run_usage_limited(creator, team_id):
+        return "The Tasks usage limit is reached"
+    return None
 
 
 # ── Coordinator workflow ──────────────────────────────────────────────────────

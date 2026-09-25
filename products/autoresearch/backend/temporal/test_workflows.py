@@ -89,6 +89,12 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         access = patch("products.autoresearch.backend.temporal.workflows.has_autoresearch_access", return_value=True)
         self.mock_access = access.start()
         self.addCleanup(access.stop)
+        desktop = patch("products.autoresearch.backend.temporal.workflows.get_desktop_access_decision")
+        desktop.start().return_value.allowed = True
+        self.addCleanup(desktop.stop)
+        usage = patch("products.autoresearch.backend.temporal.workflows.task_run_usage_limited", return_value=False)
+        self.mock_usage_limited = usage.start()
+        self.addCleanup(usage.stop)
 
     def _create_pipeline(self, **overrides: Any) -> AutoresearchPipeline:
         params: dict[str, Any] = {
@@ -171,9 +177,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         result: RunInferenceResult | RunValidationResult
         if step == "inference":
             result = activity_run_inference(
-                RunInferenceInput(
-                    pipeline_id=str(pipeline.id), team_id=self.team.id, model_id="unused", prediction_date="2026-09-11"
-                )
+                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11")
             )
         else:
             result = activity_run_validation(RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
@@ -208,17 +212,33 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         pipeline.refresh_from_db()
         assert pipeline.iteration_budget_remaining == 20
 
+    @parameterized.expand(
+        [
+            ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, "already_running"),
+            ("run_ended_today", AutoresearchTrainingRun.Status.COMPLETED, False, "already_ran_today"),
+            ("tasks_usage_limited", None, True, "tasks_gated"),
+        ]
+    )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_kickoff_waits_for_a_pending_run(self, mock_run_training: MagicMock) -> None:
+    def test_kickoff_skips_without_spending_budget(
+        self,
+        _name: str,
+        run_status: Optional[str],
+        usage_limited: bool,
+        expected_reason: str,
+        mock_run_training: MagicMock,
+    ) -> None:
         pipeline = self._create_pipeline()
-        AutoresearchTrainingRun.objects.create(
-            pipeline=pipeline, status=AutoresearchTrainingRun.Status.PENDING, iteration_budget=10
-        )
+        if run_status:
+            AutoresearchTrainingRun.objects.create(pipeline=pipeline, status=run_status, iteration_budget=10)
+        self.mock_usage_limited.return_value = usage_limited
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 
-        assert result.reason == "already_running"
+        assert result.reason == expected_reason
         mock_run_training.assert_not_called()
+        pipeline.refresh_from_db()
+        assert pipeline.iteration_budget_remaining == 20
 
     @parameterized.expand([("transient_failure_raises", RuntimeError("boom")), ("refused_launch", ValueError("left"))])
     @patch("products.autoresearch.backend.temporal.workflows.run_training")

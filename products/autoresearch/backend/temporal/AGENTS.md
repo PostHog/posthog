@@ -1,6 +1,6 @@
 # Temporal workflows
 
-The scheduled half of autoresearch. Three workflows and five activities, registered on `settings.AUTORESEARCH_TASK_QUEUE` by `start_temporal_worker`, which imports `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
+The scheduled half of autoresearch. Three workflows and four activities, registered on `settings.AUTORESEARCH_TASK_QUEUE` by `start_temporal_worker`, which imports `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
 
 Nothing here implements product logic. Every activity is a thin call into `../inference/`, `../evaluation/`, or `../training/` — the same functions the management commands and the API reach. That is deliberate: the scheduled path must not be able to drift from the headless one.
 
@@ -8,7 +8,7 @@ Nothing here implements product logic. Every activity is a thin call into `../in
 
 - `workflows.py`
   - `AutoresearchCoordinatorWorkflow` (`autoresearch-coordinator`) — the daily tick. Loads active pipelines (`activity_load_active_pipelines`) and fans out inference, validation, and training kickoff per pipeline.
-  - `AutoresearchInferenceWorkflow` (`autoresearch-inference`) — `activity_load_champion` then `activity_run_inference` for one pipeline.
+  - `AutoresearchInferenceWorkflow` (`autoresearch-inference`) — `activity_run_inference` for one pipeline. The activity reads the current champion itself, so a retry after a mid-scoring promotion scores with the new one.
   - `AutoresearchValidationWorkflow` (`autoresearch-validation`) — `activity_run_validation` for one pipeline.
   - `activity_kickoff_training` — launches a training run for a pipeline that is due.
 
@@ -38,7 +38,7 @@ The coordinator decides _whether_ each pipeline is due; the child workflows do o
 Validation runs on every daily sweep, because a matured date should not wait for the next scoring day.
 Scoring and training kickoff run on a cadence day only, compared by calendar day, and kickoff starts after scoring ends.
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
-Kickoff holds the pipeline row lock through the launch, as `start_training` does. Keep that split — per-pipeline logic in the coordinator is what makes a fan-out impossible to reason about.
+Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does. Keep that split — per-pipeline logic in the coordinator is what makes a fan-out impossible to reason about.
 
 Note that training is launched by an _activity_, not a child workflow, because the actual agent run happens in a Tasks sandbox with its own lifecycle. Autoresearch does not own that workflow; it fires it and the `TaskRun` `post_save` signal (`../training/ingestion.py`) picks the result back up.
 
