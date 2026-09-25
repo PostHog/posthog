@@ -531,10 +531,12 @@ export function buildTrackingProperties(
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
     },
-    usageTypesTotal: number = USAGE_TYPES.length
+    usageTypesTotal: number = USAGE_TYPES.length,
+    errorCode?: string
 ): BillingUsageInteractionProps {
     return {
         action,
+        ...(errorCode ? { error_code: errorCode } : {}),
         filters: values.filters,
         date_from: values.dateFrom,
         date_to: values.dateTo,
@@ -550,8 +552,9 @@ export function buildTrackingProperties(
 
 export const buildSpendTrackingProperties = (
     action: BillingUsageInteractionProps['action'],
-    values: Parameters<typeof buildTrackingProperties>[1]
-): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
+    values: Parameters<typeof buildTrackingProperties>[1],
+    errorCode?: string
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length, errorCode)
 
 export const getUsageTypeOptions = (): { key: string; label: string }[] =>
     USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
@@ -561,8 +564,17 @@ export const getSpendTypeOptions = (): { key: string; label: string }[] =>
 
 const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
 
+const USAGE_TYPE_VALUES = new Set<string>(USAGE_TYPES.map((option) => option.value))
+
 export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
     usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
+
+/**
+ * Keep only the types this page still offers. A link can carry a type that has since been
+ * retired, and billing refuses the whole request for it, so the page would show nothing.
+ */
+export const filterUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => USAGE_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,

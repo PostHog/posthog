@@ -462,6 +462,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         const spendError = getBillingUsageError(error)
                         const isActionable = !!spendError && ACTIONABLE_BILLING_ERROR_CODES.includes(spendError.code)
                         actions.setBillingSpendError(isActionable ? spendError : null)
+                        actions.reportBillingSpendInteraction(
+                            buildSpendTrackingProperties('load_failed', values, spendError?.code || 'unknown')
+                        )
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing spend, please try again or contact support.')
                             throw error

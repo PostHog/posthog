@@ -129,6 +129,17 @@ BILLING_VALIDATION_ERROR_MESSAGES = {
 }
 
 
+USAGE_TYPE_VALUE_SET = frozenset(USAGE_TYPE_VALUES)
+
+
+def _quoted_caller_values(values: Sequence[str], limit: int = 3, max_length: int = 64) -> str:
+    """Quote the caller's own values for an error message, short enough to read in a banner."""
+    quoted = [f"'{value[:max_length]}'" for value in values[:limit]]
+    if len(values) > limit:
+        quoted.append(f"and {len(values) - limit} more")
+    return ", ".join(quoted)
+
+
 BREAKDOWNS_MESSAGE = "Value must be a JSON array containing only 'type' and/or 'team'."
 # Spend adds across products, so the spend read serves a project on its own. Usage counts each
 # type in units that do not add: events, recordings, rows. So the usage read serves a project
@@ -416,6 +427,14 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
         if not isinstance(parsed, list) or any(not isinstance(usage_type, str) for usage_type in parsed):
             raise serializers.ValidationError("Value must be a JSON array of usage type identifiers.")
+
+        # Billing refuses a type it does not know with a message that names no value, so the
+        # names are compared here while the rejected one can still go in the error.
+        unknown = [usage_type for usage_type in parsed if usage_type not in USAGE_TYPE_VALUE_SET]
+        if unknown:
+            raise serializers.ValidationError(
+                f"Not a valid usage type: {_quoted_caller_values(unknown)}. Use the values this parameter lists."
+            )
 
         return value
 
@@ -1236,7 +1255,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except APIException:
                 raise
             except Exception as e:
-                self._raise_billing_error(e, organization)
+                self._raise_billing_error(e, organization, params_to_pass)
         except BaseException:
             _release_export_stream_slot(slot)
             raise
@@ -1296,10 +1315,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except APIException:
             raise
         except Exception as e:
-            self._raise_billing_error(e, organization)
+            self._raise_billing_error(e, organization, params_to_pass)
 
     @staticmethod
-    def _raise_billing_error(error: Exception, organization: Organization) -> NoReturn:
+    def _raise_billing_error(
+        error: Exception, organization: Organization, params: Optional[dict[str, Any]] = None
+    ) -> NoReturn:
         """Raise the named exception for an error billing returned on a usage, spend or export request.
 
         handle_billing_service_error raises with the status in its message and the parsed body as
@@ -1334,7 +1355,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 and isinstance(code, str)
                 and code in BILLING_VALIDATION_ERROR_MESSAGES
             ):
-                raise ValidationError({field: [BILLING_VALIDATION_ERROR_MESSAGES[code]]}, code=code) from error
+                message = BILLING_VALIDATION_ERROR_MESSAGES[code]
+                # Billing names no value, so the caller's own value is put back in the message.
+                # It is the request's input, never billing's text.
+                sent = (params or {}).get(field)
+                if isinstance(sent, str) and sent:
+                    message = f"{message} Rejected value: {_quoted_caller_values([sent], max_length=200)}."
+                raise ValidationError({field: [message]}, code=code) from error
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
         raise BillingServiceError() from error

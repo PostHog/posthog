@@ -1232,6 +1232,12 @@ class TestBillingUsageRequestSerializer(TestCase):
         for key, value in data.items():
             self.assertEqual(serializer.validated_data[key], value)
 
+    def test_rejects_an_unknown_usage_type_and_names_it(self):
+        serializer = BillingUsageRequestSerializer(data={"usage_types": '["event_count_in_period","retired_type"]'})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("retired_type", str(serializer.errors["usage_types"][0]))
+        self.assertNotIn("event_count_in_period", str(serializer.errors["usage_types"][0]))
+
     def test_usage_type_options_match_usage_type_literal(self):
         self.assertEqual(
             {option["value"] for option in USAGE_TYPE_OPTIONS},
@@ -1300,6 +1306,19 @@ class TestBillingUpstreamValidationErrors(SimpleTestCase):
 
         self.assertEqual(raised.exception.detail, {field: [detail]})
         self.assertEqual(raised.exception.get_codes(), {field: [code]})
+
+    def test_names_the_value_the_caller_sent(self) -> None:
+        error = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {"type": "validation_error", "code": "invalid_input", "attr": "usage_types", "detail": "upstream text"},
+        )
+
+        with self.assertRaises(ValidationError) as raised:
+            BillingViewset._raise_billing_error(error, Organization(id=uuid4()), {"usage_types": '["retired_type"]'})
+
+        self.assertIn("retired_type", str(raised.exception.detail["usage_types"][0]))
+        self.assertNotIn("upstream text", str(raised.exception.detail["usage_types"][0]))
 
     @parameterized.expand(
         [
