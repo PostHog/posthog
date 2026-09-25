@@ -1348,6 +1348,7 @@ class TestRecordFailedEvaluation:
         assert alert_with_user.next_check_at > datetime.now(UTC)
         assert result.should_notify is expected_notify
         assert check.state == AlertState.ERRORED
+        assert check.error is not None
         assert check.error.get("code") == expected_code
 
     async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
