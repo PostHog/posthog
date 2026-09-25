@@ -2575,6 +2575,132 @@ describe('exec tool', () => {
                 expect(message).toMatch(/\.\.\. \(\d+ accepted values\)/)
             })
 
+            // A property filter splits one contract across five variants, so a
+            // rejection reported from one variant reads as the whole contract
+            // and sends the caller back with a different wrong guess.
+            describe('the property filter contract', () => {
+                const filterFor = (filter: unknown): unknown =>
+                    GENERATED_TOOL_MAP['query-trends']!().schema.safeParse(
+                        { series: [{ kind: 'EventsNode', event: '$pageview' }], properties: [filter] },
+                        { reportInput: true }
+                    )
+
+                it.each([
+                    ['a single value', 'Safari'],
+                    ['several values', ['Safari', 'Chrome']],
+                ])('takes %s on an exact match', (_label, value) => {
+                    expect(filterFor({ key: '$browser', type: 'event', operator: 'exact', value })).toMatchObject({
+                        success: true,
+                    })
+                })
+
+                it('names every operator, not the variant the guess landed in', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: '$browser', type: 'event', operator: 'equals', value: 'Safari' }],
+                    })
+
+                    // `exact` is what the caller meant, and `is_set` sits in a
+                    // variant the string operators never reach.
+                    expect(message).toContain('parameter "properties.0.operator" must be one of:')
+                    expect(message).toContain('exact')
+                    expect(message).toContain('is_set')
+                })
+
+                it('names every type the operator takes, not the first that failed', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: 'plan_seats', type: 'event', operator: 'exact', value: [1, 2] }],
+                    })
+
+                    expect(message).toContain(
+                        'parameter "properties.0.value" must be one of these types: string, number, array of strings'
+                    )
+                })
+
+                // Naming one of two wrong fields costs the round trip the
+                // merged contract exists to save. A field the merge never sees,
+                // because every branch misses it rather than rejecting its
+                // value, costs the same round trip.
+                it.each([
+                    [
+                        'two values the variants reject',
+                        { key: '$browser', type: 'nonsense', operator: 'equals', value: 'Safari' },
+                        [
+                            'parameter "properties.0.operator" must be one of:',
+                            'parameter "properties.0.type" must be one of: event, person',
+                        ],
+                    ],
+                    [
+                        'a field left out beside a value they reject',
+                        { type: 'nonsense', operator: 'exact', value: 'Safari' },
+                        ['parameter "properties.0.key"', 'parameter "properties.0.type" must be one of: event, person'],
+                    ],
+                    [
+                        'a field left out beside the operator contract',
+                        { type: 'event', operator: 'equals', value: 'Safari' },
+                        ['parameter "properties.0.key"', 'parameter "properties.0.operator" must be one of:'],
+                    ],
+                ])('names every field the caller has to change, given %s', (_label, filter, expected) => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [filter],
+                    })
+
+                    for (const fragment of expected) {
+                        expect(message).toContain(fragment)
+                    }
+                })
+
+                // The array only reaches `exact` and `is_not`, so a contains
+                // filter hears the one type it takes rather than all three.
+                it('holds the types to the operator the caller chose', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: '$browser', type: 'event', operator: 'icontains', value: ['Safari'] }],
+                    })
+
+                    expect(message).toContain('parameter "properties.0.value"')
+                    expect(message).not.toContain('number')
+                })
+
+                // `type` is wrong on its own rather than a choice of variant, so
+                // reading its rejection as one closed off every variant that
+                // could have described the value.
+                it('still names the value types when another field is also wrong', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: 'plan_seats', type: 'nonsense', operator: 'exact', value: [1, 2] }],
+                    })
+
+                    expect(message).toContain('parameter "properties.0.type" must be one of: event, person')
+                    expect(message).toContain(
+                        'parameter "properties.0.value" must be one of these types: string, number, array of strings'
+                    )
+                })
+            })
+
+            // Merging a field only one variant rejects would report that
+            // variant's options as the shared contract, and would make the scan
+            // grow with the input rather than with the variants.
+            it('leaves a field only one variant rejects to that variant', () => {
+                const schema = z.object({
+                    mode: z.enum(['x']),
+                    lane: z.string(),
+                })
+                const other = z.object({
+                    mode: z.string(),
+                    lane: z.enum(['y']),
+                })
+                const either = z.object({ choice: z.union([schema, other]) })
+                const input = { choice: { mode: 'nope', lane: 'nope' } }
+                const result = either.safeParse(input, { reportInput: true })
+
+                const message = formatInputValidationError('some-tool', result.error!, input, either)
+
+                expect(message).not.toContain('must be one of')
+            })
+
             // A variant can pin a second field to one value without that field
             // selecting the variant, so the shortest-branch guess reported the
             // `type` the caller got right as the field to rewrite.

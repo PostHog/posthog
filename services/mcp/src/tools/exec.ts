@@ -962,7 +962,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *  exists to remove.
  */
 const MAX_UNION_ISSUES_NAMED = 3
-const MAX_UNION_VALUES_NAMED = 10
+/** Budget for the values named in one `must be one of` list. A count cap has to
+ *  be retuned every time a wider contract appears — the property filter's
+ *  operators alone merge to thirteen — while the reason for capping is message
+ *  length, so the budget states it directly. A 29-value math enum still
+ *  truncates; an operator contract fits whole. */
+const MAX_UNION_VALUE_CHARS = 200
 const MAX_UNION_DEPTH = 4
 
 /** The keys a branch rejects because the schema fixes their value, looking
@@ -1064,20 +1069,167 @@ function bestUnionBranch(branches: readonly (readonly z.core.$ZodIssue[])[]): re
     return best
 }
 
-/** The accepted values, when every branch of a union rejects the same enum
- *  value because the options are split across several enums. */
-function unionValueOptions(branches: readonly (readonly z.core.$ZodIssue[])[]): string[] | undefined {
-    const values: string[] = []
-    for (const branch of branches) {
-        const issue = branch.length === 1 ? branch[0] : undefined
-        if (!issue || issue.code !== 'invalid_value' || issue.path.length > 0) {
-            return undefined
+/**
+ * The accepted values for every field that every branch of a union rejects,
+ * merged across the branches.
+ *
+ * A union that splits one field's options across its variants holds the whole
+ * contract in no single variant: a property filter takes thirteen operators, but
+ * its string variant accepts six, its numeric variant three, and its set variant
+ * two. Reporting one variant names a subset as if it were the contract, so a
+ * caller that sent `equals` is told to pick from six operators and never learns
+ * that `is_set` exists.
+ *
+ * Merging needs every branch to reject the field. A field one branch accepts is
+ * not the field the caller has to change. Every field that clears that bar is
+ * returned, because naming one of two wrong fields buys a second round trip.
+ */
+/** As many of `values` as the budget allows, and how many were left unnamed. */
+function namedValues(values: readonly string[]): string {
+    let shown = 0
+    let length = 0
+    for (const value of values) {
+        length += value.length + 2
+        if (shown > 0 && length > MAX_UNION_VALUE_CHARS) {
+            break
         }
-        for (const value of issue.values) {
-            values.push(String(value))
+        shown += 1
+    }
+    const rest = shown < values.length ? `, ... (${values.length} accepted values)` : ''
+    return `${values.slice(0, shown).join(', ')}${rest}`
+}
+
+/** A field's path as one string, for comparing paths across branches. */
+function issuePathKey(path: ReadonlyArray<PropertyKey>): string {
+    return path.map(String).join('.')
+}
+
+function unionValueOptions(
+    branches: readonly (readonly z.core.$ZodIssue[])[]
+): { path: ReadonlyArray<PropertyKey>; values: string[] }[] {
+    const populated = branches.filter((branch) => branch.length > 0)
+    if (populated.length === 0) {
+        return []
+    }
+    // Only a field every branch rejects can qualify, so the branch rejecting the
+    // fewest bounds the search. A union of an enum array with `null` rejects one
+    // entry per array item on one side and nothing on the other, so a large
+    // invalid array settles here rather than allocating per entry.
+    let seed = populated[0]!
+    let fewest = Number.POSITIVE_INFINITY
+    for (const branch of populated) {
+        let rejected = 0
+        for (const issue of branch) {
+            if (issue.code === 'invalid_value') {
+                rejected += 1
+            }
+        }
+        if (rejected < fewest) {
+            fewest = rejected
+            seed = branch
         }
     }
-    return values.length > 0 ? [...new Set(values)] : undefined
+    const candidates = new Map<string, ReadonlyArray<PropertyKey>>()
+    for (const issue of seed) {
+        if (issue.code === 'invalid_value') {
+            candidates.set(issuePathKey(issue.path), issue.path)
+        }
+    }
+    // A candidate survives only where every branch rejects it, and its values
+    // come from all of them, so the list is the whole contract rather than the
+    // seed's slice of it.
+    const merged = new Map<string, Set<string>>()
+    for (const branch of populated) {
+        if (candidates.size === 0) {
+            break
+        }
+        const rejected = new Set<string>()
+        for (const issue of branch) {
+            if (issue.code !== 'invalid_value') {
+                continue
+            }
+            const key = issuePathKey(issue.path)
+            if (!candidates.has(key)) {
+                continue
+            }
+            rejected.add(key)
+            const values = merged.get(key) ?? new Set<string>()
+            for (const value of issue.values) {
+                values.add(String(value))
+            }
+            merged.set(key, values)
+        }
+        for (const key of candidates.keys()) {
+            if (!rejected.has(key)) {
+                candidates.delete(key)
+            }
+        }
+    }
+    const options: { path: ReadonlyArray<PropertyKey>; values: string[] }[] = []
+    for (const [key, path] of candidates) {
+        const values = merged.get(key)
+        if (values?.size) {
+            options.push({ path, values: [...values] })
+        }
+    }
+    return options
+}
+
+/**
+ * How one branch describes the value it takes at `path`: the type it named, or
+ * `array of <type>s` where it took the array and rejected the entries.
+ */
+function branchExpectation(branch: readonly z.core.$ZodIssue[], path: ReadonlyArray<PropertyKey>): string | undefined {
+    const startsWithPath = (issuePath: ReadonlyArray<PropertyKey>): boolean =>
+        path.every((segment, index) => issuePath[index] === segment)
+    for (const issue of branch) {
+        if (issue.code === 'invalid_type' && issue.path.length === path.length && startsWithPath(issue.path)) {
+            return issue.expected
+        }
+    }
+    for (const issue of branch) {
+        if (
+            issue.code === 'invalid_type' &&
+            issue.path.length === path.length + 1 &&
+            typeof issue.path[path.length] === 'number' &&
+            startsWithPath(issue.path)
+        ) {
+            return `array of ${issue.expected}s`
+        }
+    }
+    return undefined
+}
+
+/**
+ * Every type the union takes at `path`, across the variants the caller's own
+ * enum and literal values left reachable.
+ *
+ * A property filter value is a string, a number, or an array of strings, and no
+ * variant holds all three. Naming one reads as the whole contract, so a caller
+ * that sent an array of numbers is told a string was expected, and drops to a
+ * single value rather than quoting the entries it has.
+ *
+ * Reachability is read from the caller's values, not from the discriminator
+ * `bestUnionBranch` switches on: the variants here are told apart by their
+ * operator enums rather than by one pinned value, and a filter keyed `icontains`
+ * must not be offered the number its numeric variant would take.
+ *
+ * A field every variant rejects is exempt, because it selects nothing. A filter
+ * that misspells `type` as well as sending the wrong value type is wrong about
+ * both, and reading the `type` rejection as a selector would close off every
+ * variant and answer the value with one branch's type instead of the contract.
+ */
+function unionTypeExpectations(
+    branches: readonly (readonly z.core.$ZodIssue[])[],
+    path: ReadonlyArray<PropertyKey>,
+    rejectedByEvery: ReadonlyMap<string, unknown>
+): string[] {
+    const reachable = branches.filter(
+        (branch) =>
+            !branch.some((issue) => issue.code === 'invalid_value' && !rejectedByEvery.has(issuePathKey(issue.path)))
+    )
+    const expectations = reachable.map((branch) => branchExpectation(branch, path))
+    return [...new Set(expectations.filter((expectation) => expectation !== undefined))]
 }
 
 /**
@@ -1098,13 +1250,12 @@ function describeUnionIssue(
     if (depth >= MAX_UNION_DEPTH) {
         return undefined
     }
-    const name = path.map(String).join('.')
-    const options = unionValueOptions(branches)
-    if (options) {
-        const shown = options.slice(0, MAX_UNION_VALUES_NAMED).join(', ')
-        const rest = options.length > MAX_UNION_VALUES_NAMED ? `, ... (${options.length} accepted values)` : ''
-        return `parameter "${name}" must be one of: ${shown}${rest}`
-    }
+    // Keyed by path, so the merged contract replaces the branch's own list for
+    // that field while the branch still carries the rest. A field every branch
+    // rejects is rejected by this branch too, so nothing merged is left behind.
+    const options = new Map(
+        unionValueOptions(branches).map(({ path: fieldPath, values }) => [issuePathKey(fieldPath), values])
+    )
     const branch = bestUnionBranch(branches)
     if (!branch) {
         return undefined
@@ -1118,6 +1269,16 @@ function describeUnionIssue(
             }
         }
         const nestedName = nestedPath.map(String).join('.')
+        const values = options.get(issuePathKey(issue.path))
+        if (values) {
+            return `parameter "${nestedName}" must be one of: ${namedValues(values)}`
+        }
+        if (issue.code === 'invalid_type') {
+            const expectations = unionTypeExpectations(branches, issue.path, options)
+            if (expectations.length > 1) {
+                return `parameter "${nestedName}" must be one of these types: ${expectations.join(', ')}`
+            }
+        }
         return nestedName ? `parameter "${nestedName}": ${issue.message}` : issue.message
     })
     if (branch.length > MAX_UNION_ISSUES_NAMED) {
