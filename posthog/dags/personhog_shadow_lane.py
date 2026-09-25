@@ -20,8 +20,9 @@ these jobs apply. Both are charts-side prerequisites.
 
 import os
 import time
+from collections.abc import Callable
 from contextlib import closing
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import dagster
 import psycopg2
@@ -30,6 +31,7 @@ from kubernetes import (
     client as k8s_client,
     config as k8s_config,
 )
+from pydantic import Field
 
 from posthog.dags.common import JobOwners
 
@@ -75,7 +77,25 @@ def require_shadow_dsn(connection_url: str) -> None:
     production state.
     """
     parsed = urlparse(connection_url)
-    identity = f"{parsed.hostname or ''}/{parsed.path.lstrip('/')}"
+    # libpq resolves the connection target from more than the URL authority:
+    # host, hostaddr, dbname, and service query parameters override it, and a
+    # comma in the host names several servers. Any of those lets a URL carry
+    # a shadow-looking hostname while connecting elsewhere, so reject them
+    # instead of trying to validate what libpq would do.
+    overrides = {"host", "hostaddr", "dbname", "service"} & set(parse_qs(parsed.query))
+    if overrides:
+        raise dagster.Failure(
+            description=(
+                f"Connection URL overrides its target through query parameters ({', '.join(sorted(overrides))}). "
+                "Refusing a DSN whose effective target can differ from its hostname."
+            )
+        )
+    hostname = parsed.hostname or ""
+    if "," in (parsed.netloc or ""):
+        raise dagster.Failure(
+            description="Connection URL names several hosts. Refusing a DSN with more than one target."
+        )
+    identity = f"{hostname}/{parsed.path.lstrip('/')}"
     if "shadow" not in identity:
         raise dagster.Failure(
             description=(
@@ -129,25 +149,79 @@ def scale_deployment(apps: k8s_client.AppsV1Api, namespace: str, name: str, repl
     apps.patch_namespaced_deployment_scale(name=name, namespace=namespace, body={"spec": {"replicas": replicas}})
 
 
-def deployment_replica_status(apps: k8s_client.AppsV1Api, namespace: str, name: str) -> tuple[int, int]:
-    """Return (existing pods, ready pods) for a deployment."""
+def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: str) -> int:
     deployment = apps.read_namespaced_deployment(name=name, namespace=namespace)
-    return deployment.status.replicas or 0, deployment.status.ready_replicas or 0
+    return deployment.status.ready_replicas or 0
+
+
+def wait_for_quiescence(
+    read_write_counter: Callable[[], int],
+    *,
+    poll_seconds: float,
+    stable_checks: int,
+    timeout_seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+    on_progress: Callable[[str], None] | None = None,
+) -> int:
+    """Poll a monotonic write counter until it holds still for stable_checks consecutive polls.
+
+    Returns the number of polls taken. Raises TimeoutError when the counter is
+    still moving at the deadline.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    last = read_write_counter()
+    stable = 0
+    polls = 1
+    while stable < stable_checks:
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"write counter still moving after {timeout_seconds}s (last value {last})")
+        sleep(poll_seconds)
+        current = read_write_counter()
+        polls += 1
+        if current == last:
+            stable += 1
+        else:
+            if on_progress is not None:
+                on_progress(f"writes still landing: counter moved {last} -> {current}")
+            stable = 0
+            last = current
+    return polls
+
+
+def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
+    """Sum the whole database's tuple-write counters.
+
+    The shadow database serves only the lane, so a stable sum means every
+    writer has drained; a table allowlist would silently go stale when the
+    lane gains a table. The connection must be in autocommit so each poll is
+    its own transaction and reads a fresh pg_stat snapshot instead of the
+    first transaction's cached one.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes FROM pg_stat_user_tables")
+        return int(cursor.fetchone()["writes"])
 
 
 class ShadowLaneStartConfig(dagster.Config):
     reset_state: bool = False
-    consumer_replicas: int = 4
-    processor_replicas: int = 8
+    # Bounded so a typo in run config cannot request enough pods to eat the
+    # nodepool. The team2 lane peaks at 16 of each.
+    consumer_replicas: int = Field(default=4, gt=0, le=32)
+    processor_replicas: int = Field(default=8, gt=0, le=32)
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
     ready_timeout_seconds: int = 600
+    # How long the reset waits for in-flight writes to stop before truncating.
+    reset_settle_poll_seconds: int = 10
+    reset_settle_stable_checks: int = 3
+    reset_settle_timeout_seconds: int = 600
 
 
-def _reset_shadow_state(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
-    apps = apps_api()
+def _reset_shadow_state(
+    context: dagster.OpExecutionContext, config: ShadowLaneStartConfig, apps: k8s_client.AppsV1Api
+) -> None:
     for deployment in (config.consumer_deployment, config.processor_deployment):
         pods = deployment_pod_count(apps, config.namespace, deployment)
         if pods > 0:
@@ -160,9 +234,32 @@ def _reset_shadow_state(context: dagster.OpExecutionContext, config: ShadowLaneS
             )
 
     tables = LEGACY_STATE_TABLES + PERSONHOG_STATE_TABLES
-    context.log.info(f"Truncating {len(tables)} tables in the shadow persons database: {', '.join(tables)}")
     with closing(shadow_db_connection(config.shadow_db_env_var)) as connection:
-        with connection, connection.cursor() as cursor:
+        connection.autocommit = True
+
+        # The lane deployments are down, but the personhog writer drains its
+        # changelog into these tables from outside the lane namespace. A
+        # truncate that races it leaves old-run rows behind, so wait for the
+        # whole database to go quiet first.
+        try:
+            wait_for_quiescence(
+                lambda: read_shadow_write_counter(connection),
+                poll_seconds=config.reset_settle_poll_seconds,
+                stable_checks=config.reset_settle_stable_checks,
+                timeout_seconds=config.reset_settle_timeout_seconds,
+                on_progress=context.log.info,
+            )
+        except TimeoutError as timeout:
+            raise dagster.Failure(
+                description=(
+                    f"The shadow persons database is still receiving writes after "
+                    f"{config.reset_settle_timeout_seconds}s, most likely the personhog writer draining its "
+                    "backlog. Nothing was truncated; re-run once it settles."
+                )
+            ) from timeout
+
+        context.log.info(f"Truncating {len(tables)} tables in the shadow persons database: {', '.join(tables)}")
+        with connection.cursor() as cursor:
             cursor.execute("SET application_name = 'dagster_personhog_shadow_lane'")
             cursor.execute("SET statement_timeout = '10min'")
             # One statement so the reset is atomic; CASCADE covers the FKs
@@ -176,12 +273,12 @@ def _reset_shadow_state(context: dagster.OpExecutionContext, config: ShadowLaneS
 
 @dagster.op
 def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
+    apps = apps_api()
     if config.reset_state:
-        _reset_shadow_state(context, config)
+        _reset_shadow_state(context, config, apps)
     else:
         context.log.info("reset_state is false, leaving the shadow persons database untouched")
 
-    apps = apps_api()
     targets = [
         (config.consumer_deployment, config.consumer_replicas),
         (config.processor_deployment, config.processor_replicas),
@@ -194,7 +291,7 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
     pending = dict(targets)
     while pending and time.monotonic() < deadline:
         for deployment, replicas in list(pending.items()):
-            _existing, ready = deployment_replica_status(apps, config.namespace, deployment)
+            ready = deployment_ready_replicas(apps, config.namespace, deployment)
             if ready >= replicas:
                 context.log.info(f"{deployment} is ready with {ready} replica(s)")
                 del pending[deployment]
