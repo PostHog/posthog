@@ -1283,6 +1283,13 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
     error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
 
 
+def _tag_name_set(value: Any) -> set[str]:
+    """The tag names a client-supplied value resolves to, so a reorder is not a change."""
+    if not isinstance(value, list):
+        return set()
+    return normalize_tag_names(tag for tag in value if isinstance(tag, str))
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -2687,23 +2694,31 @@ class FeatureFlagSerializer(
         if original_flag is None or original_flag == {}:
             return []
 
-        # Get the fields that the user is trying to change
-        user_changes = [
-            field
-            for field, new_value in validated_data.items()
-            if field in original_flag and new_value != original_flag[field]
-        ]
+        conflicts = []
+        for field, new_value in validated_data.items():
+            if field not in original_flag:
+                continue
+            if field == "tags":
+                # Tags are written through a separate relationship, so the row carries no
+                # attribute of that name and a plain getattr would raise here.
+                current_value = normalize_tag_names(current_tag_names(current_instance))
+                original_value = _tag_name_set(original_flag[field])
+                requested_value = _tag_name_set(new_value)
+            elif hasattr(current_instance, field):
+                current_value = getattr(current_instance, field)
+                original_value = original_flag[field]
+                requested_value = new_value
+            else:
+                continue
+            # The user changes the field, another writer changed it too, and the two disagree.
+            if (
+                requested_value != original_value
+                and original_value != current_value
+                and requested_value != current_value
+            ):
+                conflicts.append(field)
 
-        # Return the fields that have conflicts
-        # Only include fields where the user's intended change is different from the current value
-        # AND the original value is different from the current value (indicating someone else changed it)
-        return [
-            field
-            for field in user_changes
-            if field in original_flag
-            and original_flag[field] != getattr(current_instance, field)
-            and validated_data[field] != getattr(current_instance, field)
-        ]
+        return conflicts
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""

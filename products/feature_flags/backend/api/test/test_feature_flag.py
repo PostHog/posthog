@@ -3064,6 +3064,58 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
         self.assertEqual(conflicts, ["name", "filters"])
 
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_updating_tags_on_a_stale_version_reports_a_conflict(self, mock_report_user_action) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "original name", "key": "a-flag-with-tags", "tags": ["alpha"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        flag_id = response.json()["id"]
+
+        # Another user tags the flag first.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={"tags": ["beta"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # Tags is a serializer-only field, so the conflict check has no model attribute to read.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={"tags": ["gamma"], "version": 999, "original_flag": {"tags": ["alpha"]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
+        self.assertEqual(
+            list(FeatureFlag.objects.get(id=flag_id).tagged_items.values_list("tag__name", flat=True)), ["beta"]
+        )
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_reordered_tags_on_a_stale_version_are_not_a_conflict(self, mock_report_user_action) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "original name", "key": "a-flag-with-reordered-tags", "tags": ["alpha", "beta"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={
+                "name": "a new name",
+                "tags": ["beta", "alpha"],
+                "version": 999,
+                "original_flag": {"tags": ["alpha", "beta"], "name": "original name"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(FeatureFlag.objects.get(id=flag_id).name, "a new name")
+
     @parameterized.expand(
         [
             ("list", ["active"]),
