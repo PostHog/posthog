@@ -360,6 +360,11 @@ and hands the reset to capture, which resets the table once the sync has finishe
 snapshot. So a table that resumes after a long stop, such as a billing block lifting, re-snapshots
 instead of loading on past changes it never saw.
 
+Only a run that listed the buffer, or re-seeded the table with a snapshot, counts as having consumed
+it — and only once every table that run writes finished. A `both` run whose history lane never
+completed landed those changes on the consolidated table alone, so it leaves the history table owed
+and does not count.
+
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
 
