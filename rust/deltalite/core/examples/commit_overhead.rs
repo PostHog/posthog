@@ -246,6 +246,7 @@ fn parse_args() -> Args {
         reuse_handle: false,
         dir: None,
     };
+    // nosemgrep: rust.lang.security.args.args
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut take = |name: &str| it.next().unwrap_or_else(|| panic!("{name} needs a value"));
@@ -381,6 +382,9 @@ async fn main() {
     let args = parse_args();
     let schema = arrow_schema(args.non_nullable_pk);
 
+    // Benchmark-only fixture cache keyed by run parameters; not a security-sensitive
+    // temp file, so a predictable name under the system temp dir is intentional here.
+    // nosemgrep: rust.lang.security.temp-dir.temp-dir
     let dir = args.dir.clone().unwrap_or_else(|| {
         std::env::temp_dir().join(format!(
             "deltalite-commit-overhead-v{}-r{}-p{}-nn{}",
