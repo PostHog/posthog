@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 
 import { mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
+import { SCOUT_CHAT_TEMPLATES } from './ScoutChatModal'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutsRosterActions } from './ScoutsRosterActions'
@@ -202,26 +203,38 @@ describe('scout creation buttons', () => {
         expect(startedUserPrompts).toEqual(['Watch for spam signups'])
     })
 
-    it('carries the typed request between the chat and the form', async () => {
+    it.each([
+        ['a picked template', 'Churn risk', SCOUT_CHAT_TEMPLATES.find(({ id }) => id === 'churn_risk')!.prompt],
+        [
+            'a typed request longer than the form description allows',
+            null,
+            `Tell me when checkout payments fail. ${'Split the report by payment provider and by country. '.repeat(24)}`.trim(),
+        ],
+    ])('carries %s between the chat and the form', async (_name, templateLabel, request) => {
         const { findByText, getByText, container } = render(<ScoutsRosterActions />)
+        const findChatPrompt = (): Promise<HTMLTextAreaElement> =>
+            waitFor(() => {
+                const textarea = container.ownerDocument.querySelector<HTMLTextAreaElement>(
+                    '[data-attr="scout-chat-prompt"]'
+                )
+                expect(textarea).toBeTruthy()
+                return textarea!
+            })
 
         fireEvent.click(getByText('New scout'))
         fireEvent.click(await findByText('Chat with an agent'))
-        fireEvent.click(getByText('Churn risk'))
+        if (templateLabel) {
+            fireEvent.click(getByText(templateLabel))
+        } else {
+            fireEvent.change(await findChatPrompt(), { target: { value: request } })
+        }
         fireEvent.click(getByText('Use the form instead'))
 
-        const churnPrompt = await findByText(/usage drops sharply/)
         expect(await findByText('Manual scout form')).toBeTruthy()
+        expect(getByText(request)).toBeTruthy()
 
-        fireEvent.click(churnPrompt.parentElement!.querySelector('button')!)
-        const prompt = await waitFor(() => {
-            const textarea = container.ownerDocument.querySelector<HTMLTextAreaElement>(
-                '[data-attr="scout-chat-prompt"]'
-            )
-            expect(textarea).toBeTruthy()
-            return textarea!
-        })
-        expect(prompt.value).toContain('usage drops sharply')
+        fireEvent.click(getByText('Back to chat'))
+        expect((await findChatPrompt()).value).toBe(request)
         expect(startedChatTypes).toEqual([])
     })
 

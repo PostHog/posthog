@@ -5,7 +5,6 @@ import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_DESCRIPTION_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     captureScoutCreatePathChosen,
@@ -38,8 +37,6 @@ export function ScoutNewButton({
     size = 'small',
 }: ScoutNewButtonProps): JSX.Element {
     const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
-    // The form's description is shorter than the chat prompt, so keep the whole prompt for the way back.
-    const [lastChatPrompt, setLastChatPrompt] = useState('')
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const chatDisabledReason =
@@ -126,11 +123,9 @@ export function ScoutNewButton({
                     onClose={() => setOpenModal(null)}
                     onSwitchToForm={(prompt) => {
                         captureScoutCreatePathSwitched({ direction: 'chat_to_form', surface })
-                        setLastChatPrompt(prompt)
-                        setOpenModal({
-                            kind: 'form',
-                            initialValues: prompt ? { description: prompt.slice(0, SKILL_DESCRIPTION_MAX_LENGTH) } : {},
-                        })
+                        // The chat allows a longer request than the form's description. Carry all of it, so the
+                        // form marks the description as too long and the person decides what to cut.
+                        setOpenModal({ kind: 'form', initialValues: prompt ? { description: prompt } : {} })
                     }}
                 />
             ) : null}
@@ -140,12 +135,7 @@ export function ScoutNewButton({
                 onCreated={onCreated}
                 onSwitchToChat={(description) => {
                     captureScoutCreatePathSwitched({ direction: 'form_to_chat', surface })
-                    const unchanged =
-                        !!lastChatPrompt && description === lastChatPrompt.slice(0, SKILL_DESCRIPTION_MAX_LENGTH).trim()
-                    setOpenModal({
-                        kind: 'chat',
-                        prompt: unchanged ? lastChatPrompt : description.slice(0, SCOUT_CHAT_PROMPT_MAX_LENGTH),
-                    })
+                    setOpenModal({ kind: 'chat', prompt: description.slice(0, SCOUT_CHAT_PROMPT_MAX_LENGTH) })
                 }}
             />
         </>
