@@ -65764,6 +65764,7 @@ export namespace Schemas {
       BillingExempt: 'billing_exempt',
       NoBillablePr: 'no_billable_pr',
       OutOfPeriod: 'out_of_period',
+      PrMerged: 'pr_merged',
     } as const;
 
     /**

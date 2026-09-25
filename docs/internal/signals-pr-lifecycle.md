@@ -8,6 +8,11 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+Self-serve refunds require an unmerged billable implementation PR in the current billing period.
+The refund action checks the stored PR merge state independently of the report status.
+A rejected refund leaves the report and billing unchanged.
+An accepted refund suppresses the report, including a report that was resolved manually.
+
 ## Repository selection
 
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.

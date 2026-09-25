@@ -41,7 +41,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
+from django.db.models import F, OuterRef, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -239,11 +239,17 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
         .order_by("task__runs__created_at")
         .values("task__runs__created_at")[:1]
     )
-    return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
+    earliest_url = (
+        _bridges_with_pr_run()
+        .filter(report_id=OuterRef("id"))
+        .order_by("task__runs__created_at")
+        .values("task__runs__output__pr_url")[:1]
+    )
+    return queryset.annotate(first_billable_pr_run_at=Subquery(earliest), first_billable_pr_url=Subquery(earliest_url))
 
 
-def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, datetime]:
-    """`annotate_first_billable_pr_run_at` for a known set of reports, in one grouped query.
+def first_billable_pr_run_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, FirstBillablePrRun]:
+    """The first billable run's timestamp and URL for each report, in one query.
 
     The annotation is a correlated subquery, so it costs one bridge-and-run walk per row the
     query returns. A list that already knows its page asks for the whole page at once instead.
@@ -252,10 +258,14 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) ->
     rows = (
         _bridges_with_pr_run()
         .filter(report_id__in=report_ids)
-        .values("report_id")
-        .annotate(first_run_at=Min("task__runs__created_at"))
+        .order_by("report_id", "task__runs__created_at")
+        .distinct("report_id")
+        .values_list("report_id", "task__runs__created_at", "task__runs__output__pr_url")
     )
-    return {str(row["report_id"]): row["first_run_at"] for row in rows}
+    return {
+        str(report_id): FirstBillablePrRun(created_at=created_at, pr_url=pr_url)
+        for report_id, created_at, pr_url in rows
+    }
 
 
 # Why a report can't be refunded right now (`refund_ineligibility_reason`); None = refundable.
@@ -263,12 +273,14 @@ REFUND_INELIGIBLE_ALREADY_REFUNDED = "already_refunded"
 REFUND_INELIGIBLE_BILLING_EXEMPT = "billing_exempt"
 REFUND_INELIGIBLE_NO_BILLABLE_PR = "no_billable_pr"
 REFUND_INELIGIBLE_OUT_OF_PERIOD = "out_of_period"
+REFUND_INELIGIBLE_PR_MERGED = "pr_merged"
 
 REFUND_INELIGIBILITY_REASONS = (
     REFUND_INELIGIBLE_ALREADY_REFUNDED,
     REFUND_INELIGIBLE_BILLING_EXEMPT,
     REFUND_INELIGIBLE_NO_BILLABLE_PR,
     REFUND_INELIGIBLE_OUT_OF_PERIOD,
+    REFUND_INELIGIBLE_PR_MERGED,
 )
 
 
@@ -277,6 +289,7 @@ def refund_ineligibility_reason(
     has_refund: bool,
     billing_exempt: bool,
     billable_run_at: datetime | None,
+    pr_merged: bool,
     period: BillingPeriod,
 ) -> str | None:
     """Why a report can't be refunded right now, or None when a refund would be accepted.
@@ -293,6 +306,8 @@ def refund_ineligibility_reason(
         return REFUND_INELIGIBLE_NO_BILLABLE_PR
     if not (period.start <= billable_run_at < period.end):
         return REFUND_INELIGIBLE_OUT_OF_PERIOD
+    if pr_merged:
+        return REFUND_INELIGIBLE_PR_MERGED
     return None
 
 

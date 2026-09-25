@@ -88,11 +88,12 @@ from products.signals.backend.billing import (
     REFUND_INELIGIBLE_BILLING_EXEMPT,
     REFUND_INELIGIBLE_NO_BILLABLE_PR,
     REFUND_INELIGIBLE_OUT_OF_PERIOD,
+    REFUND_INELIGIBLE_PR_MERGED,
     SIGNALS_CREDITS_PER_REPORT_WITH_PR,
     annotate_first_billable_pr_run_at,
     current_billing_period_bounds,
     first_billable_pr_run,
-    first_billable_pr_run_at_by_report,
+    first_billable_pr_run_by_report,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
     report_pr_is_merged,
@@ -846,6 +847,7 @@ _REFUND_INELIGIBLE_MESSAGES = {
     REFUND_INELIGIBLE_BILLING_EXEMPT: "This report is marked never-billable, so there is nothing to refund.",
     REFUND_INELIGIBLE_NO_BILLABLE_PR: "This report has no billable implementation PR to refund.",
     REFUND_INELIGIBLE_OUT_OF_PERIOD: "This PR was billed in a previous billing period and can no longer be refunded.",
+    REFUND_INELIGIBLE_PR_MERGED: "This PR has been merged and can't be refunded here. Contact support for help.",
 }
 
 
@@ -2196,7 +2198,7 @@ class SignalReportViewSet(
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
-            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+            first_billable_pr_run_map = first_billable_pr_run_by_report(report_ids)
 
         # Same trade for the two artefact-derived fields the row renders: one query each over the
         # page, rather than a correlated subquery the sort makes Postgres run for every report in
@@ -2216,7 +2218,7 @@ class SignalReportViewSet(
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
-            "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "first_billable_pr_run_map": first_billable_pr_run_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -3103,7 +3105,7 @@ class SignalReportViewSet(
             400: OpenApiResponse(
                 description=(
                     "Report is not refundable: no billable implementation PR, the PR run is outside "
-                    "the current billing period, or the report is system-marked never-billable."
+                    "the current billing period, the PR is merged, or the report is system-marked never-billable."
                 )
             ),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
@@ -3116,7 +3118,7 @@ class SignalReportViewSet(
             "customer-balance credit on the next invoice. A refunded PR does not count toward the "
             "free monthly PR allowance. One refund per report, ever — repeat calls return the "
             "existing refund with already_refunded=true. The report is archived as part of the "
-            "refund (a resolved report stays resolved) and can't be restored afterwards."
+            "refund and can't be restored afterwards. Merged PRs can't be refunded through this endpoint."
         ),
         operation_id="signals_reports_refund_create",
     )
@@ -3148,6 +3150,7 @@ class SignalReportViewSet(
             # Same decision the serializer's `refund_ineligibility_reason` field renders from,
             # so the UI's button state and this endpoint's 400s can never disagree.
             billable_run = first_billable_pr_run(report.id)
+            pr_merged = bool(billable_run and report_pr_is_merged(report.id, billable_run.pr_url, team_id=self.team_id))
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.
@@ -3156,6 +3159,7 @@ class SignalReportViewSet(
                 has_refund=False,  # the idempotent 200 above already handled existing refunds
                 billing_exempt=bool(report.billing_exempt_reason),
                 billable_run_at=billable_run.created_at if billable_run else None,
+                pr_merged=pr_merged,
                 period=period,
             )
             if ineligibility is not None:
@@ -3170,11 +3174,6 @@ class SignalReportViewSet(
             # the next UTC day), so the report can simply be excluded from usage; anything later
             # must go through a billing-service credit. Decided once, stored, never recomputed.
             now = timezone.now()
-            # Derived from the persisted merge flag, not the report status: a report can be resolved
-            # manually without a merged PR, so RESOLVED no longer implies the PR shipped. Asked about
-            # the PR being refunded specifically — it's that PR the refund reverses the charge for,
-            # and that PR which has to be closed if it never merged.
-            pr_merged = report_pr_is_merged(report.id, billable_run.pr_url, team_id=self.team_id)
             billing_path = (
                 SignalReportRefund.BillingPath.EXCLUDED
                 if billable_run.created_at.astimezone(UTC).date() == now.astimezone(UTC).date()
@@ -3205,14 +3204,9 @@ class SignalReportViewSet(
 
             # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
             # dismissal receiver closes the implementation PR that was paid for and then refunded.
-            # The one exception is a report resolved by a merged PR: that PR shipped, so the report
-            # stays put as a genuine terminal state and there is no open PR to close. A report
-            # resolved manually without a merged PR is NOT exempt — its PR may still be open, and
-            # leaving it resolved would let the caller keep the implementation work after the refund.
             # Already-suppressed reports need no transition. The dismissal artefact records the
             # rationale; the structured truth lives on the refund row.
-            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
-            if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
+            if report.status != SignalReport.Status.SUPPRESSED:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)
@@ -3236,8 +3230,7 @@ class SignalReportViewSet(
         # forwards on the same channel as any other dismissal. `refund.reason` rather than the
         # `refunded` code the artefact records, because `pr_incorrect` tells a scout the PR missed
         # what its report promised while `refunded` only says money moved. Outside the atomic block
-        # because forwarding writes rows of its own and must not be able to roll back the refund it
-        # reports; a report left RESOLVED by a merged PR is dropped by the forwarding path itself.
+        # because forwarding writes rows of its own and must not be able to roll back the refund it reports.
         self._forward_dismissal_note(
             reports=[report],
             dismissal_reason=refund.reason,
