@@ -2,6 +2,8 @@ import json
 
 from posthog.test.base import BaseTest
 
+from django.core.exceptions import ValidationError
+
 from parameterized import parameterized
 
 from posthog.models.event_ingestion_restriction_config import (
@@ -306,6 +308,27 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         data = json.loads(redis_data if redis_data is not None else b"[]")
 
         self.assertEqual(data[0]["pipelines"], ["session_recordings"])
+
+    def test_heatmaps_pipeline_reaches_redis(self):
+        """The heatmaps consumer filters rules on pipeline == "heatmaps", so the admin must be able to select it."""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            pipelines=["heatmaps"],
+        )
+
+        redis_data = self.redis_client.get(config.get_redis_key())
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+
+        self.assertEqual(data[0]["pipelines"], ["heatmaps"])
+
+    def test_unknown_pipeline_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            EventIngestionRestrictionConfig.objects.create(
+                token="test_token",
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                pipelines=["not_a_pipeline"],
+            )
 
     def test_update_pipeline_fields(self):
         """Test that updating pipelines field correctly updates Redis"""
