@@ -155,6 +155,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -416,8 +417,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # it to the canonical team keeps the inbox toggle and the emit gate on the same row from
         # any environment. All other sources stay environment-scoped.
         if self._is_scout_source(source_product, source_type):
+            if not self._can_reach_canonical_team():
+                raise exceptions.PermissionDenied(ScoutCanonicalTeamAccessPermission.message)
             return self.team.parent_team_id or self.team_id
         return self.team_id
+
+    def _can_reach_canonical_team(self) -> bool:
+        # The scout row lives on the parent team, so a caller confined to this child environment
+        # must not read or toggle it.
+        return ScoutCanonicalTeamAccessPermission().has_permission(self.request, self)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
@@ -428,9 +436,10 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
             source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
         )
-        return queryset.filter(
-            (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
-        )
+        environment_rows = Q(team_id=self.team_id) & ~scout_source
+        if not self._can_reach_canonical_team():
+            return queryset.filter(environment_rows)
+        return queryset.filter(environment_rows | (Q(team_id=canonical_team_id) & scout_source))
 
     def perform_create(self, serializer):
         team_id = self._config_team_id(

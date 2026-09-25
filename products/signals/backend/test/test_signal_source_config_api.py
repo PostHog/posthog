@@ -5,7 +5,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
@@ -535,6 +537,52 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             enabled=True,
         )
         assert self.client.get(self._child_url()).json()["results"] == []
+
+    @parameterized.expand(
+        [
+            ("list", "get", False, None, status.HTTP_200_OK),
+            ("update", "patch", True, {"enabled": False}, status.HTTP_404_NOT_FOUND),
+            (
+                "create",
+                "post",
+                False,
+                {"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": False},
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_child_scoped_api_key_cannot_reach_parent_scout_row(
+        self, _name: str, method: str, detail: bool, data: dict | None, expected_status: int
+    ) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            enabled=True,
+        )
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["task:read", "task:write"],
+            scoped_teams=[self.child_team.id],
+        )
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            self._child_url(str(config.id) if detail else None),
+            data=data,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        if method == "get":
+            assert response.json()["results"] == []
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert SignalSourceConfig.objects.filter(source_product="signals_scout").count() == 1
 
 
 class TestIsSourceEnabledGating(APIBaseTest):
