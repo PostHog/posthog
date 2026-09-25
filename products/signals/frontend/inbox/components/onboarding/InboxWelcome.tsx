@@ -8,6 +8,7 @@ import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { condenseCommand } from 'lib/components/CommandBlock/CommandBlock'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +22,10 @@ import { LoopDiagram } from './LoopDiagram'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
 export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
+
+// posthog.com and the onboarding install step show the short form and copy the pinned form.
+// Show the same text here, so the command does not appear to change between surfaces.
+const SELF_DRIVING_WIZARD_DISPLAY_COMMAND = condenseCommand(SELF_DRIVING_WIZARD_COMMAND)
 
 /** How long the copy button reads "Copied" before flipping back. */
 const COPIED_RESET_MS = 1600
@@ -55,7 +60,7 @@ function CommandCta(): JSX.Element {
         <div className="InboxWelcome__cta flex flex-wrap items-center justify-center gap-x-3 gap-y-2.5 py-2.5 pl-4 pr-2.5">
             <span className="whitespace-nowrap font-mono text-sm text-white">
                 <span className="select-none text-[#6f6f76]">$ </span>
-                {SELF_DRIVING_WIZARD_COMMAND}
+                {SELF_DRIVING_WIZARD_DISPLAY_COMMAND}
             </span>
             <button
                 type="button"
