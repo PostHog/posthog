@@ -273,6 +273,7 @@ export function PromptHeaderMeta(): JSX.Element | null {
                     tags={tags}
                     tagsAvailable={tagsAvailable.filter((tag: string) => !tags.includes(tag))}
                     onChange={setTags}
+                    saving={false}
                     data-attr="llma-prompt-tags"
                 />
             ) : (

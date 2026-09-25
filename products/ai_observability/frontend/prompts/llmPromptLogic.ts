@@ -1332,9 +1332,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         setTags: async ({ tags }) => {
             try {
-                const response = await llmPromptsNameTagsUpdate(String(ApiConfig.getCurrentTeamId()), props.promptName, {
-                    tags,
-                })
+                const response = await llmPromptsNameTagsUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.promptName,
+                    {
+                        tags,
+                    }
+                )
                 if (isPrompt(values.prompt)) {
                     actions.setPrompt({ ...values.prompt, tags: response.tags })
                 }

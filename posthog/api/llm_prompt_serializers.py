@@ -246,9 +246,9 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         return tags
 
 
-def prompt_tags_field(**kwargs: Any) -> serializers.ListField:
+def prompt_tags_field(*, required: bool = True) -> serializers.ListField:
     return serializers.ListField(
-        **kwargs,
+        required=required,
         child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
         max_length=BULK_UPDATE_TAGS_MAX_TAGS,
         help_text=(
