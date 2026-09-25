@@ -39,9 +39,12 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # The image and the unit tests both build the replay-anonymizer addon from these crates.
                   filters: |
                       scrub_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.ml-mirror-image-scrub'
                         - '.github/workflows/ci-ml-mirror-image-scrub-container.yml'
 
@@ -50,7 +53,7 @@ jobs:
         name: Unit-test ml-mirror-image-scrub
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.scrub_files == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         permissions:
             contents: read
         defaults:
@@ -78,6 +81,15 @@ jobs:
             - name: Typecheck
               # jest runs through babel (no type errors), so tsc is the only thing that typechecks the worker.
               run: pnpm typecheck
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Build the native addon
+              # src/pixel-convert.ts loads the addon at import, so every suite that reaches a detector needs it.
+              run: pnpm build:native
 
             - name: Run unit tests
               run: pnpm test:unit
