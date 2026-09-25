@@ -901,6 +901,7 @@ class TestSignupAPI(APIBaseTest):
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {
+            "email_verified": True,
             "access_token": "123",
             "email": "jane@hogflix.posthog.com",
             "sub": "123",
@@ -984,6 +985,7 @@ class TestSignupAPI(APIBaseTest):
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
             mock_request.return_value.json.return_value = {
+                "email_verified": True,
                 "access_token": "123",
                 "email": "jane@hogflix.posthog.com",
                 "sub": "123",
@@ -1024,6 +1026,7 @@ class TestSignupAPI(APIBaseTest):
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {
+            "email_verified": True,
             "access_token": "123",
             "email": "alice@posthog.net",
             "sub": "123",
@@ -1058,6 +1061,7 @@ class TestSignupAPI(APIBaseTest):
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
             mock_request.return_value.json.return_value = {
+                "email_verified": True,
                 "access_token": "123",
                 "email": "alice@posthog.net",
                 "sub": "123",
@@ -1102,6 +1106,7 @@ class TestSignupAPI(APIBaseTest):
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
             mock_request.return_value.json.return_value = {
+                "email_verified": True,
                 "access_token": "123",
                 "email": "bob@posthog.net",
                 "sub": "123",
@@ -1134,7 +1139,12 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": email,
+            "email_verified": True,
+            "sub": "123",
+        }
         return self.client.get(url, follow=True)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1233,6 +1243,7 @@ class TestSignupAPI(APIBaseTest):
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {
+            "email_verified": True,
             "access_token": "123",
             "email": "alice@posthog.net",
             "sub": "123",
@@ -1263,6 +1274,7 @@ class TestSignupAPI(APIBaseTest):
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {
+            "email_verified": True,
             "access_token": "123",
             "email": "alice@evil.com",
             "sub": "123",
@@ -1289,6 +1301,7 @@ class TestSignupAPI(APIBaseTest):
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
             mock_request.return_value.json.return_value = {
+                "email_verified": True,
                 "access_token": "123",
                 "email": "jane@hogflix.posthog.com",
                 "sub": "123",
@@ -1365,7 +1378,12 @@ class TestSignupAPI(APIBaseTest):
         session["invite_id"] = invite_id
         session.save()
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"}) + f"?code=2&state={state}"
-        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": email,
+            "email_verified": True,
+            "sub": "123",
+        }
         return self.client.get(url, follow=True)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1414,6 +1432,7 @@ class TestSignupAPI(APIBaseTest):
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={state}"
             mock_request.return_value.json.return_value = {
+                "email_verified": True,
                 "access_token": "123",
                 "email": "outsider@gmail.com",
                 "sub": "123",
@@ -1469,6 +1488,7 @@ class TestSignupAPI(APIBaseTest):
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {
+            "email_verified": True,
             "access_token": "123",
             "email": "jane@hogflix.posthog.com",
             "sub": "123",

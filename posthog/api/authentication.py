@@ -41,6 +41,8 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_core.backends.base import BaseAuth
+from social_core.backends.github import GithubOAuth2
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
@@ -1349,6 +1351,16 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
     return request
 
 
+def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: Any) -> bool:
+    request = strategy.request
+    return (
+        bool(request)
+        and request.user.is_authenticated
+        and getattr(backend, "name", "") == "github"
+        and (strategy.session_get("next") or "").startswith("/account-connected/github-login")
+    )
+
+
 def social_identity_matches_session(
     strategy: DjangoStrategy,
     backend: Any,
@@ -1361,10 +1373,7 @@ def social_identity_matches_session(
     if not request or not request.user.is_authenticated or social is not None:
         return
 
-    is_github_account_link = getattr(backend, "name", "") == "github" and (
-        strategy.session_get("next") or ""
-    ).startswith("/account-connected/github-login")
-    if is_github_account_link:
+    if _is_signed_in_github_account_link(strategy, backend):
         return
 
     identity_email = ((details or {}).get("email") or "").lower()
@@ -1377,9 +1386,9 @@ def social_identity_matches_session(
         raise AuthFailed(backend, "reauth_user_mismatch")
 
 
-def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bool:
+def _github_email_is_verified(backend: GithubOAuth2, access_token: str, email: str) -> bool:
     try:
-        emails = backend.get_json(
+        emails: object = backend.get_json(
             urljoin(backend.api_url(), "user/emails"), headers={"Authorization": f"token {access_token}"}
         )
     except (RequestException, AuthConnectionError, ValueError) as error:
@@ -1397,26 +1406,31 @@ def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bo
 
 
 def social_email_verified_by_provider(
-    backend: Any,
+    strategy: DjangoStrategy,
+    backend: BaseAuth,
     details: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
-    user: User | None = None,
+    social: Any = None,
     **kwargs: Any,
 ) -> None:
-    if user is not None:
+    # A linked identity resolves by its provider uid, and a signed-in account connect is keyed to the
+    # session. Every other flow, re-authentication included, trusts the email address.
+    if social is not None or _is_signed_in_github_account_link(strategy, backend):
         return
 
     response = response or {}
     email = (details or {}).get("email") or ""
-    if getattr(backend, "name", "") == "github":
+    if isinstance(backend, GithubOAuth2):
         # The GitHub backend picks the primary address from /user/emails without its `verified` flag,
         # and GitHub lets an unverified address be primary.
         is_verified = not email or _github_email_is_verified(backend, response.get("access_token", ""), email)
+    elif backend.name == "google-oauth2":
+        is_verified = response.get("email_verified") is True
     else:
         is_verified = response.get("email_verified") is not False
 
     if not is_verified:
-        logger.warning("social_login_unverified_provider_email", backend=getattr(backend, "name", ""))
+        logger.warning("social_login_unverified_provider_email", backend=backend.name)
         raise AuthFailed(backend, UNVERIFIED_SOCIAL_EMAIL_ERROR)
 
 
