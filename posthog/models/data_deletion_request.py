@@ -288,6 +288,11 @@ class DataDeletionRequest(UUIDModel):
         db_default={},
         help_text="Variables stored with the HogQL query snapshot.",
     )
+    submission_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Client-generated identifier used to deduplicate self-service submissions.",
+    )
     properties = ArrayField(
         models.CharField(max_length=1024),
         blank=True,
@@ -442,6 +447,13 @@ class DataDeletionRequest(UUIDModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["team_id", "-created_at"], name="ddr_team_created_at_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "submission_id"],
+                condition=models.Q(submission_id__isnull=False),
+                name="ddr_team_submission_id_uniq",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
