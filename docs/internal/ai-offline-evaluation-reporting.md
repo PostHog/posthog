@@ -54,6 +54,32 @@ Full-content bundles are rejected because they cannot apply the run's private ca
 The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
 Keep downloaded prompts, memory, reports, and transcripts outside version control.
 
+### Rubric mock for comparison development
+
+The [mock rubric fixture](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/fixtures/mock-scout-rubric.json) matches the read response in [the scout rubric editor PR](https://github.com/PostHog/posthog/pull/106580), checked at `d7c6c3742ba`.
+It contains the six default criteria, `revision: 0` (unsaved defaults), and `generation: null`.
+These are mock inputs for developing scoring and reports, not a saved or reviewed rubric for the selected scout.
+
+Print a mock response for a scout:
+
+```sh
+python products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/scout_rubric_reader.py \
+  --config-id 00000000-0000-4000-8000-000000000001 \
+  --skill-name signals-scout-example
+```
+
+Comparison code can accept `ScoutRubricReader` and explicitly use `MockScoutRubricReader` from that script.
+`read(config_id=..., skill_name=...)` returns a fresh document with the supplied scout identity and the API's unchanged field names.
+The reader does not write scout configuration, generate criteria, or score runs.
+
+When the real rubric API is available, replace the mock reader with a reader for `GET /api/projects/{team_id}/signals/scout/rubrics/{config_id}/`, preserving that response shape.
+Keep the editor, storage, and generation in the rubric feature; do not add a second implementation to comparisons.
+The real reader must propagate missing-rubric and access errors rather than falling back to mock criteria.
+
+Persist the returned criteria and revision with the comparison before judging, so every variant uses the same rubric.
+Record `source: mock` separately from the API document, and never label mock results as a reviewed scout evaluation.
+Judge only enabled saved/default `criteria`; `generation.suggestions` are drafts, and missing evidence is not a passing score.
+
 ### Internal comparison UI
 
 Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
