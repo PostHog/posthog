@@ -282,7 +282,7 @@ export interface mcpAnalyticsToolQualityLogicActions {
         column: ToolQualitySortColumn,
         direction: SortDirection
     ) => {
-        column: ToolQualitySortColumn
+        column: MCPToolQualitySortColumn
         direction: SortDirection
     }
 }
