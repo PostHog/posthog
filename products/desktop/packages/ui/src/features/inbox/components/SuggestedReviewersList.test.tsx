@@ -21,6 +21,38 @@ function ungroupedReviewer(index: number): SuggestedReviewer {
 }
 
 describe("SuggestedReviewersList", () => {
+  it("shows the shared reason before its indented reviewers and always shows remove controls", () => {
+    const reason = "Maintains request handling.";
+    const reviewers = [0, 1].map((index) => ({
+      ...ungroupedReviewer(index),
+      reason,
+      explanation: reason,
+    }));
+
+    render(
+      <SuggestedReviewersList
+        reviewers={reviewers}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const reasonElement = screen.getByText(reason);
+    const firstReviewer = screen.getByText("Dev 0");
+    expect(
+      reasonElement.compareDocumentPosition(firstReviewer) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(firstReviewer.closest(".pl-3")).toBeInTheDocument();
+    expect(reasonElement.parentElement?.parentElement).not.toHaveClass(
+      "border",
+    );
+    expect(screen.getAllByRole("button", { name: /^Remove / })).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Remove Dev 0" }),
+    ).not.toHaveClass("opacity-0");
+  });
+
   it.each([
     [
       "a hover",

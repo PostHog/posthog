@@ -39,5 +39,8 @@ describe("ReportReviewersSection", () => {
       screen.getByText("No suggested reviewers. Select Add to suggest one."),
     ).toBeInTheDocument();
     expect(screen.getByText("Add")).toBeInTheDocument();
+    expect(
+      screen.getByText("Suggested reviewers").closest("header"),
+    ).not.toContainElement(screen.getByText("Add"));
   });
 });

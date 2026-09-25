@@ -114,7 +114,6 @@ function RemoveReviewerButton({
       aria-label={`Remove ${displayName}`}
       disabled={disabled}
       data-attr="inbox-report-remove-reviewer"
-      className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
       onClick={() => onRemove(reviewer)}
     >
       <XIcon size={12} />
@@ -134,7 +133,7 @@ function SuggestedReviewerPerson({
   const explanation = suggestedReviewerExplanation(reviewer);
   const sourceLabel = suggestedReviewerSourceLabel(reviewer);
   return (
-    <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 gap-y-1 rounded-sm px-1.5 py-1.5 hover:bg-fill-hover">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 gap-y-1 rounded-sm px-1.5 py-1.5 hover:bg-fill-hover">
       <ReviewerIdentity reviewer={reviewer} />
       {isScoutSuggestedReviewer(reviewer) ? (
         <ScoutSourceBadge scoutNames={[sourceLabel]} />
@@ -179,8 +178,21 @@ function SuggestedReviewerReasonGroup({
   }
 
   return (
-    <div className="overflow-hidden rounded-sm border border-border bg-muted/40">
-      <div className="flex flex-col p-1">
+    <div className="min-w-0 py-1">
+      <div className="flow-root min-w-0">
+        <div className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
+          {scoutNames.size > 0 ? (
+            <ScoutSourceBadge scoutNames={[...scoutNames]} />
+          ) : null}
+          {[...otherSourceLabels].map((sourceLabel) => (
+            <ReviewerSourceBadge key={sourceLabel} label={sourceLabel} />
+          ))}
+        </div>
+        <p className="m-0 min-w-0 break-words text-muted-foreground text-xs leading-snug">
+          {reason}
+        </p>
+      </div>
+      <div className="mt-1 flex flex-col pl-3">
         {reviewers.map((reviewer) => (
           <div
             key={
@@ -189,7 +201,7 @@ function SuggestedReviewerReasonGroup({
               reviewer.github_login ??
               suggestedReviewerDisplayName(reviewer)
             }
-            className="group flex min-w-0 items-center gap-2 rounded-sm py-0.5 pr-0.5 pl-1.5 hover:bg-fill-hover"
+            className="flex min-w-0 items-center gap-2 rounded-sm py-0.5 pr-0.5 hover:bg-fill-hover"
           >
             <div className="min-w-0 flex-1">
               <ReviewerIdentity reviewer={reviewer} />
@@ -203,19 +215,6 @@ function SuggestedReviewerReasonGroup({
             ) : null}
           </div>
         ))}
-      </div>
-      <div className="flow-root min-w-0 border-border border-t px-2.5 py-2">
-        <div className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
-          {scoutNames.size > 0 ? (
-            <ScoutSourceBadge scoutNames={[...scoutNames]} />
-          ) : null}
-          {[...otherSourceLabels].map((sourceLabel) => (
-            <ReviewerSourceBadge key={sourceLabel} label={sourceLabel} />
-          ))}
-        </div>
-        <p className="m-0 min-w-0 break-words text-muted-foreground text-xs leading-snug">
-          {reason}
-        </p>
       </div>
     </div>
   );

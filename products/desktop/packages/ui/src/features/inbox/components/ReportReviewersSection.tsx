@@ -31,7 +31,6 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
   const { data } = useInboxReportArtefacts(report.id);
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
-  const [addOpen, setAddOpen] = useState(false);
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
@@ -65,11 +64,35 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
   };
 
   return (
+    <ReportReviewersSectionView
+      report={report}
+      reviewers={reviewers}
+      disabled={isPending}
+      onRemove={removeReviewer}
+    />
+  );
+}
+
+export function ReportReviewersSectionView({
+  report,
+  reviewers,
+  disabled,
+  onRemove,
+}: {
+  report: SignalReport;
+  reviewers: SuggestedReviewer[];
+  disabled: boolean;
+  onRemove: (reviewer: SuggestedReviewer) => void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+
+  return (
     <DetailSection
       Icon={UsersThreeIcon}
       title="Suggested reviewers"
       collapsible
-      rightSlot={
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger
@@ -91,37 +114,36 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
           <span className="text-[12px] text-gray-10 tabular-nums">
             {reviewers.length}
           </span>
-          <Popover open={addOpen} onOpenChange={setAddOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="link-muted"
-                  size="xs"
-                  disabled={isPending}
-                  data-attr="inbox-report-add-reviewer"
-                >
-                  {isPending ? <Spinner /> : <PlusIcon size={12} />}
-                  Add
-                </Button>
-              }
-            />
-            <PopoverContent
-              align="end"
-              side="bottom"
-              sideOffset={6}
-              className="min-w-[280px] max-w-[320px] p-0"
-            >
-              <ReviewerSearchList
-                report={report}
-                surface="detail_pane"
-                enabled={addOpen}
-              />
-            </PopoverContent>
-          </Popover>
         </div>
-      }
-    >
+        <Popover open={addOpen} onOpenChange={setAddOpen}>
+          <PopoverTrigger
+            render={
+              <Button
+                type="button"
+                variant="link-muted"
+                size="xs"
+                disabled={disabled}
+                data-attr="inbox-report-add-reviewer"
+              >
+                {disabled ? <Spinner /> : <PlusIcon size={12} />}
+                Add
+              </Button>
+            }
+          />
+          <PopoverContent
+            align="end"
+            side="bottom"
+            sideOffset={6}
+            className="min-w-[280px] max-w-[320px] p-0"
+          >
+            <ReviewerSearchList
+              report={report}
+              surface="detail_pane"
+              enabled={addOpen}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
       {reviewers.length === 0 ? (
         <p className="m-0 text-muted-foreground text-xs">
           No suggested reviewers. Select Add to suggest one.
@@ -129,8 +151,8 @@ export function ReportReviewersSection({ report }: { report: SignalReport }) {
       ) : (
         <SuggestedReviewersList
           reviewers={reviewers}
-          disabled={isPending}
-          onRemove={removeReviewer}
+          disabled={disabled}
+          onRemove={onRemove}
         />
       )}
     </DetailSection>
