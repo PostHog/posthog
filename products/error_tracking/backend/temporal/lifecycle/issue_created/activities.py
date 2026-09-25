@@ -217,12 +217,13 @@ def _infer_issue_created_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSe
         ingestion_severity_source=inputs.severity_source,
     )
     if answer.choice == inputs.issue.severity:
-        return IssueSeverityInferenceResult(severity=answer.choice)
-    if not apply_inferred_severity(
+        return IssueSeverityInferenceResult(resolved=True, severity=answer.choice)
+    stored_severity = apply_inferred_severity(
         inputs.team_id, inputs.issue_id, expected=inputs.issue.severity, inferred=answer.choice
-    ):
-        return IssueSeverityInferenceResult(skipped_reason="severity_changed")
-    return IssueSeverityInferenceResult(severity=answer.choice)
+    )
+    if stored_severity != answer.choice:
+        return IssueSeverityInferenceResult(resolved=True, severity=stored_severity, skipped_reason="severity_changed")
+    return IssueSeverityInferenceResult(resolved=True, severity=answer.choice)
 
 
 @activity.defn

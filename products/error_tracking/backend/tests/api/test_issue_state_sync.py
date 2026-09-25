@@ -100,22 +100,24 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ingestion_severity_unchanged", "medium", "medium", True, "critical"),
-            ("severity_changed_while_inferring", "medium", "low", False, "low"),
-            ("no_ingestion_severity", None, None, True, "critical"),
+            ("ingestion_severity_unchanged", "medium", "medium", "critical", ["critical"]),
+            ("severity_changed_while_inferring", "medium", "low", "low", []),
+            ("no_ingestion_severity", None, None, "critical", ["critical"]),
+            ("retry_after_failed_clickhouse_sync", "medium", "critical", "critical", ["critical"]),
         ]
     )
     def test_inferred_severity_only_replaces_the_ingestion_severity(
-        self, _name, expected, current, applied, final_severity
+        self, _name, expected, current, stored_severity, synced_severities
     ):
         issue = self._create_issue(fingerprints=["fp_1"], severity=current)
 
-        assert apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical") is applied
+        assert (
+            apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical") == stored_severity
+        )
 
         issue.refresh_from_db()
-        assert issue.severity == final_severity
-        rows = self._get_issue_state_rows()
-        assert [row[6] for row in rows] == (["critical"] if applied else [])
+        assert issue.severity == stored_severity
+        assert [row[6] for row in self._get_issue_state_rows()] == synced_severities
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])

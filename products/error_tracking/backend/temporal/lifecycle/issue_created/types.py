@@ -49,6 +49,8 @@ class IssueEmbeddingPreparationResult:
 
 @dataclasses.dataclass(frozen=True)
 class IssueSeverityInferenceResult:
+    # True when `severity` is the severity stored on the issue, which downstream side effects must carry.
+    resolved: bool = False
     severity: str | None = None
     skipped_reason: str | None = None
 

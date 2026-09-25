@@ -41,7 +41,9 @@ SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
     maximum_interval=timedelta(seconds=30),
     maximum_attempts=3,
 )
-SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(minutes=1)
+SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
+# Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
+SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=15),
@@ -166,12 +168,13 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 "infer_issue_created_severity_activity",
                 inputs,
                 result_type=IssueSeverityInferenceResult,
+                schedule_to_close_timeout=SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT,
                 start_to_close_timeout=SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT,
                 retry_policy=SEVERITY_INFERENCE_RETRY_POLICY,
             )
         except ActivityError:
             workflow.logger.warning("Severity inference failed; keeping the ingestion severity")
             return inputs
-        if result.severity is None or result.severity == inputs.issue.severity:
+        if not result.resolved or result.severity == inputs.issue.severity:
             return inputs
         return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.severity))

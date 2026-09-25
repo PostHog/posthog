@@ -169,14 +169,22 @@ def update_issue(
     return issue
 
 
-def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> bool:
-    """Set a model-inferred severity. Returns False when the severity changed after ingestion set `expected`."""
+def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> str | None:
+    """Set a model-inferred severity unless the severity changed after ingestion set `expected`.
+
+    Returns the severity stored on the issue after the attempt.
+    """
     try:
         issue = _get_issue(team_id, issue_id, select_related=("team",))
     except ErrorTrackingIssueNotFoundError:
-        return False
-    if issue.severity != expected or expected == inferred:
-        return False
+        return expected
+    if issue.severity == inferred:
+        # A retry after a failed ClickHouse sync finds the inferred severity already stored.
+        # The sync is idempotent, so run it again rather than leave ClickHouse on the old value.
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+        return inferred
+    if issue.severity != expected:
+        return issue.severity
 
     with transaction.atomic():
         # The conditional update keeps a severity that a person or a rule set while the model ran.
@@ -184,7 +192,11 @@ def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str
             severity=inferred, state_updated_at=timezone.now()
         )
         if not updated:
-            return False
+            return (
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue.id)
+                .values_list("severity", flat=True)
+                .first()
+            )
         log_activity(
             organization_id=issue.team.organization_id,
             team_id=team_id,
@@ -204,7 +216,7 @@ def apply_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str
         )
 
     sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
-    return True
+    return inferred
 
 
 def merge_issues(
