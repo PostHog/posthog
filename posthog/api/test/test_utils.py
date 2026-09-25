@@ -288,18 +288,6 @@ class TestUtils(BaseTest):
             ("TracesQuery gets extended timeout only", {"kind": "TracesQuery"}, False, True),
             ("ExperimentQuery gets extended timeout only", {"kind": "ExperimentQuery"}, False, True),
             (
-                "ExperimentTrendsQuery gets extended timeout only",
-                {"kind": "ExperimentTrendsQuery"},
-                False,
-                True,
-            ),
-            (
-                "ExperimentFunnelsQuery gets extended timeout only",
-                {"kind": "ExperimentFunnelsQuery"},
-                False,
-                True,
-            ),
-            (
                 "ExperimentExposureQuery gets extended timeout only",
                 {"kind": "ExperimentExposureQuery"},
                 False,
