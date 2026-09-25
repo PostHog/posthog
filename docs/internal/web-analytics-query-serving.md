@@ -201,6 +201,14 @@ People appear in a stable order, and CSV exports retain the selected goal and at
 If conversion details are not ready, the list shows a preparation message and requests a background calculation.
 The people query requires viewer access to Web analytics, including when it serves cached results.
 
+## Campaign breakdown columns
+
+Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.
+A fresh visit restores those preferences without saving query results or draft conversion goals.
+Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.
+Changing tabs or dashboard filters preserves those column options in the URL.
+Reset to defaults clears the custom selection, sorting, and pins for later visits.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
