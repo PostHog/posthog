@@ -101,6 +101,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
+    '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -613,6 +615,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+    },
+    BusinessKnowledgePlayground: {
+        name: 'Business knowledge playground',
+        projectBased: true,
+        iconType: 'conversations',
     },
     BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
     BusinessKnowledgeSource: {
@@ -1226,6 +1233,8 @@ export const productUrls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgePlayground: (chatId?: string): string =>
+        chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
@@ -2124,7 +2133,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings', 'BusinessKnowledgeSource'],
+        sceneKeys: [
+            'BusinessKnowledge',
+            'BusinessKnowledgePlayground',
+            'BusinessKnowledgeSettings',
+            'BusinessKnowledgeSource',
+        ],
     },
     {
         path: 'Clusters',

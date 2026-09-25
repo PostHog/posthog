@@ -22,6 +22,12 @@ export const manifest: ProductManifest = {
             description:
                 'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
         },
+        BusinessKnowledgePlayground: {
+            name: 'Business knowledge playground',
+            import: () => import('products/business_knowledge/frontend/scenes/BusinessKnowledgePlaygroundScene'),
+            projectBased: true,
+            iconType: 'conversations',
+        },
         BusinessKnowledgeSettings: {
             name: 'Business knowledge settings',
             import: () => import('./frontend/scenes/BusinessKnowledgeSettingsScene'),
@@ -40,12 +46,17 @@ export const manifest: ProductManifest = {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
         // Static sibling must stay above :id so kea-router does not treat "settings" as an id.
         '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+        // Static sibling must stay above :id so kea-router does not treat "playground" as an id.
+        '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
+        '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
         '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     },
     redirects: {},
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
         businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+        businessKnowledgePlayground: (chatId?: string): string =>
+            chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
         businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     },
     fileSystemTypes: {},

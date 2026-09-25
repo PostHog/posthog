@@ -233,6 +233,8 @@ __all__ = [
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
     "create_and_run_task",
+    "get_owner_origin_latest_run",
+    "owner_origin_has_non_terminal_run",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -1725,6 +1727,60 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+_NON_TERMINAL_RUN_STATUSES = (
+    TaskRun.Status.NOT_STARTED,
+    TaskRun.Status.QUEUED,
+    TaskRun.Status.IN_PROGRESS,
+)
+
+
+def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origin_product: str) -> bool:
+    """Whether this owner already has a run of this origin that has not finished.
+
+    Internal origins are hidden from the task APIs, so callers that admit one run at a time
+    check here instead of listing tasks. ``origin_product`` is required so one product's open
+    run does not block another's.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        task__team_id=team_id,
+        task__created_by_id=created_by_id,
+        task__origin_product=origin_product,
+        task__deleted=False,
+        status__in=_NON_TERMINAL_RUN_STATUSES,
+    ).exists()
+
+
+def get_owner_origin_latest_run(
+    *,
+    task_id: str | UUID,
+    team_id: int,
+    created_by_id: int,
+    origin_product: str,
+) -> contracts.TaskRunDTO | None:
+    """Latest run of a task, only when team, owner, and origin all match.
+
+    A miss on any of those is ``None``. Internal tasks are invisible on the normal task APIs,
+    so this is the read those products use for their own runs.
+    """
+    try:
+        task = Task.objects.filter(
+            id=task_id,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            deleted=False,
+        ).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        return None
+    if task is None:
+        return None
+    run = task.runs.order_by("-created_at").first()
+    if run is None:
+        return None
+    return _task_run_to_dto(run, task=task)
 
 
 def create_wizard_cloud_run(

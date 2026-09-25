@@ -38,6 +38,36 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
 })
 
 /**
+ * Append a turn and start a sandbox run. A second question while any run is still open returns 409, including from a different chat.
+ * @summary Ask a question in a playground chat
+ */
+export const businessKnowledgePlaygroundChatsAskCreateBodyQuestionMax = 4000
+
+export const BusinessKnowledgePlaygroundChatsAskCreateBody = /* @__PURE__ */ zod.object({
+    question: zod
+        .string()
+        .max(businessKnowledgePlaygroundChatsAskCreateBodyQuestionMax)
+        .describe(
+            "Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters."
+        ),
+})
+
+/**
+ * Start a sandbox agent that can search only this project's business knowledge. Returns immediately.
+ * @summary Ask a business knowledge sandbox question
+ */
+export const businessKnowledgeSandboxCreateBodyQuestionMax = 4000
+
+export const BusinessKnowledgeSandboxCreateBody = /* @__PURE__ */ zod.object({
+    question: zod
+        .string()
+        .max(businessKnowledgeSandboxCreateBodyQuestionMax)
+        .describe(
+            "Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters."
+        ),
+})
+
+/**
  * Partially update Business knowledge learning settings. Enabling learn-from-support requires Support to be on in this environment.
  * @summary Update business knowledge settings
  */
