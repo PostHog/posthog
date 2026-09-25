@@ -59,7 +59,6 @@ import { devRouter } from "./routers/dev";
 import { discordPresenceRouter } from "./routers/discord-presence";
 import { encryptionRouter } from "./routers/encryption";
 import { missionControlRouter } from "./routers/mission-control";
-import { quickAskRouter } from "./routers/quick-ask";
 import { workspaceServerRouter } from "./routers/workspace-server";
 import { router } from "./trpc";
 
@@ -102,7 +101,6 @@ export const trpcRouter = router({
   mcpCallback: mcpCallbackRouter,
   mcpRelay: mcpRelayRouter,
   missionControl: missionControlRouter,
-  quickAsk: quickAskRouter,
   notification: notificationRouter,
   oauth: oauthRouter,
   logs: logsRouter,

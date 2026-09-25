@@ -20,6 +20,7 @@ describe('createClientWarningsConsumer', () => {
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+            TEAMS_PREFETCH_ENABLED: false,
             ...({} as IngestionOutputsConfig),
         }
     }
