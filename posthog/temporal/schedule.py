@@ -123,6 +123,7 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -961,6 +962,7 @@ schedules = [
     create_replay_vision_search_suggestions_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
+    create_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,

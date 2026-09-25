@@ -793,6 +793,8 @@ depends_on = [
     "products.experiments",
     "products.exports",
     "products.feature_flags",
+    # Facade-only: the watch feed's hourly Jev sweep calls the shared decision-model client.
+    "products.ml_inference",
     "products.notifications",
     "products.signals",
     "products.tasks", "products.access_control",
