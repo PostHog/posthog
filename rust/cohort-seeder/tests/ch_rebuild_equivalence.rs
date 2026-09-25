@@ -17,9 +17,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clickhouse::{Client, Row};
+use clickhouse::Row;
 use cohort_seeder::clickhouse::client::build_client;
 use cohort_seeder::clickhouse::sql::rebuild_expr;
+use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::ProjectedKeys;
 use envconfig::Envconfig;
@@ -223,13 +224,13 @@ async fn a_number_clickhouse_cannot_represent_passes_the_whole_blob_through() {
     }
 }
 
-fn connect() -> Client {
+fn connect() -> ClickHouseClient {
     let config = Config::init_from_env().expect("the seeder config falls back to its defaults");
     build_client(&config).expect("the default ClickHouse client builds")
 }
 
 /// Run the production rebuild expression over `blobs`, in the blobs' own order.
-async fn rebuild_all(client: &Client, keys: &[&str], blobs: &[&str]) -> Vec<String> {
+async fn rebuild_all(client: &ClickHouseClient, keys: &[&str], blobs: &[&str]) -> Vec<String> {
     let keys = ProjectedKeys::new(keys.iter().map(|key| (*key).to_owned()).collect())
         .expect("every corpus case names at least one key");
     let sql = format!(

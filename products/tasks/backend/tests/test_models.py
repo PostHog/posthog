@@ -864,6 +864,16 @@ class TestTaskSlackPrNotification(TestCase):
         self.assertEqual(task.state["unrelated"], "keep-me")
         self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
+    def test_mutate_state_atomic_saves_a_nested_value_edited_in_place(self):
+        task = self._task()
+        task.state = {"offers": {"items": [1]}}
+        task.save(update_fields=["state"])
+
+        Task.mutate_state_atomic(task.id, lambda state: state["offers"]["items"].append(2))
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["offers"], {"items": [1, 2]})
+
 
 class TestTaskSlug(TestCase):
     organization: ClassVar[Organization]

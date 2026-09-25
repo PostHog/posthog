@@ -32,6 +32,12 @@ Two mechanical facts anchor everything. First, **recording capture is config-gat
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a corroborated capture cliff or friction cluster you'd stand behind as a standalone inbox item a human will act on. A cliff or cluster the inbox already covers that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` → `references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this body adds only the session-replay-specific framing — do not restate the generic mechanics.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Replay SQL footguns (read first)
 
 Four mechanical traps that produce silently-wrong results — every replay query in this skill is shaped around them:

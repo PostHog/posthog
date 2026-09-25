@@ -11,7 +11,8 @@
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "storybook": "catalog:"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",

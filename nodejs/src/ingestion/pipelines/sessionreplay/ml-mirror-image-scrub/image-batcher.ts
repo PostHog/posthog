@@ -894,6 +894,7 @@ export class ImageBatcher {
                                       tableKeyString(imageKeyId(Number(item.image.teamId), item.image.sessionMonth!))
                                   )
                         )
+                        ImageScrubConsumerMetrics.incUrlImageWrite(outcome)
                         if (outcome === 'created' && item.capturedAtMs !== undefined) {
                             ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
                         }
