@@ -11,7 +11,7 @@ import { mockScoutSuggestionSet } from '../../../__mocks__/scoutConfigs'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { SCOUT_CHAT_TEMPLATES } from './ScoutChatModal'
 import { ScoutCreateButton } from './ScoutCreateButton'
-import { ScoutNewButton } from './ScoutNewButton'
+import { ScoutNewButton, ScoutNewModals } from './ScoutNewButton'
 import { ScoutsRosterActions } from './ScoutsRosterActions'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
@@ -42,6 +42,15 @@ jest.mock('./ScoutCreateModal', () => ({
 const mockGetAccessControlDisabledReason = getAccessControlDisabledReason as jest.MockedFunction<
     typeof getAccessControlDisabledReason
 >
+
+function ScoutsRosterActionsWithModals({ showActions = true }: { showActions?: boolean }): JSX.Element {
+    return (
+        <>
+            {showActions ? <ScoutsRosterActions /> : null}
+            <ScoutNewModals />
+        </>
+    )
+}
 
 describe('scout creation buttons', () => {
     let startedChatTypes: string[]
@@ -184,7 +193,7 @@ describe('scout creation buttons', () => {
         ['off the suggestions flag', false],
     ])('starts an authoring chat on the typed request from New scout, %s', async (_name, suggestionsEnabled) => {
         setSuggestionsFlag(suggestionsEnabled)
-        const { findByText, getByText, queryByText, container } = render(<ScoutsRosterActions />)
+        const { findByText, getByText, queryByText, container } = render(<ScoutsRosterActionsWithModals />)
 
         fireEvent.click(getByText('Ask'))
         await findByText('How is my scout troop performing?')
@@ -192,8 +201,8 @@ describe('scout creation buttons', () => {
 
         fireEvent.click(getByText('New scout'))
         fireEvent.click(await findByText('Chat with an agent'))
-        const start = getByText('Start chat').closest('button')
-        expect(start?.getAttribute('aria-disabled')).toBe('true')
+        fireEvent.click(getByText('Start chat'))
+        expect(await findByText('Describe what the scout should watch, or pick a starter below.')).toBeTruthy()
         fireEvent.change(container.ownerDocument.querySelector('[data-attr="scout-chat-prompt"]')!, {
             target: { value: 'Watch for spam signups' },
         })
@@ -201,6 +210,23 @@ describe('scout creation buttons', () => {
 
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
         expect(startedUserPrompts).toEqual(['Watch for spam signups'])
+    })
+
+    it('keeps the chat modal and its prompt when the header actions unmount', async () => {
+        const { findByText, getByText, container, rerender } = render(<ScoutsRosterActionsWithModals />)
+        const chatPrompt = (): HTMLTextAreaElement | null =>
+            container.ownerDocument.querySelector<HTMLTextAreaElement>('[data-attr="scout-chat-prompt"]')
+
+        fireEvent.click(getByText('New scout'))
+        fireEvent.click(await findByText('Chat with an agent'))
+        await waitFor(() => expect(chatPrompt()).toBeTruthy())
+        fireEvent.change(chatPrompt()!, { target: { value: 'Watch for spam signups' } })
+
+        rerender(<ScoutsRosterActionsWithModals showActions={false} />)
+
+        expect(chatPrompt()?.value).toBe('Watch for spam signups')
+        fireEvent.click(getByText('Start chat'))
+        await waitFor(() => expect(startedUserPrompts).toEqual(['Watch for spam signups']))
     })
 
     it.each([
@@ -211,7 +237,7 @@ describe('scout creation buttons', () => {
             `Tell me when checkout payments fail. ${'Split the report by payment provider and by country. '.repeat(24)}`.trim(),
         ],
     ])('carries %s between the chat and the form', async (_name, templateLabel, request) => {
-        const { findByText, getByText, container } = render(<ScoutsRosterActions />)
+        const { findByText, getByText, container } = render(<ScoutsRosterActionsWithModals />)
         const findChatPrompt = (): Promise<HTMLTextAreaElement> =>
             waitFor(() => {
                 const textarea = container.ownerDocument.querySelector<HTMLTextAreaElement>(

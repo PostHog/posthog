@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
 import type { ScoutChatRequest } from '../../../logics/scoutFleetLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
@@ -53,6 +55,7 @@ export interface ScoutChatModalProps {
 export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: ScoutChatModalProps): JSX.Element {
     const [prompt, setPrompt] = useState(initialPrompt)
     const [templateId, setTemplateId] = useState<string | null>(null)
+    const [showEmptyPromptError, setShowEmptyPromptError] = useState(false)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
@@ -62,11 +65,15 @@ export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: 
     const startDisabledReason =
         creationDisabledReason ??
         aiConsentDisabledReason ??
-        (runningChatType !== null && !isStarting ? 'Starting another task…' : null) ??
-        (trimmedPrompt ? null : 'Describe what the scout should watch')
+        (runningChatType !== null && !isStarting ? 'Starting another task…' : null)
 
     const startChat = (): void => {
         if (startDisabledReason || isStarting) {
+            return
+        }
+        // An empty prompt shows an error on the field. A disabled button only explains itself on hover.
+        if (!trimmedPrompt) {
+            setShowEmptyPromptError(true)
             return
         }
         const request: ScoutChatRequest = { userPrompt: trimmedPrompt, templateId }
@@ -114,23 +121,31 @@ export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: 
             }
         >
             <div className="flex flex-col gap-3">
-                <LemonTextArea
-                    autoFocus
-                    value={prompt}
-                    onChange={(value) => {
-                        setPrompt(value)
-                        if (!value.trim()) {
-                            setTemplateId(null)
-                        }
-                    }}
-                    onPressCmdEnter={startChat}
-                    minRows={4}
-                    maxRows={10}
-                    maxLength={SCOUT_CHAT_PROMPT_MAX_LENGTH}
-                    disabled={isStarting}
-                    placeholder="Tell me when a new error starts spiking in production."
-                    data-attr="scout-chat-prompt"
-                />
+                <LemonField.Pure
+                    error={
+                        showEmptyPromptError && !trimmedPrompt
+                            ? 'Describe what the scout should watch, or pick a starter below.'
+                            : undefined
+                    }
+                >
+                    <LemonTextArea
+                        autoFocus
+                        value={prompt}
+                        onChange={(value) => {
+                            setPrompt(value)
+                            if (!value.trim()) {
+                                setTemplateId(null)
+                            }
+                        }}
+                        onPressCmdEnter={startChat}
+                        minRows={4}
+                        maxRows={10}
+                        maxLength={SCOUT_CHAT_PROMPT_MAX_LENGTH}
+                        disabled={isStarting}
+                        placeholder="Tell me when a new error starts spiking in production."
+                        data-attr="scout-chat-prompt"
+                    />
+                </LemonField.Pure>
                 <div className="flex flex-col gap-2">
                     <span className="text-xs text-secondary">Or start from one of these</span>
                     <div className="flex flex-wrap gap-2">

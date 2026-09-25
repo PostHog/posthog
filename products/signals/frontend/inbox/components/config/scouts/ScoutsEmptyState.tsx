@@ -1,17 +1,15 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconCompass } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutSuggestionsEmptyStateCards } from './ScoutSuggestionsStrip'
 
 export function ScoutsEmptyState(): JSX.Element {
-    const { loadScoutConfigs } = useActions(scoutFleetLogic)
     // A project with picks waiting gets them as the body of the empty state. Without picks the
     // empty state stays exactly as it was.
     const { hasPicks } = useValues(scoutSuggestionsLogic)
@@ -38,7 +36,7 @@ export function ScoutsEmptyState(): JSX.Element {
                 </div>
             )}
             <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                <ScoutNewButton layout="buttons" surface="empty_state" onCreated={() => loadScoutConfigs()} />
+                <ScoutNewButton layout="buttons" surface="empty_state" hostModals={false} />
             </div>
             <ScoutHelperSkillLinks />
         </div>

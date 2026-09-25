@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps, LemonMenu, LemonTag } from '@posthog/lemon-ui'
@@ -11,19 +10,10 @@ import {
     captureScoutCreatePathSwitched,
     type ScoutSurface,
 } from '../../../inboxAnalytics'
-import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { type ScoutNewModal, scoutNewModalLogic } from '../../../logics/scoutNewModalLogic'
 import { SCOUT_CHAT_PROMPT_MAX_LENGTH, ScoutChatModal } from './ScoutChatModal'
 import { ScoutCreateModalHost, useScoutCreateDisabledReason } from './ScoutCreateModalHost'
-
-type OpenScoutModal =
-    | {
-          kind: 'chat'
-          prompt: string
-          /** The form this chat came from. Reopening it with the same values keys the same draft. */
-          formInitialValues?: ScoutCreateInitialValues
-      }
-    | { kind: 'form'; initialValues: ScoutCreateInitialValues; descriptionOverride?: string }
 
 export interface ScoutNewButtonProps {
     /** `menu` puts both ways in behind one button. `buttons` shows them side by side. */
@@ -31,6 +21,11 @@ export interface ScoutNewButtonProps {
     surface: ScoutSurface
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     size?: LemonButtonProps['size']
+    /**
+     * Renders the modals next to the button. Pass false when a `ScoutNewModals` that stays mounted
+     * hosts them instead, so the modal survives the button unmounting.
+     */
+    hostModals?: boolean
 }
 
 /**
@@ -42,8 +37,9 @@ export function ScoutNewButton({
     surface,
     onCreated,
     size = 'small',
+    hostModals = true,
 }: ScoutNewButtonProps): JSX.Element {
-    const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
+    const { setOpenModal } = useActions(scoutNewModalLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const chatDisabledReason =
@@ -51,11 +47,11 @@ export function ScoutNewButton({
 
     const openChat = (): void => {
         captureScoutCreatePathChosen({ path: 'chat', surface })
-        setOpenModal({ kind: 'chat', prompt: '' })
+        setOpenModal({ surface, modal: { kind: 'chat', prompt: '' } })
     }
     const openForm = (): void => {
         captureScoutCreatePathChosen({ path: 'form', surface })
-        setOpenModal({ kind: 'form', initialValues: {} })
+        setOpenModal({ surface, modal: { kind: 'form', initialValues: {} } })
     }
 
     return (
@@ -124,19 +120,42 @@ export function ScoutNewButton({
                     </LemonButton>
                 </>
             )}
-            {openModal?.kind === 'chat' ? (
+            {hostModals ? <ScoutNewModals surface={surface} onCreated={onCreated} /> : null}
+        </>
+    )
+}
+
+export interface ScoutNewModalsProps {
+    /** Only render a modal that this surface's button opened. Omit to render the modal for any surface. */
+    surface?: ScoutSurface
+    onCreated?: (scout: SignalScoutCreateResponseApi) => void
+}
+
+/** The chat and form modals that "New scout" opens. Each modal links to the other and carries the typed text across. */
+export function ScoutNewModals({ surface: hostSurface, onCreated }: ScoutNewModalsProps): JSX.Element | null {
+    const { openModal } = useValues(scoutNewModalLogic)
+    const { setOpenModal, closeModal } = useActions(scoutNewModalLogic)
+    if (!openModal || (hostSurface && openModal.surface !== hostSurface)) {
+        return null
+    }
+    const { surface, modal } = openModal
+    const setModal = (next: ScoutNewModal): void => setOpenModal({ surface, modal: next })
+
+    return (
+        <>
+            {modal.kind === 'chat' ? (
                 <ScoutChatModal
-                    initialPrompt={openModal.prompt}
-                    onClose={() => setOpenModal(null)}
+                    initialPrompt={modal.prompt}
+                    onClose={closeModal}
                     onSwitchToForm={(prompt) => {
                         captureScoutCreatePathSwitched({ direction: 'chat_to_form', surface })
                         // The chat allows a longer request than the form's description. Carry all of it, so the
                         // form marks the description as too long and the person decides what to cut.
-                        setOpenModal(
-                            openModal.formInitialValues
+                        setModal(
+                            modal.formInitialValues
                                 ? {
                                       kind: 'form',
-                                      initialValues: openModal.formInitialValues,
+                                      initialValues: modal.formInitialValues,
                                       descriptionOverride: prompt,
                                   }
                                 : { kind: 'form', initialValues: prompt ? { description: prompt } : {} }
@@ -145,16 +164,16 @@ export function ScoutNewButton({
                 />
             ) : null}
             <ScoutCreateModalHost
-                initialValues={openModal?.kind === 'form' ? openModal.initialValues : null}
-                descriptionOverride={openModal?.kind === 'form' ? openModal.descriptionOverride : undefined}
-                onClose={() => setOpenModal(null)}
+                initialValues={modal.kind === 'form' ? modal.initialValues : null}
+                descriptionOverride={modal.kind === 'form' ? modal.descriptionOverride : undefined}
+                onClose={closeModal}
                 onCreated={onCreated}
                 onSwitchToChat={(description) => {
                     captureScoutCreatePathSwitched({ direction: 'form_to_chat', surface })
-                    setOpenModal({
+                    setModal({
                         kind: 'chat',
                         prompt: description.slice(0, SCOUT_CHAT_PROMPT_MAX_LENGTH),
-                        formInitialValues: openModal?.kind === 'form' ? openModal.initialValues : undefined,
+                        formInitialValues: modal.kind === 'form' ? modal.initialValues : undefined,
                     })
                 }}
             />
