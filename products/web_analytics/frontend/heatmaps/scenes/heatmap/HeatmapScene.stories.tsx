@@ -49,6 +49,7 @@ const meta: Meta = {
                     has_secret: false,
                     cookie_delivery_enabled: true,
                 },
+                '/api/projects/:team_id/saved/': { results: [], count: 0, next: null, previous: null },
                 '/api/projects/:team_id/saved/hm_gen/': generatingSaved,
                 '/api/projects/:team_id/heatmap_screenshots/:id/content/': () => [202, generatingSaved],
             },
@@ -136,6 +137,17 @@ export const IframeExampleWithEventFilter: Story = {
         featureFlags: [FEATURE_FLAGS.HEATMAPS_EVENT_FILTER],
     },
     decorators: IframeExample.decorators,
+    play: async () => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+            const toggle = document.querySelector<HTMLElement>('[data-attr="heatmap-filters-toggle"]')
+            if (toggle) {
+                toggle.click()
+                return
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        throw new Error('Filters toggle not rendered')
+    },
 }
 
 export const New: Story = {

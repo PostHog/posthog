@@ -28,16 +28,8 @@ export function installReplayAnalysisBridge(sessionRecordingId: string): () => v
             }
             sessionRecordingPlayerLogic.findMounted({ sessionRecordingId, playerKey: 'exporter' })?.actions.setPause()
             analyzer?.destroy()
-            const windows = Object.fromEntries(
-                Object.entries(logic.values.playableSnapshotsByWindowId).filter(
-                    ([windowId]) => !logic.values.oversizedMutationRanges[Number(windowId)]?.length
-                )
-            )
-            analyzer = new ReplayPageAnalyzer(windows)
-            const result = await analyzer.analyze(input)
-            result.partial ||=
-                Object.keys(windows).length < Object.keys(logic.values.playableSnapshotsByWindowId).length
-            return result
+            analyzer = new ReplayPageAnalyzer(logic.values.snapshotsByWindowId)
+            return await analyzer.analyze(input)
         },
         render: async (windowId, timestamp, signature, height) =>
             analyzer?.render(windowId, timestamp, signature, height) ?? false,

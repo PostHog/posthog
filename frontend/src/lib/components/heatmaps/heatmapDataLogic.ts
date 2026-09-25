@@ -140,9 +140,13 @@ export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoi
 
 // A row added but not yet pointed at an event carries a null id. It selects nothing, and the API rejects
 // it, so leave those out of the request instead of failing the whole heatmap over a half-filled row.
+export function selectedEventFilters(events: CommonFilters['events']): NonNullable<CommonFilters['events']> {
+    return events?.filter((event) => !!event.id) ?? []
+}
+
 export function eventFilterParam(events: CommonFilters['events']): string | undefined {
-    const selected = events?.filter((event) => !!event.id)
-    return selected?.length ? JSON.stringify(selected) : undefined
+    const selected = selectedEventFilters(events)
+    return selected.length ? JSON.stringify(selected) : undefined
 }
 
 export type HrefMatchType = 'exact' | 'pattern'
