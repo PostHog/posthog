@@ -4,6 +4,7 @@ export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
     Both = 'both',
+    RecentQueries = 'recent_queries',
 }
 
 export interface OutputTabProps {
