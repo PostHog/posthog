@@ -171,10 +171,15 @@ describe('sourceManagementLogic', () => {
         jest.spyOn(api.externalDataSources, 'delete').mockRejectedValue(new Error('boom'))
 
         logic.mount()
-        logic.actions.deleteSource(source)
+        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
 
+        logic.actions.deleteSource(source)
         await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+
         expect(logic.values.sourceReloadingById['source-1']).toBe(false)
+        // A transient list failure resolves to an empty page, so reloading after a failed delete
+        // would blank a list of sources that still exist.
+        expect(logic.values.dataWarehouseSourcesLoading).toBe(false)
     })
 
     it('does not supersede an in-flight shallow schema load when mounted', async () => {

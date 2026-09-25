@@ -482,13 +482,15 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
 
             try {
                 await api.externalDataSources.delete(source.id)
+                // Only on success: a transient list failure resolves to an empty page, so reloading
+                // after a delete that failed offline would blank a list of sources that still exist.
+                actions.loadSources()
                 posthog.capture('source deleted', { sourceType: source.source_type })
             } catch (e) {
                 lemonToast.error("We couldn't delete this source. Refresh the page and try again.")
                 posthog.captureException(e)
             } finally {
                 deleting.delete(source.id)
-                actions.loadSources()
                 actions.sourceLoadingFinished(source)
             }
         },
