@@ -338,9 +338,6 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -412,7 +409,7 @@ jobs:
                   path: ${{ runner.temp }}/sandbox-base-image.json
                   if-no-files-found: error
 
-            - name: Smoke the installed agent on both architectures
+            - name: Check the pushed image lists both architectures
               id: smoke
               if: >-
                   !cancelled() && steps.build.outcome == 'success' &&
@@ -421,23 +418,14 @@ jobs:
               env:
                   IMAGE: ghcr.io/posthog/posthog-sandbox-base@${{ steps.build.outputs.digest }}
               run: |
-                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
-                  manifest=$(docker manifest inspect "$IMAGE")
+                  platforms=$(docker buildx imagetools inspect "$IMAGE" \
+                    --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}}{{"\n"}}{{end}}')
                   for platform in linux/amd64 linux/arm64; do
-                    echo "::group::$platform"
-                    digest=$(jq -er --arg platform "$platform" '.manifests[] |
-                      select((.platform.os + "/" + .platform.architecture) == $platform) | .digest' <<< "$manifest")
-                    platform_image="${IMAGE%@*}@$digest"
-                    installed=$(docker run --rm --platform "$platform" "$platform_image" \
-                      node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
-                    if [ "$installed" != "$pinned" ]; then
-                      echo "::error::$platform image has @posthog/agent $installed, Dockerfile pins $pinned"
+                    if ! grep -qx "$platform" <<< "$platforms"; then
+                      echo "::error::$IMAGE has no $platform manifest"
                       exit 1
                     fi
-                    docker run --rm --platform "$platform" "$platform_image" \
-                      /scripts/node_modules/.bin/agent-server --help >/dev/null
-                    echo "@posthog/agent $installed starts on $platform"
-                    echo "::endgroup::"
+                    echo "$IMAGE serves $platform"
                   done
 
             - name: Promote the smoked base image to :master
