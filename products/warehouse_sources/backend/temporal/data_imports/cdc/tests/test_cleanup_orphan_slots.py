@@ -296,7 +296,7 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
     # would leave a live slot with nothing advancing it and the customer's WAL growing.
     source = _create_source(team, job_inputs=_cdc_job_inputs())
     schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
-    adapter = _mock_adapter(slot_survives_drop=True)
+    adapter = _mock_adapter(slot_survives_drop=True, lag_bytes=5000 * 1024 * 1024)
 
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
         _, _, mock_pause = _run(adapter)
