@@ -348,6 +348,12 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalDomainPreference
+                              |SignalProductDomain
+                              |SignalReportRouting
+                              |SignalReviewerExclusion
+                              |SignalRoutingBatch
+                              |SignalRoutingBatchChange
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -774,6 +780,12 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalDomainPreference
+                        |SignalProductDomain
+                        |SignalReportRouting
+                        |SignalReviewerExclusion
+                        |SignalRoutingBatch
+                        |SignalRoutingBatchChange
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact

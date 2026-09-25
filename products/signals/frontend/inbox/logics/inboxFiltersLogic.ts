@@ -80,12 +80,16 @@ export interface InboxFilterState {
 
 function parseScopeParam(raw: unknown): InboxScope {
     if (typeof raw === 'string') {
-        if (raw === 'entire-project') {
+        if (raw === 'entire-project' || raw === 'unclassified') {
             return raw
         }
         // Validate the teammate id so a malformed shared link falls back to the default scope
         // instead of forwarding junk to the report-list API as a reviewer UUID.
-        if (raw.startsWith('teammate:') && isUUIDLike(raw.slice('teammate:'.length))) {
+        if (
+            ['teammate:', 'team:', 'domain:'].some(
+                (prefix) => raw.startsWith(prefix) && isUUIDLike(raw.slice(prefix.length))
+            )
+        ) {
             return raw as InboxScope
         }
     }

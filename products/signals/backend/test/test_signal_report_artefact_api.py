@@ -31,11 +31,15 @@ from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalActorKind,
+    SignalDomainPreference,
+    SignalProductDomain,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportPullRequest,
+    SignalReportRouting,
     SignalReportSuggestedReviewer,
+    SignalReviewerExclusion,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
@@ -474,6 +478,135 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert self._latest_reviewers(report) == []
+
+    @parameterized.expand([("uuid", False), ("legacy_login", True)])
+    def test_self_removal_survives_agent_append_and_in_place_update(self, _name: str, legacy_login: bool):
+        _attach_github_login(self.user, "owner-example")
+        identity = {"github_login": "OWNER-EXAMPLE"} if legacy_login else {"user_uuid": str(self.user.uuid)}
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[identity])
+
+        response = self.client.put(self._detail_url(str(report.id), str(artefact.id)), {"content": []}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalReviewerExclusion.objects.for_team(self.team.id).filter(report=report, user=self.user).exists()
+
+        stale_write = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate([identity]),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert json.loads(stale_write.content) == []
+        stale_write.update_content([identity])
+        assert self._latest_reviewers(report) == []
+
+    def test_human_patch_uses_editor_attribution_for_unclassified_reviewers(self):
+        report = self._create_report()
+        other = self._create_org_member("current-owner@example.com")
+        entries = [{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(other.uuid)}]
+        artefact = self._create_artefact(report, content=entries)
+        artefact.actor_kind = "system"
+        artefact.save(update_fields=["actor_kind"])
+        SignalReportRouting.objects.for_team(self.team.id).create(team=self.team, report=report, accepted=False)
+
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)), {"content": entries}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
+            str(self.user.uuid),
+            str(other.uuid),
+        }
+
+    def test_enforcement_preserves_other_reviewers_when_routing_is_unclassified(self):
+        from products.signals.backend.ownership import enforce_current_reviewers
+
+        report = self._create_report()
+        other = self._create_org_member("retained-owner@example.com")
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(other.uuid)}])
+        SignalReportRouting.objects.for_team(self.team.id).create(team=self.team, report=report, accepted=False)
+        SignalReviewerExclusion.objects.for_team(self.team.id).create(team=self.team, report=report, user=self.user)
+
+        enforce_current_reviewers(team_id=self.team.id, report_id=report.id, attribution=ArtefactAttribution.system())
+
+        assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(other.uuid)]
+        automated = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate([{"user_uuid": str(other.uuid)}]),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        assert [entry["user_uuid"] for entry in json.loads(automated.content)] == [str(other.uuid)]
+
+    def test_only_the_removed_person_can_explicitly_restore_their_suggestion(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        response = self.client.put(self._detail_url(str(report.id), str(artefact.id)), {"content": []}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        other = self._create_org_member("other@example.com")
+        self.client.force_login(other)
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            {"content": [{"user_uuid": str(self.user.uuid)}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._latest_reviewers(report) == []
+
+        self.client.force_login(self.user)
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            {"content": [{"user_uuid": str(self.user.uuid)}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(self.user.uuid)]
+        assert not SignalReviewerExclusion.objects.for_team(self.team.id).filter(report=report, user=self.user).exists()
+
+    def test_deleting_a_removal_cannot_resurrect_an_excluded_reviewer(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])
+        response = self.client.put(self._detail_url(str(report.id), str(artefact.id)), {"content": []}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        removal_id = response.json()["id"]
+        response = self.client.delete(self._detail_url(str(report.id), removal_id))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._latest_reviewers(report) == []
+
+    @parameterized.expand([("accepted", True), ("uncertain", False)])
+    def test_domain_exclusion_applies_only_to_accepted_routing_before_cleanup(self, _name: str, accepted: bool):
+        report = self._create_report()
+        other = self._create_org_member("current-owner@example.com")
+        entries = [{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(other.uuid)}]
+        self._create_artefact(report, content=entries)
+        domain = SignalProductDomain.objects.for_team(self.team.id).create(team=self.team, name="Checkout")
+        SignalReportRouting.objects.for_team(self.team.id).create(
+            team=self.team, report=report, domain=domain, source="agent", accepted=accepted
+        )
+        SignalDomainPreference.objects.for_team(self.team.id).create(team=self.team, user=self.user, domain=domain)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?scope=for_me")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (str(report.id) in [entry["id"] for entry in response.json()["results"]]) is not accepted
+        written = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate(entries),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+        expected = [str(other.uuid)] if accepted else [str(self.user.uuid), str(other.uuid)]
+        assert [entry["user_uuid"] for entry in json.loads(written.content)] == expected
+
+        automatic = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate(entries),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        assert [entry["user_uuid"] for entry in json.loads(automatic.content)] == expected
 
     def test_put_preserves_relevant_commits_for_kept_entries(self):
         report = self._create_report()

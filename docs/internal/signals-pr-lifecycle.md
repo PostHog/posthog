@@ -23,6 +23,20 @@ Slack notifications for a ready report include only reviewers who have access to
 The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 
+## Current ownership and personal routing
+
+Suggested owners are distinct from active claims. Removing yourself records a durable report exclusion; it never releases work you have claimed. Domain exclusions apply to the accepted primary domain, not every product named in evidence. Shared team/domain scopes remain available after personal exclusions.
+
+The routing policy checks every suggested-reviewer write, auto-start, GitHub assignment and personal report notification. Current team membership limits candidates for an assigned team. A queued reviewer notification rechecks the current suggestion list. Explicit human claims retain their existing assignment semantics.
+
+The `signals-current-ownership` flag exposes web and Desktop routing controls. Deploy the additive backend API and migrations before the Desktop client. Keep the flag disabled until the correction flow has been checked with a reviewed domain/team seed. Rollback the new entry points without deleting stored preferences or weakening policy enforcement; existing private APIs remain available for preference recovery.
+
+Domain definitions are reviewed and maintained by people in the project. Automated classification, repository imports and inferred personal rules are follow-up work.
+
+Bulk exclusion starts with a saved preview. Apply enables the private rule immediately and queues bounded cleanup. The worker skips active ownership and concurrent changes. Undo restores only its own unchanged removals, preserving subsequent edits and rules. Disabling a rule permits future suggestions without refilling the backlog.
+
+`signals_routing_changed` records successful correction, preview, apply, undo and cleanup outcomes using the existing analytics client. It contains action/outcome and counts, without report text, domain labels, recipient lists or private rule content. Monitor repeated corrections, cleanup failures/skips, and owner-reviewed false exclusions alongside adoption; report clicks and merge rates alone do not establish routing quality.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.

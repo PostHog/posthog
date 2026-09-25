@@ -112,6 +112,8 @@ ActivityScope = Literal[
     "SignalReport",
     "SignalScoutConfig",
     "SignalTeamConfig",
+    "SignalProductDomain",
+    "SignalReportRouting",
     "StreamlitApp",
     "Metric",
     "TableCertification",
@@ -583,6 +585,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "SignalProductDomain": ["preferences", "reports", "revision"],
+    "SignalReportRouting": ["report", "domain", "domain_revision"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
