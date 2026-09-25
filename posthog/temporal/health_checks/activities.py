@@ -26,6 +26,11 @@ logger = structlog.get_logger(__name__)
 def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[int]]:
     from posthog.models.team import Team
 
+    # This activity runs once before the workflow fans out to batches, so resolving the
+    # kind here fails the whole run instead of every batch that would fail the same way.
+    ensure_registry_loaded()
+    get_detect_fn(inputs.kind)
+
     # Temporal activities run in a thread pool where DB connections can go stale
     # between executions. close_old_connections() ensures we get a fresh connection.
     close_old_connections()

@@ -19,12 +19,16 @@ with temporalio.workflow.unsafe.imports_passed_through():
         HealthCheckThresholdExceeded,
         HealthCheckWorkflowInputs,
     )
+    from posthog.temporal.health_checks.registry import HealthCheckKindNotRegistered
 
 ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
+    # A kind this worker cannot detect stays undetectable for the whole run, so a retry
+    # only repeats the same failure.
+    non_retryable_error_types=[HealthCheckKindNotRegistered.__name__],
 )
 
 
