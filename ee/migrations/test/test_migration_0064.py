@@ -97,6 +97,7 @@ class TestSplitIdentityProviderConfigScopes(BaseTest):
             scim_enabled=False,
             scim_bearer_token=None,
         )
+        record: SCIMProvisionedUser | SCIMRequestLog
         if record_type == "provisioned_user":
             record = SCIMProvisionedUser.objects.create(
                 user=self.user,
