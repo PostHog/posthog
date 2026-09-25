@@ -15,7 +15,7 @@ export interface TerminalNode {
     writable: boolean
     writeKey?: string
     mkdir?: (name: string) => Promise<TerminalNode>
-    create?: (name: string) => Promise<TerminalNode>
+    create?: (name: string, signal?: AbortSignal) => Promise<TerminalNode>
     rename?: (parent: TerminalNode, name: string) => Promise<void>
     remove?: () => Promise<void>
     removed?: boolean

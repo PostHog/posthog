@@ -357,7 +357,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
         this.projectNodes.set(node, { parts, entry })
         node.loadChildren = () => this.ensureDirectory(node)
-        node.create = (name) => this.createNotebook(node, name)
+        node.create = (name, signal) => this.createNotebook(node, name, signal)
         node.mkdir = async (name) => {
             const directory = this.projectNodes.get(node)
             if (!directory) {
@@ -385,7 +385,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
     }
 
-    private async createNotebook(parent: TerminalNode, name: string): Promise<TerminalNode> {
+    private async createNotebook(parent: TerminalNode, name: string, signal?: AbortSignal): Promise<TerminalNode> {
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
         const directory = this.projectNodes.get(parent)
         if (!directory || parent.removed) {
             throw new FilesystemError(116)
@@ -402,6 +405,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
             description: `Create a blank markdown notebook in project ${this.projectId}. This affects everyone in the project.`,
             items: [joinPath([...directory.parts, title])],
         })
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        // Finish reconciling approved writes even if the guest cancels after the POST starts.
         const notebook = await notebooksCreate(
             this.projectId,
             {

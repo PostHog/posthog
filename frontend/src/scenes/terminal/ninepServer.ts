@@ -325,7 +325,7 @@ export class NinePServer {
                 if (!parent.create) {
                     throw new FilesystemError(30)
                 }
-                const fid = { node: await parent.create(name) }
+                const fid = { node: await parent.create(name, signal) }
                 await this.open(fid, flags, signal)
                 this.fids.set(id, fid)
                 return qid(result, fid.node).number(this.messageSize - 24, 4)
