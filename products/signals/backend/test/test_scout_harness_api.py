@@ -1639,6 +1639,65 @@ class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.enabled is True
 
+    def _archive_url(self) -> str:
+        return f"/api/projects/{self.team.id}/llm_skills/name/signals-scout-hygiene/archive"
+
+    def test_archiving_the_skill_cannot_delete_a_locked_scout_behind_the_lock(self) -> None:
+        # The delete flow archives the scout's skill first and only then deletes its config, so a
+        # gate on the config alone still let a non-owner stop a locked scout for good — and there
+        # is no unarchive. The archive has to refuse before it tombstones anything.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+        config.refresh_from_db()
+        assert config.enabled is True
+
+    @parameterized.expand(
+        [
+            ("scout_author", True, False, status.HTTP_204_NO_CONTENT),
+            ("project_admin", False, True, status.HTTP_204_NO_CONTENT),
+            ("plain_member", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_archiving_a_locked_scouts_skill_needs_the_acting_user_or_an_admin(
+        self, _name: str, is_author: bool, is_admin: bool, expected: int
+    ) -> None:
+        self._config(lifecycle_locked=True)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == expected, response.content
+        archived = not LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+        assert archived is (expected == status.HTTP_204_NO_CONTENT)
+
+    def test_archiving_an_unlocked_scouts_skill_keeps_the_plain_bar(self) -> None:
+        # The lock is opt-in, so a project that never turned it on must keep deleting scouts the
+        # way it always did.
+        self._config()
+        self._authored_by(self._other_member())
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+
+    def test_archiving_an_ordinary_skill_is_untouched_by_the_guard(self) -> None:
+        # The guard runs on every archive in the project, so a skill that is not a scout at all
+        # must not pay for it.
+        LLMSkill.objects.create(team=self.team, name="not-a-scout", description="", body="")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/llm_skills/name/not-a-scout/archive")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not LLMSkill.objects.filter(name="not-a-scout", deleted=False).exists()
+
     def test_the_owner_locks_the_scout_and_the_read_surfaces_it(self) -> None:
         # Wiring guard: the flag has to round-trip through the update serializer and the read
         # shape, or the settings UI cannot show or set the lock at all.

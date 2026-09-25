@@ -35,7 +35,6 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from prometheus_client import Counter
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -82,6 +81,12 @@ from products.signals.backend.scout_harness.lazy_seed import (
     SCOUT_SKILL_CATEGORY,
     is_operational_scout,
     scout_skill_origin,
+)
+from products.signals.backend.scout_harness.lifecycle_lock import (
+    lock_protected_changes,
+    record_lifecycle_refusal,
+    resolve_auth_kind,
+    user_holds_scout_lifecycle_claim,
 )
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
@@ -2900,52 +2905,6 @@ def assert_can_grant_scout_write_scopes(
     )
 
 
-LIFECYCLE_WRITES_REFUSED = Counter(
-    "signals_scout_lifecycle_writes_refused",
-    "Writes to a locked scout's lifecycle refused by the owner gate",
-    labelnames=["action", "auth_kind"],
-)
-
-# The fields `lifecycle_locked` protects, alongside deletion. `enabled` stops the scout running and
-# `emit` stops it reporting, so either one silences it.
-LOCK_PROTECTED_FIELDS = ("enabled", "emit", "lifecycle_locked")
-
-
-def _auth_kind(request: Request) -> str:
-    """How this caller authenticated, as a bounded metric label.
-
-    A refusal is most interesting when it comes from an unattended agent holding a member's
-    credential, so the counter has to separate a token from a person at a browser.
-    """
-    authenticator = request.successful_authenticator
-    if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return "oauth"
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        return "personal_api_key"
-    if isinstance(authenticator, SessionAuthentication):
-        return "session"
-    return "other"
-
-
-def _lock_protected_changes(requested: object, *, config: SignalScoutConfig | None) -> list[str]:
-    """Which lock-protected fields this request would actually change on an existing scout.
-
-    Only a change counts: clients resend whole config objects, so a body repeating the current
-    `enabled` must not be refused as a pause. A malformed value counts as an attempt to change the
-    field — the serializer rejects it afterwards, and the gate must not be the thing that lets it
-    through. Nothing is protected while the scout is unlocked, except the lock itself: turning it
-    on decides who may turn it off, so it asks for the same claim from the start.
-    """
-    if config is None or not isinstance(requested, Mapping):
-        return []
-    changed = [
-        field for field in LOCK_PROTECTED_FIELDS if field in requested and requested[field] != getattr(config, field)
-    ]
-    if not changed:
-        return []
-    return changed if config.lifecycle_locked or "lifecycle_locked" in changed else []
-
-
 def guard_scout_lifecycle_fields(
     *,
     request: Request,
@@ -2956,7 +2915,7 @@ def guard_scout_lifecycle_fields(
     action: str,
 ) -> None:
     """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
-    fields = _lock_protected_changes(requested, config=config)
+    fields = lock_protected_changes(requested, config=config)
     if config is None or not fields:
         return
     assert_can_change_scout_lifecycle(
@@ -2975,34 +2934,20 @@ def assert_can_change_scout_lifecycle(
 ) -> None:
     """Gate on pausing, silencing, deleting, or unlocking a scout that opted into the lock.
 
-    `signal_scout:write` is project-wide, and an unattended agent using a member's credential
-    holds it exactly as a person does. That is the right bar for tuning a schedule, and too weak
-    for the lifecycle: one bulk pause silences a project's whole fleet, and resuming passes the
-    enabled-scout maximum that pausing does not, so the fleet does not come back in one step. A
-    locked scout therefore asks for the same claim `write_scopes` asks for — the person the runs
-    act as, or a project admin — resolved the same way, through
-    `resolve_scout_acting_user_id` and never `LLMSkillOwner`, since any skill editor can rewrite
-    that list and would appoint themselves through it.
-
-    The lock is off by default and guards only human write paths. A system transition keeps its own
-    rules: the inactivity sweep and the failure breaker still pause a locked scout.
+    The claim it asks for, and why, is documented on `lifecycle_lock`. The lock is off by default
+    and guards only human write paths: a system transition keeps its own rules, so the inactivity
+    sweep and the failure breaker still pause a locked scout.
     """
     user = cast(User, request.user)
-    level = UserPermissions(user=user, team=team).current_team.effective_membership_level
-    if level is not None and level >= OrganizationMembership.Level.ADMIN:
+    if user_holds_scout_lifecycle_claim(team=team, skill_name=skill_name, config=config, user=user):
         return
-    if resolve_scout_acting_user_id(team, skill_name, config) == user.pk:
-        return
-    auth_kind = _auth_kind(request)
-    LIFECYCLE_WRITES_REFUSED.labels(action=action, auth_kind=auth_kind).inc()
-    logger.warning(
-        "signals_scout: locked lifecycle write refused",
-        team_id=team.id,
+    record_lifecycle_refusal(
+        team=team,
         skill_name=skill_name,
         action=action,
-        fields=sorted(fields or []),
+        auth_kind=resolve_auth_kind(request.successful_authenticator),
         user_id=user.pk,
-        auth_kind=auth_kind,
+        fields=fields,
     )
     if config.lifecycle_locked:
         raise exceptions.PermissionDenied(
