@@ -10,6 +10,12 @@ import { StripePortalButton } from './StripePortalButton'
 export const BillingSummary = (): JSX.Element => {
     const { billing } = useValues(billingLogic)
 
+    // The headline projection is shown after any percentage discount, so the no-limit comparison in
+    // the tooltip has to be too. Otherwise the two figures differ by the whole discount rate.
+    const uncappedProjectedTotalUsd = billing?.discount_percent
+        ? billing.projected_total_amount_usd_after_discount || billing.projected_total_amount_usd
+        : billing?.projected_total_amount_usd
+
     return (
         <div className="flex flex-wrap gap-6 w-fit">
             <div className="flex-1 pt-2">
@@ -42,8 +48,8 @@ export const BillingSummary = (): JSX.Element => {
                                                 } and the remaining time left in this billing period. This number updates once daily. ${
                                                     billing.projected_total_amount_usd_with_limit !==
                                                     billing.projected_total_amount_usd
-                                                        ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
-                                                              parseFloat(billing.projected_total_amount_usd || '0')
+                                                        ? ` This value is capped by the billing limits on your products. A billing limit covers one product, so any product without a limit keeps billing. Without any billing limit your projected total would be ${humanFriendlyCurrency(
+                                                              parseFloat(uncappedProjectedTotalUsd || '0')
                                                           )}`
                                                         : ''
                                                 }`}
