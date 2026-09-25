@@ -6,9 +6,10 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import requests
+from openai.resources.chat.completions import Completions
 from parameterized import parameterized
 
 from posthog.celery_queues import CeleryQueue
@@ -20,7 +21,6 @@ from posthog.egress.typesafe import (
     SystemOneResult,
     TypeSafeRequestFailed,
 )
-from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
@@ -690,7 +690,7 @@ class TestDraftScout(SimpleTestCase):
     def _draft(self, content: str) -> tuple[ScoutDraft | None, MagicMock]:
         client = _gateway_reply({})
         client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
-        with patch("products.posthog_ai.backend.turn_suggestions.drafter.get_llm_client", return_value=client):
+        with patch("products.posthog_ai.backend.turn_suggestions.drafter.build_openai_client", return_value=client):
             draft = draft_scout(
                 build_turn_transcript(_metric_turn()),
                 team_id=1,
@@ -729,11 +729,43 @@ class TestDraftScout(SimpleTestCase):
 
         assert draft is None
 
-    def test_an_unconfigured_gateway_returns_none(self):
-        with patch(
-            "products.posthog_ai.backend.turn_suggestions.drafter.get_llm_client",
-            side_effect=GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured"),
+    @parameterized.expand(
+        [
+            (
+                "go_gateway",
+                {"AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"},
+                "https://ai-gateway.example.com/v1/",
+            ),
+            # The posthog_ai route bills the customer's AI credits, so the fallback must use an unbilled one.
+            (
+                "python_fallback",
+                {"LLM_GATEWAY_URL": "http://llm-gateway.example.com", "LLM_GATEWAY_API_KEY": "phx_test"},
+                "http://llm-gateway.example.com/growth/v1/",
+            ),
+        ]
+    )
+    def test_drafts_are_billed_to_posthog_on_either_gateway(self, _name: str, gateway: dict, base_url: str):
+        unset = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "LLM_GATEWAY_URL": "", "LLM_GATEWAY_API_KEY": ""}
+        reply = MagicMock(choices=[MagicMock(message=MagicMock(content="{}"))])
+        with (
+            override_settings(**{**unset, **gateway}),
+            patch.object(Completions, "create", autospec=True, return_value=reply) as create,
         ):
+            draft_scout(
+                build_turn_transcript(_metric_turn()),
+                team_id=7,
+                today=date(2026, 9, 16),
+                mode=ScoutMode.WATCH,
+                cadence=ScoutCadence.DAILY,
+            )
+
+        client = create.call_args.args[0]._client
+        assert str(client.base_url) == base_url
+        assert create.call_args.kwargs["user"] == "team-7"
+
+    def test_an_unconfigured_gateway_returns_none(self):
+        unset = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "LLM_GATEWAY_URL": "", "LLM_GATEWAY_API_KEY": ""}
+        with override_settings(**unset):
             draft = draft_scout(
                 build_turn_transcript(_metric_turn()),
                 team_id=1,
