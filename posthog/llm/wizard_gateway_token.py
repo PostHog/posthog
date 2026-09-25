@@ -67,6 +67,8 @@ WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
     "gpt-5.6-luna": ("low",),
     "gpt-5.6-sol": ("medium",),
     "gpt-5.6-terra": ("low", "medium", "high"),
+    "gpt-6-luna": ("low", "medium"),
+    "gpt-6-sol": ("low", "medium", "high"),
 }
 
 # pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.

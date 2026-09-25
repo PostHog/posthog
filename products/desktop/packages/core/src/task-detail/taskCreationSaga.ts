@@ -105,6 +105,9 @@ export class TaskCreationSaga extends Saga<
     const claudeCloudModelAccess = isPiRuntime
       ? undefined
       : input.claudeCloudModelAccess;
+    const codexCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.codexCloudModelAccess;
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -118,7 +121,8 @@ export class TaskCreationSaga extends Saga<
       !isPiRuntime &&
       !taskId &&
       input.workspaceMode === "cloud" &&
-      claudeCloudModelAccess !== "own-subscription"
+      claudeCloudModelAccess !== "own-subscription" &&
+      codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -443,6 +447,7 @@ export class TaskCreationSaga extends Saga<
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
             claudeModelAccess: claudeCloudModelAccess,
+            codexModelAccess: codexCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,
             contextWindow: isPiRuntime ? undefined : input.contextWindow,
@@ -868,7 +873,8 @@ export class TaskCreationSaga extends Saga<
         const canActivateWarmRun =
           input.runtime !== "pi" &&
           !warmPayload?.suppressWarmReuse &&
-          input.claudeCloudModelAccess !== "own-subscription";
+          input.claudeCloudModelAccess !== "own-subscription" &&
+          input.codexCloudModelAccess !== "own-subscription";
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,

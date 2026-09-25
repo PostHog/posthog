@@ -27,8 +27,8 @@ poisoning and no access-control bypass.
 
 The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty to disable warming, or
 `auto` to warm every team that has a conversion goal AND has opened marketing analytics recently
-(query_log). Unset, it falls back to `DEFAULT_ROLLOUT_TEAM_IDS` on PostHog Cloud and to no teams
-elsewhere. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
+(query_log). Unset, it warms the teams with a conversion goal and the read flag on, on PostHog Cloud
+only. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
 """
 
 import os
@@ -106,9 +106,6 @@ COST_MATERIALIZATION_GRAINS = (
     MarketingAnalyticsDrillDownLevel.AD,
 )
 
-# Teams warmed on PostHog Cloud when the env var is unset. Kept to the dogfood team until the fleet-wide
-# `auto` audience is validated.
-DEFAULT_ROLLOUT_TEAM_IDS = [2]
 # Comma-separated team IDs to warm, empty to disable warming, or `auto` to discover the audience.
 SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_IDS"
 AUTO_AUDIENCE = "auto"
@@ -178,12 +175,33 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
         return None
 
 
+def _goal_team_ids() -> set[int]:
+    return set(
+        TeamMarketingAnalyticsConfig.objects.exclude(_conversion_goals=[])
+        .exclude(_conversion_goals__isnull=True)
+        .values_list("team_id", flat=True)
+    )
+
+
+def _read_flag_team_ids() -> list[int]:
+    """Goal teams that have the `marketing-analytics-precomputation` read flag on.
+
+    Only that flag is evaluated, and without an exposure event: this hourly scan picks an audience, so
+    it must not look like every goal team read marketing analytics behind the flag.
+    """
+    teams = Team.objects.filter(pk__in=_goal_team_ids()).select_related("organization")
+    return sorted(
+        team.pk for team in teams if MarketingAnalyticsConfig.conversion_precompute_enabled_without_exposure(team)
+    )
+
+
 def get_selected_team_ids() -> list[int]:
     """Resolve which teams to warm.
 
-    Unset, the env var falls back to DEFAULT_ROLLOUT_TEAM_IDS on PostHog Cloud only, so self-hosted never
-    warms unrelated teams that share those IDs. Set, it wins (even when empty, as a kill switch): a
-    comma-separated list with blank or invalid entries skipped.
+    Unset, it warms every team that has a conversion goal and the `marketing-analytics-precomputation`
+    read flag on. Those reads are precompute-only, so a flagged team the warmer skips reads not-ready.
+    Cloud only: self-hosted has no flag rollout to follow. Set, the env var wins (even when empty, as a
+    kill switch): a comma-separated list with blank or invalid entries skipped.
 
     `auto` warms every team that both has a conversion goal (`TeamMarketingAnalyticsConfig`) and has
     opened marketing analytics recently (query_log), which keeps the rolling warm set to the active
@@ -191,15 +209,11 @@ def get_selected_team_ids() -> list[int]:
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
     if raw is None:
-        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
+        return _read_flag_team_ids() if is_cloud() else []
     if raw.strip().lower() != AUTO_AUDIENCE:
         return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
 
-    goal_team_ids = set(
-        TeamMarketingAnalyticsConfig.objects.exclude(_conversion_goals=[])
-        .exclude(_conversion_goals__isnull=True)
-        .values_list("team_id", flat=True)
-    )
+    goal_team_ids = _goal_team_ids()
     if not goal_team_ids:
         return []
 

@@ -1,11 +1,10 @@
-import { V86 } from 'v86'
-
 import assetHashes from './assets/hashes.json'
 import { NinePServer } from './ninepServer'
 import { TerminalFilesystem } from './terminalFilesystem'
 import { TerminalRuntime } from './terminalRuntime'
+import { TerminalWorkerClient } from './TerminalWorkerClient'
 
-jest.mock('v86', () => ({ V86: jest.fn() }))
+jest.mock('./TerminalWorkerClient', () => ({ TerminalWorkerClient: jest.fn() }))
 jest.mock('v86/build/v86.wasm?url', () => 'wasm', { virtual: true })
 jest.mock('./assets/seabios.bin?url', () => 'bios', { virtual: true })
 jest.mock('./assets/vgabios.bin?url', () => 'vga', { virtual: true })
@@ -24,6 +23,7 @@ describe('terminal VM lifecycle', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        HTMLCanvasElement.prototype.transferControlToOffscreen = jest.fn()
         const hashes = [
             '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98',
             'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880',
@@ -60,10 +60,13 @@ describe('terminal VM lifecycle', () => {
         const listeners = new Map<string, (value?: number) => void>()
         const emulator = {
             add_listener: jest.fn((event, callback) => listeners.set(event, callback)),
+            loaded: Promise.resolve(),
+            send: jest.fn(),
+            dispose: jest.fn(),
             serial0_send: jest.fn(),
             serial_send_bytes: jest.fn(),
         }
-        jest.mocked(V86).mockImplementation(() => emulator as unknown as V86)
+        jest.mocked(TerminalWorkerClient).mockImplementation(() => emulator as unknown as TerminalWorkerClient)
         const runtime = new TerminalRuntime(jest.fn())
         await runtime.start(
             new NinePServer(new TerminalFilesystem(), jest.fn()),
@@ -100,39 +103,50 @@ describe('terminal VM lifecycle', () => {
         'stops a VM that is %s without allowing late output or startup',
         async (phase) => {
             const listeners = new Map<string, (value?: number) => void>()
+            let loaded!: () => void
             const emulator = {
+                loaded: new Promise<void>((resolve) => {
+                    loaded = resolve
+                }),
                 add_listener: jest.fn((event, callback) => listeners.set(event, callback)),
-                bus: { send: jest.fn() },
-                run: jest.fn(),
-                destroy: jest.fn(async () => {}),
+                send: jest.fn(),
+                dispose: jest.fn(),
             }
-            jest.mocked(V86).mockImplementation(() => emulator as unknown as V86)
+            let created!: () => void
+            const initialized = new Promise<void>((resolve) => {
+                created = resolve
+            })
+            jest.mocked(TerminalWorkerClient).mockImplementation(() => {
+                created()
+                return emulator as unknown as TerminalWorkerClient
+            })
             const output = jest.fn()
             const ready = jest.fn()
             const display = jest.fn()
             const runtime = new TerminalRuntime(output, display)
-            await runtime.start(
+            const started = runtime.start(
                 new NinePServer(new TerminalFilesystem(), jest.fn()),
                 new AbortController().signal,
                 ready
             )
-            expect(fetch).toHaveBeenCalledWith('kernel', expect.any(Object))
-            expect(V86).toHaveBeenCalledWith(expect.objectContaining({ autostart: false }))
             if (phase === 'loaded') {
-                listeners.get('emulator-loaded')!()
-                expect(emulator.run).toHaveBeenCalledTimes(1)
+                loaded()
+                await started
+                expect(emulator.send).toHaveBeenCalledWith({ type: 'run' })
+            } else {
+                await initialized
             }
             runtime.dispose()
+            loaded()
+            await started
             if (phase === 'initializing') {
-                expect(emulator.destroy).not.toHaveBeenCalled()
-                listeners.get('emulator-loaded')!()
-                expect(emulator.run).not.toHaveBeenCalled()
+                expect(emulator.send).not.toHaveBeenCalledWith({ type: 'run' })
             }
             listeners.get('serial0-output-byte')!(65)
             listeners.get('serial1-output-byte')!(30)
             listeners.get('serial1-output-byte')!(17)
             expect(display).not.toHaveBeenCalled()
-            expect(emulator.destroy).toHaveBeenCalledTimes(1)
+            expect(emulator.dispose).toHaveBeenCalledTimes(1)
             expect(runtime.read()).toBe('')
             expect(output).not.toHaveBeenCalled()
             expect(ready).not.toHaveBeenCalled()

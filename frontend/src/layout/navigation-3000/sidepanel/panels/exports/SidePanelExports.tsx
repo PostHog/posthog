@@ -9,7 +9,6 @@ import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/E
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AccessControlLevel, AccessControlResourceType, ExportedAssetType, ExporterFormat } from '~/types'
@@ -18,15 +17,6 @@ import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
 const ROW_LIMIT_IN_THOUSANDS = 300
-
-export const SidePanelExportsIcon = (): JSX.Element => {
-    const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
-    return (
-        <IconWithCount count={freshUndownloadedExports.length}>
-            <IconDownload />
-        </IconWithCount>
-    )
-}
 
 function ExportPanelHeader(): JSX.Element {
     const { assetFormat, exportsLoading } = useValues(sidePanelExportsLogic)

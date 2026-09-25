@@ -1,7 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { delay } from 'msw'
 import { useEffect } from 'react'
 
@@ -684,7 +684,18 @@ export const FailedFetchOffersRetry: Story = {
             taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
         )
 
-        useOnMountEffect(() => setSearchQuery('user_signed_up'))
+        const { remoteItems } = useValues(
+            infiniteListLogic({
+                ...args,
+                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+        )
+        useEffect(() => {
+            if (remoteItems.searchQuery === '' && remoteItems.results.length > 0) {
+                setSearchQuery('user_signed_up')
+            }
+        }, [remoteItems, setSearchQuery])
 
         return (
             <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -695,11 +706,17 @@ export const FailedFetchOffersRetry: Story = {
     args: {
         taxonomicFilterLogicKey: 'events-failed-fetch',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        groupType: TaxonomicFilterGroupType.Events,
+        value: 'page_opened',
+        allowNonCapturedEvents: true,
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/event_definitions': () => [500, { detail: 'server error' }],
+                '/api/projects/:team_id/event_definitions': ({ request }) =>
+                    new URL(request.url).searchParams.get('search')
+                        ? [500, { detail: 'server error' }]
+                        : [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }],
             },
         }),
     ],
@@ -711,6 +728,30 @@ export const FailedFetchOffersRetry: Story = {
             },
         },
     },
+}
+
+export const CustomEventName: Story = {
+    render: (args) => {
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+        useOnMountEffect(() => setSearchQuery('purchase_confirmed'))
+        return <TaxonomicFilter {...args} />
+    },
+    args: {
+        taxonomicFilterLogicKey: 'custom-event-name',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        groupType: TaxonomicFilterGroupType.Events,
+        allowNonCapturedEvents: true,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [200, { results: [], count: 0 }],
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForSelector: '[data-attr="prop-filter-event-option-custom"]' } },
 }
 
 export const CohortsWithRealtimeStates: Story = {

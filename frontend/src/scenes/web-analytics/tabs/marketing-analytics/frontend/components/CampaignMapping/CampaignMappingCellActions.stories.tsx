@@ -1,15 +1,34 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay, LemonMenuOverlayProps } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { MappingTypes } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
 // Mock icons for marketing sources - these are the paths returned by the backend
-const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {
+const MARKETING_SOURCE_ICONS: Record<
+    NativeMarketingSource,
+    { name: string; iconPath: string; fields: never[]; caption: string }
+> = {
+    PinterestAds: {
+        name: 'PinterestAds',
+        iconPath: '/static/services/pinterest_ads.png',
+        fields: [],
+        caption: 'Pinterest Ads',
+    },
+    AppleSearchAds: {
+        name: 'AppleSearchAds',
+        iconPath: '/static/services/apple_search_ads.png',
+        fields: [],
+        caption: 'Apple Ads',
+    },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',
@@ -67,6 +86,7 @@ const meta: Meta<LemonMenuOverlayProps> = {
         }),
     ],
     parameters: {
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
         docs: {
             description: {
                 component: `
@@ -145,11 +165,12 @@ function MenuDisplay({ items, title }: MenuDisplayProps): JSX.Element {
 }
 
 export const SourceCellAction_Unmapped: Story = {
-    render: () => {
+    render: function Render() {
+        const { featureFlags } = useValues(featureFlagLogic)
         const items = buildSourceMappingMenuItems({
             utmSource: 'paid_search',
             mappingStatus: { type: MappingTypes.Unmapped },
-            availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            availableIntegrations: [...getEnabledNativeMarketingSources(featureFlags)],
             onOpenIntegrationSettings: () => alert('Opening settings'),
         })
 
@@ -162,6 +183,11 @@ export const SourceCellAction_Unmapped: Story = {
             },
         },
     },
+}
+
+export const SourceCellAction_IntegrationDisabled: Story = {
+    ...SourceCellAction_Unmapped,
+    parameters: { featureFlags: [] },
 }
 
 export const SourceCellAction_CustomMapped: Story = {
@@ -205,12 +231,13 @@ export const SourceCellAction_DefaultMapped: Story = {
 
 /** Campaign Cell Actions Stories */
 export const CampaignCellAction_Unmapped: Story = {
-    render: () => {
+    render: function Render() {
+        const { featureFlags } = useValues(featureFlagLogic)
         const items = buildCampaignMappingMenuItems({
             utmCampaign: 'summer_sale_2024',
             globalMapping: null,
             existingMappings: [],
-            availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            availableIntegrations: [...getEnabledNativeMarketingSources(featureFlags)],
             onOpenIntegrationSettings: () => alert('Opening settings'),
         })
 

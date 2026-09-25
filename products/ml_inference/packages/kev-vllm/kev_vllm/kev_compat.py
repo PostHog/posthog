@@ -12,7 +12,6 @@ stays trivial.
 
 import json
 import re
-from datetime import datetime
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -143,40 +142,6 @@ def render(v: JSONContent, indent: int = 0) -> str:
 
 def option_text(name: str, desc: JSONContent) -> str:
     return name if desc is None or desc == "" else f"{name}: {render(desc)}"
-
-
-MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
-
-
-_DATE = re.compile(rf"\b(?:{MONTHS}) \d{{1,2}}, \d{{4}}\b|\b\d{{4}}-\d{{2}}-\d{{2}}\b")
-
-
-def date_facts(text: str) -> str:
-    """Deterministic date arithmetic for the model: every pair of absolute dates found in `text`, as one sentence each
-    ("August 3, 2026 is 12 days after July 22, 2026."). The model cannot subtract dates reliably (issue #8); it can use a
-    stated day count. Returns "" when fewer than two dates are found. Dates are listed in order of first appearance."""
-    found = []
-    for m in _DATE.finditer(text):
-        raw = m.group(0)
-        try: d = datetime.strptime(raw, "%B %d, %Y") if "," in raw else datetime.strptime(raw, "%Y-%m-%d")
-        except ValueError: continue
-        if raw not in [r for r, _ in found]: found.append((raw, d))
-    facts = []
-    for i in range(len(found)):
-        for j in range(i + 1, len(found)):
-            n = (found[j][1] - found[i][1]).days
-            facts.append(f"{found[j][0]} is {abs(n)} day{'s' if abs(n) != 1 else ''} {'after' if n > 0 else 'before'} {found[i][0]}." if n else f"{found[j][0]} is the same day as {found[i][0]}.")
-    return " ".join(facts)
-
-
-def with_date_facts(state):
-    """State with a `date_facts` field (object states) or an appended paragraph (string states) when two or more absolute
-    dates appear. Opt-in preprocessing (KEV_DATE_FACTS=1 in kev.serve, --date_facts in kev.benchmark)."""
-    facts = date_facts(render(state))
-    if not facts: return state
-    if isinstance(state, dict): return {**state, "date_facts": facts}
-    if isinstance(state, list): return state + [{"date_facts": facts}]
-    return f"{state}\n\ndate_facts: {facts}"
 
 
 def question_keys(qtype: str, criteria) -> list[str]:

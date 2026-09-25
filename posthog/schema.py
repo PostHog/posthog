@@ -30,6 +30,7 @@ from posthog.schema_enums import (
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
     AnnotationScope as AnnotationScope,
+    AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -2105,6 +2106,21 @@ class MarketingIntegrationConfig8(BaseModel):
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
 
 
+class MarketingIntegrationConfig9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["ad_group_report"] = "ad_group_report"
+    adsetTableName: Literal["ad_groups"] = "ad_groups"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["apple"] = "apple"
+    sourceType: Literal["AppleSearchAds"] = "AppleSearchAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2115,6 +2131,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
     ]
 ):
     root: (
@@ -2126,6 +2143,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig6
         | MarketingIntegrationConfig7
         | MarketingIntegrationConfig8
+        | MarketingIntegrationConfig9
     )
 
 
@@ -30236,6 +30254,10 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
 class LogAttributesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    attributeKeys: list[str] | None = Field(
+        default=None,
+        description=("Return only attribute keys that exactly match an entry in this list."),
     )
     attributeType: str
     dateRange: DateRange | None = None

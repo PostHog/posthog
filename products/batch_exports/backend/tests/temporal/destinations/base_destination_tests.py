@@ -65,7 +65,7 @@ class BaseDestinationTest(ABC):
     @property
     @abstractmethod
     def destination_type(self) -> str:
-        """Return the destination type name (e.g., 'Databricks', 'S3', 'BigQuery')."""
+        """Return the destination type name (e.g., 'Databricks', 'AwsS3', 'BigQuery')."""
         pass
 
     @property

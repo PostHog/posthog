@@ -221,7 +221,7 @@ class SlackIntegration:
         # fields they use.
         #
         # Every SHARED_CHANNEL_FLAGS entry has to survive. A dropped flag reads as absent, which
-        # reads as not shared, and team_notifications uses that to decide whether a channel matched
+        # reads as not shared, and posthog.slack.channels uses that to decide whether a channel matched
         # by name may receive an internal message.
         return {
             "id": channel["id"],

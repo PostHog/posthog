@@ -1,6 +1,7 @@
 import '~/tests/helpers/mocks/date.mock'
 
 import { DateTime } from 'luxon'
+import { inspect } from 'util'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -9,7 +10,7 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogInputsService, formatHogInput, getAppIdentifierForPush } from './hog-inputs.service'
+import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 describe('getAppIdentifierForPush', () => {
@@ -131,9 +132,40 @@ describe('Hog Inputs', () => {
             )
             // dateDiff('bogus', 1, 1): the VM quotes its argument, which can be a secret input.
             const quotesArgument = ['_H', 1, 32, 'bogus', 33, 1, 33, 1, 2, 'dateDiff', 3]
-            await expect(formatHogInput(quotesArgument, globals, 'field')).rejects.toThrow(
-                /^Could not execute bytecode for input field: field$/
+            const thrown = await formatHogInput(quotesArgument, globals, 'field').then(
+                () => undefined,
+                (error) => error
             )
+            expect(thrown.message).toMatch(/^Could not execute bytecode for input field: field$/)
+            // The kind travels for the classifier; the quoted argument does not, even through a serialized cause chain.
+            expect(thrown.cause).toMatchObject({ kind: 'data' })
+            expect(inspect(thrown)).not.toContain('bogus')
+        })
+
+        it.each([
+            ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract'],
+            ['a syntax error', '{% if %}', 'contract'],
+            // The same template renders for a well-formed URL, so this failure belongs to the event.
+            ['a malformed URL meeting url_decode', '{{ event.properties.url | url_decode }}', 'data'],
+            [
+                'a template over its memory budget',
+                "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
+                'limit',
+            ],
+        ])('gives a liquid failure from %s a kind and keeps its message', (_name, template, kind) => {
+            const globals = createHogExecutionGlobals({
+                event: { event: '$pageview', properties: { url: '%' } } as any,
+                inputs: {},
+            } as any) as any
+            let thrown: any
+            try {
+                formatLiquidInput(template, globals, 'field')
+            } catch (error) {
+                thrown = error
+            }
+            expect(thrown).toBeInstanceOf(Error)
+            expect(thrown.message).toBe(thrown.cause.message)
+            expect(thrown.cause).toMatchObject({ kind })
         })
 
         it('can handle deep null and undefined values', async () => {

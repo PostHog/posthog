@@ -15,7 +15,7 @@ TEAM_ID = 1
 BATCH_EXPORT_ID = "d0ec7b0c-6b3d-4a76-8ea4-6a5b2c0e1f5a"
 RUN_ID = "b3f5a9d1-2c4e-4f6a-8b7c-9d0e1f2a3b4c"
 BATCH_EXPORT_NAME = "test export"
-DESTINATION_TYPE = "S3"
+DESTINATION_TYPE = "AwsS3"
 INTERVAL_START = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
 INTERVAL_END = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
 

@@ -1257,6 +1257,75 @@ session_recordings: PostgresTable = PostgresTable(
     },
 )
 
+replay_scanners: PostgresTable = PostgresTable(
+    name="replay_scanners",
+    postgres_table_name="replay_vision_replayscanner",
+    access_scope="replay_scanner",
+    access_control_creator_id_field="created_by_id",
+    # Inline scanners are throwaway rows behind one-off scans; REST never lists them either.
+    predicates=[parse_expr("origin = 'configured'")],
+    description="Replay Vision scanners: standing LLM probes over session recordings; one row per saved scanner.",
+    fields={
+        "id": UUIDDatabaseField(
+            name="id",
+            description="Scanner UUID. Cast with toString(id) to join on a string property such as scanner_id.",
+        ),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "origin": StringDatabaseField(name="origin", hidden=True),
+        "name": StringDatabaseField(name="name", description="Scanner name, unique within the project."),
+        "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
+        "scanner_type": StringDatabaseField(
+            name="scanner_type", description="One of monitor, classifier, scorer, summarizer."
+        ),
+        "scanner_config": StringJSONDatabaseField(
+            name="scanner_config", description="Type-specific JSON config; always includes the prompt."
+        ),
+        "query": StringJSONDatabaseField(
+            name="query", description="JSON RecordingsQuery selecting the sessions the scanner watches."
+        ),
+        "sampling_rate": FloatDatabaseField(
+            name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
+        ),
+        "sampling_mode": StringDatabaseField(
+            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
+        ),
+        "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(
+            name="enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
+            description="1 when the scanner sweeps new recordings on schedule, 0 otherwise.",
+        ),
+        "_emits_signals": BooleanDatabaseField(name="emits_signals", hidden=True),
+        "emits_signals": ExpressionField(
+            name="emits_signals",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_emits_signals"])]),
+            description="1 when findings are also pushed into the Signals inbox, 0 otherwise.",
+        ),
+        "scanner_version": IntegerDatabaseField(
+            name="scanner_version", description="Config version, bumped on every config edit."
+        ),
+        "credit_limit": IntegerDatabaseField(
+            name="credit_limit",
+            nullable=True,
+            description="Per-period credit cap for this scanner (NULL when uncapped).",
+        ),
+        "estimated_monthly_observations": IntegerDatabaseField(
+            name="estimated_monthly_observations",
+            nullable=True,
+            description="Last projection of observations per month (NULL before the first estimate).",
+        ),
+        "last_swept_at": DateTimeDatabaseField(
+            name="last_swept_at", nullable=True, description="When the scheduled sweep last ran (NULL before it has)."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the scanner (NULL when deleted)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the scanner was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the scanner was last modified."),
+    },
+)
+
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -3072,6 +3141,7 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),

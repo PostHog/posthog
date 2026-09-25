@@ -60,6 +60,10 @@ import {
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
 import {
+  CODEX_CLOUD_ACCOUNT_HOST,
+  type CodexCloudAccountHost,
+} from "@posthog/core/integrations/codexCloudAccountService";
+import {
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -234,10 +238,6 @@ import {
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import {
-  QUICK_ASK_SETTINGS_CLIENT,
-  type QuickAskSettingsClient,
-} from "@posthog/ui/features/quick-ask/identifiers";
-import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
@@ -303,6 +303,7 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [CODEX_CLOUD_ACCOUNT_HOST]: CodexCloudAccountHost;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;
@@ -314,7 +315,6 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
-  [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;
   [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;

@@ -44,10 +44,17 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
         (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
         (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
     const disabledReason = getProductAccessDisabledReason(item)
-    const CustomIcon = getCustomIcon(item.type)
+    const CustomIcon = getCustomIcon(item.type, item.href)
     const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)
 
     const hasProductMenu = ['Product analytics', 'Dashboards', 'Session replay'].includes(item.path)
+    const starAction = {
+        label: shortcut ? 'Remove from starred' : 'Add to starred',
+        icon: shortcut ? <IconStarFilled /> : <IconStar />,
+        'data-attr': 'nav-apps-star',
+        disabledReason: disabledReason || (shortcutDataLoading ? 'Updating starred items' : undefined),
+        onClick: () => (shortcut ? deleteShortcut(shortcut.id) : addShortcutItem(item as FileSystemEntry)),
+    }
     const menuItems: LemonMenuItems = [
         ...(hasProductMenu ? [{ label: () => <NavAppMenu product={item.path} /> }] : []),
         ...(item.path === 'Home'
@@ -71,15 +78,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
               ]
             : []),
         {
-            items: [
-                {
-                    label: shortcut ? 'Remove from starred' : 'Add to starred',
-                    icon: shortcut ? <IconStarFilled /> : <IconStar />,
-                    'data-attr': 'nav-apps-star',
-                    disabledReason: disabledReason || (shortcutDataLoading ? 'Updating starred items' : undefined),
-                    onClick: () => (shortcut ? deleteShortcut(shortcut.id) : addShortcutItem(item as FileSystemEntry)),
-                },
-            ],
+            items: [starAction],
         },
     ]
 
@@ -119,35 +118,48 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                     )}
                 </Link>
             </Tooltip>
-            <LemonMenu placement="right-start" items={menuItems}>
+            {menuItems.length === 1 ? (
                 <LemonButton
                     size="xsmall"
                     className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
-                    icon={
-                        hasProductMenu ? (
-                            item.path === 'Product analytics' ? (
-                                <IconPlusSmall />
-                            ) : (
-                                <IconChevronDown />
-                            )
-                        ) : (
-                            <IconEllipsis />
-                        )
-                    }
-                    tooltip={`Open ${label} menu`}
-                    aria-label={`Open ${label} menu`}
-                    disabledReason={disabledReason}
-                    data-attr={
-                        item.path === 'Product analytics'
-                            ? 'flat-nav-tool-menu-insight'
-                            : item.path === 'Dashboards'
-                              ? 'flat-nav-tool-menu-dashboards'
-                              : item.path === 'Session replay'
-                                ? 'flat-nav-tool-menu-session-replay'
-                                : 'nav-apps-menu'
-                    }
+                    icon={starAction.icon}
+                    tooltip={starAction.label}
+                    aria-label={starAction.label}
+                    disabledReason={starAction.disabledReason}
+                    onClick={starAction.onClick}
+                    data-attr={starAction['data-attr']}
                 />
-            </LemonMenu>
+            ) : (
+                <LemonMenu placement="right-start" items={menuItems}>
+                    <LemonButton
+                        size="xsmall"
+                        className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
+                        icon={
+                            hasProductMenu ? (
+                                item.path === 'Product analytics' ? (
+                                    <IconPlusSmall />
+                                ) : (
+                                    <IconChevronDown />
+                                )
+                            ) : (
+                                <IconEllipsis />
+                            )
+                        }
+                        tooltip={`Open ${label} menu`}
+                        aria-label={`Open ${label} menu`}
+                        disabledReason={disabledReason}
+                        data-attr={
+                            item.path === 'Product analytics'
+                                ? 'flat-nav-tool-menu-insight'
+                                : item.path === 'Dashboards'
+                                  ? 'flat-nav-tool-menu-dashboards'
+                                  : item.path === 'Session replay'
+                                    ? 'flat-nav-tool-menu-session-replay'
+                                    : 'nav-apps-menu'
+                        }
+                    />
+                </LemonMenu>
+            )}
         </div>
     )
 }

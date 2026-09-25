@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
+    purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
@@ -54,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
@@ -123,6 +125,42 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
         and schema.cdc_table_mode in _LANE_WRITE_MODES
         and schema.initial_sync_complete
     )
+
+
+def captures_to_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for capture to write this schema's changes into the buffer.
+
+    Wider than `serves_buffered_lane`: a table whose snapshot the buffer carries is captured too,
+    and the consumer reads those changes once the snapshot completes.
+    """
+    return bool(
+        schema.is_cdc
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and (serves_buffered_lane(schema) or snapshot_in_buffer(schema))
+    )
+
+
+def snapshot_can_start_in_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for routing a snapshotting table the buffer does not carry yet to it."""
+    return bool(
+        schema.is_cdc
+        and schema.cdc_mode == "snapshot"
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and not snapshot_in_buffer(schema)
+    )
+
+
+def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    """Before a snapshot hands over to streaming, drop the buffer files it must not replay.
+
+    When the buffer carried the snapshot, it holds an unbroken run of changes, and replaying all of
+    them over the snapshot converges, so nothing goes. Otherwise the snapshot's changes went to
+    legacy deferred runs, and every file predates a gap: an old file replayed after them would bring
+    back rows. Strict, because a surviving stale file corrupts the table.
+    """
+    if snapshot_in_buffer(schema):
+        return
+    purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:

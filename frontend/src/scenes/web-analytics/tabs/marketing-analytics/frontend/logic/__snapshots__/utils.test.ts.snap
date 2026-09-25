@@ -1,5 +1,140 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - clicks 1`] = `
+{
+  "custom_name": "prefix.campaign_report clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(taps), 0))",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - cost 1`] = `
+{
+  "custom_name": "prefix.campaign_report cost",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(local_spend.currency, 'USD'), 'USD', toFloat(local_spend.amount), coalesce(toDate(date), today()))))",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - impressions 1`] = `
+{
+  "custom_name": "prefix.campaign_report impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_report reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.campaign_report reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(coalesce(toFloat(total_installs), 0))",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_report reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.campaign_report reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.campaign_report roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - roas 1`] = `
+{
+  "custom_name": "prefix.campaign_report roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AppleSearchAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "apple",
+  "table_name": "prefix.campaign_report",
+  "timestamp_field": "date",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots BingAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_performance_report clicks",

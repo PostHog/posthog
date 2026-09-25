@@ -1,5 +1,3 @@
-import type { GroupType } from '@/api/client'
-import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
@@ -64,18 +62,6 @@ export interface ResolvedState {
     gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
-    // Active project/user environment prompt and group types. Rendered into the
-    // `instructions` payload, and (for clients that don't surface instructions to
-    // the model like Codex, or ignore it like Claude web/desktop) the exec command
-    // reference. Resolved once here so every render path reads the same source.
-    metadata: string | undefined
-    // Variant of `metadata` without the product/integration context lines, for the
-    // claude.ai exec command reference: that surface counts against the ~16 KiB
-    // connector-registry cap on the serialized inputSchema, which already sits
-    // within tens of characters of the worst-case env context. Every uncapped
-    // surface renders the full `metadata`.
-    metadataCompact: string | undefined
-    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -154,13 +140,11 @@ export class RequestStateResolver {
         await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
         // Read the active project back from the token cache (the source every tool
-        // resolves through) rather than the request pin, so the banner and group
-        // types reflect an in-session switch instead of the resent pin value.
-        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
+        // resolves through) rather than the request pin, so an in-session switch wins.
+        const cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
         if (!cachedProjectId) {
             const contextForDefault = await contextPromise
             await contextForDefault.stateManager.setDefaultOrganizationAndProject()
-            cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
         const [context, sessionContext] = await Promise.all([
@@ -255,14 +239,6 @@ export class RequestStateResolver {
         // Only exec redirects a call to a gated tool; tools mode just omits it.
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
-        const [groupTypes, metadata, metadataCompact] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
-                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
-                : undefined,
-            context.stateManager.getEnvironmentPrompt(),
-            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
-        ])
-
         return {
             reqCtx,
             context,
@@ -284,9 +260,6 @@ export class RequestStateResolver {
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,
-            metadata,
-            metadataCompact,
-            groupTypes,
         }
     }
 

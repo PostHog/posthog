@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 from posthog.hogql.property_access_types import RestrictedProperty
@@ -30,7 +31,7 @@ from posthog.models import Organization, OrganizationMembership, PropertyDefinit
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
@@ -90,15 +91,17 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
 
 
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
+    # Callers often send the property name. The pk is a UUID, and Django raises its own
+    # ValidationError for any other string, which the API would turn into a 500.
+    try:
+        UUID(str(property_definition_id))
+    except ValueError as exc:
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
     try:
         return get_object_or_404(PropertyDefinition, id=property_definition_id, team_id=team_id)
-    except Exception as exc:
+    except Http404 as exc:
         # Normalize 404 -> domain error so presentation can translate without leaking ORM concerns.
-        from django.http import Http404
-
-        if isinstance(exc, Http404):
-            raise PropertyDefinitionNotFoundError(property_definition_id) from exc
-        raise
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
 
 
 # --- Read API ---
@@ -288,6 +291,26 @@ def object_ids_restricted_from_any_member(
         .values_list("resource_id", flat=True)
     )
     return {resource_id for resource_id in restricted if resource_id}
+
+
+def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
+    """Whether the role is a role of that organization.
+
+    For a caller that accepts a role id from a request and must not let it name a role of
+    another organization.
+    """
+    return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
+
+
+def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
+    """Ids of the users the role grants access to.
+
+    A membership whose organization member moved to another organization no longer grants
+    anything, so it is left out.
+    """
+    return list(
+        RoleMembership.objects.filter(role_id=role_id).valid_for_authorization().values_list("user_id", flat=True)
+    )
 
 
 # --- Write API ---

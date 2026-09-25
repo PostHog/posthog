@@ -18,6 +18,7 @@ import {
     parseCollectedUrlsRecord,
 } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { FetchCandidatePoolAdmission } from './fetch-candidate-pool'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
@@ -68,7 +69,11 @@ export class UrlFetchConsumer {
         ImageFetchConsumerMetrics.setDryRun(options.dryRun)
     }
 
-    public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+    public async handleBatch(
+        messages: Message[],
+        nowMs: number,
+        admission?: FetchCandidatePoolAdmission
+    ): Promise<void> {
         const decoded: MlDecodedMessage[] = this.keyManager
             ? await this.keyManager.read(messages)
             : messages.map((message) => {
@@ -234,7 +239,7 @@ export class UrlFetchConsumer {
 
             const republishBatch = this.publisher.createRepublishBatch(republishDeadlineAtMonotonicMs)
             stage.move('batch_fetch')
-            const attempts = await this.runner!.run(fetchable, stored, republishBatch)
+            const attempts = await this.runner!.run(fetchable, stored, republishBatch, admission)
             stage.move('batch_prepare_republish')
             attempts.push(
                 ...(await Promise.all(

@@ -16,6 +16,7 @@
 !packages/quill
 !packages/llm-normalizer
 !packages/owners-yaml
+!packages/agent/agent-shadow
 !dags
 !docs/onboarding
 !ee
@@ -92,10 +93,6 @@ products/**/node_modules
 # The `changes` job in container-images-cd.yml mirrors these lines to decide whether a push
 # can change the image, so keep the two in step.
 products/desktop/*
-!products/desktop/packages
-products/desktop/packages/*
-!products/desktop/packages/agent-shadow
-!products/desktop/packages/agent-shadow/**
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.

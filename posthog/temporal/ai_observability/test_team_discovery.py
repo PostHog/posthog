@@ -1,11 +1,22 @@
 import math
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
+from functools import partial
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
+
+from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
+from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_clustering.coordinator import (
+    AIObservabilityEvaluationClusteringCoordinatorWorkflow,
+    AIObservabilityEvaluationSamplerCoordinatorWorkflow,
+    ClusteringCoordinatorInputs,
+    SamplerCoordinatorInputs,
+)
 from posthog.temporal.ai_observability.team_discovery import (
     DEFAULT_DISCOVERY_LOOKBACK_DAYS,
     DEFAULT_GUARANTEED_TEAM_IDS,
@@ -15,6 +26,14 @@ from posthog.temporal.ai_observability.team_discovery import (
     get_min_traces_override,
     get_team_ids_for_ai_observability,
 )
+from posthog.temporal.ai_observability.trace_clustering.coordinator import (
+    TraceClusteringCoordinatorInputs,
+    TraceClusteringCoordinatorWorkflow,
+)
+from posthog.temporal.ai_observability.trace_summarization.coordinator import (
+    BatchTraceSummarizationCoordinatorInputs,
+    BatchTraceSummarizationCoordinatorWorkflow,
+)
 
 
 @asynccontextmanager
@@ -23,6 +42,7 @@ async def _noop_heartbeater(*args, **kwargs):
 
 
 FF_PAYLOAD_PATH = "posthog.temporal.ai_observability.team_discovery.posthoganalytics.get_feature_flag_payload"
+CONSENT_QUERY_PATH = "posthog.temporal.ai_observability.team_discovery.consented_team_ids"
 
 
 class TestGetLlmaWorkflowConfig:
@@ -157,6 +177,11 @@ class TestGetMinTracesOverride:
 @patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
 @pytest.mark.asyncio
 class TestGetTeamIdsForAIObservability:
+    @pytest.fixture(autouse=True)
+    def _consent_needs_no_database(self) -> Iterator[None]:
+        with patch(CONSENT_QUERY_PATH, side_effect=set):
+            yield
+
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_guaranteed_teams_always_included(self, mock_get_teams, _mock_ff):
         mock_get_teams.return_value = [9999, 8888]
@@ -339,3 +364,113 @@ class TestGetTeamIdsForAIObservability:
         begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
         delta_days = (end - begin).total_seconds() / 86400
         assert 2.99 < delta_days < 3.01
+
+
+def _create_team(name: str, approved: bool) -> int:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    organization = Organization.objects.create(name=name, is_ai_data_processing_approved=approved)
+    return Team.objects.create(organization=organization, name=name).id
+
+
+@patch("posthog.temporal.ai_observability.team_discovery.Heartbeater", _noop_heartbeater)
+@pytest.mark.asyncio
+class TestAIDataProcessingConsentGate:
+    @pytest.mark.django_db(transaction=True)
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    @patch(FF_PAYLOAD_PATH)
+    async def test_allowlisted_team_without_consent_is_not_discovered(
+        self, mock_ff: MagicMock, mock_get_teams: MagicMock
+    ) -> None:
+        approved_id = await database_sync_to_async(_create_team)("Approved", True)
+        unapproved_id = await database_sync_to_async(_create_team)("Unapproved", False)
+        mock_ff.return_value = {
+            "guaranteed_team_ids": [approved_id, unapproved_id],
+            "sample_percentage": 1.0,
+        }
+        mock_get_teams.return_value = [unapproved_id]
+
+        result = await get_team_ids_for_ai_observability(TeamDiscoveryInput())
+
+        assert result == [approved_id]
+
+    @pytest.mark.parametrize(
+        "query_results,expected,attempts,failed",
+        [
+            pytest.param([OperationalError("Postgres unavailable"), {1}], [1], 2, False, id="reconnects"),
+            pytest.param([InterfaceError("Connection closed"), {1}], [1], 2, False, id="closed_connection"),
+            pytest.param([OperationalError("Postgres unavailable")] * 3, [], 3, True, id="exhausted"),
+            pytest.param([RuntimeError("Unexpected query failure")], [], 1, True, id="non_retryable"),
+            pytest.param([set()], [], 1, False, id="no_consent"),
+        ],
+    )
+    @patch(CONSENT_QUERY_PATH)
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
+    @patch(FF_PAYLOAD_PATH, return_value=None)
+    async def test_consent_query_retries_fail_closed(
+        self,
+        _mock_ff: MagicMock,
+        mock_get_teams: MagicMock,
+        mock_query: MagicMock,
+        query_results: list[Exception | set[int]],
+        expected: list[int],
+        attempts: int,
+        failed: bool,
+    ) -> None:
+        mock_get_teams.return_value = [9999]
+        mock_query.side_effect = query_results
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
+            patch("posthog.temporal.ai_observability.coordinator_metrics.get_metric_meter") as metric_meter,
+        ):
+            assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == expected
+
+        mock_get_teams.assert_called_once()
+        _mock_ff.assert_called_once()
+        assert mock_query.call_args_list == [call([1, 2, 9999])] * attempts
+        assert sleep.await_count == attempts - 1
+        if failed:
+            metric_meter.return_value.create_counter.assert_called_once_with(
+                "llma_coordinator_consent_query_failed",
+                "Discovery activities that returned no teams because the consent query failed",
+            )
+            metric_meter.return_value.create_counter.return_value.add.assert_called_once_with(1)
+        else:
+            metric_meter.assert_not_called()
+
+
+class TestCoordinatorConsentGate:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "run",
+        [
+            pytest.param(
+                partial(BatchTraceSummarizationCoordinatorWorkflow().run, BatchTraceSummarizationCoordinatorInputs()),
+                id="summarization",
+            ),
+            pytest.param(
+                partial(TraceClusteringCoordinatorWorkflow().run, TraceClusteringCoordinatorInputs()),
+                id="trace_clustering",
+            ),
+            pytest.param(
+                partial(AIObservabilityEvaluationSamplerCoordinatorWorkflow().run, SamplerCoordinatorInputs()),
+                id="evaluation_sampling",
+            ),
+            pytest.param(
+                partial(AIObservabilityEvaluationClusteringCoordinatorWorkflow().run, ClusteringCoordinatorInputs()),
+                id="evaluation_clustering",
+            ),
+        ],
+    )
+    async def test_discovery_failure_does_not_start_team_workflows(self, run: Callable[[], Awaitable[object]]) -> None:
+        with (
+            patch("temporalio.workflow.patched", return_value=True),
+            patch("temporalio.workflow.execute_activity", side_effect=RuntimeError("Discovery unavailable")),
+            patch("temporalio.workflow.start_child_workflow") as start_child,
+        ):
+            with pytest.raises(RuntimeError, match="Discovery unavailable"):
+                await run()
+
+        start_child.assert_not_called()

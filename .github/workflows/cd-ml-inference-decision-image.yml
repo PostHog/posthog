@@ -1,0 +1,90 @@
+#
+# Build and push the decision model serving image: the official vLLM image plus the kev-vllm plugin package, Caddy and
+# s5cmd. Weights are not in the image; the entrypoint fetches them (see the package README).
+#
+name: ML Inference Decision Image CD
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/ml_inference/packages/kev-vllm/**'
+            - '.github/workflows/cd-ml-inference-decision-image.yml'
+    # Adding the build-ml-inference-image label builds the PR's head at that moment and pushes it to GHCR alone, so a GPU
+    # host can pull it for a trial before the change lands. A later push does not rebuild until someone adds the label
+    # again, which ties each build to a commit a person chose, as container-images-label-ci.yml does.
+    pull_request:
+        types: [labeled]
+        paths:
+            - 'products/ml_inference/packages/kev-vllm/**'
+            - '.github/workflows/cd-ml-inference-decision-image.yml'
+    workflow_dispatch:
+
+concurrency:
+    # An unrelated label must not cancel a build already in progress.
+    group: >-
+        ${{ github.workflow }}-${{
+            github.event_name == 'push' && github.sha
+            || github.event_name == 'pull_request' && github.event.label.name != 'build-ml-inference-image'
+                && format('ignored-label-{0}', github.event.label.name)
+            || github.head_ref || github.ref
+        }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    build:
+        name: Build and push decision serving image
+        if: |
+            github.repository_owner == 'PostHog' && (
+                github.event_name == 'push' ||
+                github.event_name == 'workflow_dispatch' ||
+                (github.event.pull_request.head.repo.full_name == github.repository &&
+                 github.event.label.name == 'build-ml-inference-image')
+            )
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: posthog-ml-inference-decision
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  push-to-dockerhub: 'false'
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: c1f2m5s6zd
+                  context: ./products/ml_inference/packages/kev-vllm
+                  file: ./products/ml_inference/packages/kev-vllm/Dockerfile
+                  buildx-fallback: false
+                  # The GPU hosts are x86; the base image has no CUDA build for arm64 worth paying for.
+                  platforms: linux/amd64
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}

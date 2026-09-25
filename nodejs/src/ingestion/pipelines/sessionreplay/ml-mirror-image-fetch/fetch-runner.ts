@@ -6,7 +6,13 @@ import { fetchCandidateHistoryKey } from './collected-urls-record'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'
 import { ConfigurationPolicyPass, ConfigurationPolicyService } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
-import { FetchCandidateLease, FetchCandidateQueue } from './fetch-candidate-queue'
+import {
+    FetchCandidatePool,
+    FetchCandidatePoolAdmission,
+    FetchCandidatePoolLimits,
+    PoolBatch,
+} from './fetch-candidate-pool'
+import { FetchCandidateLease, FetchCandidateQueue, deduplicateFetchCandidates } from './fetch-candidate-queue'
 import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import {
@@ -16,7 +22,7 @@ import {
     RequestScheduleBlockReason,
     TransientFetchOutcome,
 } from './image-fetcher'
-import { ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
@@ -58,6 +64,8 @@ export interface FetchRunnerOptions {
     requestTimeoutMs: number
     maxRedirects: number
     seenTtlSeconds: number
+    /** Set to run every batch through one pod-wide candidate pool instead of a fetch pass of its own. */
+    continuousPool?: FetchCandidatePoolLimits
 }
 
 const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
@@ -90,7 +98,8 @@ export interface FetchPass {
     run(
         candidates: FetchCandidate[],
         stored: Map<string, CrawlHistoryItem>,
-        republishBatch?: RepublishBatch
+        republishBatch?: RepublishBatch,
+        admission?: FetchCandidatePoolAdmission
     ): Promise<FetchAttempt[]>
 }
 
@@ -98,8 +107,24 @@ interface FetchPassState {
     failure?: { error: unknown }
 }
 
+interface PooledBatch {
+    stored: Map<string, CrawlHistoryItem>
+    configurationItems: Map<string, ConfigurationCacheItem>
+    configurationPolicy: ConfigurationPolicyPass
+    deadlineMs: number
+    republishBatch: RepublishBatch
+    state: FetchPassState
+    attempts: FetchAttempt[]
+    unsettled: number
+    poolBatch?: PoolBatch<PooledBatch>
+    settle: () => void
+}
+
 export class FetchRunner implements FetchPass {
     private readonly candidateWork: ConcurrencyController
+    private readonly pool?: FetchCandidatePool<PooledBatch>
+    private poolWorkers?: Promise<void>[]
+    private readonly activePooledBatches = new Set<Promise<FetchAttempt[]>>()
 
     constructor(
         private readonly fetcher: ImageFetcher,
@@ -126,9 +151,52 @@ export class FetchRunner implements FetchPass {
         }
         this.candidateWork = new ConcurrencyController(options.maxInFlightRequests)
         ImageFetchRequestMetrics.trackBudget(budget, scheduler)
+        if (options.continuousPool) {
+            this.pool = new FetchCandidatePool<PooledBatch>(
+                {
+                    ...options.continuousPool,
+                    maxConcurrentPerRegistrableDomain: options.maxConcurrentPerRegistrableDomain,
+                },
+                budget
+            )
+            ImageFetchProcessingMetrics.trackQueue(this.pool)
+        }
+    }
+
+    public get candidatePool(): FetchCandidatePool<PooledBatch> | undefined {
+        return this.pool
     }
 
     public async run(
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch?: RepublishBatch,
+        admission?: FetchCandidatePoolAdmission
+    ): Promise<FetchAttempt[]> {
+        if (this.pool) {
+            const pooledBatch = this.runPooled(this.pool, candidates, stored, republishBatch, admission)
+            this.activePooledBatches.add(pooledBatch)
+            try {
+                return await pooledBatch
+            } finally {
+                this.activePooledBatches.delete(pooledBatch)
+            }
+        }
+        admission?.admitted()
+        return await this.runPass(candidates, stored, republishBatch)
+    }
+
+    /**
+     * Waits for every pooled batch before it stops the workers. The Kafka consumer drain on shutdown
+     * has a timeout, and a batch that outlives it still needs the workers to take its queued candidates.
+     */
+    public async close(): Promise<void> {
+        await Promise.allSettled(this.activePooledBatches)
+        this.pool?.close()
+        await Promise.all(this.poolWorkers ?? [])
+    }
+
+    private async runPass(
         candidates: FetchCandidate[],
         stored: Map<string, CrawlHistoryItem>,
         republishBatch?: RepublishBatch
@@ -137,12 +205,7 @@ export class FetchRunner implements FetchPass {
         const deadlineMs = Date.now() + this.options.batchBudgetMs
         const configurationPolicy = this.configurationPolicy.createPass()
         const passState: FetchPassState = {}
-        const configurationItems = new Map<string, ConfigurationCacheItem>()
-        for (const [key, item] of stored) {
-            if (item.kind === 'robots' || item.kind === 'tdmrep') {
-                configurationItems.set(key, item)
-            }
-        }
+        const configurationItems = configurationItemsFrom(stored)
         const queue = new FetchCandidateQueue(candidates, this.options)
         this.topHogMetrics?.recordConcurrencyLimitedUrls(candidates, (registrableDomain) =>
             this.budget.availableConnections(registrableDomain, this.options.maxConcurrentPerRegistrableDomain)
@@ -183,8 +246,116 @@ export class FetchRunner implements FetchPass {
         if (failedWorker) {
             throw failedWorker.reason
         }
-        if (!republishBatch) {
-            const result = await activeRepublishBatch.flush()
+        return await this.finishPass(attempts, activeRepublishBatch, !republishBatch)
+    }
+
+    private async runPooled(
+        pool: FetchCandidatePool<PooledBatch>,
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch: RepublishBatch | undefined,
+        admission: FetchCandidatePoolAdmission | undefined
+    ): Promise<FetchAttempt[]> {
+        const activeRepublishBatch = republishBatch ?? this.publisher.createRepublishBatch()
+        const { candidates: unique } = deduplicateFetchCandidates(candidates)
+        this.topHogMetrics?.recordConcurrencyLimitedUrls(unique, (registrableDomain) =>
+            this.budget.availableConnections(registrableDomain, this.options.maxConcurrentPerRegistrableDomain)
+        )
+        let settle: () => void = () => undefined
+        const settled = new Promise<void>((resolve) => {
+            settle = resolve
+        })
+        const batch: PooledBatch = {
+            stored,
+            configurationItems: configurationItemsFrom(stored),
+            configurationPolicy: this.configurationPolicy.createPass(),
+            deadlineMs: Date.now() + this.options.batchBudgetMs,
+            republishBatch: activeRepublishBatch,
+            state: {},
+            attempts: [],
+            unsettled: unique.length,
+            settle,
+        }
+        this.startPoolWorkers(pool)
+        try {
+            batch.poolBatch = pool.add(unique, batch, batch.deadlineMs, admission?.owner)
+        } finally {
+            admission?.admitted()
+        }
+        if (batch.unsettled === 0) {
+            settle()
+        }
+        await settled
+        if (batch.state.failure) {
+            throw batch.state.failure.error
+        }
+        return await this.finishPass(batch.attempts, activeRepublishBatch, !republishBatch)
+    }
+
+    private startPoolWorkers(pool: FetchCandidatePool<PooledBatch>): void {
+        this.poolWorkers ??= Array.from({ length: this.options.maxInFlightRequests }, () => this.runPoolWorker(pool))
+    }
+
+    private async runPoolWorker(pool: FetchCandidatePool<PooledBatch>): Promise<void> {
+        for (;;) {
+            const lease = await pool.take()
+            if (!lease) {
+                return
+            }
+            ImageFetchPoolMetrics.observeWait(lease.waitedMs / 1000)
+            let signalSlotReleased: () => void = () => undefined
+            const slotReleased = new Promise<void>((resolve) => {
+                signalSlotReleased = resolve
+            })
+            const releaseRegistrableDomainSlot = (): void => {
+                lease.release()
+                signalSlotReleased()
+            }
+            const work = this.processPooledLease(pool, lease, releaseRegistrableDomainSlot)
+            await Promise.race([slotReleased, work])
+        }
+    }
+
+    private async processPooledLease(
+        pool: FetchCandidatePool<PooledBatch>,
+        lease: FetchCandidateLease & { context: PooledBatch },
+        releaseRegistrableDomainSlot: () => void
+    ): Promise<void> {
+        const batch = lease.context
+        try {
+            batch.attempts.push(
+                await this.processLease(
+                    lease,
+                    batch.stored,
+                    batch.configurationItems,
+                    batch.configurationPolicy,
+                    batch.deadlineMs,
+                    batch.republishBatch,
+                    batch.state,
+                    releaseRegistrableDomainSlot
+                )
+            )
+        } catch (error) {
+            batch.state.failure ??= { error }
+            if (batch.poolBatch) {
+                batch.unsettled -= pool.withdraw(batch.poolBatch)
+            }
+        } finally {
+            releaseRegistrableDomainSlot()
+            batch.unsettled -= 1
+            if (batch.unsettled <= 0) {
+                batch.settle()
+            }
+        }
+    }
+
+    private async finishPass(
+        attempts: FetchAttempt[],
+        republishBatch: RepublishBatch,
+        flushRepublishBatch: boolean
+    ): Promise<FetchAttempt[]> {
+        if (flushRepublishBatch) {
+            const result = await republishBatch.flush()
             if (result.failedUrls > 0) {
                 throw new Error(`the image fetch lane could not account for ${result.failedUrls} URLs`)
             }
@@ -203,30 +374,50 @@ export class FetchRunner implements FetchPass {
         republishBatch: RepublishBatch,
         passState: FetchPassState
     ): Promise<void> {
+        const leaseWork: Promise<void>[] = []
         for (;;) {
             const lease = queue.take()
             if (!lease) {
-                return
+                break
             }
-            try {
-                attempts.push(
-                    await this.processLease(
-                        lease,
-                        stored,
-                        configurationItems,
-                        configurationPolicy,
-                        deadlineMs,
-                        republishBatch,
-                        passState
-                    )
-                )
-            } catch (error) {
-                passState.failure ??= { error }
-                queue.abort()
-                throw error
-            } finally {
+            let signalSlotReleased: () => void = () => undefined
+            const slotReleased = new Promise<void>((resolve) => {
+                signalSlotReleased = resolve
+            })
+            const releaseRegistrableDomainSlot = (): void => {
                 lease.release()
+                signalSlotReleased()
             }
+            const work = (async (): Promise<void> => {
+                try {
+                    attempts.push(
+                        await this.processLease(
+                            lease,
+                            stored,
+                            configurationItems,
+                            configurationPolicy,
+                            deadlineMs,
+                            republishBatch,
+                            passState,
+                            releaseRegistrableDomainSlot
+                        )
+                    )
+                } catch (error) {
+                    passState.failure ??= { error }
+                    queue.abort()
+                    throw error
+                } finally {
+                    releaseRegistrableDomainSlot()
+                }
+            })()
+            leaseWork.push(work)
+            await Promise.race([slotReleased, work.catch(() => undefined)])
+        }
+        const failedLease = (await Promise.allSettled(leaseWork)).find(
+            (settled): settled is PromiseRejectedResult => settled.status === 'rejected'
+        )
+        if (failedLease) {
+            throw failedLease.reason
         }
     }
 
@@ -237,7 +428,8 @@ export class FetchRunner implements FetchPass {
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
         republishBatch: RepublishBatch,
-        passState: FetchPassState
+        passState: FetchPassState,
+        releaseRegistrableDomainSlot: () => void
     ): Promise<FetchAttempt> {
         const candidate = lease.candidate
         if (candidate.remainingHops === 0) {
@@ -274,7 +466,8 @@ export class FetchRunner implements FetchPass {
                             configurationItems,
                             configurationPolicy,
                             deadlineMs,
-                            republishBatch
+                            republishBatch,
+                            releaseRegistrableDomainSlot
                         )
                     } catch (error) {
                         passState.failure ??= { error }
@@ -291,7 +484,8 @@ export class FetchRunner implements FetchPass {
         configurationItems: Map<string, ConfigurationCacheItem>,
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
-        republishBatch: RepublishBatch
+        republishBatch: RepublishBatch,
+        releaseRegistrableDomainSlot: () => void
     ): Promise<FetchAttempt> {
         if (candidate.remainingHops === 0) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
@@ -518,6 +712,7 @@ export class FetchRunner implements FetchPass {
             )
         }
         if (result.outcome === 'ok') {
+            releaseRegistrableDomainSlot()
             try {
                 await this.publisher.publishImage(attemptedCandidate, result)
             } catch {
@@ -662,4 +857,14 @@ function mergeCache(
 
 function withoutValidators(cache: HttpCacheMetadata | undefined): HttpCacheMetadata | undefined {
     return cache ? { ...cache, etag: undefined, lastModified: undefined } : undefined
+}
+
+function configurationItemsFrom(stored: Map<string, CrawlHistoryItem>): Map<string, ConfigurationCacheItem> {
+    const configurationItems = new Map<string, ConfigurationCacheItem>()
+    for (const [key, item] of stored) {
+        if (item.kind === 'robots' || item.kind === 'tdmrep') {
+            configurationItems.set(key, item)
+        }
+    }
+    return configurationItems
 }

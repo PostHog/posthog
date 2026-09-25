@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconArchive, IconCloud, IconLaptop, IconListCheck } from '@posthog/icons'
+import { IconArchive } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { TaskRunEnvironment } from '../../types/taskTypes'
 import type { Task } from '../../types/taskTypes'
+import { TaskEnvironmentIcon } from '../TaskEnvironmentIcon'
 import { TaskRunLivenessDot } from '../TaskRunLivenessDot'
 
 function compactTimeAgo(iso: string): string {
@@ -35,13 +36,7 @@ function TaskTypeIcon({ task }: { task: Task }): JSX.Element {
     return (
         <Tooltip title={environment ? label : 'Task'} placement="right">
             <span className="flex size-4 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50">
-                {environment === TaskRunEnvironment.CLOUD ? (
-                    <IconCloud />
-                ) : environment === TaskRunEnvironment.LOCAL ? (
-                    <IconLaptop />
-                ) : (
-                    <IconListCheck />
-                )}
+                <TaskEnvironmentIcon environment={environment} />
             </span>
         </Tooltip>
     )

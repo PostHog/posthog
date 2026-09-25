@@ -13,6 +13,9 @@ It is exercised locally via management commands, and it is also used by the prod
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
+  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+- `source_repository.py`
+  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
