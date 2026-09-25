@@ -297,12 +297,11 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         result = next(log for log in logs if log["event"] == "slack_app_link_unfurl_result")
         assert result["skipped"] == [{"kind": "insight", "ref": self.insight.short_id, "reason": "other_region"}]
 
-    def _bot_ready_integration(self) -> Integration:
+    def _make_bot_ready(self) -> None:
         self.integration.config = {"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))}
         self.integration.save()
-        return self.integration
 
-    def _unfurl_insight(self, urls: list[str], channel: str = "C1") -> None:
+    def _unfurl_links(self, urls: list[str], channel: str = "C1") -> None:
         handle_posthog_link_unfurl(
             {
                 "channel": channel,
@@ -320,7 +319,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             for payload in mock_client.chat_unfurl.call_args.kwargs["unfurls"].values()
             for block in payload["blocks"]
         ]
-        return [block for block in blocks if block["type"] == "context"]
+        return [block for block in blocks if block["type"] == "context" and "@PostHog" in block["elements"][0]["text"]]
 
     @parameterized.expand([("ai_approved", True, 1), ("ai_not_approved", False, 0)])
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -335,12 +334,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save()
-        self._bot_ready_integration()
+        self._make_bot_ready()
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
-        self._unfurl_insight([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
 
         invites = self._invite_blocks(mock_client)
         assert len(invites) == expected_invites
@@ -360,7 +359,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
-        self._unfurl_insight([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
 
         text = self._invite_blocks(mock_client)[0]["elements"][0]["text"]
         assert "Set up the @PostHog bot" in text
@@ -372,19 +371,19 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_unfurl_invite_appears_once_per_channel_per_day(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        self._bot_ready_integration()
+        self._make_bot_ready()
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
 
-        self._unfurl_insight([url])
+        self._unfurl_links([url])
         assert len(self._invite_blocks(mock_client)) == 1
 
-        self._unfurl_insight([url])
+        self._unfurl_links([url])
         assert self._invite_blocks(mock_client) == []
 
-        self._unfurl_insight([url], channel="C2")
+        self._unfurl_links([url], channel="C2")
         assert len(self._invite_blocks(mock_client)) == 1
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -392,13 +391,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_message_with_several_links_carries_one_invite(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
-        self._bot_ready_integration()
+        self._make_bot_ready()
         dashboard = Dashboard.objects.create(team=self.team, name="Growth")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
-        self._unfurl_insight(
+        self._unfurl_links(
             [
                 f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}",
                 f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}",

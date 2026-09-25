@@ -14,17 +14,12 @@ from products.slack_app.backend.services.slack_scopes import bot_is_ready
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 
-DEFAULT_INVITE_SUBJECT = "this report"
-DEFAULT_SETUP_SUBJECT = "your reports"
-
-
 def build_followup_invite_text(
     integration: Integration | None,
     *,
     utm_tags: str,
     ai_enabled: bool,
-    subject: str = DEFAULT_INVITE_SUBJECT,
-    setup_subject: str = DEFAULT_SETUP_SUBJECT,
+    subject: str | None = None,
 ) -> str | None:
     """mrkdwn nudging the channel to @PostHog this report (or to set the bot up).
 
@@ -40,17 +35,15 @@ def build_followup_invite_text(
     ``utm_tags`` attributes an install that starts from the setup link, so each caller passes the
     campaign that names its own surface.
 
-    ``subject`` and ``setup_subject`` name what the reader would be asking about, for a surface
-    that isn't a report. The unfurl path passes the resource it just expanded, so the line reads
-    "dig into this dashboard" rather than naming a report the reader never saw. The two differ
-    because the branches phrase it differently: one points at the message above it, the other at
-    the class of thing the bot could answer for once it is installed.
+    ``subject`` names what the reader would be asking about, for a surface that isn't a report.
+    The unfurl path passes the resource it just expanded, so the line reads "dig into this
+    dashboard" rather than naming a report the reader never saw.
     """
     if integration is None or not ai_enabled:
         return None
     if bot_is_ready(integration):
-        return f"💬 Reply in this thread and mention *@PostHog* with a question to dig into {subject}."
-    return f"💬 <{BOT_SETUP_DOCS_URL}?{utm_tags}|Set up the @PostHog bot> to ask follow-up questions about {setup_subject} here."
+        return f"💬 Reply in this thread and mention *@PostHog* with a question to dig into {subject or 'this report'}."
+    return f"💬 <{BOT_SETUP_DOCS_URL}?{utm_tags}|Set up the @PostHog bot> to ask follow-up questions about {subject or 'your reports'} here."
 
 
 def build_followup_invite(
@@ -58,20 +51,13 @@ def build_followup_invite(
     *,
     utm_tags: str,
     ai_enabled: bool,
-    subject: str = DEFAULT_INVITE_SUBJECT,
-    setup_subject: str = DEFAULT_SETUP_SUBJECT,
+    subject: str | None = None,
 ) -> dict[str, Any] | None:
     """Slack context block nudging the channel to @PostHog this report (or to set the bot up).
 
     Returns ``None`` in the same cases as ``build_followup_invite_text``.
     """
-    text = build_followup_invite_text(
-        integration,
-        utm_tags=utm_tags,
-        ai_enabled=ai_enabled,
-        subject=subject,
-        setup_subject=setup_subject,
-    )
+    text = build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
     if text is None:
         return None
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
