@@ -42,6 +42,9 @@ logger = structlog.get_logger(__name__)
 
 WATCH_FEED_RANKER_FLAG = "vision-watch-feed-ranker"
 RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
+# The JevK5 build PostHog hosts on the AI gateway, which is the only backend the ml_inference
+# facade reaches. The vendor (typesafe.ai) is not approved for customer data, and observation prose
+# is customer data, so never point this at a vendor model id.
 JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 JEV_INPUT_USD_PER_MILLION = 0.042
 JEV_TIMEOUT_SECONDS = 3.0
