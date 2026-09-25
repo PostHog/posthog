@@ -21,7 +21,7 @@ from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, ca
 from products.posthog_ai.backend.turn_suggestions.dispatch import TURN_SETTLE_SECONDS, enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
 from products.posthog_ai.backend.turn_suggestions.judgment import (
-    JUDGE_MODELS,
+    JUDGE_MODEL,
     MAX_REF_OPTIONS,
     TurnJudgment,
     build_judge_questions,
@@ -598,7 +598,7 @@ class TestJudgeTurn(SimpleTestCase):
                 choice = picks.get(key, next(iter(question["criteria"])))
                 probabilities = {option: float(option == choice) for option in question["criteria"]}
                 answers[key] = {"type": "choice", "choice": choice, "confidence": 1.0, "probabilities": probabilities}
-            return httpx.Response(200, json={"model": JUDGE_MODELS.gateway, "answers": answers, "usage": {}})
+            return httpx.Response(200, json={"model": JUDGE_MODEL, "answers": answers, "usage": {}})
 
         only_scout = frozenset({OfferKind.SCOUT})
         with (
@@ -608,7 +608,7 @@ class TestJudgeTurn(SimpleTestCase):
             judgment = judge_turn(build_turn_transcript(_metric_turn()), available=only_scout, team_id=7)
 
         request = send.call_args.args[0]
-        assert json.loads(request.content)["model"] == JUDGE_MODELS.gateway
+        assert json.loads(request.content)["model"] == JUDGE_MODEL
         assert request.headers["X-PostHog-Distinct-Id"] == "team-7"
         assert judgment is not None and judgment.offer == OfferKind.SCOUT
 
