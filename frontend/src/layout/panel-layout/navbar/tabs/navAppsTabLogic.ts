@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
@@ -277,11 +278,21 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                     if (!values.appRecommendationsEnabled) {
                         return null
                     }
+                    const items = values.configurableApps
+                    const rankingCache: Map<string, Record<string, number>> = (cache.appRankingCache ??= new Map())
+                    const cacheKey = JSON.stringify([
+                        values.currentTeamId,
+                        query.trim(),
+                        items.map((item) => item.path),
+                    ])
+                    const cachedRankings = rankingCache.get(cacheKey)
+                    if (cachedRankings) {
+                        return cachedRankings
+                    }
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'appRankingRequest', {
                         pauseOnPageHidden: false,
                     })
-                    const items = values.configurableApps
                     try {
                         const scores = await Promise.all(
                             buildAppRankingQuestions(items).map(async (questions) => {
@@ -300,7 +311,15 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                             })
                         )
                         breakpoint()
-                        return values.appRecommendationsEnabled ? Object.assign({}, ...scores) : null
+                        if (!values.appRecommendationsEnabled) {
+                            return null
+                        }
+                        const rankings = Object.assign({}, ...scores)
+                        rankingCache.set(cacheKey, rankings)
+                        if (rankingCache.size > 10) {
+                            rankingCache.delete(rankingCache.keys().next().value!)
+                        }
+                        return rankings
                     } catch {
                         breakpoint()
                         actions.setAppRankingError(
@@ -452,6 +471,20 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setStarSaveError: ({ error }) => {
+            if (error && !values.configureStarredOpen) {
+                lemonToast.error(error, {
+                    toastId: 'configure-starred-save-error',
+                    autoClose: false,
+                    button: { label: 'Configure starred', action: () => actions.setConfigureStarredOpen(true) },
+                })
+            }
+        },
+        setConfigureStarredOpen: ({ open }) => {
+            if (!open && values.starSaveError) {
+                actions.setStarSaveError(values.starSaveError)
+            }
+        },
         setAppRecommendationQuery: ({ query }) => actions.rankApps({ query }),
         setAppStarred: ({ appPath, starred }) => {
             if (!values.configurableApps.some((app) => app.path === appPath)) {

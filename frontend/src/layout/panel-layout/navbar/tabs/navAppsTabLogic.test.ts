@@ -4,6 +4,7 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -126,28 +127,53 @@ describe('navAppsTabLogic', () => {
         expect(projectTreeDataLogic.values.shortcutData).toEqual(existing)
     })
 
-    it('keeps a star after a failed removal and allows a retry', async () => {
-        const remove = jest
-            .fn()
-            .mockReturnValueOnce([500, { detail: 'Try again' }])
-            .mockReturnValueOnce([204])
-        useMocks({ delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove } })
-        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
-        ])
+    it.each(['before', 'after'])(
+        'reports a failed removal when the modal closes %s the failure and allows a retry',
+        async (closed) => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('save-error')
+            navAppsTabLogic.actions.setConfigureStarredOpen(true)
+            const remove = jest
+                .fn()
+                .mockReturnValueOnce([500, { detail: 'Try again' }])
+                .mockReturnValueOnce([204])
+            useMocks({ delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove } })
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+            projectTreeDataLogic.actions.loadShortcutsSuccess([
+                { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+            ])
 
-        await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
-            .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
-            .toMatchValues({
-                starredAppIds: { 'Feature flags': 'app-star' },
-                starSaveResultLoading: false,
-                starSaveError: expect.any(String),
+            await expectLogic(navAppsTabLogic, () => {
+                navAppsTabLogic.actions.setAppStarred('Feature flags', false)
+                if (closed === 'before') {
+                    navAppsTabLogic.actions.setConfigureStarredOpen(false)
+                }
             })
-        await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
-            .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
-            .toMatchValues({ starredAppIds: {}, starSaveResultLoading: false, starSaveError: null })
-    })
+                .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
+                .toMatchValues({
+                    starredAppIds: { 'Feature flags': 'app-star' },
+                    starSaveResultLoading: false,
+                    starSaveError: expect.any(String),
+                })
+            if (closed === 'after') {
+                expect(errorToast).not.toHaveBeenCalled()
+                navAppsTabLogic.actions.setConfigureStarredOpen(false)
+            }
+            expect(errorToast).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    toastId: 'configure-starred-save-error',
+                    autoClose: false,
+                    button: { label: 'Configure starred', action: expect.any(Function) },
+                })
+            )
+            errorToast.mock.calls[0][1]?.button?.action()
+            expect(navAppsTabLogic.values.configureStarredOpen).toBe(true)
+            await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
+                .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
+                .toMatchValues({ starredAppIds: {}, starSaveResultLoading: false, starSaveError: null })
+            errorToast.mockRestore()
+        }
+    )
     it.each([
         ['apps', ['Product analytics']],
         ['files', ['Overview', 'Research']],
@@ -261,6 +287,17 @@ describe('navAppsTabLogic', () => {
             (navAppsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
                 (navAppsTabLogic.values.appMatchGroups?.other.length ?? 0)
         ).toBe(allApps.length)
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('')
+        ).toDispatchActions(['rankAppsSuccess'])
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('  Track website visitors  ')
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(decide.mock.calls.length).toBe(Math.ceil(allApps.length / 32))
+        expect(navAppsTabLogic.values.appMatchGroups?.matching.map((item) => item.path)).toEqual([
+            'Web analytics',
+            'SQL editor',
+        ])
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,

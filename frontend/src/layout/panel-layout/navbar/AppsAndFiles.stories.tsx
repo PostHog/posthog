@@ -4,9 +4,11 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { within, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic } from 'kea'
+import { Slide, ToastContainer } from 'react-toastify'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -210,6 +212,33 @@ export const ConfigureStarredWithoutAIConsent: Story = {
             is_ai_data_processing_approved: false,
         })
         await ConfigureStarred.play!(context)
+    },
+}
+export const ConfigureStarredSaveFailure: Story = {
+    decorators: [
+        (Story, { globals }) => (
+            <>
+                <Story />
+                <ToastContainer
+                    autoClose={6000}
+                    transition={Slide}
+                    closeButton={<ToastCloseButton />}
+                    position="bottom-right"
+                    theme={globals.theme === 'dark' ? 'dark' : 'light'}
+                />
+            </>
+        ),
+        mswDecorator({
+            post: { '/api/environments/:team_id/file_system_shortcut/': [500, { detail: 'Unavailable' }] },
+        }),
+    ],
+    play: async (context) => {
+        await ConfigureStarred.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        const dialog = within(body.getByRole('dialog'))
+        await userEvent.click(dialog.getByRole('switch', { name: 'Actions' }))
+        await userEvent.click(dialog.getByText('Done', { exact: true }))
+        await body.findByText('Some changes could not be saved. Toggle those apps again to retry.')
     },
 }
 export const ConfigureStarredRanked: Story = {
