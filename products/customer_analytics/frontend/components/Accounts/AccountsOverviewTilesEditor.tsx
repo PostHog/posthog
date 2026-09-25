@@ -245,8 +245,9 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
-    const onThresholdValueChange = (value: number): void => {
-        if (tile.metric.type !== 'count_threshold') {
+    // Clearing or half-typing the input (valueAsNumber → NaN) keeps the previous threshold.
+    const onThresholdValueChange = (value: number | undefined): void => {
+        if (tile.metric.type !== 'count_threshold' || value === undefined || !Number.isFinite(value)) {
             return
         }
         const nextMetric: AccountsOverviewTileMetric = { ...tile.metric, value }
@@ -349,9 +350,7 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                             <LemonInput
                                 type="number"
                                 value={tile.metric.value}
-                                onChange={(value) =>
-                                    onThresholdValueChange(typeof value === 'number' ? value : Number(value) || 0)
-                                }
+                                onChange={onThresholdValueChange}
                                 data-attr={`accounts-overview-tile-threshold-${tile.id}`}
                             />
                         </>
