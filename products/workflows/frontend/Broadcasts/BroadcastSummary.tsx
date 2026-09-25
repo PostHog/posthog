@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconArrowLeft, IconChevronDown, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, LemonTagType } from '@posthog/lemon-ui'
@@ -257,10 +257,10 @@ export function BroadcastSummary(): JSX.Element {
         canEditContent,
         duplicating,
         summaryStatus,
+        summaryTab,
     } = useValues(broadcastWizardLogic)
-    const { moveToDraft, duplicateBroadcast } = useActions(broadcastWizardLogic)
+    const { moveToDraft, duplicateBroadcast, setSummaryTab } = useActions(broadcastWizardLogic)
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
-    const [tab, setTab] = useState<'overview' | 'content' | 'runs'>('overview')
 
     const confirmMoveToDraft = (): void => {
         LemonDialog.open({
@@ -346,8 +346,8 @@ export function BroadcastSummary(): JSX.Element {
                 </div>
 
                 <LemonTabs
-                    activeKey={tab}
-                    onChange={setTab}
+                    activeKey={summaryTab}
+                    onChange={setSummaryTab}
                     tabs={[
                         {
                             key: 'overview',
