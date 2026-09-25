@@ -30,7 +30,12 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    CHQueryErrorQueryWasCancelled,
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -605,7 +610,13 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
 
 # Temporal gives the activity only the class name of the failure, so match on names.
-_CH_TRANSIENT_ERROR_NAMES = frozenset(error_class.__name__ for error_class in CH_TRANSIENT_ERRORS)
+# The S3 errors come from the files behind one warehouse table. A file that is broken or that the
+# cluster cannot read fails every check, so these errors still retry but then reach the owner.
+_SHARED_CH_FAILURE_NAMES = frozenset(
+    error_class.__name__
+    for error_class in CH_TRANSIENT_ERRORS
+    if error_class not in (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead)
+)
 
 
 def _is_transient_failure(inputs: RecordFailedEvaluationActivityInputs) -> bool:
@@ -614,7 +625,7 @@ def _is_transient_failure(inputs: RecordFailedEvaluationActivityInputs) -> bool:
     A cluster outage stops every alert that checks in the same window. If each of them goes to
     ERRORED and emails its owner, one outage sends one generic email per alert.
     """
-    return inputs.error_type in _CH_TRANSIENT_ERROR_NAMES
+    return inputs.error_type in _SHARED_CH_FAILURE_NAMES
 
 
 def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:

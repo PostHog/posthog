@@ -1319,6 +1319,8 @@ class TestRecordFailedEvaluation:
             (AlertState.NOT_FIRING, "NetworkError", AlertState.NOT_FIRING, False, "evaluation_temporarily_unavailable"),
             (AlertState.FIRING, "ClickHouseAtCapacity", AlertState.FIRING, False, "evaluation_temporarily_unavailable"),
             (AlertState.NOT_FIRING, "ClickHouseQueryMemoryLimitExceeded", AlertState.ERRORED, True, None),
+            (AlertState.NOT_FIRING, "CHQueryErrorS3Error", AlertState.ERRORED, True, None),
+            (AlertState.FIRING, "CHQueryErrorS3FileChangedDuringRead", AlertState.ERRORED, True, None),
             (AlertState.NOT_FIRING, "ValueError", AlertState.ERRORED, True, None),
         ],
     )
