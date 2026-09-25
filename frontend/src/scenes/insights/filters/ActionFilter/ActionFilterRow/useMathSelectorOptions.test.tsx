@@ -20,21 +20,26 @@ import { useMathSelectorOptions } from './useMathSelectorOptions'
 function ActiveActorLabel({
     mathType,
     onMathSelect,
+    mathAvailability = MathAvailability.All,
 }: {
     mathType: BaseMathType
     onMathSelect: jest.Mock
+    mathAvailability?: MathAvailability
 }): JSX.Element {
     const [section] = useMathSelectorOptions({
         math: 'total',
         index: 0,
-        mathAvailability: MathAvailability.All,
+        mathAvailability,
         onMathSelect,
         trendsDisplayCategory: null,
         mathGroupTypeIndex: undefined,
     })
     const opt = ('options' in section ? section.options : []).find((o) => 'value' in o && o.value === mathType)
-    const label = opt && 'labelInMenu' in opt ? opt.labelInMenu : null
-    return <div data-attr="actor-label">{label as React.ReactNode}</div>
+    if (!opt) {
+        return <div data-attr="actor-label">no option</div>
+    }
+    const label = 'labelInMenu' in opt ? opt.labelInMenu : null
+    return <div data-attr="actor-label">{(label ?? 'no picker') as React.ReactNode}</div>
 }
 
 function OptionValues({ math, mathGroupTypeIndex }: { math: string; mathGroupTypeIndex: number }): JSX.Element {
@@ -111,6 +116,26 @@ describe('useMathSelectorOptions – active actor select', () => {
             })
         }
     )
+
+    // funnels drop group-scoped first-occurrence math in actionsAndEventsToSeries, so a picker here
+    // would let a step silently fall back to "Any event"
+    it('gives funnel steps no group picker for first-occurrence math', async () => {
+        render(
+            <Provider>
+                <ActiveActorLabel
+                    mathType={BaseMathType.FirstTimeForUser}
+                    onMathSelect={jest.fn()}
+                    mathAvailability={MathAvailability.FunnelsOnly}
+                />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(groupsModel.values.groupTypes.size).toBeGreaterThan(0)
+        })
+
+        expect(screen.getByTestId('actor-label')).toHaveTextContent('no picker')
+    })
 
     it.each([
         [BaseMathType.WeeklyActiveUsers, 'weekly_active'],
