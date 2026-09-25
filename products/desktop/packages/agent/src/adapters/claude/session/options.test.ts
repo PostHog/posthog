@@ -515,6 +515,71 @@ describe("buildSessionOptions", () => {
     });
   });
 
+  describe("Bedrock model ids in the environment", () => {
+    const MODEL_KEYS = [
+      "ANTHROPIC_MODEL",
+      "ANTHROPIC_SMALL_FAST_MODEL",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    ] as const;
+    const original: Partial<Record<string, string | undefined>> = {};
+    const originalUseBedrock = process.env.CLAUDE_CODE_USE_BEDROCK;
+
+    beforeEach(() => {
+      for (const key of MODEL_KEYS) {
+        original[key] = process.env[key];
+      }
+      delete process.env.CLAUDE_CODE_USE_BEDROCK;
+    });
+
+    afterEach(() => {
+      for (const key of MODEL_KEYS) {
+        const value = original[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+      if (originalUseBedrock === undefined) {
+        delete process.env.CLAUDE_CODE_USE_BEDROCK;
+      } else {
+        process.env.CLAUDE_CODE_USE_BEDROCK = originalUseBedrock;
+      }
+    });
+
+    // The gateway's Anthropic route serves public Anthropic names only, so a
+    // Bedrock id left by a Bedrock-provisioned box fails every call on it.
+    it.each(MODEL_KEYS)("drops a Bedrock id in %s", (key) => {
+      process.env[key] = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+      const env = buildSessionOptions(makeParams()).env;
+
+      expect(env?.[key]).toBeUndefined();
+    });
+
+    it("keeps a public Anthropic model name", () => {
+      process.env.ANTHROPIC_SMALL_FAST_MODEL = "claude-haiku-4-5";
+
+      const env = buildSessionOptions(makeParams()).env;
+
+      expect(env?.ANTHROPIC_SMALL_FAST_MODEL).toBe("claude-haiku-4-5");
+    });
+
+    it("keeps Bedrock ids on the direct-Bedrock path", () => {
+      process.env.CLAUDE_CODE_USE_BEDROCK = "1";
+      process.env.ANTHROPIC_SMALL_FAST_MODEL =
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0";
+
+      const env = buildSessionOptions(makeParams()).env;
+
+      expect(env?.ANTHROPIC_SMALL_FAST_MODEL).toBe(
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      );
+    });
+  });
+
   describe("machineAuth (own Claude subscription)", () => {
     const STRIPPED_KEYS = [
       "ANTHROPIC_BASE_URL",
