@@ -4,7 +4,7 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconGraph, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -37,12 +37,12 @@ import { BIEditorView } from './bi/biEditorTypes'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
+import { EmbeddedSaveAsInsightButton } from './EmbeddedSaveAsInsightButton'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
-import { getSaveAsDisabledReason } from './saveAsDisabledReason'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
@@ -610,30 +610,4 @@ function CollapsedConnectionSelector({ tabId, mode }: { tabId: string; mode?: SQ
     }
 
     return <ConnectionSelector tabId={tabId} />
-}
-
-function EmbeddedSaveAsInsightButton(): JSX.Element {
-    const { insightLoading, isSourceQueryLastRun } = useValues(sqlEditorLogic)
-    const { saveAsInsight } = useActions(sqlEditorLogic)
-    const { response, responseError, responseLoading } = useValues(dataNodeLogic)
-    const disabledReason = getSaveAsDisabledReason({
-        insightLoading,
-        isSourceQueryLastRun,
-        responseLoading,
-        responseError,
-        response,
-    })
-
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconGraph />}
-            onClick={() => saveAsInsight()}
-            disabledReason={disabledReason}
-            data-attr="sql-editor-embedded-save-as-insight"
-        >
-            Save as insight
-        </LemonButton>
-    )
 }
