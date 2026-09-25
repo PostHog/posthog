@@ -217,9 +217,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         return self._validate_id_jag_url(value)
 
     def validate_saml_acs_url(self, value: str | None) -> str | None:
-        if not value or not value.strip():
+        normalized = (value or "").strip()
+        if not normalized:
             return value
-        normalized = value.strip()
         # An IdP sign-on URL is never hosted by PostHog, so a PostHog host means the admin pasted
         # the ACS consumer URL shown above the field. Accepting it locks the organization out of login.
         entered = urlsplit(normalized if "//" in normalized else f"//{normalized}")
