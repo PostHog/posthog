@@ -1,5 +1,6 @@
 import os
 import re
+import copy
 import json
 import uuid
 from collections.abc import Callable, Iterable
@@ -918,7 +919,8 @@ class Task(DeletedMetaFields, models.Model):
             tasks = cls.objects.select_for_update(no_key=True).only("id", "state")
             locked_task = (tasks.filter(team_id=team_id) if team_id is not None else tasks).get(id=task_id)
             current = locked_task.state or {}
-            state = dict(current)
+            # A deep copy, so a mutator that edits a nested value in place still differs from ``current``.
+            state = copy.deepcopy(current)
             mutator(state)
             if state != current:
                 locked_task.state = state

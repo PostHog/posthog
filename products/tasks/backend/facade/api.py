@@ -4578,6 +4578,15 @@ def _holds_user_prompt(entries: list[dict]) -> bool:
     return False
 
 
+def _server_notification_key(entry: dict) -> str | None:
+    # A persisted server notification carries no event id, but both stores hold the same timestamped event.
+    notification = entry.get("notification") if entry.get("type") == "notification" else None
+    method = notification.get("method") if isinstance(notification, dict) else None
+    if entry.get("event_id") or not isinstance(method, str) or not method.startswith("_posthog/"):
+        return None
+    return json.dumps(entry, sort_keys=True)
+
+
 def read_task_run_history(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int
 ) -> list[dict] | None:
@@ -4595,16 +4604,33 @@ def read_task_run_history(
     if run is None:
         return []
     log_urls = [ancestor.log_url for ancestor in run.get_resume_chain()]
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_MAX_LENGTH,
+    )
+
     stream_entries = _read_run_stream_entries(run)
-    stream_is_whole_run = not any(entry.get("event_id") for entry in stream_entries) and _holds_user_prompt(
-        stream_entries
+    # A stream at the length cap may have lost its head to the trim, so only a shorter one can stand in for the log.
+    stream_is_whole_run = (
+        len(stream_entries) < TASK_RUN_STREAM_MAX_LENGTH
+        and not any(entry.get("event_id") for entry in stream_entries)
+        and _holds_user_prompt(stream_entries)
     )
     logs_to_read = log_urls[:-1] if stream_is_whole_run else log_urls
     if logs_to_read and get_task_run_log_size(logs_to_read) > max_bytes:
         return None
     log_entries = list(parse_task_run_log_entries(read_task_run_log_content(logs_to_read))) if logs_to_read else []
     backlog = TaskRunStreamBacklogIndex(log_entries)
-    return [*log_entries, *(entry for entry in stream_entries if not backlog.covers(entry))]
+    persisted_server_notifications = {
+        key for key in (_server_notification_key(entry) for entry in log_entries) if key is not None
+    }
+    return [
+        *log_entries,
+        *(
+            entry
+            for entry in stream_entries
+            if not backlog.covers(entry) and _server_notification_key(entry) not in persisted_server_notifications
+        ),
+    ]
 
 
 def publish_task_run_stream_notification(

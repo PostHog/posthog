@@ -17,6 +17,11 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_stream_redis_sync
 
 USER_PROMPT = {"type": "notification", "notification": {"method": "_posthog/user_message", "params": {}}}
+SERVER_NOTIFICATION = {
+    "type": "notification",
+    "timestamp": "2026-01-01T00:00:00+00:00",
+    "notification": {"jsonrpc": "2.0", "method": "_posthog/turn_suggestion", "params": {}},
+}
 
 
 def _frame(event_id: str) -> dict:
@@ -108,10 +113,25 @@ class TestStreamNotifications(BaseTest):
                 [_frame("b-1")],
                 [_frame("b-1"), {"type": "notification"}],
             ),
+            # A persisted server notification sits in both stores without an id, and appears once.
+            (
+                "persisted_server_notification_appears_once",
+                [_frame("b-1"), SERVER_NOTIFICATION],
+                [_frame("b-1"), SERVER_NOTIFICATION],
+                [_frame("b-1"), SERVER_NOTIFICATION],
+            ),
+            # An unstamped stream at the length cap may be a trimmed tail, so the log is still read.
+            (
+                "unstamped_stream_at_the_cap_keeps_the_log",
+                [USER_PROMPT, USER_PROMPT],
+                [_frame("b-1")],
+                [_frame("b-1"), USER_PROMPT, USER_PROMPT],
+                2,
+            ),
         ]
     )
     def test_history_merges_the_log_and_the_live_stream(
-        self, _name: str, stream: list[dict], log: list[dict], expected: list[dict]
+        self, _name: str, stream: list[dict], log: list[dict], expected: list[dict], stream_cap: int = 5_000
     ):
         for event in stream:
             publish_task_run_stream_event(str(self.task_run.id), event)
@@ -120,6 +140,7 @@ class TestStreamNotifications(BaseTest):
         with (
             patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": len(log_content)}),
             patch("posthog.storage.object_storage.read", return_value=log_content),
+            patch("products.tasks.backend.logic.stream.redis_stream.TASK_RUN_STREAM_MAX_LENGTH", stream_cap),
         ):
             assert self._history() == expected
 
