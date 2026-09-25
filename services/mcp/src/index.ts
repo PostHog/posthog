@@ -1,6 +1,6 @@
+import { buildMissingTokenResponse, validateBearerToken } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
-import { buildMissingTokenResponse, validateBearerToken } from '@/lib/auth-errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
@@ -253,7 +253,7 @@ const handleRequest = async (
     }
 
     if (url.pathname.startsWith('/mcp')) {
-        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV, regionParam)
         log.extend({ proxy: 'hono', region })
         return proxyToHono(request, region)
     }

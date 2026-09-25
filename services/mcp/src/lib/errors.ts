@@ -7,6 +7,9 @@ import { sanitizeHeaderValue } from '@/lib/utils'
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
     INACTIVE_OAUTH_TOKEN = 'INACTIVE_OAUTH_TOKEN',
+    // The credential could not be checked, which is not a rejection. Only a rejection
+    // tells the client to re-authorize, so an outage reported as one discards a good token.
+    CREDENTIAL_CHECK_UNAVAILABLE = 'CREDENTIAL_CHECK_UNAVAILABLE',
 }
 
 export class MCPToolError extends Error {

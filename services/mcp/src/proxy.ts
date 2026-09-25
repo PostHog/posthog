@@ -60,21 +60,25 @@ function getHonoTargetUrl(region: CloudRegion): string {
     return region === 'eu' ? MCP_HONO_EU_URL : MCP_HONO_US_URL
 }
 
+// A rejected token resolves to no user, so the fallback decides where the client goes.
+// Proxying to the wrong cloud rewrites the host, which points the 401 challenge at an
+// authorization server whose tokens this resource rejects.
 export async function resolveProxyRegion(
     token: string,
     userHash: string,
-    kv: KVNamespace | undefined
+    kv: KVNamespace | undefined,
+    requestedRegion?: string
 ): Promise<CloudRegion> {
     try {
         const user = await resolveUser(token, userHash, kv)
         if (user) {
             return user.region
         }
-        console.info('[MCP proxy] could not resolve user region, defaulting to us')
+        console.info('[MCP proxy] could not resolve user region, falling back to the requested region')
     } catch (err) {
         console.error('[MCP proxy] error resolving region:', err)
     }
-    return 'us'
+    return requestedRegion === 'eu' || requestedRegion === 'us' ? requestedRegion : 'us'
 }
 
 export function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {

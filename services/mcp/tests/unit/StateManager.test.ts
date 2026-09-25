@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -108,6 +108,36 @@ describe('StateManager', () => {
 
             expect(api.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
+        })
+
+        it.each([
+            {
+                label: 'introspection rejects the credential',
+                introspectionError: ErrorCode.INVALID_API_KEY,
+                expected: ErrorCode.INVALID_API_KEY,
+            },
+            {
+                label: 'introspection is unavailable',
+                introspectionError: 'PostHog API error: 503',
+                expected: ErrorCode.CREDENTIAL_CHECK_UNAVAILABLE,
+            },
+            {
+                label: 'introspection is rate limited',
+                introspectionError: 'Rate limit exceeded',
+                expected: ErrorCode.CREDENTIAL_CHECK_UNAVAILABLE,
+            },
+        ])('reports $label as $expected', async ({ introspectionError, expected }) => {
+            stateManager = new StateManager(cache, {
+                config: { apiToken: 'pha_test' },
+                apiKeys: () => ({
+                    current: async () => ({ success: false, error: { message: 'not a personal key' } }),
+                }),
+                oauth: () => ({
+                    introspect: async () => ({ success: false, error: new Error(introspectionError) }),
+                }),
+            } as unknown as ApiClient)
+
+            await expect(stateManager.getApiKey()).rejects.toThrow(expected)
         })
     })
 
