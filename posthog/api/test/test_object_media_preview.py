@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -6,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
@@ -44,16 +47,42 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
         # Tied rows need a total order, or a page boundary can skip or repeat a preview
         assert seen == sorted((str(preview.id) for preview in previews), reverse=True)
 
+    def _create_token(self, auth: str, scopes: list[str]) -> str:
+        if auth == "personal_api_key":
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="key", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            return value
+        app = OAuthApplication.objects.create(
+            name="Test app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_object_media_preview_test",
+            scope=" ".join(scopes),
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return token.token
+
     @parameterized.expand(
         [
-            ("with_read_scope", ["event_definition:read"], status.HTTP_200_OK),
-            ("without_read_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("personal_api_key_with_read_scope", "personal_api_key", ["event_definition:read"], status.HTTP_200_OK),
+            ("personal_api_key_without_read_scope", "personal_api_key", ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("oauth_with_read_scope", "oauth", ["event_definition:read"], status.HTTP_200_OK),
+            ("oauth_without_read_scope", "oauth", ["insight:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_preferred_for_event_with_personal_api_key(self, _name, scopes, expected_status):
+    def test_preferred_for_event_with_token(self, _name, auth, scopes, expected_status):
         event_definition, previews = self._create_previews(1)
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        value = self._create_token(auth, scopes)
         self.client.logout()
 
         response = self.client.get(
