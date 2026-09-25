@@ -12,7 +12,9 @@ This product pulls them, decides them in-process, and answers the hub's question
 - `facade.api.decide(subject, surface)` returns allow, block or exempt with the deciding rule.
   A posthog.com account is never blocked.
 - Phase 1 enforces only `email_code` exemptions. Signup, login, sessions and the AI gateway call `shadow_check`, which logs `security_access_would_block` and counts `posthog_security_access_would_block_total`, and blocks nobody.
-- To drop the emailed login code for every account during an email outage, add an `everyone` rule with scope `email_code` at the hub. It applies on the next pull, so allow up to 5 minutes.
+- To drop the emailed login code for every account during an email outage, add an `everyone` rule with scope `email_code` at the hub.
+  Give it an expiry. The Redis switch it replaces capped itself at 7 days; a rule without `expiresAt` stays in force until somebody revokes it.
+  It applies on the next pull plus the memo window, so allow about 6 minutes.
 
 ## Hub endpoints
 
