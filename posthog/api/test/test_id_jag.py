@@ -839,8 +839,16 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
     def _call_authenticated(self, token: str) -> Any:
         return self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
 
-    def test_write_is_attributed_to_the_resolved_user(self) -> None:
-        token = self._mint_access_token(scope="experiment:write feature_flag:write")
+    @parameterized.expand(
+        [
+            ("plain client id", _RESOURCE_CLIENT_ID, _RESOURCE_CLIENT_ID),
+            ("client id with a NUL", "mcp\x00erase", "mcperase"),
+        ]
+    )
+    def test_write_is_attributed_to_the_resolved_user(
+        self, _name: str, client_id: str, expected_credential_id: str
+    ) -> None:
+        token = self._mint_access_token(scope="experiment:write feature_flag:write", client_id=client_id)
 
         resp = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -854,7 +862,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             self.user,
             False,
             "id_jag",
-            _RESOURCE_CLIENT_ID,
+            expected_credential_id,
         )
 
     def test_valid_token_authenticates_user(self) -> None:
