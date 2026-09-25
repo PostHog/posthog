@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
@@ -13,6 +15,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     const [description, setDescription] = useState('')
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const proposedMetrics =
         report.metrics?.filter(
             (metric) =>
@@ -44,11 +47,16 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 {metric.title}: {metric.goal_direction === 'at_most' ? 'at most' : 'at least'}{' '}
                                 {formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}
                             </p>
-                            {query ? (
-                                <ReportExpectedImpactChart reportId={report.id} metric={metric} query={query.source} />
-                            ) : (
-                                <p className="text-tertiary m-0">The query is not available to you.</p>
-                            )}
+                            {metricsEnabled &&
+                                (query ? (
+                                    <ReportExpectedImpactChart
+                                        reportId={report.id}
+                                        metric={metric}
+                                        query={query.source}
+                                    />
+                                ) : (
+                                    <p className="text-tertiary m-0">The query is not available to you.</p>
+                                ))}
                             <p className="m-0 text-secondary text-sm">
                                 Suggested decision:{' '}
                                 {[
