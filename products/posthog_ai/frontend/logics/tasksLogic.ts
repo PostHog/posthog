@@ -109,30 +109,6 @@ export interface tasksLogicActions {
             taskId: string
         }
     }
-    renameTask: ({ taskId, title }: { taskId: string; title: string }) => {
-        taskId: string
-        title: string
-    }
-    renameTaskFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    renameTaskSuccess: (
-        tasks: Task[],
-        payload?: {
-            taskId: string
-            title: string
-        }
-    ) => {
-        tasks: Task[]
-        payload?: {
-            taskId: string
-            title: string
-        }
-    }
     loadMoreTasks: (_: void) => void
     loadMoreTasksFailure: (
         error: string,
@@ -180,6 +156,30 @@ export interface tasksLogicActions {
     }
     openTask: (taskId: Task['id']) => {
         taskId: string
+    }
+    renameTask: ({ taskId, title }: { taskId: string; title: string }) => {
+        taskId: string
+        title: string
+    }
+    renameTaskFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    renameTaskSuccess: (
+        tasks: Task[],
+        payload?: {
+            taskId: string
+            title: string
+        }
+    ) => {
+        tasks: Task[]
+        payload?: {
+            taskId: string
+            title: string
+        }
     }
     setAssigneeFilter: (assigneeFilter: TaskAssigneeFilter) => {
         assigneeFilter: TaskAssigneeFilter
