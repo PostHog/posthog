@@ -270,8 +270,18 @@ class TestAppRuntimeHealthProbes(BaseTest):
 
     @parameterized.expand(
         [
-            ("timed out", SandboxTimeoutError("Execution timed out after 5 seconds", {}, None, capture=False)),
-            ("errored", SandboxExecutionError("Failed to execute command", {}, None, capture=False)),
+            (
+                "timed out",
+                SandboxTimeoutError(
+                    "Execution timed out after 5 seconds", {}, cause=TimeoutError("exec timed out"), capture=False
+                ),
+            ),
+            (
+                "errored",
+                SandboxExecutionError(
+                    "Failed to execute command", {}, cause=RuntimeError("exec failed"), capture=False
+                ),
+            ),
         ]
     )
     def test_a_probe_that_fails_once_does_not_fail_the_start(
@@ -309,7 +319,9 @@ class TestAppRuntimeHealthProbes(BaseTest):
             if "_stcore/health" not in command:
                 return MagicMock(exit_code=0, stdout="200", stderr="")
             probes_seen.append(command)
-            raise SandboxNotRunningError("Sandbox not in running state.", {}, None, capture=False)
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.", {}, cause=RuntimeError("sandbox is not running"), capture=False
+            )
 
         mock_sandbox = _make_mock_sandbox()
         mock_sandbox.execute.side_effect = execute
