@@ -55,6 +55,7 @@ export function SlackNotConfiguredBanner({
                             'Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.'}
                     </span>
                     <Link
+                        // nosemgrep: prefer-codegen-api-namespaced-integrations - the generated authorize URL takes no query params
                         to={api.integrations.authorizeUrl({
                             kind: 'slack',
                             next: urls.settings('project-integrations'),
