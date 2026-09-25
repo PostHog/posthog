@@ -61,8 +61,8 @@ class TypesafeSubjectSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "For an insight, its query as a JSON object with kind `InsightVizNode`, `ActorsQuery`, `EventsQuery` "
-            "or `GroupsQuery`. Candidates are built from it server-side; only a plain-language outline without "
-            "filter values is sent to TypeSafe. Omit for a dashboard."
+            "or `GroupsQuery`. Candidates are built from it server-side; only a plain-language outline is sent to "
+            "TypeSafe, and filter values that look like personal data are left out. Omit for a dashboard."
         ),
     )
     name = serializers.CharField(
@@ -114,6 +114,9 @@ class TypesafeTextSuggestionSerializer(serializers.Serializer):
     confidence = serializers.FloatField(help_text="How concentrated TypeSafe's probability was on the pick, 0 to 1.")
     candidates = serializers.ListField(
         child=serializers.CharField(), help_text="Every candidate TypeSafe chose between, in the order sent."
+    )
+    runner_up = serializers.CharField(
+        allow_null=True, help_text="The second most likely candidate, or null when there was only one."
     )
 
 
@@ -213,7 +216,12 @@ class TypesafeSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         suggestion = self._call(lambda: suggest_title(context))
         self._report("title", context, suggestion.confidence)
         return Response(
-            {"value": suggestion.value, "confidence": suggestion.confidence, "candidates": list(suggestion.candidates)}
+            {
+                "value": suggestion.value,
+                "confidence": suggestion.confidence,
+                "candidates": list(suggestion.candidates),
+                "runner_up": suggestion.runner_up,
+            }
         )
 
     @validated_request(
@@ -237,7 +245,12 @@ class TypesafeSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         suggestion = self._call(lambda: suggest_description(context))
         self._report("description", context, suggestion.confidence)
         return Response(
-            {"value": suggestion.value, "confidence": suggestion.confidence, "candidates": list(suggestion.candidates)}
+            {
+                "value": suggestion.value,
+                "confidence": suggestion.confidence,
+                "candidates": list(suggestion.candidates),
+                "runner_up": suggestion.runner_up,
+            }
         )
 
     @validated_request(

@@ -67,6 +67,8 @@ class TextSuggestion:
     value: str
     confidence: float
     candidates: tuple[str, ...]
+    # The second most likely candidate, so the UI can say what else Jev considered when it keeps the current value.
+    runner_up: str | None = None
 
 
 @frozen
@@ -535,8 +537,13 @@ def _viz_title_candidates(query: InsightVizNode, group_names: GroupNames) -> lis
             else None
         )
         base = math_base or sentence_case(joined)
+        filters = _filter_phrases(getattr(items[0], "properties", None)) if len(items) == 1 else []
+        filters += _filter_phrases(getattr(source, "properties", None))
+        where = _where(filters)
         return [
             *formula_titles,
+            f"{base}{where}" if where else None,
+            f"{base}{where} by {breakdown}" if where and breakdown else None,
             base,
             f"{base} by {breakdown}" if breakdown else None,
             f"{_INTERVAL_ADJECTIVES[str(interval)]} {joined}"
@@ -610,8 +617,15 @@ def _viz_description_candidates(query: InsightVizNode, group_names: GroupNames) 
             math_reading(items[0], series[0], _actor_words(source, items[0], group_names)) if len(items) == 1 else None
         )
         math_base = reading.title_base if reading else None
+        filters = _filter_phrases(getattr(items[0], "properties", None)) if len(items) == 1 else []
+        filters += _filter_phrases(getattr(source, "properties", None))
+        where = _where(filters)
         return [
             *formula_descriptions,
+            f"Shows {math_base[0].lower() + math_base[1:]}{where}{adverb}{over_range}{by_breakdown}."
+            if math_base and where
+            else None,
+            f"Shows {joined}{where}{adverb}{over_range}{by_breakdown}." if where else None,
             f"Shows {math_base[0].lower() + math_base[1:]}{adverb}{over_range}{by_breakdown}." if math_base else None,
             f"Shows {joined}{adverb}{over_range}{by_breakdown}.",
             f"Tracks how {joined} changes over time{f' for each {breakdown}' if breakdown else ''}.",
@@ -704,17 +718,70 @@ def description_candidates(context: SubjectContext) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
-def _filter_keys(properties: object) -> list[str]:
-    """Property filter keys and operators, never values. Values are what people type into filters
-    (emails, ids, URLs), and they must not leave PostHog for a title suggestion."""
-    keys: list[str] = []
+_OPERATOR_WORDS: dict[str, str] = {
+    "exact": "is",
+    "is_not": "is not",
+    "icontains": "contains",
+    "not_icontains": "does not contain",
+    "starts_with": "starts with",
+    "not_starts_with": "does not start with",
+    "ends_with": "ends with",
+    "not_ends_with": "does not end with",
+    "regex": "matches",
+    "not_regex": "does not match",
+    "gt": "is over",
+    "gte": "is at least",
+    "lt": "is under",
+    "lte": "is at most",
+    "is_set": "is set",
+    "is_not_set": "is not set",
+    "is_date_exact": "is on",
+    "is_date_before": "is before",
+    "is_date_after": "is after",
+    "between": "is between",
+    "not_between": "is not between",
+    "in": "is one of",
+    "not_in": "is not one of",
+    "min": "is at least",
+    "max": "is at most",
+}
+
+# Filter values on these keys identify a person, so they are named but never quoted.
+_PERSONAL_KEYS = re.compile(
+    r"(^|[_$])(email|e-mail|name|first_name|last_name|phone|distinct_id|user_id|ip|address|ssn|dob)$", re.IGNORECASE
+)
+_LOOKS_PERSONAL = re.compile(r"@|^[A-Za-z0-9+/=_-]{24,}$|^\+?\d[\d\s().-]{7,}$")
+_MAX_FILTER_VALUE_CHARS = 60
+
+
+def _filter_value_words(key: str, value: object) -> str | None:
+    """A filter value as it may appear in a title, or None when it must stay in PostHog."""
+    values = value if isinstance(value, list | tuple) else [value]
+    words: list[str] = []
+    for item in values:
+        if item is None:
+            continue
+        text = str(item)
+        if _PERSONAL_KEYS.search(key) or _LOOKS_PERSONAL.search(text) or len(text) > _MAX_FILTER_VALUE_CHARS:
+            return None
+        words.append(text)
+    if not words:
+        return None
+    return join_words(words[:3]) + (" and more" if len(words) > 3 else "")
+
+
+def _filter_phrases(properties: object) -> list[str]:
+    """Property filters in words, such as "current URL contains tomato". A value that looks like a
+    person (an email, a long token, a phone number, or a value on a personal key) is dropped and the
+    phrase says only that the key is filtered."""
+    phrases: list[str] = []
     stack: list[object] = [properties]
     while stack:
         current = stack.pop()
         if current is None:
             continue
         if isinstance(current, list | tuple):
-            stack.extend(current)
+            stack.extend(reversed(current))
             continue
         nested = getattr(current, "values", None)
         if nested is not None and not isinstance(nested, str):
@@ -722,11 +789,25 @@ def _filter_keys(properties: object) -> list[str]:
             continue
         key = getattr(current, "key", None)
         if getattr(current, "type", None) == "cohort":
-            keys.append("cohort membership")
-        elif key:
-            operator = getattr(current, "operator", None)
-            keys.append(f"{key} {str(operator).split('.')[-1]}" if operator else str(key))
-    return keys
+            phrases.append("in a specific cohort")
+            continue
+        if not key:
+            continue
+        label = humanize_property(str(key))
+        operator = str(getattr(current, "operator", None) or "exact").split(".")[-1]
+        operator_words = _OPERATOR_WORDS.get(operator, operator.replace("_", " "))
+        if operator in ("is_set", "is_not_set"):
+            phrases.append(f"{label} {operator_words}")
+            continue
+        value_words = _filter_value_words(str(key), getattr(current, "value", None))
+        phrases.append(
+            f"{label} {operator_words} {value_words}" if value_words else f"{label} {operator_words} a specific value"
+        )
+    return phrases
+
+
+def _where(phrases: Sequence[str]) -> str:
+    return f" where {join_words(list(phrases))}" if phrases else ""
 
 
 def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
@@ -734,9 +815,9 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
     in PostHog because it carries filter values, HogQL and identifiers a person typed."""
     if not isinstance(query, InsightVizNode):
         lines = [f"Type: {query.kind}"]
-        keys = _filter_keys(getattr(query, "properties", None))
+        keys = _filter_phrases(getattr(query, "properties", None))
         if keys:
-            lines.append(f"Filtered on: {join_words(keys)}")
+            lines.append(f"Filtered to: {join_words(keys)}")
         return lines
     source = query.source
     lines = [f"Type: {source.kind.replace('Query', '')}"]
@@ -745,12 +826,12 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
     step_word = "Step" if source.kind == "FunnelsQuery" else "Series"
     for index, (item, label) in enumerate(zip(items, labels)):
         math = math_reading(item, label, _actor_words(source, item, group_names)).summary
-        item_filters = _filter_keys(getattr(item, "properties", None))
+        item_filters = _filter_phrases(getattr(item, "properties", None))
         line = f"{step_word} {chr(ord('A') + index)}: {label}"
         if source.kind not in ("FunnelsQuery", "PathsQuery"):
             line += f" ({math})"
         if item_filters:
-            line += f", filtered on {join_words(item_filters)}"
+            line += f", only where {join_words(item_filters)}"
         lines.append(line)
     for formula, custom_name in _formulas(source):
         reading = _read_formula(source, formula, custom_name, None, group_names)
@@ -782,9 +863,9 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
     if group_index is not None:
         plural = group_names.get(int(group_index), ("group", "groups"))[1]
         lines.append(f"Counted per {plural[:-1] if plural.endswith('s') else plural}, not per person")
-    keys = _filter_keys(getattr(source, "properties", None))
+    keys = _filter_phrases(getattr(source, "properties", None))
     if keys:
-        lines.append(f"Filtered on: {join_words(keys)}")
+        lines.append(f"Filtered to: {join_words(keys)}")
     if getattr(source, "filterTestAccounts", None):
         lines.append("Internal and test accounts are excluded")
     interval = getattr(source, "interval", None)
@@ -830,7 +911,15 @@ def _choose_text(context: SubjectContext, candidates: Sequence[str], *, field: s
     answer = result.answers[field]
     if not isinstance(answer, ChoiceAnswer):
         raise TypeError("Expected a choice answer")
-    return TextSuggestion(value=criteria[answer.choice], confidence=answer.confidence, candidates=tuple(candidates))
+    ranked = sorted(
+        (key for key in criteria if key != answer.choice), key=lambda key: -answer.probabilities.get(key, 0.0)
+    )
+    return TextSuggestion(
+        value=criteria[answer.choice],
+        confidence=answer.confidence,
+        candidates=tuple(candidates),
+        runner_up=criteria[ranked[0]] if ranked else None,
+    )
 
 
 def suggest_title(context: SubjectContext) -> TextSuggestion:

@@ -650,6 +650,11 @@ export function insightOverridesPresent(
 
 const TYPESAFE_SUGGESTION_FAILED = "Couldn't get a suggestion from TypeSafe. Try again."
 
+function typesafeKeptMessage(field: 'name' | 'description', suggestion: TypesafeTextSuggestion): string {
+    const next = suggestion.runner_up ? ` Its next pick was "${suggestion.runner_up}".` : ''
+    return `TypeSafe kept the current ${field}.${next}`
+}
+
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null, tileFiltersOverride: null } as InsightLogicProps),
     key((props) => keyForInsightLogicProps('new')(props)),
@@ -1245,14 +1250,24 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         suggestNameWithTypesafeSuccess: ({ typesafeNameSuggestion }) => {
-            if (typesafeNameSuggestion) {
-                actions.applyTypesafeMetadata({ name: typesafeNameSuggestion.value })
+            if (!typesafeNameSuggestion) {
+                return
             }
+            if (typesafeNameSuggestion.value === (values.insight.name || '')) {
+                lemonToast.info(typesafeKeptMessage('name', typesafeNameSuggestion))
+                return
+            }
+            actions.applyTypesafeMetadata({ name: typesafeNameSuggestion.value })
         },
         suggestDescriptionWithTypesafeSuccess: ({ typesafeDescriptionSuggestion }) => {
-            if (typesafeDescriptionSuggestion) {
-                actions.applyTypesafeMetadata({ description: typesafeDescriptionSuggestion.value })
+            if (!typesafeDescriptionSuggestion) {
+                return
             }
+            if (typesafeDescriptionSuggestion.value === (values.insight.description || '')) {
+                lemonToast.info(typesafeKeptMessage('description', typesafeDescriptionSuggestion))
+                return
+            }
+            actions.applyTypesafeMetadata({ description: typesafeDescriptionSuggestion.value })
         },
         suggestTagsWithTypesafeSuccess: ({ typesafeTagSuggestion }) => {
             if (!typesafeTagSuggestion) {
@@ -1267,8 +1282,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         applyTypesafeMetadata: ({ metadataUpdate }) => {
             // Edit mode keeps metadata local until the insight is saved, matching the header's own inputs.
+            // Saving in view mode already shows its own toast with undo.
             if (insightSceneLogic.findMounted()?.values.insightMode === ItemMode.Edit) {
                 actions.setInsightMetadataLocal(metadataUpdate)
+                lemonToast.success('Applied the TypeSafe pick. Save the insight to keep it.')
             } else {
                 actions.setInsightMetadata(metadataUpdate)
             }

@@ -1383,6 +1383,11 @@ function exitFilterEditModeWhenSaved(
 
 const TYPESAFE_SUGGESTION_FAILED = "Couldn't get a suggestion from TypeSafe. Try again."
 
+function typesafeKeptMessage(field: 'name' | 'description', suggestion: TypesafeTextSuggestion): string {
+    const next = suggestion.runner_up ? ` Its next pick was "${suggestion.runner_up}".` : ''
+    return `TypeSafe kept the current ${field}.${next}`
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -4994,14 +4999,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.triggerDashboardUpdate({ tags })
         },
         suggestNameWithTypesafeSuccess: ({ typesafeNameSuggestion }) => {
-            if (typesafeNameSuggestion) {
-                actions.triggerDashboardUpdate({ name: typesafeNameSuggestion.value, allowUndo: true })
+            if (!typesafeNameSuggestion) {
+                return
             }
+            if (typesafeNameSuggestion.value === (values.dashboard?.name || '')) {
+                lemonToast.info(typesafeKeptMessage('name', typesafeNameSuggestion))
+                return
+            }
+            actions.triggerDashboardUpdate({ name: typesafeNameSuggestion.value, allowUndo: true })
         },
         suggestDescriptionWithTypesafeSuccess: ({ typesafeDescriptionSuggestion }) => {
-            if (typesafeDescriptionSuggestion) {
-                actions.triggerDashboardUpdate({ description: typesafeDescriptionSuggestion.value, allowUndo: true })
+            if (!typesafeDescriptionSuggestion) {
+                return
             }
+            if (typesafeDescriptionSuggestion.value === (values.dashboard?.description || '')) {
+                lemonToast.info(typesafeKeptMessage('description', typesafeDescriptionSuggestion))
+                return
+            }
+            actions.triggerDashboardUpdate({ description: typesafeDescriptionSuggestion.value, allowUndo: true })
         },
         suggestTagsWithTypesafeSuccess: ({ typesafeTagSuggestion }) => {
             if (!typesafeTagSuggestion) {

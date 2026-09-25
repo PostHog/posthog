@@ -216,7 +216,7 @@ class TestTypesafeSuggestionRanking(SimpleTestCase):
                         "type": "event",
                         "key": "$current_url",
                         "operator": "icontains",
-                        "value": "secret-customer.example.com",
+                        "value": "secret-customer@example.com",
                     }
                 ],
                 trendsFilter={"display": "ActionsBar"},
@@ -228,8 +228,49 @@ class TestTypesafeSuggestionRanking(SimpleTestCase):
 
         state = json.dumps(system_one.call_args.kwargs["state"])
         assert "secret-customer" not in state
-        assert "Filtered on: $current_url icontains" in state
+        assert "Filtered to: current URL contains a specific value" in state
         assert "Chart: bar" in state
+
+    @parameterized.expand(
+        [
+            ("plain_value", "$current_url", "icontains", "tomato", "current URL contains tomato"),
+            ("email_key", "email", "exact", "someone@example.com", "email is a specific value"),
+            ("email_value", "note", "exact", "someone@example.com", "note is a specific value"),
+            ("long_token", "token", "exact", "a" * 61, "token is a specific value"),
+            ("is_set", "$browser", "is_set", None, "browser is set"),
+        ]
+    )
+    def test_filter_phrases_quote_plain_values_and_redact_personal_ones(
+        self, _name: str, key: str, operator: str, value: object, expected: str
+    ) -> None:
+        context = SubjectContext(
+            subject="insight",
+            query=_trends(
+                series=[
+                    {
+                        "kind": "EventsNode",
+                        "event": "$autocapture",
+                        "math": "dau",
+                        "properties": [{"type": "event", "key": key, "operator": operator, "value": value}],
+                    }
+                ]
+            ),
+        )
+        titles = title_candidates(context)
+        assert titles[0] == f"Unique users with autocaptured interactions where {expected}"
+        if value and "example.com" not in str(value) and len(str(value)) < 61:
+            assert any(str(value) in title for title in titles)
+        else:
+            assert not any(str(value) in title for title in titles if value)
+
+    def test_runner_up_is_the_second_most_likely_candidate(self) -> None:
+        context = SubjectContext(subject="insight", query=_trends())
+        with patch(f"{MODULE}.system_one") as system_one:
+            system_one.return_value = _result(
+                {"title": ChoiceAnswer(choice="c0", confidence=0.5, probabilities={"c0": 0.5, "c1": 0.1, "c2": 0.4})}
+            )
+            suggestion = suggest_title(context)
+        assert suggestion.runner_up == suggestion.candidates[2]
 
     def test_tags_keep_only_confident_matches_and_never_invent_one(self) -> None:
         context = SubjectContext(subject="insight", name="Signups by country", query=_trends())
