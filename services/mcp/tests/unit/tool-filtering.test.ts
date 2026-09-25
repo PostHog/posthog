@@ -1031,9 +1031,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
+                'canvas-comments-mcp',
             ])
         )
-        expect(flags).toHaveLength(36)
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {
