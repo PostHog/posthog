@@ -17,6 +17,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    parse_email_sender_ids,
     reserved_functions_used,
 )
 from posthog.models.integration import Integration
@@ -1397,3 +1398,21 @@ class TestReservedFunctionsUsed(SimpleTestCase):
     )
     def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected
+
+
+class TestParseEmailSenderIds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("primary_only", {"integrationId": 1}, (1,), (1,)),
+            ("rotation_replaces_primary", {"integrationId": 1, "integrationIds": [2, 3]}, (1, 2, 3), (2, 3)),
+            ("rotation_keeps_primary_it_lists", {"integrationId": 2, "integrationIds": [2, 3, 2]}, (2, 3), (2, 3)),
+            ("empty_rotation_uses_primary", {"integrationId": 1, "integrationIds": []}, (1,), (1,)),
+            ("non_list_rotation_is_ignored", {"integrationId": 1, "integrationIds": {"2": 3}}, (1,), (1,)),
+            ("booleans_are_not_ids", {"integrationId": True, "integrationIds": [False, 4]}, (4,), (4,)),
+            ("legacy_string_from", "sender@example.com", (), ()),
+            ("missing_from", None, (), ()),
+        ]
+    )
+    def test_parse_email_sender_ids(self, _name, from_value, named, selectable):
+        parsed = parse_email_sender_ids(from_value)
+        assert (parsed.named, parsed.selectable) == (named, selectable)

@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any, Final
+from typing import Any
 
 from django.db import models, transaction
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -8,7 +9,6 @@ import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,9 +22,10 @@ from posthog.cdp.validation import build_html_wrap_design
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.email_senders import (
-    load_email_sender_integrations,
+    EmailSenderPrefetchListSerializer,
+    ListRowPagination,
+    email_senders_from_context,
     resolve_email_sender,
-    sender_integration_ids,
 )
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -287,22 +288,9 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
-_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY: Final = "email_sender_integrations"
-
-
-class MessageTemplateListRowPagination(LimitOffsetPagination):
-    default_limit = 500
-    max_limit = 1000
-
-
-class MessageTemplateListRowListSerializer(serializers.ListSerializer):
-    def to_representation(self, data: Any) -> list[Any]:
-        rows = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
-        integration_ids = {integration_id for row in rows for integration_id in sender_integration_ids(row.email_from)}
-        self.context[_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY] = load_email_sender_integrations(
-            self.context["get_team"]().id, integration_ids
-        )
-        return super().to_representation(rows)
+class MessageTemplateListRowListSerializer(EmailSenderPrefetchListSerializer):
+    def sender_from_values(self, row: MessageTemplate) -> Iterable[Any]:
+        return [row.email_from]
 
 
 class MessageTemplateListRowSerializer(serializers.ModelSerializer):
@@ -345,13 +333,11 @@ class MessageTemplateListRowSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_subject(self, instance: MessageTemplate) -> str:
-        subject = getattr(instance, "email_subject", None)
-        return subject if isinstance(subject, str) else ""
+        return instance.email_subject or ""
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_from_addresses(self, instance: MessageTemplate) -> list[str]:
-        integrations = self.context.get(_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY, {})
-        return list(resolve_email_sender(getattr(instance, "email_from", None), integrations).addresses)
+        return list(resolve_email_sender(instance.email_from, email_senders_from_context(self.context)).addresses)
 
 
 class MessageTemplatesViewSet(
@@ -389,12 +375,14 @@ class MessageTemplatesViewSet(
         ),
         responses={200: MessageTemplateListRowSerializer(many=True)},
     )
-    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=MessageTemplateListRowPagination)
+    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=ListRowPagination)
     def summaries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         email = KeyTransform("email", "content")
         queryset = (
             self.get_queryset()
-            .order_by("-updated_at", "-id")
+            # created_at never changes, so a save while the web app follows `next` cannot move a row
+            # between pages. On updated_at, the saved row would jump to page one and be skipped.
+            .order_by("-created_at", "-id")
             .defer("content")
             .annotate(email_subject=KeyTextTransform("subject", email), email_from=KeyTransform("from", email))
         )

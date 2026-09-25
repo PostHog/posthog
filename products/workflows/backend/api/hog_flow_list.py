@@ -1,12 +1,12 @@
-import json
 import uuid
-from collections.abc import Mapping, Sequence
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any, Final, Optional
-from uuid import UUID
 
 from django.db import models
-from django.db.models import Q, QuerySet
+from django.db.models import Case, F, Func, Q, QuerySet, When
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.http import QueryDict
 from django.utils import timezone
 
@@ -14,7 +14,6 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_field
 from rest_framework import exceptions, serializers
-from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
 from posthog.api.shared import UserBasicSerializer
@@ -24,9 +23,9 @@ from posthog.exceptions_capture import capture_exception
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.messaging.backend.email_senders import (
     EmailSenderIntegration,
-    load_email_sender_integrations,
+    EmailSenderPrefetchListSerializer,
+    email_senders_from_context,
     resolve_email_sender,
-    sender_integration_ids,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, TRIGGER_TYPES, HogFlow
 
@@ -101,14 +100,17 @@ _CHANNEL_FUNCTION_TEMPLATES: Final[dict[str, HogFlowChannel]] = {
 }
 
 
+_CHANNEL_Q: Final[dict[str, Q]] = {
+    **{channel: Q(actions__contains=[{"type": action_type}]) for action_type, channel in _CHANNEL_ACTION_TYPES.items()},
+    **{
+        channel: Q(actions__contains=[{"type": "function", "config": {"template_id": template_id}}])
+        for template_id, channel in _CHANNEL_FUNCTION_TEMPLATES.items()
+    },
+}
+
+
 def channel_q(channel: str) -> Q:
-    for action_type, action_channel in _CHANNEL_ACTION_TYPES.items():
-        if action_channel == channel:
-            return Q(actions__contains=[{"type": action_type}])
-    for template_id, template_channel in _CHANNEL_FUNCTION_TEMPLATES.items():
-        if template_channel == channel:
-            return Q(actions__contains=[{"type": "function", "config": {"template_id": template_id}}])
-    raise ValueError(f"Unknown channel: {channel}")
+    return _CHANNEL_Q[channel]
 
 
 def _channel_of(action: dict[str, Any]) -> Optional[HogFlowChannel]:
@@ -127,34 +129,31 @@ def json_path(path: str) -> models.Func:
     return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
 
 
-def jsonb_path_exists(column: str, path: str, variables: Optional[dict[str, Any]] = None) -> models.Func:
-    arguments: list[Any] = [models.F(column), json_path(path)]
-    if variables is not None:
-        # Values reach the jsonpath through its `vars` argument as one bound jsonb parameter, never
-        # spliced into the path text.
-        arguments.append(
-            models.Func(
-                models.Value(json.dumps(variables)), template="%(expressions)s::jsonb", output_field=models.JSONField()
-            )
-        )
-    return models.Func(*arguments, function="jsonb_path_exists", output_field=models.BooleanField())
+def jsonb_path_exists(column: str, path: str) -> models.Func:
+    return models.Func(F(column), json_path(path), function="jsonb_path_exists", output_field=models.BooleanField())
 
 
-def trigger_type_q(trigger_types: set[str]) -> Q:
-    """Rows whose trigger type is one of `trigger_types`, read where the row's `trigger_type` reads it.
+def annotate_trigger_type(queryset: QuerySet) -> QuerySet:
+    """Annotate `_trigger_type`, the SQL twin of the row's `trigger_type`. Change both together.
 
-    The trigger action is the source of truth. The legacy `trigger` column only counts for a row with no
-    trigger action, because rows exist where the two disagree. jsonpath runs in lax mode, where `==`
-    against `$types[*]` is true when any element matches, and a row whose `actions` is not an array
-    yields no matches rather than an error.
+    The first trigger step is the source of truth, as in _trigger_type. The legacy `trigger` column only
+    counts for a row with no trigger step, because rows exist where the two disagree. jsonpath runs in
+    lax mode, so a row whose `actions` is not an array has no trigger step rather than an error.
     """
-    variables = {"types": sorted(trigger_types)}
-    has_trigger_action = jsonb_path_exists("actions", '$[*] ? (@.type == "trigger")')
-    action_matches = jsonb_path_exists(
-        "actions", '$[*] ? (@.type == "trigger" && @.config.type == $types[*])', variables
+    return queryset.annotate(
+        _trigger_action=Func(
+            F("actions"),
+            json_path('$[*] ? (@.type == "trigger")'),
+            function="jsonb_path_query_first",
+            output_field=models.JSONField(),
+        )
+    ).annotate(
+        _trigger_type=Case(
+            When(_trigger_action__isnull=True, then=KeyTextTransform("type", "trigger")),
+            default=KeyTextTransform("type", KeyTransform("config", "_trigger_action")),
+            output_field=models.TextField(),
+        )
     )
-    column_matches = jsonb_path_exists("trigger", "$ ? (@.type == $types[*])", variables)
-    return Q(action_matches) | (~Q(has_trigger_action) & Q(column_matches))
 
 
 @frozen
@@ -207,14 +206,6 @@ def _email_actions(actions: Any) -> list[dict[str, Any]]:
     return [action for action in _action_dicts(actions) if action.get("type") == "function_email"]
 
 
-def email_sender_integration_ids(actions: Any) -> set[int]:
-    return {
-        integration_id
-        for action in _email_actions(actions)
-        for integration_id in sender_integration_ids(_email_value(action).get("from"))
-    }
-
-
 def _trigger_type(actions: Any, trigger_column: Any) -> Optional[str]:
     trigger_action = next((action for action in _action_dicts(actions) if action.get("type") == "trigger"), None)
     source = _config(trigger_action) if trigger_action is not None else trigger_column
@@ -241,12 +232,14 @@ def summarize_hog_flow(
     action_list = _action_dicts(actions)
     channels = {channel for channel in map(_channel_of, action_list) if channel is not None}
 
-    dispatch_counts: dict[str, list[Any]] = {}
+    dispatch_counts: Counter[str] = Counter()
+    first_action_type: dict[str, str] = {}
     for action in action_list:
         action_type = action.get("type")
         template_id = _config(action).get("template_id")
         if isinstance(action_type, str) and action_type.startswith("function") and isinstance(template_id, str):
-            dispatch_counts.setdefault(template_id, [action_type, 0])[1] += 1
+            dispatch_counts[template_id] += 1
+            first_action_type.setdefault(template_id, action_type)
 
     email_steps = []
     for action in _email_actions(action_list):
@@ -270,8 +263,8 @@ def summarize_hog_flow(
         trigger_type=_trigger_type(action_list, trigger_column),
         channels=tuple(channel for channel in HogFlowChannel if channel in channels),
         dispatches=tuple(
-            DispatchSummary(action_type=action_type, template_id=template_id, count=count)
-            for template_id, (action_type, count) in dispatch_counts.items()
+            DispatchSummary(action_type=first_action_type[template_id], template_id=template_id, count=count)
+            for template_id, count in dispatch_counts.items()
         ),
         email_steps=tuple(email_steps),
     )
@@ -297,7 +290,10 @@ def _user_uuids(params: QueryDict, key: str) -> Optional[list[str]]:
         return None
     values = [value for value in raw.split(",") if value]
     try:
-        return [str(uuid.UUID(value)) for value in values] or None
+        # A value of only separators names no user, and is rejected like a malformed uuid.
+        if not values:
+            raise ValueError(raw)
+        return [str(uuid.UUID(value)) for value in values]
     except ValueError:
         raise exceptions.ValidationError({key: "Must be a valid user uuid"})
 
@@ -325,11 +321,16 @@ def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
             condition = workflow_type_q(workflow_types)
             queryset = queryset.filter(~condition if negate else condition)
 
-    for key, negate in (("trigger_type", False), ("exclude_trigger_type", True)):
-        trigger_types = _comma_list(params, key, TRIGGER_TYPE_VALUES)
-        if trigger_types:
-            condition = trigger_type_q(trigger_types)
-            queryset = queryset.filter(~condition if negate else condition)
+    trigger_type_filters = [
+        (trigger_types, negate)
+        for key, negate in (("trigger_type", False), ("exclude_trigger_type", True))
+        if (trigger_types := _comma_list(params, key, TRIGGER_TYPE_VALUES))
+    ]
+    if trigger_type_filters:
+        queryset = annotate_trigger_type(queryset)
+    for trigger_types, negate in trigger_type_filters:
+        condition = Q(_trigger_type__in=sorted(trigger_types))
+        queryset = queryset.filter(~condition if negate else condition)
 
     for key, negate in (("channel", False), ("exclude_channel", True)):
         channels = _comma_list(params, key, CHANNEL_VALUES)
@@ -348,24 +349,30 @@ def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
     return queryset
 
 
-def fetch_last_7_days_totals(team_id: int) -> Optional[dict[str, dict[str, int]]]:
-    """Per-workflow succeeded and failed totals for the last 7 days, or None when ClickHouse fails.
+# Seconds. The totals are a column on a list, so a slow metrics store costs the column, not the page.
+TOTALS_MAX_EXECUTION_TIME: Final = 5
 
-    A metrics outage must not take the list down with it, so the caller renders every row without totals.
+
+def fetch_last_7_days_totals(team_id: int, workflow_ids: Sequence[str]) -> Optional[dict[str, dict[str, int]]]:
+    """Succeeded and failed totals for the last 7 days of the given workflows, or None when ClickHouse fails.
+
+    A metrics outage or timeout must not take the list down with it, so the caller renders every row
+    without totals.
     """
+    if not workflow_ids:
+        return {}
     try:
         return fetch_app_metric_totals_by_source(
-            team_id=team_id, app_source="hog_flow", after=timezone.now() - timedelta(days=7)
+            team_id=team_id,
+            app_source="hog_flow",
+            after=timezone.now() - timedelta(days=7),
+            app_source_ids=list(workflow_ids),
+            max_execution_time=TOTALS_MAX_EXECUTION_TIME,
         )
     except Exception as error:
         logger.exception("hog_flow_summaries_totals_failed", team_id=team_id)
         capture_exception(error)
         return None
-
-
-class HogFlowListRowPagination(LimitOffsetPagination):
-    default_limit = 500
-    max_limit = 1000
 
 
 # Everything a summary row never reads. Loading these for a full page of workflows costs more than the
@@ -381,8 +388,7 @@ SUMMARY_DEFERRED_FIELDS: Final[tuple[str, ...]] = (
     "trigger_masking",
 )
 
-# Serializer context keys. The list serializer fills them once per page so each row reads a shared map.
-EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY: Final = "email_sender_integrations"
+# Serializer context keys: the derived summary per row, and the page's totals from the summaries action.
 _SUMMARY_CACHE_CONTEXT_KEY: Final = "_hog_flow_list_summaries"
 RUN_TOTALS_CONTEXT_KEY: Final = "last_7_days_totals"
 
@@ -397,7 +403,7 @@ class EmailStepSummarySerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text=(
             "Every address the step can send from: the override address when set, otherwise the address of "
-            "each sender integration in rotation order. Integrations that no longer exist are skipped."
+            "each sender integration a send can pick. Integrations that no longer exist are skipped."
         ),
     )
     from_name = serializers.CharField(
@@ -406,7 +412,10 @@ class EmailStepSummarySerializer(serializers.Serializer):
     )
     from_integration_ids = serializers.ListField(
         child=serializers.IntegerField(),
-        help_text="Sender integration ids the step names, primary first, then the rotation, without duplicates.",
+        help_text=(
+            "Sender integration ids a send can pick: the `integrationIds` rotation when it is set, "
+            "otherwise the single `integrationId`."
+        ),
     )
     template_uuid = serializers.CharField(
         allow_null=True, help_text="Id of the email template this step was based on, or null when it has no link."
@@ -424,16 +433,9 @@ class WorkflowRunTotalsSerializer(serializers.Serializer):
     failed = serializers.IntegerField(help_text="Failed metric count in the last 7 days.")
 
 
-class HogFlowSummaryListSerializer(serializers.ListSerializer):
-    def to_representation(self, data: Any) -> list[Any]:
-        rows = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
-        integration_ids: set[int] = set()
-        for row in rows:
-            integration_ids |= email_sender_integration_ids(row.actions)
-        self.context[EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY] = load_email_sender_integrations(
-            self.context["get_team"]().id, integration_ids
-        )
-        return super().to_representation(rows)
+class HogFlowSummaryListSerializer(EmailSenderPrefetchListSerializer):
+    def sender_from_values(self, row: HogFlow) -> Iterable[Any]:
+        return [_email_value(action).get("from") for action in _email_actions(row.actions)]
 
 
 class HogFlowSummaryFieldsMixin(serializers.Serializer):
@@ -457,18 +459,13 @@ class HogFlowSummaryFieldsMixin(serializers.Serializer):
     )
 
     def _summary(self, instance: HogFlow) -> HogFlowListSummary:
-        cache: dict[UUID, HogFlowListSummary] = self.context.setdefault(_SUMMARY_CACHE_CONTEXT_KEY, {})
+        cache: dict[uuid.UUID, HogFlowListSummary] = self.context.setdefault(_SUMMARY_CACHE_CONTEXT_KEY, {})
         if instance.id not in cache:
-            integrations = self.context.get(EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY)
-            if integrations is None:
-                integrations = load_email_sender_integrations(
-                    instance.team_id, email_sender_integration_ids(instance.actions)
-                )
             cache[instance.id] = summarize_hog_flow(
                 actions=instance.actions,
                 trigger_column=instance.trigger,
                 origin_product=instance.origin_product,
-                integrations=integrations,
+                integrations=email_senders_from_context(self.context),
             )
         return cache[instance.id]
 
@@ -482,8 +479,8 @@ class HogFlowSummaryFieldsMixin(serializers.Serializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_draft(self, instance: HogFlow) -> bool:
-        annotated = getattr(instance, "has_draft", None)
-        return bool(annotated) if annotated is not None else instance.draft is not None
+        # The list querysets annotate `has_draft` so the draft JSON is never loaded for a listing.
+        return bool(instance.has_draft)
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=HogFlowChannel.choices)))
     def get_channels(self, instance: HogFlow) -> list[str]:

@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -7,8 +8,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -16,6 +19,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.workflows.backend.api.hog_flow_list import HogFlowListRowSerializer
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 TOTALS_FN = "products.workflows.backend.api.hog_flow_list.fetch_app_metric_totals_by_source"
@@ -28,7 +32,14 @@ def _trigger(trigger_type: str = "event") -> dict[str, Any]:
     return {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": trigger_type}}
 
 
-def _email(action_id: str, name: str, from_value: Any, subject: str = "", **config: Any) -> dict[str, Any]:
+def _email(
+    action_id: str,
+    name: str,
+    from_value: Any,
+    subject: str = "",
+    html: str = f"<p>Html {EMAIL_BODY_MARKER}</p>",
+    **config: Any,
+) -> dict[str, Any]:
     return {
         "id": action_id,
         "name": name,
@@ -43,7 +54,7 @@ def _email(action_id: str, name: str, from_value: Any, subject: str = "", **conf
                         "subject": subject,
                         "preheader": f"Preheader {EMAIL_BODY_MARKER}",
                         "text": f"Text {EMAIL_BODY_MARKER}",
-                        "html": f"<p>Html {EMAIL_BODY_MARKER}</p>",
+                        "html": html,
                         "design": {"body": {"rows": [], "values": {"marker": EMAIL_BODY_MARKER}}},
                     }
                 }
@@ -198,12 +209,10 @@ class TestHogFlowSummaries(APIBaseTest):
                     "Monthly newsletter",
                     {"integrationId": self.news_sender.id},
                     subject="What's new this month",
+                    html="<p>" + "x" * 20_000 + "</p>",
                 ),
             ],
         )
-        flow = HogFlow.objects.get(team=self.team, name="Newsletter")
-        flow.actions[1]["config"]["inputs"]["email"]["value"]["html"] = "<p>" + "x" * 20_000 + "</p>"
-        flow.save()
 
         response = self._summaries()
         assert response.status_code == 200, response.json()
@@ -242,25 +251,44 @@ class TestHogFlowSummaries(APIBaseTest):
             team=self.team, name="Disagrees", trigger={"type": "event"}, actions=[_trigger("webhook")]
         )
         HogFlow.objects.create(team=self.team, name="Legacy", trigger={"type": "schedule"}, actions=[])
+        HogFlow.objects.create(
+            team=self.team,
+            name="Two triggers",
+            actions=[_trigger("event"), {**_trigger("schedule"), "id": "second_trigger"}],
+        )
 
         rows = {row["name"]: row["trigger_type"] for row in self._summaries().json()["results"]}
-        assert rows == {"Disagrees": "webhook", "Legacy": "schedule"}
+        assert rows == {"Disagrees": "webhook", "Legacy": "schedule", "Two triggers": "event"}
 
-        for trigger_type, expected in (("webhook", {"Disagrees"}), ("event", set()), ("schedule", {"Legacy"})):
+        for trigger_type, expected in (
+            ("webhook", {"Disagrees"}),
+            ("event", {"Two triggers"}),
+            ("schedule", {"Legacy"}),
+        ):
             response = self._summaries(f"?trigger_type={trigger_type}")
             assert {row["name"] for row in response.json()["results"]} == expected, trigger_type
+            response = self._summaries(f"?exclude_trigger_type={trigger_type}")
+            assert {row["name"] for row in response.json()["results"]} == set(rows) - expected, trigger_type
 
     @parameterized.expand(
         [
-            ("override_wins", "override", ["hello@example.com"], "Acme News"),
-            ("integration_resolves", "single", ["news@example.com"], "Acme News"),
-            ("rotation_lists_every_address", "rotation", ["news@example.com", "updates@example.com"], "Acme News"),
-            ("deleted_integration_is_skipped", "deleted", ["updates@example.com"], "Acme Updates"),
-            ("legacy_string_from", "legacy", ["legacy@example.com"], None),
-            ("other_team_integration_never_resolves", "other_team", [], None),
+            ("override_wins", "override", ["hello@example.com"], "Acme News", ["news"]),
+            ("integration_resolves", "single", ["news@example.com"], "Acme News", ["news"]),
+            (
+                "rotation_lists_every_address",
+                "rotation",
+                ["news@example.com", "updates@example.com"],
+                "Acme News",
+                ["news", "updates"],
+            ),
+            ("rotation_replaces_primary", "rotation_only", ["updates@example.com"], "Acme Updates", ["updates"]),
+            ("empty_rotation_uses_primary", "empty_rotation", ["news@example.com"], "Acme News", ["news"]),
+            ("deleted_integration_is_skipped", "deleted", ["updates@example.com"], "Acme Updates", ["gone", "updates"]),
+            ("legacy_string_from", "legacy", ["legacy@example.com"], None, []),
+            ("other_team_integration_never_resolves", "other_team", [], None, ["foreign"]),
         ]
     )
-    def test_sender_resolution(self, _name, sender, expected_addresses, expected_name):
+    def test_sender_resolution(self, _name, sender, expected_addresses, expected_name, expected_ids):
         deleted = Integration.objects.create(team=self.team, kind="email", config={"email": "gone@example.com"})
         deleted_id = deleted.id
         deleted.delete()
@@ -271,7 +299,12 @@ class TestHogFlowSummaries(APIBaseTest):
         from_value = {
             "override": {"integrationId": self.news_sender.id, "email": "hello@example.com"},
             "single": {"integrationId": self.news_sender.id},
-            "rotation": {"integrationId": self.news_sender.id, "integrationIds": [self.updates_sender.id]},
+            "rotation": {
+                "integrationId": self.news_sender.id,
+                "integrationIds": [self.news_sender.id, self.updates_sender.id],
+            },
+            "rotation_only": {"integrationId": self.news_sender.id, "integrationIds": [self.updates_sender.id]},
+            "empty_rotation": {"integrationId": self.news_sender.id, "integrationIds": []},
             "deleted": {"integrationIds": [deleted_id, self.updates_sender.id]},
             "legacy": "legacy@example.com",
             "other_team": {"integrationId": foreign.id},
@@ -280,11 +313,27 @@ class TestHogFlowSummaries(APIBaseTest):
 
         (row,) = self._summaries().json()["results"]
         (step,) = row["email_steps"]
-        assert (step["from_addresses"], step["from_name"]) == (expected_addresses, expected_name)
+        ids = {
+            "news": self.news_sender.id,
+            "updates": self.updates_sender.id,
+            "gone": deleted_id,
+            "foreign": foreign.id,
+        }
+        assert (step["from_addresses"], step["from_name"], step["from_integration_ids"]) == (
+            expected_addresses,
+            expected_name,
+            [ids[key] for key in expected_ids],
+        )
 
-    def test_totals_outage_returns_rows_without_totals(self):
+    @parameterized.expand(
+        [
+            ("error", RuntimeError("metrics store unavailable")),
+            ("timeout", ServerException("Timeout exceeded: elapsed 5 seconds", code=159)),
+        ]
+    )
+    def test_totals_outage_returns_rows_without_totals(self, _name, error):
         self._mixed_flow()
-        self.fetch_totals.side_effect = RuntimeError("metrics store unavailable")
+        self.fetch_totals.side_effect = error
 
         response = self._summaries()
         assert response.status_code == 200, response.json()
@@ -296,6 +345,20 @@ class TestHogFlowSummaries(APIBaseTest):
 
         (row,) = self._summaries().json()["results"]
         assert row["last_7_days"] == {"succeeded": 0, "failed": 0}
+
+    def test_totals_are_fetched_for_the_page_only_with_a_time_limit(self):
+        oldest = HogFlow.objects.create(team=self.team, name="Flow 0")
+        for index in range(1, 3):
+            HogFlow.objects.create(team=self.team, name=f"Flow {index}")
+
+        first_page = self._summaries("?limit=2").json()
+        self._summaries("?limit=2&offset=5")
+
+        assert self.fetch_totals.call_count == 1
+        kwargs = self.fetch_totals.call_args.kwargs
+        assert sorted(kwargs["app_source_ids"]) == sorted(row["id"] for row in first_page["results"])
+        assert str(oldest.id) not in kwargs["app_source_ids"]
+        assert 0 < kwargs["max_execution_time"] <= 10
 
     def test_other_teams_workflows_are_absent(self):
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -340,6 +403,16 @@ class TestHogFlowSummaries(APIBaseTest):
                 response = self._summaries()
             assert response.status_code == 200
             assert len(response.json()["results"]) == rows
+            (page_query,) = [
+                query["sql"]
+                for query in queries.captured_queries
+                if query["sql"].startswith("SELECT")
+                and 'FROM "posthog_hogflow"' in query["sql"]
+                and " LIMIT " in query["sql"]
+            ]
+            selected = page_query.split(' FROM "posthog_hogflow"')[0]
+            for column in ("draft", "draft_encrypted_inputs", "encrypted_inputs", "edges"):
+                assert not re.search(rf'"posthog_hogflow"\."{column}"(,|$)', selected), column
             return len(queries)
 
         query_count(2)
@@ -365,7 +438,9 @@ class TestHogFlowSummaries(APIBaseTest):
 
     def test_pagination_caps_the_limit_and_pages_stably(self):
         HogFlow.objects.bulk_create([HogFlow(team=self.team, name=f"Flow {index}") for index in range(1001)])
-        HogFlow.objects.filter(team=self.team).update(updated_at=datetime(2026, 1, 1, tzinfo=UTC))
+        HogFlow.objects.filter(team=self.team).update(
+            created_at=datetime(2026, 1, 1, tzinfo=UTC), updated_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
 
         capped = self._summaries("?limit=5000").json()
         assert len(capped["results"]) == 1000
@@ -380,6 +455,21 @@ class TestHogFlowSummaries(APIBaseTest):
                 break
             page = self.client.get(page["next"]).json()
         assert len(seen) == len(set(seen)) == 1001
+
+    def test_saving_a_workflow_mid_load_neither_drops_nor_repeats_it(self):
+        oldest = HogFlow.objects.create(team=self.team, name="Flow 0")
+        for index in range(1, 3):
+            HogFlow.objects.create(team=self.team, name=f"Flow {index}")
+
+        page = self._summaries("?limit=2").json()
+        seen = [row["id"] for row in page["results"]]
+        oldest.name = "Renamed while loading"
+        oldest.save()
+        page = self.client.get(page["next"]).json()
+        seen.extend(row["id"] for row in page["results"])
+
+        assert page["next"] is None
+        assert sorted(seen) == sorted(str(flow_id) for flow_id in HogFlow.objects.values_list("id", flat=True))
 
     def test_summaries_response_is_gzipped_and_the_full_list_is_not(self):
         for _ in range(3):
@@ -404,3 +494,19 @@ class TestHogFlowSummaries(APIBaseTest):
         response = self._summaries(HTTP_AUTHORIZATION=f"Bearer {api_key}")
         assert response.status_code == 200, response.json()
         assert len(response.json()["results"]) == 1
+
+
+class TestHogFlowListRowSerializerContract(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("without_the_page_sender_map", {}, {"has_draft": False}, KeyError),
+            ("without_the_has_draft_annotation", {"email_sender_integrations": {}}, {}, AttributeError),
+        ]
+    )
+    def test_a_row_serialized_outside_the_page_serializer_fails_loudly(self, _name, context, attributes, error):
+        flow = HogFlow(team_id=1, name="Detached", actions=[_trigger()])
+        for key, value in attributes.items():
+            setattr(flow, key, value)
+
+        with self.assertRaises(error):
+            HogFlowListRowSerializer(flow, context=context).data  # noqa: B018

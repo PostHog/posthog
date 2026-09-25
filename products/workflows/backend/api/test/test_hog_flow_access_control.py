@@ -155,10 +155,14 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
         visible = self._create_workflow(name="visible_workflow")
 
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
-        for url in (self._list_url(), f"{self._list_url()}/summaries/"):
-            ids = [row["id"] for row in self.client.get(url).json()["results"]]
-            self.assertNotIn(str(self.hog_flow.id), ids, url)
-            self.assertIn(str(visible.id), ids, url)
+        with patch(
+            "products.workflows.backend.api.hog_flow_list.fetch_app_metric_totals_by_source", return_value={}
+        ) as fetch_totals:
+            for url in (self._list_url(), f"{self._list_url()}/summaries/"):
+                ids = [row["id"] for row in self.client.get(url).json()["results"]]
+                self.assertNotIn(str(self.hog_flow.id), ids, url)
+                self.assertIn(str(visible.id), ids, url)
+        self.assertEqual(fetch_totals.call_args.kwargs["app_source_ids"], [str(visible.id)])
 
     def test_create_blocked_without_resource_editor_access(self):
         # A project default of "none" leaves the member below editor, so create is rejected.

@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -145,10 +146,35 @@ class TestMessageTemplatesAPI(APIBaseTest):
             with CaptureQueriesContext(connection) as queries:
                 response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/")
             assert len(response.json()["results"]) == rows
+            (page_query,) = [
+                query["sql"]
+                for query in queries.captured_queries
+                if query["sql"].startswith("SELECT")
+                and 'FROM "posthog_messagetemplate"' in query["sql"]
+                and " LIMIT " in query["sql"]
+            ]
+            selected = page_query.split(' FROM "posthog_messagetemplate"')[0]
+            assert not re.search(r'"posthog_messagetemplate"\."content"(,|$)', selected)
             return len(queries)
 
         query_count(2)
         assert query_count(2) == query_count(20)
+
+    def test_summaries_saving_a_template_mid_load_neither_drops_nor_repeats_it(self):
+        for index in range(2):
+            MessageTemplate.objects.create(team=self.team, name=f"Template {index}", content={})
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/summaries/"
+        page = self.client.get(f"{url}?limit=2").json()
+        seen = [row["id"] for row in page["results"]]
+        self.message_template.name = "Renamed while loading"
+        self.message_template.save()
+        page = self.client.get(page["next"]).json()
+        seen.extend(row["id"] for row in page["results"])
+
+        assert page["next"] is None
+        expected = MessageTemplate.objects.filter(team=self.team, deleted=False).values_list("id", flat=True)
+        assert sorted(seen) == sorted(str(template_id) for template_id in expected)
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")

@@ -15,6 +15,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -463,6 +464,8 @@ class TestHogFlowAPI(APIBaseTest):
                 ("exclude_channel", "email,fax"),
                 ("created_by", "not-a-uuid"),
                 ("exclude_created_by", "not-a-uuid"),
+                ("created_by", ","),
+                ("exclude_created_by", ",,"),
             ]
         ]
     )
@@ -5367,6 +5370,15 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         self._seed("00000000-0000-0000-0000-000000000000", failed=9)
         rows = self._global().json()
         assert {r["workflow_id"] for r in rows} == {str(self.flow_a.id)}
+
+    def test_totals_by_source_can_be_limited_to_some_workflows(self):
+        self._seed(self.flow_a.id, failed=2)
+        self._seed(self.flow_b.id, failed=5)
+
+        totals = fetch_app_metric_totals_by_source(
+            team_id=self.team.pk, app_source="hog_flow", app_source_ids=[str(self.flow_b.id)], max_execution_time=5
+        )
+        assert totals == {str(self.flow_b.id): {"failed": 5}}
 
     def test_personal_api_key_hog_flow_read_only_allowed(self):
         # Aggregate counts carry no person data, so hog_flow:read alone is sufficient (no person:read).

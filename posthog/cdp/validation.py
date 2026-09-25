@@ -23,6 +23,7 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     compile_filters_expr,
 )
+from posthog.dataclasses import frozen
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -69,12 +70,45 @@ def masked_secret_input_keys(stored_inputs: object) -> list[str]:
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
 
 
+def _integration_id(value: Any) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+@frozen
+class EmailSenderIds:
+    primary: Optional[int]
+    rotation: tuple[int, ...]
+
+    @property
+    def named(self) -> tuple[int, ...]:
+        """Every integration id the `from` value names, primary first."""
+        return tuple(dict.fromkeys(i for i in (self.primary, *self.rotation) if i is not None))
+
+    @property
+    def selectable(self) -> tuple[int, ...]:
+        """The ids a send can go through. Mirrors selectEmailSenderIntegrationId in
+        nodejs/src/cdp/services/messaging/email-sender-selection.ts: a non-empty rotation replaces the
+        primary. Keep the two in sync."""
+        if self.rotation:
+            return self.rotation
+        return (self.primary,) if self.primary is not None else ()
+
+
+def parse_email_sender_ids(from_value: Any) -> EmailSenderIds:
+    """The one reader of `from.integrationId` and `from.integrationIds` on an email input value."""
+    if not isinstance(from_value, dict):
+        return EmailSenderIds(primary=None, rotation=())
+    rotation = from_value.get("integrationIds")
+    rotation_ids = (_integration_id(value) for value in (rotation if isinstance(rotation, list) else []))
+    return EmailSenderIds(
+        primary=_integration_id(from_value.get("integrationId")),
+        rotation=tuple(dict.fromkeys(i for i in rotation_ids if i is not None)),
+    )
+
+
 def _sender_integration_ids(from_value: dict) -> set[int]:
-    return {
-        integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
-        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
-    }
+    # Validation checks every id the author named, including a primary the rotation replaces.
+    return set(parse_email_sender_ids(from_value).named)
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:

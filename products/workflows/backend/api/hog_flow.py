@@ -112,6 +112,7 @@ from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.email_senders import ListRowPagination
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -134,7 +135,6 @@ from products.workflows.backend.api.hog_flow_list import (
     LIST_FILTER_PARAMETERS,
     RUN_TOTALS_CONTEXT_KEY,
     SUMMARY_DEFERRED_FIELDS,
-    HogFlowListRowPagination,
     HogFlowListRowSerializer,
     HogFlowSummaryFieldsMixin,
     HogFlowSummaryListSerializer,
@@ -4092,9 +4092,12 @@ class HogFlowViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action in LIST_ACTIONS:
-            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
-            # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id").select_related("created_by")
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing a sort value can
+            # otherwise repeat on one page and never appear on another. `summaries` is loaded in full by
+            # following `next`, so it sorts on the immutable created_at: on updated_at, a save during the
+            # load moves the row to page one, and the row is lost while another repeats.
+            ordering = ("-created_at", "-id") if self.action == "summaries" else ("-updated_at", "-id")
+            queryset = queryset.order_by(*ordering).select_related("created_by")
             queryset = apply_list_filters(queryset, self.request.GET)
             # Annotated so a list row can say a draft exists without loading the draft itself.
             queryset = queryset.annotate(
@@ -4180,17 +4183,19 @@ class HogFlowViewSet(
         parameters=LIST_FILTER_PARAMETERS,
         responses={200: HogFlowListRowSerializer(many=True)},
     )
-    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=HogFlowListRowPagination)
+    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=ListRowPagination)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.get_queryset()
-        # _filter_queryset_by_access_level only runs for `list`, so this action applies it itself. The
-        # service-credential skip mirrors it: those callers are gated by API scope alone.
+        # TeamAndOrgViewSetMixin._filter_queryset_by_access_level only runs for `list`, so this repeats its
+        # call for hog flows: the service-credential skip, and no `admin_include_all`. That param is not
+        # part of this endpoint's schema, so org admins see the same rows here as on `list` by default.
         if not is_service_auth(request):
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
-        page = self.paginate_queryset(self.filter_queryset(queryset))
+        page = self.paginate_queryset(self.filter_queryset(queryset)) or []
 
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-        context = {**self.get_serializer_context(), RUN_TOTALS_CONTEXT_KEY: fetch_last_7_days_totals(self.team_id)}
+        totals = fetch_last_7_days_totals(self.team_id, [str(flow.id) for flow in page])
+        context = {**self.get_serializer_context(), RUN_TOTALS_CONTEXT_KEY: totals}
         return self.get_paginated_response(HogFlowListRowSerializer(page, many=True, context=context).data)
 
     @extend_schema(
