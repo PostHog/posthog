@@ -8,17 +8,23 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ReminderCreateSchema = () => {
     const RemindersCreateBody = orvalSchemas.RemindersCreateBody()
-    return RemindersCreateBody
+    return RemindersCreateBody.extend({
+        organization: RemindersCreateBody.shape['organization']
+            .describe('Organization ID. If omitted, uses the active organization.')
+            .optional(),
+    })
 }
 
 const reminderCreate = (): ToolBase<ReturnType<typeof ReminderCreateSchema>, Schemas.Reminder> => ({
     name: 'reminder-create',
     schema: ReminderCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ReminderCreateSchema>>) => {
-        const body: Record<string, unknown> = {}
-        if (params.organization !== undefined) {
-            body['organization'] = params.organization
+        const organization = params.organization ?? (await context.stateManager.getOrgID())
+        if (!organization) {
+            throw new Error('organization is required. Provide it explicitly or set an active organization first.')
         }
+        const body: Record<string, unknown> = {}
+        body['organization'] = organization
         if (params.team !== undefined) {
             body['team'] = params.team
         }

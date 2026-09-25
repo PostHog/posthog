@@ -1182,6 +1182,11 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
+            // A fallback param is already resolved into a guaranteed local above, so emit it unguarded.
+            if (localVarParams.has(bf)) {
+                handlerBody += `        body[${JSON.stringify(bodyKey)}] = ${bf}\n`
+                continue
+            }
             // Variant-specific fields (only in some union variants) need an `in`
             // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
             const guard = composition.variantSpecificBodyFieldNames.has(bf)

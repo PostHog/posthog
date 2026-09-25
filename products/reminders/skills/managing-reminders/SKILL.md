@@ -36,15 +36,16 @@ subscription. If it is just a timed nudge to a person, it is a reminder.
 
 ## Required fields
 
-Every `reminder-create` call **must** include both of these fields. A call without them is rejected.
+Every `reminder-create` call **must** include `title` — the short text shown as the notification
+title. Write it from the user's request (for "remind me to review the launch dashboard", use
+`"Review the launch dashboard"`).
 
-- `organization` — the organization ID (a UUID string). Call `organization-get` with no arguments
-  to get the active organization, and use its `id`. Do not guess this value.
-  If `organization-get` fails because no organization is selected, call `organizations-list`.
-  If the user belongs to one organization, use its `id`. Otherwise, ask the user which one to use,
-  then call `switch-organization` with it.
-- `title` — the short text shown as the notification title. Write it from the user's request
-  (for "remind me to review the launch dashboard", use `"Review the launch dashboard"`).
+Omit `organization`. The server fills it from the active organization.
+
+Pass `organization` only when the user names a different organization and gives you its ID. If the
+user names one but gives no ID, ask for the ID before you continue. Do not guess the value, and do
+not omit the field instead: an omitted `organization` puts the reminder in the active organization,
+not the one the user named.
 
 Also set `team` (the numeric project ID) whenever you know the project. It is required when you
 attach a resource, and it makes the project timezone the default.
@@ -138,15 +139,14 @@ Resolve the id first if the user gives you a name or URL (e.g. fetch the insight
 
 User: "Remind me to review the launch dashboard every Monday at 9am."
 
-1. Get the organization ID with `organization-get` and the project ID from the active project.
+1. Get the project ID from the active project.
 2. Resolve the dashboard id (e.g. dashboard `67`).
 3. Pick the schedule shape: a specific weekday + time → cron.
 4. Pass the user's timezone if known.
-5. Call `reminder-create` with the required `organization` and `title`:
+5. Call `reminder-create` with the required `title`:
 
 ```json
 {
-  "organization": "0188a0b2-1c3d-4e5f-8a9b-0c1d2e3f4a5b",
   "team": 12345,
   "title": "Review the launch dashboard",
   "resource_type": "dashboard",
