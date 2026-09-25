@@ -2783,7 +2783,14 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+        filter_views?: DashboardFilterView[]
     }
+}
+
+export interface DashboardFilterView {
+    id: string
+    name: string
+    filters: DashboardFilter
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'

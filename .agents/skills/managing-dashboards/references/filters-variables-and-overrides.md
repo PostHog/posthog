@@ -52,6 +52,15 @@ Show initial URL overrides through the same unsaved treatment as user edits. Do 
 - Refresh affected tiles after a save when automatic preview did not apply the draft.
 - Render settings mutation actions only on the authenticated dashboard placement.
 
+## Saved filter views
+
+- Store a small shared view list on the dashboard when views do not need separate access rules.
+- Keep saved views distinct from the dashboard's default filters.
+- Apply a selected view through URL filters so users can share and clear it.
+- Let dashboard editors manage views. Let dashboard viewers select views.
+- Hide saved filter views from public, embedded, product-embedded, and export surfaces unless a later contract adds them.
+- Gate both the UI and dashboard mutations during rollout.
+
 ## Failure cases
 
 | Change               | Check                                                                              |

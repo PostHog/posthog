@@ -128,7 +128,7 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
+from products.dashboards.backend.feature_flags import dashboard_filter_saved_views_enabled, dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -193,6 +193,17 @@ def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
 def _effective_layout_compaction(customization: Any) -> str:
     layout_compaction = _normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
+
+
+def _filter_view_analytics_properties(filters: dict[str, Any]) -> dict[str, bool | int]:
+    properties = filters.get("properties")
+    return {
+        "has_date_filter": bool(filters.get("date_from") or filters.get("date_to")),
+        "property_filter_count": len(properties) if isinstance(properties, list) else 0,
+        "has_breakdown_filter": bool(filters.get("breakdown_filter")),
+        "has_interval_filter": bool(filters.get("interval")),
+        "has_test_account_filter": filters.get("filterTestAccounts") is not None,
+    }
 
 
 logger = structlog.get_logger(__name__)
@@ -1257,6 +1268,11 @@ class DashboardCustomizationSerializer(serializers.Serializer):
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
     )
+    filter_views = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Named dashboard filter sets available to dashboard viewers.",
+    )
 
 
 class BreakdownColorsField(serializers.ListField):
@@ -1337,7 +1353,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         return filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
 
     @extend_schema_field(DashboardCustomizationSerializer)
-    def get_customization(self, dashboard: Dashboard) -> dict[str, str]:
+    def get_customization(self, dashboard: Dashboard) -> dict[str, Any]:
         customization = _normalize_dashboard_customization(dashboard.customization)
         tile_spacing = customization.get("tile_spacing")
         layout_compaction = customization.get("layout_compaction")
@@ -1346,6 +1362,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             result["tile_spacing"] = tile_spacing
         if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
             result["layout_compaction"] = layout_compaction
+        filter_views = customization.get("filter_views")
+        if (
+            isinstance(filter_views, list)
+            and not self.context.get("is_shared")
+            and dashboard_filter_saved_views_enabled(team=dashboard.team)
+        ):
+            result["filter_views"] = filter_views
         return result
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
@@ -1608,6 +1631,30 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return normalize_dashboard_filters_properties(request_filters)
         except ValueError as error:
             raise serializers.ValidationError({"properties": str(error)}) from error
+
+    @classmethod
+    def _validated_filter_views(cls, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list) or len(value) > 20:
+            raise serializers.ValidationError("Filter views must be a list with at most 20 entries.")
+        validated: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for item in value:
+            if not isinstance(item, dict):
+                raise serializers.ValidationError("Each filter view must be an object.")
+            try:
+                view_id = str(uuid.UUID(str(item.get("id", ""))))
+            except ValueError as error:
+                raise serializers.ValidationError("Each filter view must have a valid ID.") from error
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 80:
+                raise serializers.ValidationError("Each filter view must have a name with 80 characters or fewer.")
+            if view_id in seen_ids:
+                raise serializers.ValidationError("Filter view IDs must be unique.")
+            seen_ids.add(view_id)
+            validated.append(
+                {"id": view_id, "name": name.strip(), "filters": cls._validated_filters(item.get("filters"))}
+            )
+        return validated
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -1888,11 +1935,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None or layout_compaction is not None:
+        filter_views = self.initial_data.get("filter_views")
+        previous_filter_view_ids = {
+            str(view.get("id"))
+            for view in _normalize_dashboard_customization(instance.customization).get("filter_views", [])
+            if isinstance(view, dict)
+        }
+        created_filter_views: list[dict[str, Any]] = []
+        if filter_views is not None:
+            if not dashboard_filter_saved_views_enabled(team=instance.team):
+                raise serializers.ValidationError({"filter_views": "Dashboard filter views aren't available."})
+            filter_views = self._validated_filter_views(filter_views)
+            created_filter_views = [view for view in filter_views if view["id"] not in previous_filter_view_ids]
+        if grid_spacing is not None or layout_compaction is not None or filter_views is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
                 **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
+                **({"filter_views": filter_views} if filter_views is not None else {}),
             }
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
@@ -1966,6 +2026,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
+            for created_filter_view in created_filter_views:
+                report_user_action(
+                    user,
+                    "dashboard filter view created",
+                    {
+                        "dashboard_id": instance.id,
+                        "saved_view_count": len(filter_views),
+                        **_filter_view_analytics_properties(created_filter_view["filters"]),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
             if layout_compaction is not None and layout_compaction != previous_layout_compaction:
                 report_user_action(
                     user,
