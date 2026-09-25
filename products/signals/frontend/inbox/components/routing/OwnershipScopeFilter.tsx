@@ -37,10 +37,10 @@ export function OwnershipScopeFilter(): JSX.Element {
                         title: 'Product domains',
                         options:
                             catalogue?.domains
-                                .filter((domain) => !domain.archived)
+                                .filter((domain) => !domain.archived || scope === `domain:${domain.id}`)
                                 .map((domain) => ({
                                     value: `domain:${domain.id}` as InboxScope,
-                                    label: domain.name,
+                                    label: `${domain.name}${domain.archived ? ' (archived)' : ''}`,
                                 })) ?? [],
                     },
                     {

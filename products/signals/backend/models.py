@@ -400,6 +400,7 @@ class SignalRoutingBatchChange(TeamScopedRootMixin, UUIDModel):
         CLAIMED = "claimed", "Active ownership"
         CHANGED = "changed", "Changed since preview"
         RESTORED = "restored", "Restored"
+        CANCELLED = "cancelled", "Cancelled before removal"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     batch = models.ForeignKey(SignalRoutingBatch, on_delete=models.CASCADE, related_name="changes")

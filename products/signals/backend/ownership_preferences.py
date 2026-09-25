@@ -188,6 +188,9 @@ class DomainPreferenceService:
             batch.status = SignalRoutingBatch.Status.UNDOING
             batch.undo_requested = True
             batch.save(update_fields=["preference_revision", "status", "undo_requested", "updated_at"])
+            batch.changes.filter(status=SignalRoutingBatchChange.Status.PENDING).update(
+                status=SignalRoutingBatchChange.Status.CANCELLED, undone=True
+            )
             _schedule_batch(team_id=self.team_id, batch_id=str(batch.id))
             return batch
 

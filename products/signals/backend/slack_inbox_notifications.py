@@ -233,7 +233,11 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
             user = entry.get("user") if isinstance(entry, dict) else None
             if isinstance(user, dict) and user.get("id"):
                 resolved_user_ids.add(int(user["id"]))
-    resolved_user_ids -= ReviewerRoutingPolicy(team_id=report.team_id, report_id=report.id).excluded_users()
+    policy = ReviewerRoutingPolicy(team_id=report.team_id, report_id=report.id)
+    resolved_user_ids -= policy.excluded_users()
+    owner_members = policy.owner_members()
+    if owner_members is not None:
+        resolved_user_ids.intersection_update(owner_members)
     return set(report.team.all_users_with_access().filter(id__in=resolved_user_ids).values_list("id", flat=True))
 
 

@@ -14,10 +14,12 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade.api import set_default_slack_notification_channel
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportRouting,
     SignalReviewerExclusion,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -506,6 +508,27 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
     )
 
     assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
+
+
+@pytest.mark.django_db
+def test_reviewer_resolution_rechecks_current_role_membership(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "former-owner@example.com", "former-owner")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    role = Role.objects.create(organization=org, name="Commerce")
+    membership = RoleMembership.objects.create(role=role, user=reviewer)
+    SignalReportRouting.objects.for_team(team.id).create(team=team, report=report, owning_role=role, accepted=True)
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"user_uuid": str(reviewer.uuid)}]),
+    )
+    assert _resolve_suggested_reviewer_user_ids(report) == {reviewer.id}
+
+    membership.delete()
+
+    assert _resolve_suggested_reviewer_user_ids(report) == set()
 
 
 @pytest.mark.django_db

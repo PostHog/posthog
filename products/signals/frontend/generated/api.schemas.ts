@@ -3318,6 +3318,7 @@ export interface PaginatedSignalRoutingBatchListApi {
  * * `claimed` - Active ownership
  * * `changed` - Changed since preview
  * * `restored` - Restored
+ * * `cancelled` - Cancelled before removal
  */
 export type SignalRoutingBatchChangeStatusEnumApi =
     (typeof SignalRoutingBatchChangeStatusEnumApi)[keyof typeof SignalRoutingBatchChangeStatusEnumApi]
@@ -3328,6 +3329,7 @@ export const SignalRoutingBatchChangeStatusEnumApi = {
     Claimed: 'claimed',
     Changed: 'changed',
     Restored: 'restored',
+    Cancelled: 'cancelled',
 } as const
 
 export interface SignalRoutingBatchReportApi {
@@ -3341,7 +3343,8 @@ export interface SignalRoutingBatchReportApi {
      * * `removed` - Removed
      * * `claimed` - Active ownership
      * * `changed` - Changed since preview
-     * * `restored` - Restored */
+     * * `restored` - Restored
+     * * `cancelled` - Cancelled before removal */
     readonly status: SignalRoutingBatchChangeStatusEnumApi
     /** Whether the preference owner currently owns active work on this report. */
     readonly has_active_claim: boolean

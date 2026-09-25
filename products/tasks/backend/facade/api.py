@@ -4520,8 +4520,11 @@ def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> boo
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
-def task_ids_created_by_user_subquery(*, team_id: int, user_id: int) -> QuerySet[Task, Any]:
-    return Task.objects.filter(team_id=team_id, created_by_id=user_id).values("id")
+def task_ids_created_by_user(*, team_id: int, user_id: int, task_ids: Collection[UUID]) -> frozenset[UUID]:
+    """Of the supplied tasks, return the IDs created by this user within the project."""
+    return frozenset(
+        Task.objects.filter(team_id=team_id, created_by_id=user_id, id__in=task_ids).values_list("id", flat=True)
+    )
 
 
 def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:

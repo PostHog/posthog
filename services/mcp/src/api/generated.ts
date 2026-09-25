@@ -66728,6 +66728,7 @@ export namespace Schemas {
      * * `claimed` - Active ownership
      * * `changed` - Changed since preview
      * * `restored` - Restored
+     * * `cancelled` - Cancelled before removal
      */
     export type SignalRoutingBatchChangeStatusEnum = typeof SignalRoutingBatchChangeStatusEnum[keyof typeof SignalRoutingBatchChangeStatusEnum];
 
@@ -66738,6 +66739,7 @@ export namespace Schemas {
       Claimed: 'claimed',
       Changed: 'changed',
       Restored: 'restored',
+      Cancelled: 'cancelled',
     } as const;
 
     export interface SignalRoutingBatchReport {
@@ -66751,7 +66753,8 @@ export namespace Schemas {
        * * `removed` - Removed
        * * `claimed` - Active ownership
        * * `changed` - Changed since preview
-       * * `restored` - Restored */
+       * * `restored` - Restored
+       * * `cancelled` - Cancelled before removal */
       readonly status: SignalRoutingBatchChangeStatusEnum;
       /** Whether the preference owner currently owns active work on this report. */
       readonly has_active_claim: boolean;

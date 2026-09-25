@@ -305,6 +305,7 @@ class Migration(migrations.Migration):
                             ("claimed", "Active ownership"),
                             ("changed", "Changed since preview"),
                             ("restored", "Restored"),
+                            ("cancelled", "Cancelled before removal"),
                         ],
                         default="pending",
                         max_length=10,

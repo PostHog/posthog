@@ -17,6 +17,7 @@ from products.signals.backend.models import (
     SignalReportRouting,
     SignalReviewerExclusion,
     SignalRoutingBatch,
+    SignalRoutingBatchChange,
 )
 from products.signals.backend.ownership import current_eligible_reviewers
 from products.signals.backend.ownership_preferences import DomainPreferenceService, RoutingBatchProcessor
@@ -114,6 +115,12 @@ class TestDomainPreferences(BaseTest):
         self.service.undo(batch_id=preview.id)
         assert processor.run() is False
         assert processor.run() is False
+        preview.refresh_from_db()
+        assert preview.status == SignalRoutingBatch.Status.UNDONE
+        assert set(preview.changes.values_list("status", flat=True)) == {
+            SignalRoutingBatchChange.Status.RESTORED,
+            SignalRoutingBatchChange.Status.CANCELLED,
+        }
         for report in reports:
             assert set(self.stored_reviewers(report)) == {str(self.user.uuid), str(self.other.uuid)}
 
