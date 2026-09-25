@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 
+import { EventHealthWarning } from 'lib/components/EventHealthWarning/EventHealthWarning'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -142,6 +143,8 @@ interface EntityFilterInfoProps {
     filterGroupType?: TaxonomicFilterGroupType
     isOptional?: boolean
     showIcon?: boolean
+    /** Tag the event this filter queries when PostHog has no fresh data for it. */
+    showEventHealth?: boolean
 }
 
 export function EntityFilterInfo({
@@ -153,6 +156,7 @@ export function EntityFilterInfo({
     filterGroupType,
     isOptional = false,
     showIcon = false,
+    showEventHealth = false,
 }: EntityFilterInfoProps): JSX.Element {
     const isColumn = layout === 'column'
 
@@ -183,6 +187,10 @@ export function EntityFilterInfo({
           })
         : null
 
+    // Only a plain event resolves to a definition PostHog can report health for — an action, a data
+    // warehouse table and a comma-joined event group each name something else.
+    const healthEvent = showEventHealth && underlying?.kind === 'event' ? underlying.raw : null
+
     const content = (
         // eslint-disable-next-line react/forbid-dom-props
         <span
@@ -193,7 +201,7 @@ export function EntityFilterInfo({
             )}
             style={style}
         >
-            <span className={clsx(icon && 'inline-flex items-center gap-1 max-w-full')}>
+            <span className={clsx((icon || healthEvent) && 'inline-flex items-center gap-1 max-w-full')}>
                 {icon}
                 <span
                     className={clsx('EntityFilterInfo max-w-full', !allowWrap && 'whitespace-nowrap truncate')}
@@ -201,6 +209,11 @@ export function EntityFilterInfo({
                 >
                     {displayName}
                 </span>
+                {healthEvent && (
+                    <span className="shrink-0">
+                        <EventHealthWarning event={healthEvent} iconOnly />
+                    </span>
+                )}
             </span>
             {isOptional && (
                 <span className={clsx('text-xs font-normal text-secondary normal-case', !isColumn && 'ml-1')}>

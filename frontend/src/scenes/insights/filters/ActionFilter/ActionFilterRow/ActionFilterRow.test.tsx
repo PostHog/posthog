@@ -177,6 +177,29 @@ describe('ActionFilterRow', () => {
             expect(row.textContent).toContain('user signed up')
         })
 
+        // The series charts a flat zero once the event stops arriving, and the chart alone reads
+        // like a real zero. Workflow and destination editors share this row and invite events
+        // PostHog has never captured, so only a caller that asks for the warning gets one.
+        it('tags only the row whose caller asked about event health', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions/': () => [
+                        200,
+                        {
+                            count: 1,
+                            results: [{ id: '1', name: 'user signed up', last_seen_at: '2020-01-01T00:00:00Z' }],
+                        },
+                    ],
+                },
+            })
+            const { logic } = setup()
+            const filter = { ...DEFAULT_FILTER, id: 'user signed up', name: 'user signed up' }
+            renderRow(logic, { filter, showEventHealth: true })
+            renderRow(logic, { filter })
+            expect(await screen.findByLabelText('Stale')).toBeInTheDocument()
+            expect(screen.getAllByLabelText('Stale')).toHaveLength(1)
+        })
+
         it('opens the picker with the renamed selection first, labelled by the series name', async () => {
             const { logic } = setup()
             renderRow(logic, {

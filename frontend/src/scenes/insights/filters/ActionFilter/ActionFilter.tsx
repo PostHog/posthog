@@ -112,6 +112,8 @@ export interface ActionFilterProps {
     includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    /** Warn when the row's event stopped arriving. Off where picking an uninstrumented event is intended. */
+    showEventHealth?: boolean
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
@@ -155,6 +157,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         excludedProperties,
         includeHiddenEvents,
         allowNonCapturedEvents,
+        showEventHealth,
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
@@ -228,6 +231,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         excludedProperties,
         includeHiddenEvents,
         allowNonCapturedEvents,
+        showEventHealth,
         hogQLGlobals,
         operatorAllowlist,
         inlineEventsDocLink: isTrendsFilter(filters)
@@ -294,6 +298,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
                                         includeHiddenEvents={includeHiddenEvents}
+                                        showEventHealth={showEventHealth}
                                         insightType={filters.insight}
                                         definitionPopoverRenderer={definitionPopoverRenderer}
                                     />

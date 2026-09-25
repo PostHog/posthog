@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
 
 import { EntityFilterInfo } from './EntityFilterInfo'
@@ -65,4 +66,61 @@ export const RenamedAndUnrenamedSeries: Story = {
             },
         },
     },
+}
+
+const HEALTH_VARIANTS: { label: string; filter: EntityFilter | ActionFilter }[] = [
+    {
+        label: 'Event PostHog still sees',
+        filter: { type: EntityTypes.EVENTS, id: 'purchase_completed', name: 'purchase_completed' },
+    },
+    {
+        label: 'Event last seen months ago',
+        filter: { type: EntityTypes.EVENTS, id: 'trial_started', name: 'trial_started' },
+    },
+    {
+        label: 'Event with no definition, deleted or never sent',
+        filter: { type: EntityTypes.EVENTS, id: 'checkout_abandoned', name: 'checkout_abandoned' },
+    },
+    {
+        label: 'Renamed series on a dead event',
+        filter: { type: EntityTypes.EVENTS, id: 'trial_started', name: 'trial_started', custom_name: 'Trials' },
+    },
+    {
+        label: 'Action series, health is not asked about',
+        filter: { type: EntityTypes.ACTIONS, id: 5, name: 'Completed purchase' },
+    },
+]
+
+export const EventHealthOnSeries: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions/': {
+                    count: 2,
+                    results: [
+                        { id: '1', name: 'purchase_completed', last_seen_at: '2023-02-14T10:00:00Z' },
+                        { id: '2', name: 'trial_started', last_seen_at: '2022-11-01T10:00:00Z' },
+                    ],
+                },
+            },
+        }),
+    ],
+    parameters: {
+        mockDate: '2023-02-15',
+        docs: {
+            description: {
+                story: 'With `showEventHealth`, a series whose event stopped arriving carries a warning icon, so an insight charting a flat zero says why. Hovering the icon says when PostHog last saw the event. Healthy events and action series stay plain.',
+            },
+        },
+    },
+    render: () => (
+        <div className="flex flex-col gap-2 max-w-2xl">
+            {HEALTH_VARIANTS.map(({ label, filter }) => (
+                <div key={label} className="flex items-center gap-4 border rounded p-2 bg-surface-primary">
+                    <span className="text-xs text-secondary w-80 shrink-0">{label}</span>
+                    <EntityFilterInfo filter={filter} showEventHealth />
+                </div>
+            ))}
+        </div>
+    ),
 }

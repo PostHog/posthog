@@ -61,6 +61,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     hideDeleteBtn={filterSteps.length === 1}
                     buttonCopy="Add step"
                     showSeriesIndicator={showSeriesIndicator}
+                    showEventHealth
                     seriesIndicatorType="numeric"
                     entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                     sortable
