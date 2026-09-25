@@ -93,7 +93,7 @@ describe('GatewayServersHome', () => {
         jest.mocked(useValues).mockReturnValue({
             isAdmin: false,
             connectingServerId: null,
-            unavailableServerIds: new Set<string>(),
+            unavailableTemplateIds: new Set<string>(),
         })
         jest.mocked(useActions).mockReturnValue({ connectServer, reconnectServer })
     })
@@ -133,10 +133,12 @@ describe('GatewayServersHome', () => {
         jest.mocked(useValues).mockReturnValue({
             isAdmin: false,
             connectingServerId: null,
-            unavailableServerIds: new Set(['server-id']),
+            unavailableTemplateIds: new Set(['gone-template']),
         })
 
-        render(<GatewayServerCard server={gatewayServer()} onOpenServer={jest.fn()} />)
+        render(
+            <GatewayServerCard server={{ ...gatewayServer(), template_id: 'gone-template' }} onOpenServer={jest.fn()} />
+        )
 
         const connect = screen.getByText('Connect')
         expect(connect).toBeDisabled()

@@ -47,6 +47,7 @@ import {
     ToolPolicyEntryApi,
     UserBasicApi,
 } from '../generated/api.schemas'
+import { isTemplateUnavailable } from '../templateAvailability'
 import {
     buildGatewayInstallRequest,
     canSubmitGatewayServer,
@@ -116,16 +117,6 @@ function templateAsGatewayServer(template: MCPServerTemplateApi, enabled: boolea
 async function fetchGatewayServers(): Promise<MCPGatewayServerApi[]> {
     const response = await mcpGatewayServersList(currentProjectId(), { limit: 500 })
     return response.results
-}
-
-// A Connect click can name a template the catalog no longer serves: the catalog
-// serves active templates only, and a registered server row outlives its template.
-function isTemplateUnavailable(error: unknown): boolean {
-    if (typeof error !== 'object' || error === null || !('data' in error)) {
-        return false
-    }
-    const data = error.data
-    return typeof data === 'object' && data !== null && (data as { reason?: unknown }).reason === 'template_unavailable'
 }
 
 function errorDetail(error: unknown): string | null {
@@ -246,7 +237,6 @@ export interface mcpGatewayLogicValues {
     templateOnlyServers: GatewayServerEntry[]
     templates: MCPServerTemplateApi[]
     templatesLoading: boolean
-    unavailableServerIds: Set<string>
     unavailableTemplateIds: Set<string>
     updatingInstallationIds: Set<string>
 }
@@ -1181,15 +1171,6 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 ...servers,
                 ...templateOnlyServers,
             ],
-        ],
-        unavailableServerIds: [
-            (s) => [s.mergedServers, s.unavailableTemplateIds],
-            (mergedServers: GatewayServerEntry[], unavailableTemplateIds: Set<string>): Set<string> =>
-                new Set(
-                    mergedServers
-                        .filter((server) => server.template_id && unavailableTemplateIds.has(server.template_id))
-                        .map((server) => server.id)
-                ),
         ],
         connectionModalServer: [
             (s) => [s.mergedServers, s.connectionModalServerId],

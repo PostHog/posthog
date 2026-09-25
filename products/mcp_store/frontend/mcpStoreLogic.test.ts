@@ -70,7 +70,7 @@ describe('mcpStoreLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('disables a stale catalog card and refetches when its template no longer resolves', async () => {
+    it('drops a stale catalog card when its template no longer resolves', async () => {
         const template: MCPServerTemplateApi = {
             id: 'gone-template',
             name: 'Gone',
@@ -93,7 +93,6 @@ describe('mcpStoreLogic', () => {
         logic.actions.installTemplate({ templateId: template.id })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.unavailableTemplateIds.has(template.id)).toBe(true)
         expect(listServers).toHaveBeenCalled()
         expect(logic.values.servers).toEqual([])
     })

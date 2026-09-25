@@ -4208,19 +4208,12 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @parameterized.expand(
-        [
-            ("inactive", True, "inactive"),
-            ("missing", False, "missing"),
-        ]
-    )
+    @parameterized.expand([("inactive",), ("missing",)])
     @patch("products.mcp_store.backend.presentation.views.report_user_action")
-    def test_install_template_reports_an_unresolvable_template(
-        self, _name, template_exists, expected_reason, mock_report
-    ):
+    def test_install_template_reports_an_unresolvable_template(self, expected_reason, mock_report):
         template = self._template(is_active=False)
         template_id = str(template.id)
-        if not template_exists:
+        if expected_reason == "missing":
             template.delete()
 
         response = self.client.post(
@@ -4235,8 +4228,6 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         # to stay machine-readable, and the detail has to tell a person what to do.
         assert body["reason"] == "template_unavailable"
         assert "catalog" in body["detail"]
-        event_names = [call.args[1] for call in mock_report.call_args_list]
-        assert "mcp_store template unavailable" in event_names
         properties = next(
             call.kwargs["properties"]
             for call in mock_report.call_args_list

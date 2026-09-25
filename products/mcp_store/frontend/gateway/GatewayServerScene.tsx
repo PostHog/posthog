@@ -24,6 +24,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { TEMPLATE_UNAVAILABLE_REASON } from '../templateAvailability'
 import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
@@ -226,7 +227,7 @@ export function GatewayServerScene({
                             loading={connectingServerId === server.id}
                             disabledReason={
                                 server.template_id && unavailableTemplateIds.has(server.template_id)
-                                    ? 'This server is no longer in the catalog. Refresh the page for the current list.'
+                                    ? TEMPLATE_UNAVAILABLE_REASON
                                     : server.is_team_enabled
                                       ? undefined
                                       : 'This server is turned off for the team.'

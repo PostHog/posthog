@@ -690,7 +690,7 @@ describe('mcpGatewayLogic', () => {
             logic.actions.connectServer('row-server')
         }).toFinishAllListeners()
 
-        expect(logic.values.unavailableServerIds.has('row-server')).toBe(true)
+        expect(logic.values.unavailableTemplateIds.has('gone-template')).toBe(true)
         expect(logic.values.connectionModalServerId).toBeNull()
     })
 

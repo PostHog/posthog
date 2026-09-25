@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function ServerCard({ server }: Props): JSX.Element {
-    const { installedServerUrls, installations, unavailableTemplateIds } = useValues(mcpStoreLogic)
+    const { installedServerUrls, installations } = useValues(mcpStoreLogic)
     const { installTemplate, openAddCustomServerModalWithDefaults, selectServer, uninstallServer } =
         useActions(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
@@ -24,9 +24,6 @@ export function ServerCard({ server }: Props): JSX.Element {
 
     const isInstalled = installedServerUrls.has(server.url)
     const installation = isInstalled ? installations.find((i) => i.url === server.url) : null
-    const connectDisabledReason = unavailableTemplateIds.has(server.id)
-        ? 'This server is no longer in the catalog. Refresh the page for the current list.'
-        : restrictedReason
 
     const openDetail = (): void => {
         selectServer(installation ? installation.id : server.id)
@@ -72,7 +69,7 @@ export function ServerCard({ server }: Props): JSX.Element {
                         size="small"
                         type="primary"
                         onClick={handleConnect}
-                        disabledReason={connectDisabledReason}
+                        disabledReason={restrictedReason}
                         stopPropagation
                     >
                         Connect
