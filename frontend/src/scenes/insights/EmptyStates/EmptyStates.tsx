@@ -14,7 +14,11 @@ import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-contro
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
+import {
+    CLICKHOUSE_AT_CAPACITY_ERROR_CODE,
+    CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE,
+    QUERY_RAN_CONCURRENTLY_ERROR_CODE,
+} from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -713,6 +717,8 @@ type InsightErrorKind =
     | 'memory_limit'
     | 'invalid_query'
     | 'permission'
+    | 'capacity'
+    | 'concurrent'
     | 'transient'
     | 'server'
     | 'unknown'
@@ -722,6 +728,8 @@ const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: 
     memory_limit: HedgehogReaper,
     invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
+    capacity: HedgehogTrafficController,
+    concurrent: HedgehogConstruction2,
     transient: HedgehogConstruction2,
     server: HedgehogDoctor,
     unknown: HedgehogDoctor,
@@ -732,7 +740,7 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
     if (status === 429) {
         return 'rate_limit'
     }
@@ -741,6 +749,17 @@ function getInsightErrorKind(status?: number | null): InsightErrorKind {
     // apart, so the remediation comes from the backend detail instead.
     if (status === 513) {
         return 'memory_limit'
+    }
+    // Several unrelated failures answer 503 and they need different remediation, so the backend
+    // code is the only thing that tells a capacity wait apart from a single-flight collision. The
+    // code decides before the status, because an async failure read back from a poll carries the
+    // code with HTTP 400. Each code belongs to one exception class, so a real validation error
+    // cannot carry either one.
+    if (code === CLICKHOUSE_AT_CAPACITY_ERROR_CODE) {
+        return 'capacity'
+    }
+    if (code === QUERY_RAN_CONCURRENTLY_ERROR_CODE) {
+        return 'concurrent'
     }
     if (status === 400 || status === 422) {
         return 'invalid_query'
@@ -767,6 +786,12 @@ function getInsightErrorTitle(
     }
     if (kind === 'invalid_query') {
         return "We couldn't run this query"
+    }
+    if (kind === 'capacity') {
+        return 'PostHog is busy right now'
+    }
+    if (kind === 'concurrent') {
+        return 'This query was already running'
     }
     if (kind === 'transient') {
         return "This query couldn't run right now"
@@ -799,6 +824,10 @@ function getInsightErrorRemediation(
             return 'Open the query debugger and correct the query.'
         case 'permission':
             return 'Ask a project admin to grant you access to this insight.'
+        case 'capacity':
+            return 'Too many queries are running at once. Try again in a few minutes.'
+        case 'concurrent':
+            return 'The run that was already going left no result to reuse. Try again.'
         case 'transient':
             return 'Try again in a moment.'
         case 'server':
@@ -813,6 +842,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** DRF `code` of the failed response a string `title` came from, used to tell the 503 classes apart */
+    titleCode?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -828,6 +859,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    titleCode,
     query,
     queryId,
     retryAfter,
@@ -839,11 +871,12 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const errorKind = getInsightErrorKind(titleStatus)
+    const errorKind = getInsightErrorKind(titleStatus, titleCode)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
+    // 'capacity' and 'concurrent' are absent because both clear on a retry, so neither is a bug.
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
     // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
     const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null

@@ -89,6 +89,7 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, ClickHouseAtCapacity.default_detail)
+        self.assertEqual(result.error_code, ClickHouseAtCapacity.default_code)
         self.assertIsNotNone(result.end_time)
 
     def test_store_clickhouse_query_progress(self):

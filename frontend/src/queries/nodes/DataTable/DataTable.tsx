@@ -1095,6 +1095,7 @@ export function DataTable({
                                                 query={query}
                                                 queryId={responseErrorObject?.queryId ?? queryId}
                                                 titleStatus={responseErrorObject?.status}
+                                                titleCode={responseErrorObject?.code}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}

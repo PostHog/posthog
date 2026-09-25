@@ -83,7 +83,12 @@ class DatabaseSchemaUnavailable(APIException):
 
 
 class ClickHouseAtCapacity(APIException):
+    # Three unrelated failures answer 503, so the status alone cannot tell a capacity wait apart from
+    # a single-flight collision or an unreadable schema. Without a code of its own this one falls back
+    # to DRF's generic "error", which leaves it unattributable in telemetry and gives the client
+    # nothing to branch its copy on.
     status_code = 503
+    default_code = "clickhouse_at_capacity"
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
