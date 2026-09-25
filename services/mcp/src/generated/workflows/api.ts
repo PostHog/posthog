@@ -211,6 +211,7 @@ export const HogFlowsCreateBody = () => zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."
@@ -350,6 +351,7 @@ export const HogFlowsCreateBody = () => zod
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
+                                bytecode_contract: zod.string().optional(),
                             }),
                             zod.null(),
                         ])
@@ -419,6 +421,7 @@ export const HogFlowsCreateBody = () => zod
                                                         transpiled: zod.unknown().optional(),
                                                         filter_test_accounts: zod.boolean().optional(),
                                                         bytecode_error: zod.string().optional(),
+                                                        bytecode_contract: zod.string().optional(),
                                                     }),
                                                     zod.null(),
                                                 ])
@@ -468,6 +471,7 @@ export const HogFlowsCreateBody = () => zod
                                                             transpiled: zod.unknown().optional(),
                                                             filter_test_accounts: zod.boolean().optional(),
                                                             bytecode_error: zod.string().optional(),
+                                                            bytecode_contract: zod.string().optional(),
                                                         }),
                                                         zod.null(),
                                                     ])
@@ -614,6 +618,7 @@ export const HogFlowsPartialUpdateBody = () => zod
                                         transpiled: zod.unknown().optional(),
                                         filter_test_accounts: zod.boolean().optional(),
                                         bytecode_error: zod.string().optional(),
+                                        bytecode_contract: zod.string().optional(),
                                     })
                                     .describe(
                                         "Event\/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side."

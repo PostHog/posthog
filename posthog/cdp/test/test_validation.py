@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -152,6 +153,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert json.loads(json.dumps(validate_inputs(inputs_schema, inputs))) == {
             "url": {
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -168,6 +170,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "person": "{person}",
                     "event_url": "{f'{event.url}-test'}",
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "event": ["_H", HOGQL_BYTECODE_VERSION, 32, "event", 1, 1],
                     "groups": ["_H", HOGQL_BYTECODE_VERSION, 32, "groups", 1, 1],
@@ -197,6 +200,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             },
             "headers": {
                 "value": {"version": "v={event.properties.$lib_version}"},
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": {
                     "version": [
                         "_H",
@@ -259,6 +263,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         ) == {
             "html": {
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "bytecode": [
                     "_H",
                     HOGQL_BYTECODE_VERSION,
@@ -784,6 +789,50 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["first"]["bytecode"] is not None
         assert validated["second"]["bytecode"] is not None
 
+    def test_filters_carry_a_stamp_only_beside_bytecode(self):
+        # A client echoes stored filters back on save. The stamp it sends is ignored: bytecode filters
+        # get the compiler's stamp, transpiled filters have no bytecode and get none.
+        filters = {"events": [{"id": "$pageview", "type": "events"}], "bytecode_contract": "older"}
+        compiled = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+        assert compiled.is_valid(), compiled.errors
+        assert compiled.validated_data["bytecode_contract"] == RUNTIME_CONTRACT
+
+        transpiled = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": "site_destination"}
+        )
+        assert transpiled.is_valid(), transpiled.errors
+        assert "bytecode" not in transpiled.validated_data
+        assert "bytecode_contract" not in transpiled.validated_data
+
+    def test_validate_inputs_stamps_compiled_templates_with_the_runtime_contract(self):
+        # A hog template gets the stamp beside its bytecode. A liquid template has no bytecode and no
+        # stamp, and a plain value compiles to nothing that could drift.
+        inputs_schema = [
+            {"key": "hog", "type": "string", "required": False},
+            {"key": "liquid", "type": "string", "required": False},
+            {"key": "body", "type": "json", "required": False},
+        ]
+        inputs = {
+            "hog": {"value": "{event.uuid}", "bytecode_contract": "older"},
+            "liquid": {"value": "{{ event.uuid }}", "templating": "liquid"},
+            "body": {"value": {"id": "{event.uuid}", "kind": "x"}},
+        }
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["hog"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert validated["body"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert "bytecode_contract" not in validated["liquid"]
+
+    def test_validate_inputs_refuses_a_call_the_runtime_would_reject(self):
+        # The stamp says "checked against this runtime", so a call with an argument count the runtime
+        # refuses must not compile, or it would later read as a compiler bug instead of a typo.
+        inputs_schema = [{"key": "amount", "type": "string", "required": False}]
+        with pytest.raises(Exception) as ctx:
+            validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2, 3)}"}})
+        assert "round" in str(ctx.value) and "2" in str(ctx.value)
+
+        validated = validate_inputs(inputs_schema, {"amount": {"value": "{round(19.99, 2)}"}})
+        assert validated["amount"]["bytecode_contract"] == RUNTIME_CONTRACT
+
     def test_validate_transformation_inputs_allows_stl_and_runtime_functions(self):
         # STL functions (e.g. now) and transformation runtime helpers (e.g. geoipLookup)
         # are valid root identifiers because the Hog VM falls back to STL/runtime lookups
@@ -898,6 +947,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "events",
             "events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}],
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
@@ -968,6 +1018,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         serializer.is_valid(raise_exception=True)
         value = json.loads(json.dumps(serializer.validated_data))
         assert value == {
+            "bytecode_contract": RUNTIME_CONTRACT,
             "source": "person-updates",
             "properties": [{"key": "email", "value": ["test@posthog.com"], "operator": "exact", "type": "person"}],
             "bytecode": ["_H", 1, 32, "test@posthog.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
