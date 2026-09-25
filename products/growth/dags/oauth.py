@@ -128,7 +128,7 @@ def oauth_clear_expired_oauth_tokens_job():
 
 oauth_clear_expired_oauth_tokens_schedule = dagster.ScheduleDefinition(
     job=oauth_clear_expired_oauth_tokens_job,
-    cron_schedule="0 2 * * *",
+    cron_schedule="19 2 * * *",
     execution_timezone="UTC",
     name="oauth_cleanup_daily_schedule",
 )

@@ -204,7 +204,7 @@ def ai_enrichment_job():
 
 @dagster.schedule(
     job=ai_enrichment_job,
-    cron_schedule="0 7 * * *",
+    cron_schedule="11 7 * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
