@@ -469,6 +469,14 @@ export class LogsIngestionConsumer {
     }
 
     /**
+     * Logs only. A span carries no source id, so `TracesIngestionConsumer` is wired without the
+     * cache; the `appSource` test says the exclusion is deliberate rather than a missing dep.
+     */
+    private isSourceCheckEnabled(): boolean {
+        return this.appSource === 'logs' && Boolean(this.deps.logsSourcesCache)
+    }
+
+    /**
      * Builds the hog log transformation hook for a message, or undefined when the team
      * is not gated in or has no enabled transformation_log functions (the existence
      * check is an in-process cache hit, preserving the no-decode passthrough).
@@ -1246,7 +1254,7 @@ export class LogsIngestionConsumer {
 
     /** `instanceId` scopes the metric to one configured object of the team, such as a LogsSource. */
     private queueUsageMetric(teamId: number, metricName: string, count: number, instanceId: string = ''): void {
-        if (count === 0) {
+        if (count <= 0) {
             return
         }
         this.appMetricsAggregator.queue({
@@ -1266,18 +1274,7 @@ export class LogsIngestionConsumer {
      */
     private queueSamplingRecordsDroppedByRule(teamId: number, byRule: Map<string, number>): void {
         for (const [ruleId, count] of byRule) {
-            if (count <= 0) {
-                continue
-            }
-            this.appMetricsAggregator.queue({
-                team_id: teamId,
-                app_source: this.appSource,
-                app_source_id: '',
-                instance_id: ruleId,
-                metric_kind: 'usage',
-                metric_name: 'sampling_records_dropped_by_rule',
-                count,
-            })
+            this.queueUsageMetric(teamId, 'sampling_records_dropped_by_rule', count, ruleId)
         }
     }
 
@@ -1287,18 +1284,7 @@ export class LogsIngestionConsumer {
      */
     private queueBytesDroppedByRule(teamId: number, byRule: Map<string, number>): void {
         for (const [ruleId, count] of byRule) {
-            if (count <= 0) {
-                continue
-            }
-            this.appMetricsAggregator.queue({
-                team_id: teamId,
-                app_source: this.appSource,
-                app_source_id: '',
-                instance_id: ruleId,
-                metric_kind: 'usage',
-                metric_name: 'bytes_dropped_by_rule',
-                count,
-            })
+            this.queueUsageMetric(teamId, 'bytes_dropped_by_rule', count, ruleId)
         }
     }
 
@@ -1375,16 +1361,14 @@ export class LogsIngestionConsumer {
                     }
 
                     const sourceId = headers.source_id || undefined
-                    if (sourceId && this.appSource === 'logs') {
-                        const state = this.deps.logsSourcesCache
-                            ? await this.deps.logsSourcesCache.getSourceState(team.id, sourceId)
-                            : 'enabled'
+                    if (sourceId && this.isSourceCheckEnabled()) {
+                        const state = await this.deps.logsSourcesCache!.getSourceState(team.id, sourceId)
                         if (state !== 'enabled') {
                             const reason = state === 'disabled' ? 'source_disabled' : 'source_unknown'
-                            logMessageDroppedCounter.inc({ reason, team_id: team.id.toString() })
-                            recordLogMessageDropped(reason, team.id.toString())
-                            // The health API reads metrics by the team's source ids, so a drop for an
-                            // unknown id would never be shown.
+                            logMessageDroppedCounter.inc({ reason, team_id: team.id.toString() }, recordCount)
+                            recordLogMessageDropped(reason, team.id.toString(), recordCount)
+                            // An unknown id came from the request URL, so metering it would let any
+                            // caller mint unbounded `instance_id` values into app_metrics2.
                             if (state === 'disabled') {
                                 this.queueUsageMetric(team.id, SOURCE_RECORDS_DROPPED_METRIC, recordCount, sourceId)
                             }

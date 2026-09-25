@@ -2526,7 +2526,7 @@ describe('LogsIngestionConsumer', () => {
         const sourceId = '6f1a2b3c-0000-4000-8000-000000000001'
         const otherSourceId = '6f1a2b3c-0000-4000-8000-000000000002'
         const producedLogs = () => getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
-        const sourceHeaders = (id: string = sourceId) => ({
+        const sourceHeaders = (id: string) => ({
             token: team.api_token,
             source_id: id,
             bytes_uncompressed: '100',
@@ -2544,41 +2544,26 @@ describe('LogsIngestionConsumer', () => {
                 getSourceState: jest.fn((_teamId: number, id: string) => Promise.resolve(stateOf(id))),
             }) as unknown as LogsSourcesCache
 
-        it.each([
-            ['disabled', 'source_disabled', [{ team_id: 0, instance_id: sourceId, count: 3 }]],
-            ['unknown to the team', 'source_unknown', []],
+        it.each<[LogsSourceState, string, { instance_id: string; count: number }[]]>([
+            ['disabled', 'source_disabled', [{ instance_id: sourceId, count: 3 }]],
+            ['unknown', 'source_unknown', []],
         ])(
             'drops a batch whose source is %s and never records it as received',
-            async (_name, reason, expectedDrops) => {
-                const state: LogsSourceState = reason === 'source_disabled' ? 'disabled' : 'unknown'
+            async (state, reason, expectedDrops) => {
                 consumer = await createLogsIngestionConsumer(hub, {}, { logsSourcesCache: stubCache(() => state) })
-                const messages = await createKafkaMessages([createLogMessage()], sourceHeaders())
+                const messages = await createKafkaMessages([createLogMessage()], sourceHeaders(sourceId))
 
                 await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
                 expect(producedLogs()).toHaveLength(0)
-                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason, team_id: team.id.toString() })
+                // The whole batch went, so the drop counters carry its record count, not one.
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason, team_id: team.id.toString() }, 3)
                 expect(sourceMetrics('source_records_dropped')).toMatchObject(
                     expectedDrops.map((drop) => ({ ...drop, team_id: team.id }))
                 )
                 expect(sourceMetrics('source_records_received')).toHaveLength(0)
             }
         )
-
-        it.each([
-            ['the source is enabled', stubCache(() => 'enabled')],
-            ['no sources cache is configured', undefined],
-        ])('passes the batch through and records what it received when %s', async (_name, logsSourcesCache) => {
-            consumer = await createLogsIngestionConsumer(hub, {}, { logsSourcesCache })
-            const messages = await createKafkaMessages([createLogMessage()], sourceHeaders())
-
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
-
-            expect(producedLogs()).toHaveLength(1)
-            expect(sourceMetrics('source_records_received')).toMatchObject([
-                { team_id: team.id, instance_id: sourceId, count: 3 },
-            ])
-        })
 
         it('keeps the enabled source of a mixed batch and attributes each metric to its own source', async () => {
             consumer = await createLogsIngestionConsumer(

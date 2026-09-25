@@ -1,13 +1,13 @@
-import { trace } from '@opentelemetry/api'
-
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
 const REFRESH_MS = 30_000
-// An id absent from a fresh set is usually a source enabled a moment ago, so it refetches sooner
-// than the regular refresh. The floor keeps an id that will never appear from refetching per message.
 const UNKNOWN_ID_REFRESH_MS = 5_000
+// Sweep only once the map is big enough to be worth walking; a team is dropped well after its
+// entry went stale, so an active team is never evicted between messages.
+const MAX_CACHED_TEAMS = 1_000
+const EVICT_AFTER_MS = 10 * 60_000
 
 /** app_metrics2 metric names written per source (`instance_id` = LogsSource id); the sources health API reads them. */
 export const SOURCE_RECORDS_RECEIVED_METRIC = 'source_records_received'
@@ -21,6 +21,7 @@ const sourcesCacheInstrumentOpts = { measureTime: false, sendException: false } 
 type CacheEntry = {
     enabledById: Map<string, boolean>
     fetchedAtMs: number
+    refreshAfterMs: number
 }
 
 const stateOf = (entry: CacheEntry, sourceId: string): LogsSourceState => {
@@ -38,26 +39,41 @@ export class LogsSourcesCache {
     constructor(private postgres: PostgresRouter) {}
 
     public async getSourceState(teamId: number, sourceId: string): Promise<LogsSourceState> {
+        // Deliberately uninstrumented: this runs per message, and a hit is two map lookups.
+        // Only the fetch below carries a span.
+        const existing = this.cache.get(teamId)
+        if (existing && !this.isStale(existing, sourceId)) {
+            return stateOf(existing, sourceId)
+        }
+        return this.refreshAndRead(teamId, sourceId, existing)
+    }
+
+    private isStale(entry: CacheEntry, sourceId: string): boolean {
+        const ageMs = Date.now() - entry.fetchedAtMs
+        if (ageMs >= entry.refreshAfterMs) {
+            return true
+        }
+        // An id absent from a fresh set is usually a source enabled a moment ago, so it refetches
+        // sooner. The floor keeps an id that will never appear from refetching per message.
+        return !entry.enabledById.has(sourceId) && ageMs >= UNKNOWN_ID_REFRESH_MS
+    }
+
+    private refreshAndRead(
+        teamId: number,
+        sourceId: string,
+        existing: CacheEntry | undefined
+    ): Promise<LogsSourceState> {
         return instrumentFn(
             {
-                key: 'logsIngestion.sources.getSourceState',
+                key: 'logsIngestion.sources.refresh',
                 ...sourcesCacheInstrumentOpts,
                 getLoggingContext: () => ({ team_id: teamId, source_id: sourceId }),
             },
             async () => {
-                const now = Date.now()
-                const existing = this.cache.get(teamId)
-                if (existing) {
-                    const ageMs = now - existing.fetchedAtMs
-                    const known = existing.enabledById.has(sourceId)
-                    if (ageMs < REFRESH_MS && (known || ageMs < UNKNOWN_ID_REFRESH_MS)) {
-                        trace.getActiveSpan()?.setAttributes({ 'logs.sources.cache_hit': true })
-                        return stateOf(existing, sourceId)
-                    }
-                }
-                let entry: CacheEntry
                 try {
-                    entry = await this.refresh(teamId, now)
+                    const entry = await this.refresh(teamId)
+                    setSpanAttributes({ 'logs.sources.source_count': entry.enabledById.size })
+                    return stateOf(entry, sourceId)
                 } catch (error) {
                     // Fail open: this runs in the ingestion hot path, so a Postgres blip must not
                     // drop otherwise-valid logs. Serve the last-known set when there is one, else
@@ -66,36 +82,49 @@ export class LogsSourcesCache {
                         teamId,
                         error: String(error),
                     })
-                    trace.getActiveSpan()?.setAttributes({
+                    setSpanAttributes({
                         'logs.sources.fetch_failed': true,
                         'logs.sources.served_stale': Boolean(existing),
                     })
                     return existing ? stateOf(existing, sourceId) : 'enabled'
                 }
-                trace.getActiveSpan()?.setAttributes({
-                    'logs.sources.cache_hit': false,
-                    'logs.sources.source_count': entry.enabledById.size,
-                })
-                return stateOf(entry, sourceId)
             }
         )
     }
 
     /** One fetch per team at a time: a batch of messages for a cold team shares the query. */
-    private refresh(teamId: number, now: number): Promise<CacheEntry> {
+    private refresh(teamId: number): Promise<CacheEntry> {
         const inFlight = this.pending.get(teamId)
         if (inFlight) {
             return inFlight
         }
         const fetch = this.fetchSources(teamId)
             .then((enabledById) => {
-                const entry = { enabledById, fetchedAtMs: now }
+                const entry = {
+                    enabledById,
+                    fetchedAtMs: Date.now(),
+                    // Jitter, so the teams warmed by one batch do not all re-query in the same tick.
+                    refreshAfterMs: REFRESH_MS * (0.85 + Math.random() * 0.3),
+                }
                 this.cache.set(teamId, entry)
+                this.evictExpired(entry.fetchedAtMs)
                 return entry
             })
             .finally(() => this.pending.delete(teamId))
         this.pending.set(teamId, fetch)
         return fetch
+    }
+
+    /** The consumer runs for days, so a team it stopped serving must not hold an entry forever. */
+    private evictExpired(nowMs: number): void {
+        if (this.cache.size <= MAX_CACHED_TEAMS) {
+            return
+        }
+        for (const [teamId, entry] of this.cache) {
+            if (nowMs - entry.fetchedAtMs >= EVICT_AFTER_MS) {
+                this.cache.delete(teamId)
+            }
+        }
     }
 
     private async fetchSources(teamId: number): Promise<Map<string, boolean>> {
