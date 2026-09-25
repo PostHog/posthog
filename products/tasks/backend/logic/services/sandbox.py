@@ -405,6 +405,7 @@ AGENT_SERVER_BINARY_PATH = "/scripts/node_modules/.bin/agent-server"
 
 AGENT_SERVER_CAPABILITY_TOKENS: dict[str, str] = {
     "auto_publish": "autoPublish",
+    "claude_subscription_server": "claudeSubscriptionServer",
     "exec_permission_regex": "posthogExecPermissionRegex",
     "pi_runtime": "POSTHOG_AGENT_RUNTIME",
     "prewarmed_resume_message_driven": "prewarmedResumeMessageDriven",
@@ -658,7 +659,7 @@ class SandboxBase(ABC):
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
-        codex_run_token: str | None = None,
+        subscription_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -841,11 +842,19 @@ CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
 SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
 
 
-def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+CLAUDE_SUBSCRIPTION_SERVER_CLI_FLAG = "--claudeSubscriptionServer"
+
+
+def build_subscription_flags(
+    claude_model_access: str | None, codex_model_access: str | None, *, has_run_token: bool = False
+) -> str:
     access = {"claude": claude_model_access, "codex": codex_model_access}
-    return "".join(
+    flags = "".join(
         f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
     )
+    if has_run_token and claude_model_access == "own-subscription":
+        flags += f" {CLAUDE_SUBSCRIPTION_SERVER_CLI_FLAG}"
+    return flags
 
 
 def wait_for_health_check(

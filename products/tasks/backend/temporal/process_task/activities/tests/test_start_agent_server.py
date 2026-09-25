@@ -87,6 +87,7 @@ def _context(
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    claude_subscription_server: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -106,6 +107,7 @@ def _context(
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
         codex_model_access=codex_model_access,
+        claude_subscription_server=claude_subscription_server,
         _branch=branch,
     )
 
@@ -463,7 +465,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
-            codex_run_token=None,
+            subscription_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -544,7 +546,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             protected_base_branch=None,
             event_ingest_token=None,
             task_run_session_token=None,
-            codex_run_token=None,
+            subscription_run_token=None,
             event_ingest_url=None,
             event_ingest_keep_stream_open=False,
         ),
@@ -804,7 +806,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         protected_base_branch=None,
         event_ingest_token=None,
         task_run_session_token=None,
-        codex_run_token=None,
+        subscription_run_token=None,
         event_ingest_url=None,
         event_ingest_keep_stream_open=False,
     )
@@ -1041,16 +1043,22 @@ async def test_collect_agent_shadow_result_reads_after_startup(mocker) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("codex_model_access", "expected_codex_run_token"),
-    [("posthog-gateway", None), ("own-subscription", "codex-run-token")],
+    ("runtime_adapter", "model_access", "claude_subscription_server", "expected_subscription_run_token"),
+    [
+        ("codex", "posthog-gateway", False, None),
+        ("codex", "own-subscription", False, "codex-run-token"),
+        ("claude", "own-subscription", True, "claude-run-token"),
+        ("claude", "own-subscription", False, None),
+    ],
 )
 async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
-    mocker, codex_model_access, expected_codex_run_token
+    mocker, runtime_adapter, model_access, claude_subscription_server, expected_subscription_run_token
 ) -> None:
     context = _context(
         sandbox_event_ingest_enabled=True,
-        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": "codex"},
-        codex_model_access=codex_model_access,
+        state={"mcp_builtin_agent_key": "scout", "runtime_adapter": runtime_adapter},
+        **{f"{runtime_adapter}_model_access": model_access},
+        claude_subscription_server=claude_subscription_server,
     )
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
@@ -1100,6 +1108,10 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         return_value="codex-run-token",
     )
     mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_claude_subscription_run_token",
+        return_value="claude-run-token",
+    )
+    mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow",
         return_value=True,
     )
@@ -1141,7 +1153,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
     assert sandbox.start_agent_server.call_args.kwargs["wait_for_health"] is True
     assert result.health_poll_ms == 125
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
-    assert sandbox.start_agent_server.call_args.kwargs["codex_run_token"] == expected_codex_run_token
+    assert sandbox.start_agent_server.call_args.kwargs["subscription_run_token"] == expected_subscription_run_token
 
 
 async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mocker) -> None:

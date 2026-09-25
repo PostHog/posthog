@@ -44,12 +44,14 @@ from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
+from jwt import InvalidTokenError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.models.integration.claude import ClaudeReauthRequired, ClaudeUserIntegration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
@@ -70,6 +72,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
@@ -99,6 +102,7 @@ from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.connection_token import validate_claude_subscription_run_token
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
@@ -3654,6 +3658,42 @@ def issue_codex_subscription_access_grant(
         raise
     increment_credential_refresh("codex", "refreshed" if grant.refreshed else "skipped")
     return grant
+
+
+def issue_claude_subscription_token(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    run_token: str,
+    rejected_token_sha256: str | None,
+) -> str | None:
+    from products.tasks.backend.temporal.metrics import increment_credential_refresh
+
+    try:
+        claims = validate_claude_subscription_run_token(run_token)
+    except (InvalidTokenError, ValueError):
+        return None
+    if claims.run_id != str(run_id) or claims.task_id != str(task_id) or claims.team_id != team_id:
+        return None
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "state").first()
+    if run is None:
+        return None
+    state = run.state or {}
+    owner_id = state.get("claude_subscription_user_id")
+    if (
+        state.get("sandbox_id") != claims.sandbox_id
+        or state.get("claude_model_access") != "own-subscription"
+        or not isinstance(owner_id, int)
+    ):
+        return None
+    try:
+        token = ClaudeUserIntegration.issue_token(owner_id, rejected_token_sha256=rejected_token_sha256)
+    except ClaudeReauthRequired:
+        increment_credential_refresh("claude", "orphaned")
+        raise
+    increment_credential_refresh("claude", "skipped")
+    return token
 
 
 def sync_task_run_session(

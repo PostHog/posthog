@@ -32,7 +32,10 @@ import {
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
 import type { PermissionMode } from "../execution-mode";
-import type { PostHogAPIClient } from "../posthog-api";
+import {
+  ClaudeSubscriptionTokenError,
+  type PostHogAPIClient,
+} from "../posthog-api";
 import type { ResumeState } from "../resume";
 import { SessionLogWriter } from "../session-log-writer";
 import {
@@ -52,6 +55,7 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
+import { CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES } from "./claude-subscription-token";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -1750,7 +1754,9 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-    function createFailureTestServer() {
+    function createFailureTestServer(
+      overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
+    ) {
       const appendRawLine = vi.fn();
       const testServer = new AgentServer({
         port,
@@ -1762,6 +1768,7 @@ describe("AgentServer HTTP Mode", () => {
         mode: "interactive",
         taskId: "test-task-id",
         runId: "test-run-id",
+        ...overrides,
       }) as unknown as {
         eventStreamSender: {
           enqueue: ReturnType<typeof vi.fn>;
@@ -2110,6 +2117,50 @@ describe("AgentServer HTTP Mode", () => {
         expect.objectContaining({
           status: "failed",
           error_message: `upstream_provider_failure: ${UPSTREAM_PROVIDER_FAILURE_MESSAGE}`,
+        }),
+      );
+    });
+
+    it("reports a rejected Claude token and asks for a new one", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(async () => {
+        throw new ClaudeSubscriptionTokenError(
+          "reauth_required",
+          409,
+          "Paste again.",
+        );
+      });
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.authRequired(),
+      );
+
+      expect(
+        testServer.posthogAPI.requestClaudeSubscriptionToken,
+      ).toHaveBeenCalledExactlyOnceWith(
+        "test-task-id",
+        "test-run-id",
+        "run-token",
+        createHash("sha256").update("sk-ant-oat01-fake").digest("hex"),
+        expect.any(Number),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
         }),
       );
     });
@@ -3697,6 +3748,87 @@ describe("AgentServer HTTP Mode", () => {
           expect(JSON.stringify(appendLogCalls)).not.toContain(
             "sk-ant-oat01-fake-test-token",
           );
+        } finally {
+          await reader.cancel().catch(() => undefined);
+        }
+      },
+    );
+
+    it.each([
+      ["token", 200, { token: "sk-ant-oat01-fake-server-token" }],
+      ["reauth", 409, { code: "reauth_required", error: "Paste again." }],
+    ] as const)(
+      "gets the Claude token from PostHog instead of Desktop (%s)",
+      async (outcome, status, tokenResponse) => {
+        const tokenRequests: unknown[] = [];
+        mswServer.use(
+          http.post(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/claude_subscription_token/",
+            async ({ request }) => {
+              tokenRequests.push({
+                runToken: request.headers.get("X-Task-Run-Token"),
+                body: await request.json(),
+              });
+              return HttpResponse.json(tokenResponse, { status });
+            },
+          ),
+        );
+        const s = createServer({
+          claudeModelAccess: "own-subscription",
+          claudeRunToken: "run-token",
+        });
+        const { app } = s as unknown as {
+          app: { fetch(request: Request): Promise<Response> | Response };
+        };
+        const response = await app.fetch(
+          new Request("http://localhost/events", {
+            headers: { Authorization: `Bearer ${createToken()}` },
+          }),
+        );
+        if (!response.body) throw new Error("Expected an event stream");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        const nextEvent = async (): Promise<Record<string, unknown>> => {
+          for (;;) {
+            const end = buffered.indexOf("\n\n");
+            if (end >= 0) {
+              const frame = buffered.slice(0, end);
+              buffered = buffered.slice(end + 2);
+              if (frame.startsWith("data: ")) return JSON.parse(frame.slice(6));
+            } else {
+              const chunk = await reader.read();
+              if (chunk.done)
+                throw new Error("Event stream ended before initialization");
+              buffered += decoder.decode(chunk.value, { stream: true });
+            }
+          }
+        };
+        try {
+          if (outcome === "reauth") {
+            await vi.waitFor(async () => {
+              const failed = await app.fetch(
+                new Request("http://localhost/health"),
+              );
+              expect((await failed.json()).failureCode).toBe(
+                "claude_credential_unavailable",
+              );
+            });
+          } else {
+            const seen: unknown[] = [];
+            let event = await nextEvent();
+            while (event.type !== "connected") {
+              seen.push(event.type);
+              event = await nextEvent();
+            }
+            expect(seen).not.toContain("credential_request");
+            expect(JSON.stringify(appendLogCalls)).not.toContain(
+              "sk-ant-oat01-fake-server-token",
+            );
+          }
+          expect(tokenRequests).toEqual([
+            { runToken: "run-token", body: { rejected_token_sha256: null } },
+          ]);
         } finally {
           await reader.cancel().catch(() => undefined);
         }

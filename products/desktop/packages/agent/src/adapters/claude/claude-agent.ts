@@ -430,6 +430,7 @@ export interface ClaudeAcpAgentOptions {
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
+  onAuthenticationFailed?: () => void;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -1813,6 +1814,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              if (message.error === "authentication_failed") {
+                this.options?.onAuthenticationFailed?.();
+              }
               this.timeFirstModelOutput(session, sessionId);
               const budgetEvent = session.budgetGuard?.recordAssistantMessage(
                 message.message as AssistantUsageLike,

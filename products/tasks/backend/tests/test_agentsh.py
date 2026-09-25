@@ -654,7 +654,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
 
-    def test_command_hands_the_codex_run_token_over_an_inherited_fd(self):
+    def test_command_hands_the_subscription_run_token_over_an_inherited_fd(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
@@ -666,7 +666,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             mode="background",
             create_pr=True,
             allowed_domains=["example.com"],
-            codex_run_token_file="/tmp/agent-codex-run-token",
+            subscription_run_token_file="/tmp/agent-subscription-run-token",
         )
         without_token = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
@@ -676,7 +676,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
             allowed_domains=["example.com"],
         )
-        self.assertIn("exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec ", with_token)
+        self.assertIn(
+            "exec 3< /tmp/agent-subscription-run-token && rm -f /tmp/agent-subscription-run-token && exec ", with_token
+        )
         self.assertLess(with_token.index("agentsh exec"), with_token.index("exec 3<"))
         self.assertNotIn("exec 3<", without_token)
 

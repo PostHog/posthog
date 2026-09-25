@@ -28,6 +28,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.integration.claude import claude_token_fingerprint
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
@@ -58,6 +59,7 @@ from products.tasks.backend.logic.services.code_usage_gate import (
     usage_limit_response,
 )
 from products.tasks.backend.logic.services.connection_token import (
+    create_claude_subscription_run_token,
     create_codex_subscription_run_token,
     create_sandbox_event_ingest_token,
     get_sandbox_jwt_public_key,
@@ -109,6 +111,7 @@ from products.tasks.backend.temporal.process_task.utils import get_cached_github
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
 GATED_MODEL_FLAG = "tasks-test-model-gate"
+FAKE_CLAUDE_TOKEN = "sk-ant-oat01-" + "x" * 40
 
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
@@ -13118,6 +13121,66 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "reauth_required")
+
+    def _create_claude_subscription_run(self, owner):
+        UserIntegration.objects.create(
+            user=owner,
+            kind="claude",
+            integration_id="setup_token",
+            config={"status": "connected"},
+            sensitive_config={"token": FAKE_CLAUDE_TOKEN},
+        )
+        task = self.create_task(created_by=owner)
+        run = self._create_run_with_sandbox(task)
+        run.state = {
+            **run.state,
+            "claude_model_access": "own-subscription",
+            "claude_subscription_user_id": owner.id,
+        }
+        run.save(update_fields=["state"])
+        self._open_sandbox_session(run, "sandbox-1")
+        return task, run
+
+    @parameterized.expand(
+        [
+            ("issued", "claude", None, status.HTTP_200_OK, "connected"),
+            ("older_token_rejected", "claude", "0" * 64, status.HTTP_200_OK, "connected"),
+            (
+                "stored_token_rejected",
+                "claude",
+                claude_token_fingerprint(FAKE_CLAUDE_TOKEN),
+                status.HTTP_409_CONFLICT,
+                "reauth_required",
+            ),
+            ("codex_run_token", "codex", None, status.HTTP_403_FORBIDDEN, "connected"),
+        ]
+    )
+    def test_claude_subscription_token_goes_only_to_the_runs_sandbox(
+        self, _name, run_token_kind, rejected, expected_status, expected_account_status
+    ):
+        owner = self.create_organization_user("claude-owner")
+        task, run = self._create_claude_subscription_run(owner)
+        create_run_token = (
+            create_claude_subscription_run_token if run_token_kind == "claude" else create_codex_subscription_run_token
+        )
+
+        response = self._sandbox_oauth_client(task.id).post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/claude_subscription_token/",
+            {"rejected_token_sha256": rejected},
+            format="json",
+            HTTP_X_TASK_RUN_TOKEN=create_run_token(run, sandbox_id="sandbox-1"),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json(), {"token": FAKE_CLAUDE_TOKEN})
+        else:
+            self.assertNotIn(FAKE_CLAUDE_TOKEN, response.content.decode())
+        integration = UserIntegration.objects.get(user=owner, kind="claude")
+        self.assertEqual(integration.config["status"], expected_account_status)
+        self.assertEqual(
+            integration.sensitive_config.get("token") is None, expected_account_status == "reauth_required"
+        )
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):

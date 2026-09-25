@@ -489,6 +489,16 @@ export interface UserCodexIntegration {
   connected_at: string | null;
 }
 
+export type ClaudeIntegrationStatus =
+  | "not_connected"
+  | "connected"
+  | "reauth_required";
+
+export interface UserClaudeIntegration {
+  status: ClaudeIntegrationStatus;
+  connected_at: string | null;
+}
+
 /** The `tokens` object of the `auth.json` that `codex login` writes. */
 export interface CodexAuthTokens {
   access_token: string;
@@ -2194,6 +2204,58 @@ export class PostHogAPIClient {
       throw new Error(
         `Failed to disconnect the ChatGPT account: ${response.statusText}`,
       );
+    }
+  }
+
+  async getClaudeUserIntegration(): Promise<UserClaudeIntegration> {
+    const urlPath = `/api/users/@me/integrations/claude/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    return (await response.json()) as UserClaudeIntegration;
+  }
+
+  async connectClaudeUserIntegration(
+    token: string,
+  ): Promise<UserClaudeIntegration> {
+    const urlPath = `/api/users/@me/integrations/claude/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({ token }) },
+      });
+      return (await response.json()) as UserClaudeIntegration;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      const body = (error.body ?? {}) as { token?: unknown; detail?: unknown };
+      const tokenError = Array.isArray(body.token) ? body.token[0] : body.token;
+      if (typeof tokenError === "string" && tokenError) {
+        throw new Error(tokenError);
+      }
+      if (typeof body.detail === "string" && body.detail) {
+        throw new Error(body.detail);
+      }
+      throw new Error(
+        `Failed to save the Claude token (HTTP ${error.status}).`,
+      );
+    }
+  }
+
+  async disconnectClaudeUserIntegration(): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/claude/`;
+    try {
+      await this.api.fetcher.fetch({
+        method: "delete",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return;
+      throw error;
     }
   }
 

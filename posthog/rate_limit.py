@@ -465,6 +465,11 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+class ClaudeConnectUserThrottle(UserRateThrottle):
+    scope = "claude_connect_user"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

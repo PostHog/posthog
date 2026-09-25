@@ -32,6 +32,7 @@ from products.tasks.backend.exceptions import (
     SandboxMissingRepositoryError,
 )
 from products.tasks.backend.logic.services.connection_token import (
+    create_claude_subscription_run_token,
     create_codex_subscription_run_token,
     create_sandbox_event_ingest_token,
 )
@@ -371,7 +372,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None = field(repr=False)
     task_run_session_token: str | None = field(repr=False)
-    codex_run_token: str | None = field(repr=False)
+    subscription_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
@@ -490,9 +491,11 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
             event_ingest_token = run_token
         if task.runtime == Task.Runtime.PI:
             task_run_session_token = run_token
-    codex_run_token: str | None = None
+    subscription_run_token: str | None = None
     if ctx.model_access.adapter == "codex":
-        codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
+        subscription_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
+    elif ctx.model_access.adapter == "claude" and ctx.claude_subscription_server:
+        subscription_run_token = create_claude_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
@@ -579,7 +582,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         task_run_session_token=task_run_session_token,
-        codex_run_token=codex_run_token,
+        subscription_run_token=subscription_run_token,
         event_ingest_url=event_ingest_url,
         event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
@@ -627,7 +630,7 @@ def _invoke_start_agent_server(
             peer_messaging=ctx.peer_messaging_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
-            codex_run_token=params.codex_run_token,
+            subscription_run_token=params.subscription_run_token,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 

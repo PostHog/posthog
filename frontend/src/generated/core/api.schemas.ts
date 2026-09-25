@@ -4858,6 +4858,39 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
 }
 
 /**
+ * * `connected` - Token connected
+ * * `reauth_required` - New token required
+ * * `not_connected` - No token
+ */
+export type ClaudeIntegrationStatusEnumApi =
+    (typeof ClaudeIntegrationStatusEnumApi)[keyof typeof ClaudeIntegrationStatusEnumApi]
+
+export const ClaudeIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserClaudeIntegrationApi {
+    /** `connected` when cloud runs can use the token; `reauth_required` when Anthropic rejected the token and the user must paste a new one; `not_connected` when no token is stored.
+     *
+     * * `connected` - Token connected
+     * * `reauth_required` - New token required
+     * * `not_connected` - No token */
+    status: ClaudeIntegrationStatusEnumApi
+    /**
+     * When the token was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserClaudeConnectRequestApi {
+    /** The long-lived OAuth token that `claude setup-token` prints. It starts with `sk-ant-oat01-`. PostHog stores it encrypted and gives it only to the user's own Claude cloud runs. */
+    token: string
+}
+
+/**
  * * `connected` - Connected
  * * `reauth_required` - Reauth Required
  * * `not_connected` - Not Connected

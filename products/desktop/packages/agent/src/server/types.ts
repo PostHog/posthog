@@ -63,6 +63,7 @@ export interface AgentServerConfig {
   codexModelAccess?: "posthog-gateway" | "own-subscription";
   /** Run-scoped secret for the run's ChatGPT token endpoint; read once from fd 3 at boot. */
   codexRunToken?: string;
+  claudeRunToken?: string;
   reasoningEffort?: EffortLevel | "off" | "minimal";
   /**
    * Codex-only OpenAI service tier for the run's turns. "flex" is the cheaper,

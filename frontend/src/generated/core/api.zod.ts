@@ -1421,6 +1421,18 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Submit the token that `claude setup-token` printed on the user's machine. PostHog stores it encrypted and gives it only to the user's own Claude cloud runs, so the runs do not need PostHog Desktop to be open. A new token replaces the old one. Only the owning user can connect. No response carries a token.
+ * @summary Connect a Claude token for Claude cloud tasks
+ */
+export const UsersIntegrationsClaudeCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .describe(
+            "The long-lived OAuth token that `claude setup-token` prints. It starts with `sk-ant-oat01-`. PostHog stores it encrypted and gives it only to the user's own Claude cloud runs."
+        ),
+})
+
+/**
  * Submit the `tokens` object of the `auth.json` that `codex login` wrote on the user's machine. PostHog refreshes the chain once to prove it works, stores the rotated tokens encrypted, and from then on refreshes them for the user's Codex cloud runs. Only the owning user can connect. No response carries a token.
  * @summary Connect a ChatGPT account for Codex cloud tasks
  */

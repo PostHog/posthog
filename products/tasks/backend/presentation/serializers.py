@@ -1288,6 +1288,21 @@ class TaskRunSubscriptionTokenResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskRunClaudeSubscriptionTokenRequestSerializer(serializers.Serializer):
+    rejected_token_sha256 = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="SHA-256 hex digest of the Claude token Anthropic rejected. When it names the stored token, the "
+        "server marks the account for reconnection and returns reauth_required.",
+    )
+
+
+class TaskRunClaudeSubscriptionTokenResponseSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="The run owner's Claude setup token for Claude Code.")
+
+
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
     relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")
