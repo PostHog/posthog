@@ -233,9 +233,19 @@ function RunsTable({
     )
 }
 
+const LATEST_RUN_LABEL: Record<string, string> = {
+    completed: 'Sent',
+    waiting: 'Sending, started',
+    queued: 'Sending, started',
+    active: 'Sending, started',
+    failed: 'Last send failed, started',
+    cancelled: 'Last send was cancelled, started',
+}
+
 export function BroadcastSummary(): JSX.Element {
     const {
         broadcast,
+        broadcastId,
         name,
         audienceProperties,
         email,
@@ -364,7 +374,8 @@ export function BroadcastSummary(): JSX.Element {
                                                 </div>
                                             ) : latestBatchJob ? (
                                                 <span>
-                                                    Sent <TZLabel time={latestBatchJob.created_at} />
+                                                    {LATEST_RUN_LABEL[latestBatchJob.status ?? 'waiting'] ?? 'Last run'}{' '}
+                                                    <TZLabel time={latestBatchJob.created_at} />
                                                 </span>
                                             ) : (
                                                 <span>{scheduleSummary}</span>

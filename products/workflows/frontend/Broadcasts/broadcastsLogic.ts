@@ -138,12 +138,9 @@ export function getBroadcastStatus(
         if (['waiting', 'queued', 'active'].includes(latestJob.status ?? '')) {
             return 'sending'
         }
-        // A recurring broadcast between runs has more to send, whatever its last run did.
-        if (details.hasPendingSchedule) {
-            return 'scheduled'
-        }
         if (latestJob.status === 'completed') {
-            return 'sent'
+            // A recurring broadcast between runs has more to send. A failed run still reads as failed.
+            return details.hasPendingSchedule ? 'scheduled' : 'sent'
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.

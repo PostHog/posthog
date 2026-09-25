@@ -19,6 +19,18 @@ describe('getBroadcastStatus', () => {
         ['a run that failed', flow('active'), withJob('failed'), 'failed'],
         ['a run that was cancelled', flow('active'), withJob('cancelled'), 'failed'],
         ['no run yet', flow('active'), { latestBatchJob: null, totals: {} }, 'scheduled'],
+        [
+            'a recurring broadcast between runs',
+            flow('active'),
+            { ...withJob('completed'), hasPendingSchedule: true },
+            'scheduled',
+        ],
+        [
+            'a recurring broadcast whose last run failed',
+            flow('active'),
+            { ...withJob('failed'), hasPendingSchedule: true },
+            'failed',
+        ],
         // Runs not loaded yet, or failed to load, used to read as "scheduled" for a broadcast that already sent.
         ['a live broadcast whose runs have not loaded', flow('active'), undefined, 'unknown'],
     ])('reads %s as %s', (_name, broadcast, details, expected) => {

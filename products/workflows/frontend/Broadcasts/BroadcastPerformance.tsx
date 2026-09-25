@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -13,8 +13,20 @@ function share(part: number, whole: number): string {
 }
 
 export function BroadcastPerformance(props: BroadcastPerformanceLogicProps): JSX.Element {
-    const { stats, totalsLoading, links, linksLoading } = useValues(broadcastPerformanceLogic(props))
+    const logic = broadcastPerformanceLogic(props)
+    const { stats, totalsLoading, totalsFailed, links, linksLoading } = useValues(logic)
+    const { loadTotals } = useActions(logic)
 
+    if (totalsFailed && !totalsLoading) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: loadTotals, 'data-attr': 'broadcast-performance-retry' }}
+            >
+                Couldn't load this send's numbers.
+            </LemonBanner>
+        )
+    }
     if (!stats) {
         return <LemonSkeleton className="h-40" active={totalsLoading} />
     }

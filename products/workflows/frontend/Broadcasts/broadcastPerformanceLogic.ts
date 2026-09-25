@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
@@ -44,6 +44,7 @@ export interface broadcastPerformanceLogicValues {
     linksLoading: boolean
     stats: BroadcastPerformanceStats | null
     totals: Record<string, number> | null
+    totalsFailed: boolean
     totalsLoading: boolean
 }
 
@@ -156,6 +157,16 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                 },
             ],
         }
+    }),
+    reducers({
+        totalsFailed: [
+            false,
+            {
+                loadTotals: () => false,
+                loadTotalsSuccess: () => false,
+                loadTotalsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         stats: [

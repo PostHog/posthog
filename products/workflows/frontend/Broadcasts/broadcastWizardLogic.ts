@@ -158,14 +158,14 @@ export interface broadcastWizardLogicActions {
     continueStep: () => {
         value: true
     }
-    expandRun: (runId: string) => {
-        runId: string
-    }
     duplicateBroadcast: () => {
         value: true
     }
     duplicateBroadcastFinished: () => {
         value: true
+    }
+    expandRun: (runId: string) => {
+        runId: string
     }
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
