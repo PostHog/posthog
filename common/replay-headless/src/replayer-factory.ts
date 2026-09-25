@@ -121,8 +121,8 @@ export async function createReplayers(
     const firstTimestamp = snapshots[0].timestamp
     const windows: ReplayerWindow[] = []
     for (const [windowId, windowEvents] of Object.entries(snapshotsByWindowId)) {
-        // rrweb cannot build a page without a full snapshot, so such a window has nothing to show.
-        if (!windowEvents.some((event) => event.type === EventType.FullSnapshot)) {
+        // rrweb cannot build a page without a full snapshot, and its Replayer throws on fewer than two events.
+        if (windowEvents.length < 2 || !windowEvents.some((event) => event.type === EventType.FullSnapshot)) {
             continue
         }
         const root = document.createElement('div')
