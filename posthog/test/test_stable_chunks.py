@@ -24,7 +24,7 @@ from posthog.utils import get_context_for_template, render_template
 VALID_MANIFEST = {
     "imports": {"@c/eAAAA": "static/index-S0000000000.js"},
     "preload": {"js": ["static/index-S0000000000.js"], "authenticatedJs": ["static/chunk-S1111111111.js"]},
-    "eagerCss": ["static/styles-eager-tailwind-AAAA1111.css", "static/styles-eager-app-BBBB2222.css"],
+    "eagerCss": ["static/stylesEagerTailwind-AAAA1111.css", "static/stylesEagerApp-BBBB2222.css"],
 }
 
 
@@ -52,8 +52,8 @@ class TestStableChunks(SimpleTestCase):
             }
             assert stable.preload_urls(include_authenticated_shell=False) == ("static/index-S0000000000.js",)
             assert stable.eager_css_urls == (
-                "static/styles-eager-tailwind-AAAA1111.css",
-                "static/styles-eager-app-BBBB2222.css",
+                "static/stylesEagerTailwind-AAAA1111.css",
+                "static/stylesEagerApp-BBBB2222.css",
             )
 
     def test_import_map_cannot_close_its_script_tag(self):
@@ -117,7 +117,7 @@ class TestStableChunks(SimpleTestCase):
             imports={"@c/eAAAA": "static/index-S0000000000.js"},
             preload_js_urls=(),
             authenticated_preload_js_urls=(),
-            eager_css_urls=("static/styles-eager-tailwind-AAAA1111.css", "static/styles-eager-app-BBBB2222.css"),
+            eager_css_urls=("static/stylesEagerTailwind-AAAA1111.css", "static/stylesEagerApp-BBBB2222.css"),
         )
 
         context = self._context_with_stable_chunks(stable)

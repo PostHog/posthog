@@ -62,6 +62,14 @@ export function rewriteChunkSource(source, identityByFile) {
     })
 }
 
+export function alphanumericStem(name) {
+    return name
+        .split(/[^A-Za-z0-9]+/)
+        .filter(Boolean)
+        .map((part, index) => (index === 0 ? part : part[0].toUpperCase() + part.slice(1)))
+        .join('')
+}
+
 export function stableFileName(originalFile, rewrittenSource) {
     const prefix = originalFile.replace(/-[^-./]+\.js$/, '')
     // Only holds because chunkNames/entryNames in common/esbuilder/utils.mjs are `[name]-[hash]` for non-dev builds.
@@ -69,7 +77,7 @@ export function stableFileName(originalFile, rewrittenSource) {
     if (prefix === originalFile) {
         throw new Error(`stable chunks: ${originalFile} does not end in the expected -<hash>.js suffix`)
     }
-    return `${prefix}-${STABLE_NAME_MARKER}${shortHash(rewrittenSource)}.js`
+    return `${alphanumericStem(prefix)}-${STABLE_NAME_MARKER}${shortHash(rewrittenSource)}.js`
 }
 
 /**
