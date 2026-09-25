@@ -94,6 +94,29 @@ describe('produceCollectedImagesStep', () => {
         ])
     })
 
+    it('dedups a ref that another session of the team produced', async () => {
+        const step = createProduceCollectedImagesStep(outputs)
+        const ref = `image:v3:42:2026-09:${'h1'.padEnd(22, 'x')}`
+        const sessionInput = (sessionId: string) => {
+            const key = {
+                identity: { teamId: 42, sessionId, sessionMonth: '2026-09' },
+                plaintext: Buffer.alloc(32),
+                wrapped: Buffer.alloc(0),
+            }
+            return {
+                message: { timestamp: CAPTURED_AT },
+                headers: { session_id: sessionId },
+                mlKeys: { session: key, image: key },
+                collectedImages: [image(ref)],
+            }
+        }
+
+        await run(step, sessionInput('01a0c669-8800-7000-8000-000000000001'))
+        await run(step, sessionInput('01a0c669-8800-7000-8000-000000000002'))
+
+        expect(queued).toHaveLength(1)
+    })
+
     it('evicts oldest refs at capacity instead of forgetting the whole working set', async () => {
         const step = createProduceCollectedImagesStep(outputs, 2)
         await run(step, {

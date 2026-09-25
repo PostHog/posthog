@@ -6,6 +6,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 
 from posthog.schema import NativeMarketingSource
 
@@ -126,7 +127,9 @@ async def get_data_source_health(
     Postgres roundtrip. None → service loads it itself.
     """
     targets = {
-        key: native for key, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items() if is_native_source_enabled(key, team)
+        key: native
+        for key, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items()
+        if await sync_to_async(is_native_source_enabled, thread_sensitive=False)(key, team)
     }
     if source_type is not None:
         targets = {k: v for k, v in targets.items() if k == source_type}
