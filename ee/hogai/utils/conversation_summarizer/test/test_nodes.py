@@ -1,15 +1,35 @@
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+import httpx
+import anthropic
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
 )
+from langchain_core.runnables import RunnableLambda
 from parameterized import parameterized
 
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.conversation_summarizer.input_budget import ConversationInputBudget
 from ee.hogai.utils.conversation_summarizer.prompts import SUMMARIZATION_INSTRUCTION_PROMPT
+
+
+def _budget_chars(messages) -> int:
+    # Measure messages the way `ConversationInputBudget` spends its budget.
+    return ConversationInputBudget(1)._count_chars(messages)
+
+
+def _anthropic_error(message: str) -> anthropic.BadRequestError:
+    return anthropic.BadRequestError(
+        message=message,
+        response=httpx.Response(
+            status_code=400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        ),
+        body={"type": "error", "error": {"type": "invalid_request_error"}},
+    )
 
 
 class TestAnthropicConversationSummarizer(BaseTest):
@@ -207,3 +227,72 @@ class TestAnthropicConversationSummarizer(BaseTest):
         messages = self.summarizer._construct_messages([last_message]).format_messages()
 
         self.assertIsInstance(messages[-1], LangchainHumanMessage)
+
+    def _stub_model(self, responses: list[Any]) -> tuple[RunnableLambda, list[int]]:
+        request_sizes: list[int] = []
+
+        def invoke(prompt_value):
+            request_sizes.append(_budget_chars(prompt_value.to_messages()))
+            response = responses[len(request_sizes) - 1]
+            if isinstance(response, Exception):
+                raise response
+            return LangchainAIMessage(content=response)
+
+        return RunnableLambda(invoke), request_sizes
+
+    def _oversized_conversation(self) -> list[LangchainHumanMessage]:
+        return [
+            LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "call_1", "content": "a" * 100_000}])
+        ]
+
+    def _prompt_overhead(self) -> int:
+        # The summarizer's own prompts sit outside the conversation budget.
+        return _budget_chars(self.summarizer._construct_messages([]).format_messages())
+
+    async def test_bounds_an_oversized_conversation_before_sending_it(self):
+        model, request_sizes = self._stub_model(["<summary>Done</summary>"])
+        budget_chars = 1_000 * ConversationInputBudget.APPROXIMATE_TOKEN_LENGTH
+
+        with (
+            patch.object(AnthropicConversationSummarizer, "MAX_INPUT_TOKENS", 1_000),
+            patch.object(self.summarizer, "_get_model", return_value=model),
+        ):
+            summary = await self.summarizer.summarize(self._oversized_conversation())
+
+        self.assertEqual(summary, "Done")
+        self.assertEqual(len(request_sizes), 1)
+        self.assertLessEqual(request_sizes[0], budget_chars + self._prompt_overhead())
+
+    async def test_retries_smaller_when_the_model_rejects_the_input_as_too_long(self):
+        model, request_sizes = self._stub_model(
+            [
+                _anthropic_error("prompt is too long: 1476968 tokens > 1000000 maximum"),
+                "<summary>Done</summary>",
+            ]
+        )
+
+        with (
+            patch.object(AnthropicConversationSummarizer, "MAX_INPUT_TOKENS", 1_000),
+            patch.object(AnthropicConversationSummarizer, "RETRY_INPUT_TOKENS", 100),
+            patch.object(self.summarizer, "_get_model", return_value=model),
+        ):
+            summary = await self.summarizer.summarize(self._oversized_conversation())
+
+        self.assertEqual(summary, "Done")
+        self.assertEqual(len(request_sizes), 2)
+        self.assertLess(request_sizes[1], request_sizes[0])
+
+    @parameterized.expand(
+        [
+            ("unrelated_bad_request", _anthropic_error("messages: at least one message is required")),
+            ("unrelated_error", ValueError("boom")),
+        ]
+    )
+    async def test_does_not_retry_an_error_that_is_not_about_input_size(self, _name, error):
+        model, request_sizes = self._stub_model([error])
+
+        with patch.object(self.summarizer, "_get_model", return_value=model):
+            with self.assertRaises(type(error)):
+                await self.summarizer.summarize([LangchainHumanMessage(content="Hello")])
+
+        self.assertEqual(len(request_sizes), 1)
