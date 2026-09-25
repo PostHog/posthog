@@ -475,6 +475,45 @@ class TestQueryRunner(BaseTest):
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
 
+    def test_cached_consumption_identifies_the_producer_and_current_caller(self) -> None:
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": "warming-consumption"}, team=self.team)
+        with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            with mock.patch("posthog.hogql_queries.query_runner.get_query_tag_value", return_value="warmingV2"):
+                first_response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                produced = report.call_args.args[1]
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                warmer_hit = report.call_args.args[1]
+            with mock.patch("posthog.hogql_queries.query_runner.get_query_tag_value", return_value=None):
+                runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                consumed = report.call_args.args[1]
+                with time_machine.travel(datetime.now(UTC) + timedelta(hours=1), tick=False):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                    replacement = report.call_args.args[1]
+
+        assert replacement["cache_key"] == produced["cache_key"]
+        assert replacement["last_refresh"] != produced["last_refresh"]
+        assert produced["cache_write_success"] is True
+        assert produced["last_refresh"] == first_response.last_refresh.isoformat()
+        assert consumed["cache_hit"] is True
+        assert consumed["cache_key"] == produced["cache_key"]
+        assert consumed["last_refresh"] == produced["last_refresh"]
+        assert consumed["calculation_trigger"] == "warmingV2"
+        assert consumed["request_trigger"] is None
+        assert warmer_hit["request_trigger"] == "warmingV2"
+
+    @parameterized.expand([("failed_write", LimitContext.QUERY), ("uncached_export", LimitContext.EXPORT)])
+    def test_failed_cache_write_is_not_reported_as_a_warmed_version(self, _name, limit_context) -> None:
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": "cache-write-failure"}, team=self.team, limit_context=limit_context)
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.QueryCache.store_result", return_value=False),
+            mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+        ):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert report.call_args.args[1]["cache_write_success"] is False
+        assert report.call_args.args[1]["last_refresh"] == response.last_refresh.isoformat()
+
     def test_fresh_run_reports_its_own_phase_times_on_the_query_executed_event(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)

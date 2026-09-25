@@ -129,6 +129,20 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self.team1 = self.create_team_with_organization(organization=self.organization)
         self.team2 = self.create_team_with_organization(organization=self.organization)
 
+    @patch("posthog.caching.warming.chain")
+    @patch("posthog.caching.warming.ph_scoped_capture")
+    @patch("posthog.caching.warming.teams_enabled_for_cache_warming", return_value=[])
+    @patch("posthog.caching.warming.largest_teams")
+    @patch("posthog.caching.warming.insights_to_keep_fresh")
+    def test_reports_selected_contexts_separately(self, candidates, teams, _enabled, capture, _chain):
+        teams.return_value = [self.team1.pk]
+        candidates.return_value = iter([(1234, None), (1234, 5678), (2345, 5678)])
+        schedule_warming_for_teams_task()
+        properties = capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+        assert properties["count"] == 3
+        assert properties["standalone_count"] == 1
+        assert properties["dashboard_count"] == 2
+
     @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.insights_to_keep_fresh")
     @patch("posthog.caching.warming.warm_insight_cache_task.si")
