@@ -50,10 +50,31 @@ class TestTypesafeSuggestionCandidates(SimpleTestCase):
         candidates = title_candidates(context)
 
         assert candidates[0] == "My weird name"
-        assert "Pageviews by $browser" in candidates
+        assert "Pageviews by browser" in candidates
         assert "Daily pageviews" in candidates
         assert "Pageviews over the last 7 days" in candidates
         assert len(candidates) == len({c.lower() for c in candidates})
+
+    def test_single_series_math_lands_in_the_title_base(self) -> None:
+        context = SubjectContext(
+            subject="insight",
+            query=_viz(
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$autocapture", "math": "first_time_for_user"}],
+                    "breakdownFilter": {"breakdown": "$current_url"},
+                }
+            ),
+        )
+        titles = title_candidates(context)
+
+        assert titles[0] == "First-ever autocaptured interactions per user"
+        assert "First-ever autocaptured interactions per user by current URL" in titles
+        assert "Autocaptured interactions by current URL" in titles
+        assert (
+            "Shows first-ever autocaptured interactions per user, broken down by current URL."
+            in description_candidates(context)
+        )
 
     def test_formula_trends_lead_with_the_ratio_and_keep_series_distinct(self) -> None:
         context = SubjectContext(
