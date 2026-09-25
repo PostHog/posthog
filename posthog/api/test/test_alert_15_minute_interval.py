@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -13,6 +14,7 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, Insight
 from posthog.constants import AvailableFeature
 from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time
 
+from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.models.alert import AlertConfiguration
 
 
@@ -101,6 +103,7 @@ class TestAlert15MinuteScheduling:
 
     def test_next_check_time_advances_by_15_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
+        alert.id = UUID("0193f3c6-2a4b-7d2e-8f00-3c1b5d7e9a10")
         alert.calculation_interval = AlertCalculationInterval.EVERY_15_MINUTES
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
@@ -110,7 +113,9 @@ class TestAlert15MinuteScheduling:
         alert.skip_weekend = False
 
         with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
-            assert next_check_time(alert) == datetime(2026, 4, 6, 14, 15, 0, tzinfo=UTC)
+            assert next_check_time(alert) == datetime(2026, 4, 6, 14, 15, 0, tzinfo=UTC) + alert_check_offset(
+                CalendarInterval.EVERY_15_MINUTES, alert.id
+            )
 
     def test_calculation_interval_to_order_raises_for_none(self) -> None:
         with pytest.raises(ValueError, match="Invalid alert calculation interval: None"):

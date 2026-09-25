@@ -1,9 +1,10 @@
 """Scheduling math for alert checks.
 
-Sub-daily checks preserve their existing cadence and skip missed intervals.
+Sub-daily checks skip missed intervals.
 Daily, weekly, and monthly checks anchor to calendar instants in the team's
-local timezone. Quiet hours and weekend skipping layer local-time restrictions
-on top of those schedules.
+local timezone. Automatic schedules except real time run each alert at a stable
+offset after the interval boundary (see `alert_check_offset`). Quiet hours and
+weekend skipping layer local-time restrictions on top of those schedules.
 
 Pure Python with no Django or model imports. Timezones are passed as IANA
 names, quiet-hours windows as parsed tuples.
@@ -12,7 +13,7 @@ names, quiet-hours windows as parsed tuples.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, cast
@@ -22,6 +23,8 @@ import pytz
 from dateutil.relativedelta import relativedelta
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 from pytz.tzinfo import BaseTzInfo
+
+from posthog.scheduling.jitter import deterministic_offset
 
 DEFAULT_SCHEDULE_INTERVAL_SECONDS = 60
 
@@ -111,6 +114,32 @@ class CalendarInterval(StrEnum):
 REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
 
+# (earliest offset, width) of the window after each interval boundary in which an alert's check runs.
+# The earliest offset gives ingestion time to deliver the interval that just closed.
+_CHECK_WINDOWS: dict[CalendarInterval, tuple[timedelta, timedelta]] = {
+    CalendarInterval.EVERY_15_MINUTES: (timedelta(minutes=1), timedelta(minutes=3)),
+    CalendarInterval.HOURLY: (timedelta(minutes=2), timedelta(minutes=12)),
+    CalendarInterval.DAILY: (timedelta(minutes=2), timedelta(minutes=58)),
+    CalendarInterval.WEEKLY: (timedelta(minutes=2), timedelta(minutes=58)),
+    CalendarInterval.MONTHLY: (timedelta(minutes=2), timedelta(minutes=58)),
+}
+
+
+def alert_check_offset(interval: CalendarInterval, alert_id: UUID | str) -> timedelta:
+    """How long after each interval boundary this alert's check runs.
+
+    The offset is the same for an alert on every check, and alerts that share an interval
+    spread evenly over the window, so the fleet does not query ClickHouse at the boundary.
+    Real-time checks run every two minutes, so they have no window.
+    """
+    window = _CHECK_WINDOWS.get(interval)
+    if window is None:
+        return timedelta(0)
+    earliest, width = window
+    offset = deterministic_offset(str(alert_id), width, floor=earliest)
+    # Whole minutes, because the scheduler collects due checks once a minute.
+    return timedelta(minutes=offset // timedelta(minutes=1))
+
 
 def to_calendar_interval(value: str | None) -> CalendarInterval:
     if value is None:
@@ -138,14 +167,25 @@ def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime) -> dat
 
 
 def _calendar_anchor_utc(
-    local_now: datetime,
     team_timezone: BaseTzInfo,
     *,
     target_date: date,
     hour: int,
+    offset: timedelta,
 ) -> datetime:
-    naive_local = datetime.combine(target_date, local_now.timetz().replace(tzinfo=None)).replace(hour=hour)
+    naive_local = datetime.combine(target_date, time(hour=hour)) + offset
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
+
+
+def _floor_to_local_period(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+    """Start of the local-time period of `period_minutes` that contains `timestamp`.
+
+    The subtraction runs on the absolute instant, so a local hour that a DST change repeats
+    still resolves to the start of the hour that `timestamp` is in.
+    """
+    local = timestamp.astimezone(team_timezone)
+    minutes_into_period = (local.hour * 60 + local.minute) % period_minutes
+    return timestamp - timedelta(minutes=minutes_into_period, seconds=local.second, microseconds=local.microsecond)
 
 
 def _next_check_at_for_schedule_start_time(
@@ -236,18 +276,21 @@ def next_calendar_check_time(
     now: datetime,
     tz_name: str,
     next_check_at: datetime | None,
+    alert_id: UUID | str,
     schedule_start_time: str | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals keep their cadence from the previous next_check_at. If
+    Real-time checks keep their cadence from the previous next_check_at. If
     a check is late, the next check skips missed intervals and is after now.
-    Daily/weekly/monthly anchor to fixed local instants: 1am tomorrow, 3am next
-    Monday, 4am on the 1st of next month. Hour-only replacement keeps the
-    minute/second spread.
+    Daily/weekly/monthly anchor to fixed local hours: 1am tomorrow, 3am next
+    Monday, 4am on the 1st of next month. Except for real time, each check then
+    runs at the alert's offset after its local interval boundary. Explicit
+    schedule_start_time values keep the time the user selected.
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
+    offset = alert_check_offset(interval, alert_id)
 
     if schedule_start_time is not None:
         return _next_check_at_for_schedule_start_time(
@@ -260,36 +303,43 @@ def next_calendar_check_time(
         )
 
     match interval:
-        case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
-            interval_delta = {
-                CalendarInterval.REAL_TIME: timedelta(minutes=REAL_TIME_CADENCE_MINUTES),
-                CalendarInterval.EVERY_15_MINUTES: timedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES),
-                CalendarInterval.HOURLY: timedelta(hours=1),
-            }[interval]
+        case CalendarInterval.REAL_TIME:
+            interval_delta = timedelta(minutes=REAL_TIME_CADENCE_MINUTES)
             candidate = (next_check_at or now) + interval_delta
+            if candidate <= now:
+                candidate += interval_delta * (int((now - candidate) // interval_delta) + 1)
+            return candidate
+        case CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
+            cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
+            interval_delta = timedelta(minutes=cadence_minutes)
+            # One cadence after the previous check lands in the next interval. The check runs at this
+            # alert's offset into that interval, which also moves an alert off the minute it was created on.
+            candidate = (
+                _floor_to_local_period((next_check_at or now) + interval_delta, team_timezone, cadence_minutes) + offset
+            )
             if candidate <= now:
                 candidate += interval_delta * (int((now - candidate) // interval_delta) + 1)
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
-                local_now,
                 team_timezone,
                 target_date=local_now.date() + timedelta(days=1),
                 hour=1,
+                offset=offset,
             )
         case CalendarInterval.WEEKLY:
             return _calendar_anchor_utc(
-                local_now,
                 team_timezone,
                 target_date=local_now.date() + timedelta(days=7 - local_now.weekday()),
                 hour=3,
+                offset=offset,
             )
         case CalendarInterval.MONTHLY:
             if local_now.month == 12:
                 target_date = date(local_now.year + 1, 1, 1)
             else:
                 target_date = date(local_now.year, local_now.month + 1, 1)
-            return _calendar_anchor_utc(local_now, team_timezone, target_date=target_date, hour=4)
+            return _calendar_anchor_utc(team_timezone, target_date=target_date, hour=4, offset=offset)
         case _ as unreachable:
             raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
