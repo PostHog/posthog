@@ -21,6 +21,6 @@
             "type": "number"
         }
     },
-    "required": ["id"],
+    "required": ["id", "to_dashboard", "tile"],
     "type": "object"
 }

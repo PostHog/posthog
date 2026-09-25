@@ -31112,6 +31112,13 @@
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
+                "attributeKeys": {
+                    "description": "Return only attribute keys that exactly match an entry in this list.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "attributeType": {
                     "type": "string"
                 },
