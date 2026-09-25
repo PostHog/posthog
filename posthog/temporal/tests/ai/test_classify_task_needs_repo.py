@@ -66,13 +66,40 @@ class TestClassifyTaskNeedsRepo:
     @parameterized.expand(
         [
             # Each ask carries a product noun that short-circuits the heuristic to
-            # no-repo unless the CI vocabulary vetoes it first.
+            # no-repo unless the code vocabulary vetoes it first.
             ("flaky_test_named_after_a_feature", "the experiment insight test is flaky"),
             ("merge_queue", "the merge queue keeps failing on the experiment insight tests"),
+            ("infrastructure_alert", "Alert triggered: task runs failed - infrastructure, see the dashboard"),
+            ("pr_lookup", "link the PR for the dashboard fix, I can't find it from the branch"),
+            ("update_the_scout", "update the scout here so its insight reports split long threads"),
+            ("fix_in_named_app", "the survey link breaks out of the ticket view, please fix this in HogDesk"),
         ]
     )
-    def test_ci_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
+    def test_code_vocabulary_leaves_the_call_to_the_llm(self, _name, text):
         assert self._run_with_llm_content(text, '{"needs_repo": true}') is True
+
+    @parameterized.expand(
+        [
+            # An alert can be a PostHog data question, a broken-tracking bug, or a failure in
+            # the team's own systems. Only the prompt can tell these apart.
+            ("infrastructure_alert", "Alert: our worker crashed, can you investigate?", '{"needs_repo": true}', True),
+            (
+                "tracking_alert",
+                "Alert fired: signup events stopped arriving after the deploy",
+                '{"needs_repo": true}',
+                True,
+            ),
+            (
+                "insight_alert",
+                "Alert 'Signup rate' is firing, whats the root cause here?",
+                '{"needs_repo": false}',
+                False,
+            ),
+        ]
+    )
+    def test_alert_asks_leave_the_call_to_the_llm(self, _name, text, content, expected):
+        assert self._run_with_llm_content(text, content) is expected
+        assert self._last_llm_prompt
 
     @parameterized.expand(
         [
