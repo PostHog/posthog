@@ -15,7 +15,12 @@ from django.utils import timezone
 from bs4 import BeautifulSoup
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
+from posthog.admin.admins.data_deletion_request_admin import (
+    EDITABLE_FIELDS,
+    STATUS_MEANINGS,
+    DataDeletionRequestAdmin,
+    dagster_run_url,
+)
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -1109,3 +1114,17 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
 
         form = DataDeletionRequestForm(instance=DataDeletionRequest(team_id=1, request_type=request_type))
         self.assertIn(request_type, self._type_values(form))
+
+
+class TestDataDeletionRequestAdminStatusMeaning(SimpleTestCase):
+    def setUp(self):
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def test_every_status_explains_what_happened_to_the_data(self):
+        self.assertEqual(set(STATUS_MEANINGS), set(RequestStatus))
+
+    def test_queued_does_not_read_as_deleted(self):
+        queued = self.admin.status_meaning(DataDeletionRequest(status=RequestStatus.QUEUED))
+        completed = self.admin.status_meaning(DataDeletionRequest(status=RequestStatus.COMPLETED))
+        self.assertIn("not deleted", queued)
+        self.assertNotEqual(queued, completed)

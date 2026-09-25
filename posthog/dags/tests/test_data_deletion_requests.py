@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -344,6 +345,27 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
     assert params["_deletion_request_id"] == request_id
     assert execute.call_args.kwargs["team_id"] == team.pk
     assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
+
+
+@pytest.mark.django_db
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_hogql_event_deletion_executor_reaches_events_older_than_retention(team, user):
+    team.event_retention_months = 12
+    team.save()
+    deletion_request = HogQLEventRemovalContext(
+        request_id=str(uuid4()),
+        team_id=team.pk,
+        created_by_id=user.pk,
+        query="SELECT uuid FROM events WHERE event = 'leaked'",
+        variables={},
+    )
+
+    with patch("posthog.dags.data_deletion_requests.sync_execute", return_value=1) as execute:
+        HogQLEventDeletionExecutor(deletion_request).execute()
+
+    query = execute.call_args.args[0]
+    assert "toIntervalMonth(12)" not in query
+    assert "greater(events.timestamp, minus(now" not in query
 
 
 @pytest.mark.django_db

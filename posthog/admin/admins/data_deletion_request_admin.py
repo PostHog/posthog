@@ -42,6 +42,22 @@ CRITERIA_FIELDS = {
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
+# A deferred request finishes as "queued", which reads like "done" but means the rows are still on
+# disk. Spell out what each status says about the data, so nobody tells a customer the leak is gone
+# while it is only scheduled.
+STATUS_MEANINGS = {
+    RequestStatus.DRAFT: "Not submitted yet. No data has been removed.",
+    RequestStatus.PENDING: "Waiting for approval. No data has been removed.",
+    RequestStatus.APPROVED: "Waiting for the pickup sensor to start a run. No data has been removed.",
+    RequestStatus.IN_PROGRESS: "A run is working on it. No data is confirmed removed.",
+    RequestStatus.QUEUED: (
+        "The matching rows are queued for deletion, not deleted. They leave ClickHouse on the next "
+        "scheduled deletion run, and this request turns completed only after a check finds nothing left."
+    ),
+    RequestStatus.COMPLETED: "The matching rows are gone from ClickHouse.",
+    RequestStatus.FAILED: "The run failed. No data is confirmed removed. Use Retry to run it again.",
+}
+
 PERSON_REMOVAL_FIELDS = (
     "person_uuids",
     "person_distinct_ids",
@@ -205,6 +221,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
     search_fields = ("team_id", "events", "properties", "person_properties", "notes")
     readonly_fields = (
         "status",
+        "status_meaning",
         "count",
         "part_count",
         "parts_size",
@@ -241,6 +258,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "team_id",
                     "request_type",
                     "status",
+                    "status_meaning",
                     "start_time",
                     "end_time",
                     "events",
@@ -322,6 +340,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             )
             created += 1
         messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
+
+    @admin.display(description="What this status means for the data")
+    def status_meaning(self, obj: DataDeletionRequest) -> str:
+        return STATUS_MEANINGS.get(obj.status, "—")
 
     @admin.display(description="Last Dagster run")
     def last_dagster_run(self, obj: DataDeletionRequest) -> str:
