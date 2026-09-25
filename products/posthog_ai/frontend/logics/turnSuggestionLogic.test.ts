@@ -61,6 +61,7 @@ describe('turnSuggestionLogic', () => {
             stream.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'Hello?' }))
             stream.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
             stream.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestion))
+            stream.actions.setTurnSuggestionLedger({ taskId: 'task', muted: false, resolvedTurns: [] })
         }).toFinishAllListeners()
         return stream
     }

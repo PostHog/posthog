@@ -50,6 +50,7 @@ describe('ScoutSuggestionCard', () => {
                     },
                 },
             })
+            stream.actions.setTurnSuggestionLedger({ taskId: 'task', muted: false, resolvedTurns: [] })
         }).toFinishAllListeners()
     })
 
