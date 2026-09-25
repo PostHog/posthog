@@ -142,6 +142,12 @@ export const WithAgentContext: Story = {
 }
 
 export const EditModalWithAgentContext: Story = {
+    parameters: {
+        testOptions: {
+            snapshotTargetSelector: '[role="dialog"]',
+            waitForSelector: '[role="dialog"]',
+        },
+    },
     render: () => {
         const dashboard = {
             id: 1,
