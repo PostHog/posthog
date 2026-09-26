@@ -49,6 +49,7 @@ from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
+    explain_unresolved_field,
     lookup_field_by_name,
     lookup_table_by_name,
     suggest_field_names,
@@ -410,6 +411,8 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
+        # The SELECT list of each scope. Read only to explain a resolution failure.
+        self._scope_select_exprs: dict[int, list[ast.Expr]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
@@ -981,6 +984,8 @@ class Resolver(CloningVisitor):
                 if key in node_type.aliases:
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
                 node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+
+        self._scope_select_exprs[id(node_type)] = node.select or []
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -2469,6 +2474,11 @@ class Resolver(CloningVisitor):
 
             suggestions = suggest_field_names(scope, name, self.context)
             suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            explanation = explain_unresolved_field(
+                name, scope, self.scopes[:-1], self._scope_select_exprs.get(id(scope), []), self.context
+            )
+            if explanation:
+                suggestion_suffix += f" {explanation}" if suggestion_suffix else f". {explanation}"
             # The message lists every close match, but a quick fix can only substitute one, so it
             # offers the best of them. `get_close_matches` returns them in descending similarity.
             fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
