@@ -2893,7 +2893,7 @@ Diffed against: <https://eppo.cloud/api/docs-json>
 - [ ] `/api/v1/definitions (combined definitions listing)` — single call returning all definition objects, a cheaper alternative to syncing each definitions sub-resource (low)
 - [ ] `/api/v1/protocols` — experiment protocol templates referenced by experiments (low)
 
-Note: eppo.cloud/api/docs is a Swagger UI shell; the machine-readable spec is at /api/docs-json (also /api/docs-yaml). The entire /api/v1/definitions/\* family (facts, entities, dimensions, assignments, entry-points) is missing and is where most lookup value sits.
+Note: eppo.cloud/api/docs is a Swagger UI shell; the machine-readable spec is at /api/docs-json (also /api/docs-yaml). The /api/v1/definitions/\* family is where most lookup value sits; facts, entities and dimensions are now synced, leaving assignments and entry-points.
 
 ## Eventbrite — gaps
 
