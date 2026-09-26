@@ -10,7 +10,7 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.contracts import PlatformAlertCheckInput, PlatformAlertOutcome, PlatformAlertUpsert
 from products.alerts.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
@@ -75,7 +75,7 @@ def suppressed() -> Exists:
     )
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheck, ...]:
+def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate."""
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
@@ -93,8 +93,8 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
     return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheck:
-    return PlatformAlertCheck(
+def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheckInput:
+    return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
         name=c.name,

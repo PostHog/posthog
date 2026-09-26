@@ -28,7 +28,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
     GroupTransition,
     MuteReason,
-    PlatformAlertCheck,
+    PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SkipReason,
     SourceBatchEvaluation,
@@ -103,7 +103,7 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
 }
 
 
-def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: datetime) -> tuple:
+def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
         check.window_minutes,
         check.evaluation_periods,
@@ -113,7 +113,7 @@ def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: dat
     )
 
 
-def _is_in_quiet_hours(check: PlatformAlertCheck, now: datetime, tz_name: str) -> bool:
+def _is_in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
     """True when the alert's schedule restriction mutes an announcement at the batch instant.
 
     The check still runs, so an incident wholly inside the window is still recorded.
@@ -131,7 +131,7 @@ def _is_in_quiet_hours(check: PlatformAlertCheck, now: datetime, tz_name: str) -
         return False
 
 
-def _snapshot(check: PlatformAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(check.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
@@ -148,7 +148,7 @@ Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
 
 
 def _record_check_metrics(
-    check: PlatformAlertCheck,
+    check: PlatformAlertCheckInput,
     *,
     new_state: str,
     notification: NotificationAction,
@@ -173,7 +173,7 @@ def _record_check_metrics(
 
 
 def _verdict(
-    check: PlatformAlertCheck,
+    check: PlatformAlertCheckInput,
     check_input: CheckInput,
     prior_breached: tuple[bool, ...],
     *,
@@ -206,7 +206,7 @@ def _verdict(
 
 
 def _recorded(
-    check: PlatformAlertCheck, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
+    check: PlatformAlertCheckInput, *, new_state: str, notified: bool, consecutive_failures: int, disable: bool = False
 ) -> PlatformAlertOutcome:
     return PlatformAlertOutcome(
         configuration_id=check.id,
@@ -217,7 +217,7 @@ def _recorded(
     )
 
 
-def _delivery(check: PlatformAlertCheck, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
+def _delivery(check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
         check,
@@ -248,7 +248,7 @@ def _delivery(check: PlatformAlertCheck, outcome: AlertCheckOutcome, *, window_e
 
 
 def _evaluate_one(
-    check: PlatformAlertCheck, buckets: list[BucketedCount], *, now: datetime, muted: bool
+    check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
@@ -262,7 +262,7 @@ def _evaluate_one(
     )
 
 
-def _failed(check: PlatformAlertCheck, error: Exception, *, now: datetime, muted: bool) -> AlertCheckOutcome:
+def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, muted: bool) -> AlertCheckOutcome:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
     The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
@@ -284,7 +284,7 @@ def _failed(check: PlatformAlertCheck, error: Exception, *, now: datetime, muted
     )
 
 
-def _held(check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
+def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = _recorded(
         check,
@@ -300,7 +300,7 @@ def _held(check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, skip: Skip
 
 def _evaluate_cohort(
     team: Team,
-    checks: Sequence[PlatformAlertCheck],
+    checks: Sequence[PlatformAlertCheckInput],
     key: tuple,
     *,
     now: datetime,
@@ -351,8 +351,8 @@ def _evaluate_cohort(
 
 
 def _triage(
-    checks: Sequence[PlatformAlertCheck], *, now: datetime, tz_name: str
-) -> tuple[list[Decision], list[PlatformAlertCheck], frozenset[UUID]]:
+    checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name: str
+) -> tuple[list[Decision], list[PlatformAlertCheckInput], frozenset[UUID]]:
     """Splits a batch into the checks a query can answer, the ones already decided, and the muted.
 
     A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
@@ -362,7 +362,7 @@ def _triage(
     query like any other and its id lands in the muted set.
     """
     decided: list[Decision] = []
-    evaluable: list[PlatformAlertCheck] = []
+    evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
         broken_reason = _detect_broken_filter_config(check.source_config)
@@ -445,7 +445,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None
 
-    cohorts: dict[tuple, list[PlatformAlertCheck]] = {}
+    cohorts: dict[tuple, list[PlatformAlertCheckInput]] = {}
     for check in evaluable:
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
