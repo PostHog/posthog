@@ -518,8 +518,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             return results
 
         try:
-            session_distinct_ids = self._session_distinct_id_pairs(results)
-            all_distinct_ids = list({distinct_id for _, distinct_id in session_distinct_ids})
+            session_distinct_ids = self._session_distinct_ids(results)
+            all_distinct_ids = list({distinct_id for ids in session_distinct_ids.values() for distinct_id in ids})
 
             blocked_distinct_ids: set[str] = set()
             for subquery in subqueries:
@@ -531,11 +531,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     team=self._team,
                     query_type="SessionRecordingListPersonPropertyCheck",
                     modifiers=self._hogql_query_modifiers,
+                    settings=self._person_check_query_settings(),
                 )
                 blocked_distinct_ids |= {row[0] for row in response.results or []}
 
             blocked_sessions = {
-                session_id for session_id, distinct_id in session_distinct_ids if distinct_id in blocked_distinct_ids
+                session_id
+                for session_id, distinct_ids in session_distinct_ids.items()
+                if distinct_ids & blocked_distinct_ids
             }
         except Exception as e:
             capture_exception(e)
@@ -545,8 +548,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             return results
         return [row for row in results if row["session_id"] not in blocked_sessions]
 
-    def _session_distinct_id_pairs(self, results: list[dict[str, Any]]) -> list[tuple[str, str]]:
-        """Every distinct id the fetched sessions' replay rows were written under.
+    def _person_check_query_settings(self) -> HogQLGlobalSettings | None:
+        """The caller's execution-time limit also bounds the post-fetch person check queries."""
+        if self._max_execution_time is None:
+            return None
+        return HogQLGlobalSettings(max_execution_time=self._max_execution_time)
+
+    def _session_distinct_ids(self, results: list[dict[str, Any]]) -> dict[str, set[str]]:
+        """Every distinct id the fetched sessions' replay rows were written under, per session id.
 
         The page carries one distinct id per session (`any(s.distinct_id)`), but a session
         recorded under several distinct ids must be excluded when any of them resolves to a
@@ -573,8 +582,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             team=self._team,
             query_type="SessionRecordingListPersonPropertyCheckDistinctIds",
             modifiers=self._hogql_query_modifiers,
+            settings=self._person_check_query_settings(),
         )
-        return [(row[0], row[1]) for row in response.results or []]
+        session_distinct_ids: dict[str, set[str]] = {}
+        for row in response.results or []:
+            session_distinct_ids.setdefault(row[0], set()).add(row[1])
+        return session_distinct_ids
 
     def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
         """Every builder that can contribute an events subquery: the query's own, plus test accounts."""
