@@ -711,9 +711,19 @@ export function buildUsageLimitReachedMessage(
             : `ask an organization ${roleName} to upgrade the plan`
     }
 
+    const sentences = [
+        `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        'Usage counts across your whole organization, so a new project shares the same limit.',
+    ]
+    if (products.some((p) => p.type === 'error_tracking')) {
+        sentences.push(
+            'To stop the same errors from using the allowance again, add a suppression rule in error tracking settings.'
+        )
+    }
+
     return {
         title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
-        message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        message: sentences.join(' '),
     }
 }
 

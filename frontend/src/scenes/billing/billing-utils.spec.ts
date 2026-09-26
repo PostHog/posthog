@@ -480,6 +480,8 @@ describe('getUsageLimitConsequence', () => {
     })
 })
 
+const ORG_SCOPE_NOTE = ' Usage counts across your whole organization, so a new project shares the same limit.'
+
 describe('buildUsageLimitReachedMessage', () => {
     it('should return empty strings for empty array', () => {
         expect(buildUsageLimitReachedMessage([])).toEqual({ title: '', message: '' })
@@ -489,7 +491,8 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay. Please increase your billing limit or data loss may occur.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -505,7 +508,8 @@ describe('buildUsageLimitReachedMessage', () => {
         ])
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.'
+            'You have reached the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -513,7 +517,8 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'PostHog AI', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+            'You have reached the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -521,7 +526,8 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ type: 'inbox', name: 'Inbox', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Self-driving inbox. Please increase your billing limit or self-driving agents will be paused.'
+            'You have reached the usage limit for Self-driving inbox. Please increase your billing limit or self-driving agents will be paused.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -532,7 +538,8 @@ describe('buildUsageLimitReachedMessage', () => {
         ])
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
+            'You have reached the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -542,7 +549,8 @@ describe('buildUsageLimitReachedMessage', () => {
             { name: 'Product analytics', subscribed: true },
         ])
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.' +
+                ORG_SCOPE_NOTE
         )
     })
 
@@ -595,6 +603,23 @@ describe('buildUsageLimitReachedMessage', () => {
     it('should default to admin message when hasBillingAccess is not provided', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.message).toContain('increase your billing limit')
+    })
+
+    it('should say that a new project shares the same organization limit', () => {
+        const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.message).toContain(ORG_SCOPE_NOTE)
+    })
+
+    it('should point at suppression rules only when error tracking is limited', () => {
+        const suppressionNote = 'add a suppression rule in error tracking settings'
+        const errorTracking = buildUsageLimitReachedMessage([
+            { type: 'error_tracking', name: 'Error tracking', subscribed: true },
+        ])
+        const sessionReplay = buildUsageLimitReachedMessage([
+            { type: 'session_replay', name: 'Session replay', subscribed: true },
+        ])
+        expect(errorTracking.message).toContain(suppressionNote)
+        expect(sessionReplay.message).not.toContain(suppressionNote)
     })
 })
 

@@ -9,6 +9,8 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { UsageLimitDeletionNotice } from './UsageLimitDeletionNotice'
+
 export function DeleteProjectModal({
     isOpen,
     setIsOpen,
@@ -66,6 +68,7 @@ export function DeleteProjectModal({
                 <strong>Note:</strong> For projects with lots of data, cleanup may take several hours. We'll send you an
                 email when the process is complete.
             </p>
+            <UsageLimitDeletionNotice />
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
