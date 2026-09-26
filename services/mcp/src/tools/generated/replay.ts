@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -57,7 +58,19 @@ const sessionRecordingDelete = (): ToolBase<ReturnType<typeof SessionRecordingDe
 
 const SessionRecordingGetSchema = () => {
     const SessionRecordingsRetrieveParams = orvalSchemas.SessionRecordingsRetrieveParams()
-    return SessionRecordingsRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({
+            id: [
+                'session_id',
+                'sessionId',
+                'recording_id',
+                'recordingId',
+                'session_recording_id',
+                'sessionRecordingId',
+            ],
+        }),
+        SessionRecordingsRetrieveParams.omit({ project_id: true })
+    )
 }
 
 const sessionRecordingGet = (): ToolBase<
