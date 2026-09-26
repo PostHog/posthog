@@ -218,6 +218,21 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
     assert mock_http_client.call_args.kwargs["password"] == "tok-0"
 
 
+@pytest.mark.parametrize("secure,expected_port", [(True, 8443), (False, 8123)])
+def test_get_client_from_pool_http_branch_uses_http_port_for_logs(settings, secure, expected_port):
+    settings.CLICKHOUSE_USE_HTTP = True
+    settings.CLICKHOUSE_LOGS_CLUSTER_PORT = "9440"
+    settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = secure
+
+    with patch("clickhouse_connect.driver.HttpClient") as mock_http_client:
+        with connection.get_client_from_pool(Workload.LOGS):
+            pass
+
+    _interface, host, port, *_ = mock_http_client.call_args.args
+    assert host == settings.CLICKHOUSE_LOGS_CLUSTER_HOST
+    assert port == expected_port
+
+
 def test_refreshing_pool_stamps_current_credential(tmp_path):
     token = tmp_path / "token"
     token.write_text("tok-0")
